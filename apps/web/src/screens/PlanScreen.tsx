@@ -11,6 +11,7 @@ import { FaceRow } from '../components/Faces';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { BrowsePool } from '../components/BrowsePool';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
+import { Listening } from '../components/Listening';
 import { SourcePicker } from '../components/SourcePicker';
 import { getSpeakPref } from './SettingsScreen';
 
@@ -154,6 +155,20 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
     if (plan?.options?.length && !plan.options.some((o) => o.id === viewing)) setViewing(plan.options[0].id);
   }, [plan?.options, viewing]);
 
+  // While speaking, the page is the transcript and nothing else (owner, 3 Sep 2026).
+  if (speech.listening) {
+    return (
+      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+        <Listening
+          transcript={speech.transcript}
+          hint={hasOptions ? 'Say what you like and what you don\'t about these options.' : undefined}
+          onDone={speech.stop}
+          onCancel={speech.cancel}
+        />
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
@@ -204,11 +219,11 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
         {!plan?.trip ? <SourcePicker value={sources} onChange={setSources} title="Sources for this outing" /> : null}
         <View style={styles.composer}>
           <TextInput
-            value={speech.listening && speech.interim ? speech.interim : input}
+            value={input}
             onChangeText={setInput}
-            placeholder={speech.listening ? 'Listening…' : hasOptions ? 'I like this, but not that…' : 'Home to the opera house, three hours…'}
+            placeholder={hasOptions ? 'I like this, but not that…' : 'Home to the opera house, three hours…'}
             placeholderTextColor={colors.inkFaint}
-            style={[styles.input, speech.listening && styles.inputListening]}
+            style={styles.input}
             onSubmitEditing={() => send(input)}
             returnKeyType="send"
             editable={!speech.listening}
@@ -226,7 +241,6 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
           ) : null}
           <Button label="Send" onPress={() => send(input)} disabled={!input.trim() || !!busy} />
         </View>
-        {speech.listening ? <Text style={type.tiny}>Tap ■ when you're done. The recording isn't kept.</Text> : null}
         {!speech.supported ? <Text style={type.tiny}>Voice input isn't available in this browser — typing does exactly the same thing.</Text> : null}
 
         <Wrap>
@@ -405,7 +419,6 @@ const styles = StyleSheet.create({
     flex: 1, minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink,
   },
-  inputListening: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   mic: {
     width: TARGET, height: TARGET, borderRadius: TARGET / 2, alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.line,

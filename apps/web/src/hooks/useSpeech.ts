@@ -7,6 +7,12 @@ import { Platform } from 'react-native';
  * recognition is unavailable the mic is simply absent and typing does the
  * same job: voice is a way of filling the same controls, not a separate mode.
  *
+ * Listening runs until the household taps Done (owner, 3 Sep 2026: "it cut me
+ * off in the middle"): recognition is continuous, every final phrase is kept,
+ * and the browser's habit of ending after a pause is undone by starting again
+ * until Done or Cancel. Nothing is sent while listening; Done sends the whole
+ * transcript at once.
+ *
  * A native build (V2) swaps this for the platform recogniser; the transcript
  * goes to the same API endpoints either way.
  */
@@ -19,10 +25,15 @@ function getRecognizer(): Recognizer | null {
   return Ctor ? new Ctor() : null;
 }
 
+const join = (a: string, b: string) => [a.trim(), b.trim()].filter(Boolean).join(' ');
+
 export function useSpeech({ onFinal, lang = 'en-US' }: { onFinal: (text: string) => void; lang?: string }) {
   const recRef = useRef<Recognizer | null>(null);
+  const wantRef = useRef(false);          // the household has not tapped Done or Cancel yet
+  const finalRef = useRef('');            // phrases the recogniser has settled on, across restarts
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
+  const [finalText, setFinalText] = useState('');
   const [interim, setInterim] = useState('');
   const [error, setError] = useState<string | null>(null);
   const onFinalRef = useRef(onFinal);
@@ -32,33 +43,44 @@ export function useSpeech({ onFinal, lang = 'en-US' }: { onFinal: (text: string)
     const rec = getRecognizer();
     if (!rec) return;
     rec.lang = lang;
-    rec.continuous = false;
+    rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
 
     rec.onresult = (event: any) => {
-      let finalText = '';
-      let interimText = '';
+      let settled = '';
+      let pending = '';
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const chunk = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += chunk;
-        else interimText += chunk;
+        if (event.results[i].isFinal) settled += chunk;
+        else pending += chunk;
       }
-      if (interimText) setInterim(interimText);
-      if (finalText) {
-        setInterim('');
-        onFinalRef.current(finalText.trim());
+      if (settled) {
+        finalRef.current = join(finalRef.current, settled);
+        setFinalText(finalRef.current);
       }
+      setInterim(pending);
     };
     rec.onerror = (event: any) => {
-      setError(event?.error === 'not-allowed' ? 'Microphone permission was declined.' : `Couldn't hear that (${event?.error || 'error'}).`);
+      const code = event?.error || 'error';
+      // Silence and network blips are not the household's problem; the restart in onend carries on.
+      if (code === 'no-speech' || code === 'network' || code === 'aborted') return;
+      wantRef.current = false;
+      setError(code === 'not-allowed' || code === 'audio-capture' ? 'Microphone permission was declined.' : `Couldn't hear that (${code}).`);
       setListening(false);
     };
-    rec.onend = () => setListening(false);
+    rec.onend = () => {
+      // Browsers stop after a pause or a minute or so; keep going until Done.
+      if (wantRef.current) {
+        try { rec.start(); return; } catch { /* fall through */ }
+      }
+      setListening(false);
+    };
 
     recRef.current = rec;
     setSupported(true);
     return () => {
+      wantRef.current = false;
       try { rec.abort(); } catch { /* noop */ }
     };
   }, [lang]);
@@ -66,25 +88,44 @@ export function useSpeech({ onFinal, lang = 'en-US' }: { onFinal: (text: string)
   const start = useCallback(() => {
     if (!recRef.current) return;
     setError(null);
+    finalRef.current = '';
+    setFinalText('');
     setInterim('');
+    wantRef.current = true;
     try {
       recRef.current.start();
       setListening(true);
     } catch {
-      // start() throws if already running; treat as a stop request
-      recRef.current.stop();
+      wantRef.current = false;
+      try { recRef.current.stop(); } catch { /* noop */ }
       setListening(false);
     }
   }, []);
 
+  /** Done: stop listening and send everything heard, in one go. */
   const stop = useCallback(() => {
-    recRef.current?.stop();
+    wantRef.current = false;
+    try { recRef.current?.stop(); } catch { /* noop */ }
+    setListening(false);
+    const text = join(finalRef.current, interim);
+    setInterim('');
+    if (text) onFinalRef.current(text);
+  }, [interim]);
+
+  /** Cancel: stop listening and keep nothing. */
+  const cancel = useCallback(() => {
+    wantRef.current = false;
+    try { recRef.current?.abort(); } catch { /* noop */ }
+    finalRef.current = '';
+    setFinalText('');
+    setInterim('');
     setListening(false);
   }, []);
 
   const toggle = useCallback(() => (listening ? stop() : start()), [listening, start, stop]);
 
-  return { supported, listening, interim, error, start, stop, toggle };
+  const transcript = join(finalText, interim);
+  return { supported, listening, interim, transcript, error, start, stop, cancel, toggle };
 }
 
 /** Speak a reply back when the household used their voice to ask. */

@@ -9,11 +9,14 @@ import { TimeBar } from '../components/TimeBar';
 import { FaceRow } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
 import { DateRangePicker, monthSpanLabel } from '../components/DateRangePicker';
+import { SourceDataPanel, useSourceFilter } from '../components/SourceData';
+import { isAdmin } from '../admin';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { BrowsePool } from '../components/BrowsePool';
 import { MapView, MapPin } from '../components/MapView';
 import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
+import { Listening } from '../components/Listening';
 import { getSpeakPref } from './SettingsScreen';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
@@ -270,7 +273,7 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
 // Trip page
 // ---------------------------------------------------------------------------
 
-type Section = 'overview' | 'days' | 'shortlist' | 'stay' | 'map';
+type Section = 'overview' | 'days' | 'shortlist' | 'stay' | 'map' | 'data';
 
 function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: string; household: HouseholdResponse | null; onBack: () => Promise<void>; refreshHousehold: () => Promise<void>; wide: boolean }) {
   const [d, setD] = useState<TripDetail | null>(null);
@@ -306,6 +309,8 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
   const sections: { value: Section; label: string }[] = [
     { value: 'overview', label: 'Overview' }, { value: 'days', label: isTrip ? `Days (${days.length})` : 'The day' },
     { value: 'shortlist', label: `Shortlist (${shortlist.length})` }, { value: 'stay', label: 'Stay' }, { value: 'map', label: 'Map' },
+    // Admin only (Settings › Sources): what each source returned for a day and where the plan lost it.
+    ...(isAdmin() ? [{ value: 'data' as Section, label: 'Data' }] : []),
   ];
 
   const body = (
@@ -333,6 +338,7 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
       ) : null}
       {section === 'shortlist' ? <ShortlistPanel d={d} onChanged={load} /> : null}
       {section === 'stay' ? <StayPanel d={d} onChanged={load} onFindNear={() => setSection('shortlist')} /> : null}
+      {section === 'data' ? <SourceDataPanel d={d} /> : null}
       {section === 'map' ? <Card><MapView pins={pins} height={wide ? 560 : 380} /><Text style={type.tiny}>Black: where you're staying · colours: each day's stops · purple: shortlist not yet placed</Text></Card> : null}
     </>
   );
@@ -547,6 +553,15 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
     try { await api.planCommit(plan.sessionId, plan.options.find((o) => o.id === 'pinned')?.id ?? plan.options[0].id); await onCommitted(); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
+  // While speaking, this card is the transcript and nothing else (owner, 3 Sep 2026).
+  if (speech.listening) {
+    return (
+      <Card style={{ borderColor: colors.accent, gap: spacing.md }}>
+        <Listening transcript={speech.transcript} hint={`Say what you're after near ${baseLabel} — the kind of place, who it's for, what to avoid.`} onDone={speech.stop} onCancel={speech.cancel} />
+      </Card>
+    );
+  }
+
   return (
     <Card style={{ borderColor: colors.accent, gap: spacing.md }}>
       <Text style={type.h3}>Everything Roam found near {baseLabel}</Text>
@@ -567,7 +582,7 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
       ) : null}
 
       <Row>
-        <TextInput value={speech.listening && speech.interim ? speech.interim : input} onChangeText={setInput} placeholder={speech.listening ? 'Listening…' : 'e.g. somewhere upmarket for dinner, no chains, more for Phoenix'} placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }, speech.listening && { borderColor: colors.accent }]} onSubmitEditing={() => say(input)} editable={!speech.listening} />
+        <TextInput value={input} onChangeText={setInput} placeholder="e.g. somewhere upmarket for dinner, no chains, more for Phoenix" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} onSubmitEditing={() => say(input)} />
         {speech.supported ? <Pressable onPress={speech.toggle} style={[styles.mic, speech.listening && styles.micOn]} accessibilityLabel={speech.listening ? 'Stop' : 'Speak'}><Text style={{ fontSize: 18 }}>{speech.listening ? '■' : '🎙'}</Text></Pressable> : null}
         <Button label="Send" onPress={() => say(input)} disabled={!input.trim() || !!busy} />
       </Row>
@@ -631,6 +646,7 @@ function ShortlistPanel({ d, onChanged }: { d: TripDetail; onChanged: () => Prom
   };
   const add = async (v: Venue, mustDo = false) => { await api.addToShortlist(trip.id, { venueRef: v.venueRef, venueLabel: v.name, category: v.category, lat: v.lat, lng: v.lng, venue: v, mustDo }); await onChanged(); setRes((r) => r?.map((x) => (x.venueRef === v.venueRef ? { ...x, onShortlist: true } : x)) ?? null); };
   const fromAtlas = atlas.filter((p) => !shortlist.some((s) => s.venueRef === p.venueRef) && (p.kind ?? 'other') === tab);
+  const sf = useSourceFilter(res ?? []);
 
   return (
     <View style={{ gap: spacing.md }}>
@@ -649,8 +665,9 @@ function ShortlistPanel({ d, onChanged }: { d: TripDetail; onChanged: () => Prom
           <Wrap>{[1, 2, 5, 10].map((r) => <Chip key={r} label={`${r} km`} selected={radius === r} onPress={() => setRadius(r)} />)}</Wrap>
           <SourcePicker value={sources} onChange={setSources} title="Sources for this search" />
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-          {res ? <Text style={type.small}>{res.length} places</Text> : null}
-          {res?.slice(0, 40).map((v) => <VenueRow key={v.venueRef} venue={v} action={v.onShortlist ? <Chip label="On list" tone="accent" /> : <Row><Button label="Add" kind="secondary" onPress={() => add(v)} /><Button label="★" kind="ghost" onPress={() => add(v, true)} /></Row>} />)}
+          {sf.chips}
+          {res ? <Text style={type.small}>{sf.filtered.length === res.length ? `${res.length} places` : `${sf.filtered.length} of ${res.length} places`}</Text> : null}
+          {res ? sf.filtered.slice(0, 40).map((v) => <VenueRow key={v.venueRef} venue={v} action={v.onShortlist ? <Chip label="On list" tone="accent" /> : <Row><Button label="Add" kind="secondary" onPress={() => add(v)} /><Button label="★" kind="ghost" onPress={() => add(v, true)} /></Row>} />) : null}
         </Card>
       ) : null}
 
