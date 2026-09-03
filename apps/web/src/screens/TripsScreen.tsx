@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWi
 import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, TripDay, TripDetail, TripSummary, Venue, DayStop } from '../api';
 import { colors, memberColors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap, clock, minutes } from '../components/ui';
-import { TripadvisorChip } from '../components/TripadvisorChip';
+import { SourcePicker } from '../components/SourcePicker';
 import { TimeBar } from '../components/TimeBar';
 import { FaceRow } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
@@ -610,7 +610,7 @@ function ShortlistPanel({ d, onChanged }: { d: TripDetail; onChanged: () => Prom
   const [radius, setRadius] = useState(2);
   const [near, setNear] = useState<Place | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tripadvisor, setTripadvisor] = useState(false);
+  const [sources, setSources] = useState<string[] | null>(trip.sources ?? null);
   const [res, setRes] = useState<(Venue & { onShortlist: boolean })[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [atlas, setAtlas] = useState<{ venueRef: string; name: string; kind: string | null; category: string | null; lat: number | null; lng: number | null; venue: any; status: string }[]>([]);
@@ -623,7 +623,7 @@ function ShortlistPanel({ d, onChanged }: { d: TripDetail; onChanged: () => Prom
   const items = shortlist.filter((s) => s.kind === tab);
   const search = async () => {
     setBusy(true); setError(null);
-    try { setRes((await api.shortlistSearch(trip.id, { categories: tab === 'food' ? 'food' : tab === 'activity' ? 'things' : undefined, q: q || undefined, radiusKm: radius, near: near ? `${near.lat},${near.lng}` : undefined, sources: tripadvisor ? 'tripadvisor' : undefined })).results); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    try { setRes((await api.shortlistSearch(trip.id, { categories: tab === 'food' ? 'food' : tab === 'activity' ? 'things' : undefined, q: q || undefined, radiusKm: radius, near: near ? `${near.lat},${near.lng}` : undefined, sources: sources ? sources.join(',') : (trip.sources ? 'default' : undefined) })).results); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
   const add = async (v: Venue, mustDo = false) => { await api.addToShortlist(trip.id, { venueRef: v.venueRef, venueLabel: v.name, category: v.category, lat: v.lat, lng: v.lng, venue: v, mustDo }); await onChanged(); setRes((r) => r?.map((x) => (x.venueRef === v.venueRef ? { ...x, onShortlist: true } : x)) ?? null); };
   const fromAtlas = atlas.filter((p) => !shortlist.some((s) => s.venueRef === p.venueRef) && (p.kind ?? 'other') === tab);
@@ -643,7 +643,7 @@ function ShortlistPanel({ d, onChanged }: { d: TripDetail; onChanged: () => Prom
             <Button label="Search" onPress={search} loading={busy} />
           </Row>
           <Wrap>{[1, 2, 5, 10].map((r) => <Chip key={r} label={`${r} km`} selected={radius === r} onPress={() => setRadius(r)} />)}</Wrap>
-          <TripadvisorChip value={tripadvisor} onChange={setTripadvisor} />
+          <SourcePicker value={sources} onChange={setSources} title="Sources for this search" />
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
           {res ? <Text style={type.small}>{res.length} places</Text> : null}
           {res?.slice(0, 40).map((v) => <VenueRow key={v.venueRef} venue={v} action={v.onShortlist ? <Chip label="On list" tone="accent" /> : <Row><Button label="Add" kind="secondary" onPress={() => add(v)} /><Button label="★" kind="ghost" onPress={() => add(v, true)} /></Row>} />)}
@@ -727,6 +727,7 @@ function StayPanel({ d, onChanged, onFindNear }: { d: TripDetail; onChanged: () 
           <Text style={type.body}>We'll have a car</Text>
           <Switch value={hasCar} onValueChange={async (v) => { setHasCar(v); await api.updateTripV2(trip.id, { hasCar: v, travelMode: v ? 'driving' : 'transit' }); await onChanged(); }} />
         </Row>
+        <SourcePicker value={trip.sources ?? null} onChange={async (v) => { await api.updateTripV2(trip.id, { sources: v }); await onChanged(); }} title="Sources for this trip's searches and plans" />
         <Button label="Find restaurants and things near here" kind="secondary" onPress={onFindNear} />
       </Card>
       {trip.base ? <Card><MapView pins={[{ id: 'base', lat: trip.base.lat, lng: trip.base.lng, label: trip.base.label, tone: 'base' }]} height={260} /></Card> : null}

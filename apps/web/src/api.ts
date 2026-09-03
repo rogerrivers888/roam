@@ -107,7 +107,7 @@ export type Review = { text: string; rating: number | null; author: string | nul
 export type VenuePhotoRef = { ref?: string; url?: string; attribution?: string };
 
 export type Venue = {
-  venueRef: string; source: string; sourcePlaceId: string; name: string; category: string;
+  venueRef: string; source: string; sourcePlaceId: string; name: string; category: string; contributingSources?: string[];
   cuisines: string[]; experiences: string[]; allergens: string[]; dietaryOptions?: string[];
   priceLevel: number | null; rating: number | null; ratingCount?: number | null; goodForChildren: boolean | null; menuForChildren?: boolean | null; lat: number; lng: number;
   dishes: { concept: string; name: string; comment?: string; veg?: boolean }[];
@@ -163,6 +163,8 @@ export type AtlasPlace = { venueRef: string; name: string; kind: 'food' | 'activ
 export type Trip = {
   kind?: TripKind; place?: { label: string } | null; startDate?: string | null; endDate?: string | null; dayStart?: string; dayEnd?: string;
   base?: (Place & { kind?: string | null; checkIn?: string | null; checkOut?: string | null }) | null; hasCar?: boolean;
+  /** Place sources this trip's searches and plans may use; null = default set. */
+  sources?: string[] | null;
   id: string; title: string | null; notes?: string | null;
   origin: Place; destination: Place | null;
   departAt: string; returnAt: string;
@@ -199,7 +201,7 @@ export type PlanAction =
   | { type: 'choose'; optionId: string | null }
   | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number; travelMode?: Trip['travelMode']; includeChains?: boolean; pricePoint?: PricePoint };
 
-export type SourcesStatus = { enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; available: { key: string; label: string; env: string; on: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number } } };
+export type SourcesStatus = { enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; defaults?: string[]; available: { key: string; label: string; env: string; on: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number } } };
 
 // ---------------------------------------------------------------------------
 // Calls
@@ -234,7 +236,7 @@ export const api = {
   /** `bias.near` keeps matches inside that area first (a trip's city); `bias.country` never leaves that country. */
   geocode: (q: string, limit = 6, bias?: { near?: Place | null; country?: string | null; kind?: 'lodging' | null }) =>
     request<{ results: Place[]; attribution: string }>(`/api/places/geocode${qs({ q, limit, near: bias?.near ? `${bias.near.lat},${bias.near.lng}` : undefined, country: bias?.country ?? undefined, kind: bias?.kind ?? undefined })}`),
-  /** `sources` names opt-in sources for this one search (e.g. 'tripadvisor'); they never run otherwise. */
+  /** `sources` is the exact set of sources for this one search (e.g. 'osm,tripadvisor'); omitted = the default set, which never includes opt-in sources. */
   searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number; sources?: string }) =>
     request<{ near: Place & { how: string }; radiusKm: number; results: Venue[]; sourcesQueried: string[]; degradedSources: { source: string; error: string }[]; attribution: string[] }>(`/api/places/search${qs(p)}`),
   place: (venueRef: string) =>
@@ -261,7 +263,7 @@ export const api = {
   // trips v2
   createMultiDayTrip: (body: { title?: string; notes?: string; place?: Place; placeText?: string; startDate: string; endDate: string; base?: Place; baseText?: string; baseKind?: string; checkIn?: string; checkOut?: string; hasCar?: boolean; travelMode?: Trip['travelMode']; intensity?: Trip['intensity']; dayStart?: string; dayEnd?: string; attendingMemberIds?: string[]; seedFromAtlas?: boolean }) =>
     post<TripDetail>('/api/trips', { kind: 'trip', ...body }),
-  updateTripV2: (id: string, body: Partial<{ title: string; notes: string; startDate: string; endDate: string; hasCar: boolean; travelMode: Trip['travelMode']; intensity: Trip['intensity']; dayStart: string; dayEnd: string; base: Place; baseText: string; baseKind: string; checkIn: string; checkOut: string }>) => patch<TripDetail>(`/api/trips/${id}`, body),
+  updateTripV2: (id: string, body: Partial<{ title: string; notes: string; startDate: string; endDate: string; hasCar: boolean; travelMode: Trip['travelMode']; intensity: Trip['intensity']; dayStart: string; dayEnd: string; base: Place; baseText: string; baseKind: string; checkIn: string; checkOut: string; sources: string[] | null }>) => patch<TripDetail>(`/api/trips/${id}`, body),
   updateDay: (tripId: string, dayId: string, body: Partial<{ intensity: Trip['intensity']; travelMode: Trip['travelMode']; startTime: string; endTime: string; notes: string }>) => patch<TripDetail>(`/api/trips/${tripId}/days/${dayId}`, body),
   shortlistSearch: (tripId: string, p: { q?: string; categories?: string; radiusKm?: number; near?: string; sources?: string }) =>
     request<{ near: Place; radiusKm: number; results: (Venue & { onShortlist: boolean })[]; degradedSources: { source: string; error: string }[] }>(`/api/trips/${tripId}/shortlist/search${qs(p)}`),

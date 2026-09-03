@@ -134,7 +134,8 @@ Tripadvisor replaced the v1 Content API with the **Terra** platform in 2026 (doc
 - **First 1,000 entities free, once per account — not monthly.** Then $0.015 per entity, falling to $0.009 above 5,000 in a billing cycle.
 - Discover: 10 requests/second, 10,000 calls/day per API (lower in the dashboard), up to **3 reviews and 5 photos** per location.
 - Endpoints: Catalog nearby and text search (rating, count, coordinates, address, URL only), Location Details, Reviews, Photos, batch Details.
-- Text search is not geo-bounded, so Roam applies a query to the nearby page by name rather than paying for a world-wide page.
+- **What the catalog does in practice (probed 3 Sep 2026, ~50 entities):** the radius form of nearby search returns almost nothing (2 results within 5 km of Trafalgar Square, radius > ~20 rejected); the bounding-box form works (2,262 in a 1 km box) but `category`, `sort` and `min_rating` are silently ignored, so a page is an arbitrary slice of mostly obscure listings. Text search by name is accurate and fast (~150 ms) and returns the real venue with its rating, though ranking is loose ("The Ivy" → "The Ivy House").
+- **Roam's use:** Tripadvisor is opt-in per search or per trip. Alongside other sources it *enriches*: up to 8 of their venues (unrated first, then nearest) are looked up by name with `geo_name`, two hits each, and only a hit whose normalised name and position agree is returned for the resolver to merge. Alone, it takes one bounding-box page as a testing view.
 - Caching: only the location ID may be stored. Review text must be loaded via a call crawlers cannot index (robots.txt Disallow on the API).
 - Strong international coverage — the best of the three outside the US for attractions and tourist-facing venues.
 

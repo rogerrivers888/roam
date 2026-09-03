@@ -104,7 +104,7 @@ export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | nu
           <Row key={a.key} style={{ justifyContent: 'space-between' }}>
             <View style={{ flex: 1 }}>
               <Text style={type.body}>{a.label}</Text>
-              <Text style={type.tiny}>{a.key === 'google' ? 'Ratings, review counts, 5 reviews, prices, children flags, real travel times.' : a.key === 'tripadvisor' ? `Ratings and 3 reviews per place; strong for attractions. Off by default — turn it on per search with the Tripadvisor chip, since every location returned is billed (1,000 free for life, about 50 searches). Used so far: ${sources.usage?.tripadvisor?.searchesAllTime ?? 0} search${(sources.usage?.tripadvisor?.searchesAllTime ?? 0) === 1 ? '' : 'es'}.` : 'Timed events inside an outing.'} Switched on by the owner adding {a.env} through Doppler.</Text>
+              <Text style={type.tiny}>{a.key === 'google' ? 'Ratings, review counts, 5 reviews, prices, children flags, real travel times.' : a.key === 'tripadvisor' ? `Ratings and 3 reviews per place, added by looking up each venue by name. Off by default — pick it in the Sources row on a search form or in a trip's settings, since every location returned is billed (1,000 free for life, about 50 searches). Used so far: ${sources.usage?.tripadvisor?.searchesAllTime ?? 0} search${(sources.usage?.tripadvisor?.searchesAllTime ?? 0) === 1 ? '' : 'es'}.` : 'Timed events inside an outing.'} Switched on by the owner adding {a.env} through Doppler.</Text>
             </View>
             <Chip label={a.on ? 'On' : 'Off'} tone={a.on ? 'like' : 'neutral'} />
           </Row>

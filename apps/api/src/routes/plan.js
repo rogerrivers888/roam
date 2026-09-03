@@ -298,6 +298,9 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
     query: '',
     includeEvents: true,
     outingStart: trip.depart_at,
+    // A trip's saved source set applies to its plans too; Tripadvisor only when the trip names it.
+    sources: Array.isArray(trip.sources) ? trip.sources : [],
+    locality: trip.locality ?? null,
     outingEnd: trip.return_at,
     // For the local scout: where and when in words, and who is asking.
     placeLabel: trip.origin_label,

@@ -26,22 +26,31 @@ export const eventSources = () => enabledSources().filter((s) => s.events);
 /**
  * Sources are enabled by config, not by code change (Epic 2 C8).
  *
- * A source marked `optIn` (Tripadvisor: billed per location returned, 1,000
- * free for the account's lifetime) is live but silent: it only searches when
- * the request names it in `sources`. `includeOptIn: true` lists them all,
- * which the status endpoint and the detail view need.
+ * `only` — an explicit set for this search (the app's source picker, or a
+ * trip's saved sources); anything else live is left out, and an opt-in source
+ * runs only when named here. With no `only`, every live source runs except the
+ * opt-in ones. `includeOptIn: true` lists everything live, which the status
+ * endpoint and the detail view need.
+ *
+ * Tripadvisor is opt-in: billed per location returned, 1,000 free for the
+ * account's lifetime.
  */
-export function enabledSources({ includeOptIn = [] } = {}) {
+export function enabledSources({ only = null, includeOptIn = false } = {}) {
   const configured = (process.env.ROAM_SOURCES || 'fixtures,osm,google,tripadvisor,ticketmaster,seatgeek,predicthq,datathistle,scout')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const wanted = (key) => includeOptIn === true || (Array.isArray(includeOptIn) && includeOptIn.includes(key));
-  return REGISTRY.filter((s) => configured.includes(s.key) && (typeof s.enabled !== 'function' || s.enabled()) && (!s.optIn || wanted(s.key)));
+  const live = REGISTRY.filter((s) => configured.includes(s.key) && (typeof s.enabled !== 'function' || s.enabled()));
+  if (Array.isArray(only) && only.length) return live.filter((s) => only.includes(s.key));
+  if (includeOptIn) return live;
+  return live.filter((s) => !s.optIn);
 }
 
-/** Parse a request's `sources` opt-in list ("tripadvisor" or "tripadvisor,other"). */
-export const optInFrom = (raw) => (Array.isArray(raw) ? raw : String(raw || '').split(',')).map((s) => String(s).trim()).filter(Boolean);
+/** Keys of the sources a search runs when nothing is picked. */
+export const defaultSourceKeys = () => enabledSources().map((s) => s.key);
+
+/** Parse a request's `sources` list ("osm,google" or an array) into keys. */
+export const optInFrom = (raw) => (Array.isArray(raw) ? raw : String(raw || '').split(',')).map((s) => String(s).trim()).filter((s) => s && s !== 'default');
 
 const normaliseName = (name) =>
   name
@@ -172,8 +181,9 @@ export const recallVenue = (ref) => recent.get(ref) ?? null;
 
 /** Fan out across every enabled source; one failing source must not block a search (Epic 2 C7). */
 export async function searchAllSources(params) {
-  const sources = enabledSources({ includeOptIn: optInFrom(params.sources) });
-  const settled = await Promise.allSettled(sources.map((s) => s.search(params)));
+  const only = optInFrom(params.sources);
+  const sources = enabledSources({ only });
+  const settled = await Promise.allSettled(sources.map((s) => s.search({ ...params, sources: sources.map((x) => x.key) })));
 
   const raw = [];
   const degraded = [];
@@ -184,6 +194,17 @@ export async function searchAllSources(params) {
       degraded.push({ source: sources[i].key, error: String(outcome.reason?.message || outcome.reason) });
     }
   });
+
+  // Second pass: a source that enriches (Tripadvisor) looks up what the others
+  // found and adds its own records for the resolver to merge.
+  for (const s of sources) {
+    if (typeof s.enrich !== 'function' || sources.length < 2) continue;
+    try {
+      raw.push(...(await s.enrich(raw, params)));
+    } catch (err) {
+      degraded.push({ source: s.key, error: String(err?.message || err) });
+    }
+  }
 
   rememberVenues(raw);
   return { venues: resolveVenues(raw), degraded, sourcesQueried: sources.map((s) => s.key) };

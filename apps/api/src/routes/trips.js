@@ -37,6 +37,7 @@ export function publicTrip(t) {
     dayEnd: t.day_end?.slice(0, 5),
     base: t.base_lat != null ? { label: t.base_label, lat: t.base_lat, lng: t.base_lng, kind: t.base_kind, checkIn: t.base_check_in, checkOut: t.base_check_out } : null,
     hasCar: t.has_car,
+    sources: Array.isArray(t.sources) && t.sources.length ? t.sources : null,
     origin: { label: t.origin_label, lat: t.origin_lat, lng: t.origin_lng },
     destination: t.destination_label ? { label: t.destination_label, lat: t.destination_lat, lng: t.destination_lng } : null,
     departAt: t.depart_at,
@@ -281,6 +282,11 @@ router.patch('/:id', async (req, res, next) => {
          b.dayStart ?? null, b.dayEnd ?? null, base?.label ?? null, base?.lat ?? null, base?.lng ?? null, b.baseKind ?? null, b.checkIn ?? null, b.checkOut ?? null,
          b.departAt ?? null, b.returnAt ?? null],
       );
+      // Which place sources this trip's searches and plans may use; null means the default set.
+      if ('sources' in b) {
+        const list = Array.isArray(b.sources) ? b.sources.map(String).filter(Boolean) : null;
+        await client.query('update trips set sources = $2 where id = $1', [trip.id, list && list.length ? JSON.stringify(list) : null]);
+      }
       await ensureDays(client, rows[0]);
     });
     res.json(await tripPayload(trip.id));
@@ -342,8 +348,9 @@ router.get('/:id/shortlist/search', async (req, res, next) => {
     }
     const radiusKm = Math.min(25, Number(req.query.radiusKm) || 3);
     const categories = req.query.categories ? String(req.query.categories).split(',').filter(Boolean) : [];
-    const sources = optInFrom(req.query.sources);
-    const { venues, degraded, sourcesQueried } = await searchAllSources({ center, radiusKm, categories, query: String(req.query.q || '').trim(), includeEvents: false, sources });
+    // The search form's picker wins; otherwise the trip's saved sources; otherwise the default set.
+    const sources = req.query.sources != null ? optInFrom(req.query.sources) : (Array.isArray(trip.sources) ? trip.sources : []);
+    const { venues, degraded, sourcesQueried } = await searchAllSources({ center, radiusKm, categories, query: String(req.query.q || '').trim(), includeEvents: false, sources, locality: trip.locality ?? null });
     await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search']);
     if (sourcesQueried.includes('tripadvisor')) await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'tripadvisor', 'trip.shortlist.search']);
     const { rows: existing } = await query('select venue_ref from trip_shortlist where trip_id = $1', [trip.id]);

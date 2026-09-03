@@ -6,7 +6,7 @@ import { VenuePhoto } from '../components/VenuePhoto';
 import type { TripPrefill } from './TripsScreen';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap } from '../components/ui';
-import { TripadvisorChip } from '../components/TripadvisorChip';
+import { SourcePicker } from '../components/SourcePicker';
 import { FaceRow } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
 import { TakePicker, TakeRow } from '../components/TakePicker';
@@ -181,7 +181,7 @@ function AddPlaceHere({ household, country, city, cityName, onAdded }: { househo
   const [cat, setCat] = useState<'things' | 'food' | ''>('things');
   const [q, setQ] = useState('');
   const [radius, setRadius] = useState(3);
-  const [tripadvisor, setTripadvisor] = useState(false);
+  const [sources, setSources] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<Venue[] | null>(null);
   const [rating, setRating] = useState<Venue | null>(null);
@@ -190,7 +190,7 @@ function AddPlaceHere({ household, country, city, cityName, onAdded }: { househo
   const search = async () => {
     if (!near) { setMsg('Pick where in the city to look.'); return; }
     setBusy(true); setMsg(null);
-    try { setRes((await api.searchPlaces({ near: `${near.lat},${near.lng}`, categories: cat || undefined, q: q || undefined, radiusKm: radius, sources: tripadvisor ? 'tripadvisor' : undefined })).results); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
+    try { setRes((await api.searchPlaces({ near: `${near.lat},${near.lng}`, categories: cat || undefined, q: q || undefined, radiusKm: radius, sources: sources?.join(',') })).results); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   };
   return (
     <Card style={{ borderColor: colors.accent }}>
@@ -203,7 +203,7 @@ function AddPlaceHere({ household, country, city, cityName, onAdded }: { househo
         <Button label="Search" onPress={search} loading={busy} />
       </Row>
       <Wrap>{[1, 3, 5, 10].map((r) => <Chip key={r} label={`${r} km`} selected={radius === r} onPress={() => setRadius(r)} />)}</Wrap>
-      <TripadvisorChip value={tripadvisor} onChange={setTripadvisor} />
+      <SourcePicker value={sources} onChange={setSources} />
       {msg ? <StatusLine tone={msg.startsWith('Added') || msg.startsWith('Saved') ? 'good' : 'warn'}>{msg}</StatusLine> : null}
       {rating && household ? (
         <VisitForm venue={rating} household={household} onDone={async () => { setRating(null); setMsg(`Added ${rating.name} as somewhere you've been.`); await onAdded(); }} onCancel={() => setRating(null)}
@@ -253,7 +253,7 @@ function FindPanel({ household, wide, refreshHousehold }: { household: Household
   const [cat, setCat] = useState<'things' | 'food' | ''>('things');
   const [q, setQ] = useState('');
   const [radius, setRadius] = useState(2);
-  const [tripadvisor, setTripadvisor] = useState(false);
+  const [sources, setSources] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [res, setRes] = useState<Awaited<ReturnType<typeof api.searchPlaces>> | null>(null);
@@ -265,9 +265,9 @@ function FindPanel({ household, wide, refreshHousehold }: { household: Household
     if (!near) { setError('Pick where to look — or set your home address in Settings.'); return; }
     setBusy(true); setError(null);
     try {
-      setRes(await api.searchPlaces({ near: `${near.lat},${near.lng}`, categories: cat || undefined, q: q.trim() || undefined, radiusKm: radius, sources: tripadvisor ? 'tripadvisor' : undefined }));
+      setRes(await api.searchPlaces({ near: `${near.lat},${near.lng}`, categories: cat || undefined, q: q.trim() || undefined, radiusKm: radius, sources: sources?.join(',') }));
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
-  }, [near, cat, q, radius, tripadvisor]);
+  }, [near, cat, q, radius, sources]);
 
   return (
     <View style={[styles.split, wide && { flexDirection: 'row', alignItems: 'flex-start' }]}>
@@ -280,7 +280,7 @@ function FindPanel({ household, wide, refreshHousehold }: { household: Household
           <Segmented value={cat} options={[{ value: 'things', label: 'Things to do' }, { value: 'food', label: 'Food & drink' }, { value: '', label: 'Everything' }]} onChange={setCat} />
           <TextInput value={q} onChangeText={setQ} placeholder="Name contains… (optional)" placeholderTextColor={colors.inkFaint} style={styles.input} onSubmitEditing={search} returnKeyType="search" />
           <Wrap>{[1, 2, 5, 10].map((r) => <Chip key={r} label={`${r} km`} selected={radius === r} onPress={() => setRadius(r)} />)}</Wrap>
-          <TripadvisorChip value={tripadvisor} onChange={setTripadvisor} />
+          <SourcePicker value={sources} onChange={setSources} />
           <Button label="Search" onPress={search} loading={busy} />
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
         </Card>
@@ -291,8 +291,8 @@ function FindPanel({ household, wide, refreshHousehold }: { household: Household
         {res ? (
           <>
             <Text style={type.small}>
-              {res.results.length} places within {res.radiusKm} km of {res.near.label}
-              {res.degradedSources.length ? ` · ${res.degradedSources.map((d) => d.source).join(', ')} unavailable` : ''}
+              {res.results.length} places within {res.radiusKm} km of {res.near.label} · from {res.sourcesQueried.join(', ')}
+              {res.degradedSources.length ? ` · ${res.degradedSources.map((d) => `${d.source} failed: ${d.error}`).join('; ')}` : ''}
             </Text>
             {res.results.map((v) => <VenueRow key={v.venueRef} venue={v} onPress={() => setOpen(v)} />)}
             <Text style={type.tiny}>{res.attribution.join(' · ')}</Text>
@@ -319,6 +319,7 @@ export function VenueRow({ venue, onPress, action }: { venue: Venue; onPress?: (
               {venue.rating != null ? ` · ★ ${venue.rating.toFixed(1)}${venue.ratingCount ? ` (${venue.ratingCount.toLocaleString()})` : ''}` : ''}
               {venue.distanceKm != null ? ` · ${venue.distanceKm} km` : ''}
             </Text>
+            <Text style={type.tiny}>via {(venue.contributingSources?.length ? venue.contributingSources : [venue.source]).join(' + ')}</Text>
           </View>
           {action}
         </Row>

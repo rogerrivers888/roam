@@ -10,7 +10,7 @@ import { places as placeRoutes, visits as visitRoutes } from './routes/places.js
 import { atlas as atlasRoutes } from './routes/atlas.js';
 import { fetchPhoto } from './sources/google.js';
 import { currentHousehold } from './routes/household.js';
-import { enabledSources } from './sources/index.js';
+import { enabledSources, defaultSourceKeys } from './sources/index.js';
 import { routingEnabled } from './sources/routing.js';
 
 const app = express();
@@ -55,6 +55,7 @@ app.get('/api/sources', async (_req, res, next) => {
   res.json({
     enabled: live.map((s) => ({ key: s.key, label: s.label, attribution: s.attribution?.text ?? null, optIn: Boolean(s.optIn) })),
     routing: routingEnabled() ? 'google-routes' : 'estimated',
+    defaults: defaultSourceKeys(),
     usage: { tripadvisor: { searchesAllTime: rows[0]?.all_time ?? 0, searchesThisMonth: rows[0]?.this_month ?? 0 } },
     available: [
       { key: 'google', label: 'Google Places + Routes', env: 'GOOGLE_MAPS_API_KEY' },

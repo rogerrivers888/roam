@@ -5,10 +5,19 @@
 // $0.015 each, falling with volume. So the source is built to return as few
 // IDs as it usefully can and never to fetch details behind a search.
 //
-// Nearby search already carries rating, review count, coordinates, address and
-// the Tripadvisor URL, which is what the shortlist needs. Category, cuisines,
-// price and hours arrive only on the details call, which the detail view makes
-// for one venue at a time. Discover returns up to 3 reviews and 5 photos.
+// What the catalog actually does (probed 3 Sep 2026, ~50 entities): the radius
+// form of nearby search returns almost nothing (2 results within 5 km of
+// Trafalgar Square); the bounding-box form works (2,262 in a 1 km box) but the
+// `category`, `sort` and `min_rating` parameters are silently ignored, so a page
+// is an arbitrary slice, mostly obscure listings. Text search by name is
+// accurate: it returns the real venue with its rating. So this source has two
+// modes. `search` (used only when Tripadvisor is the sole source picked, i.e.
+// testing) takes one bounding-box page so you can see what Terra holds.
+// `enrich` (the normal opt-in path) looks up by name the venues the other
+// sources already found and hands back Tripadvisor's record for the resolver to
+// merge — a couple of entities per venue, and every one is a venue on screen.
+// Category, cuisines, price and hours arrive only on the details call, which
+// the detail view makes for one venue at a time. Discover returns 3 reviews.
 //
 // Terms: only the location ID may be cached; all other content is fetched at
 // display and never stored. Review text must be loaded via a call that
@@ -117,6 +126,22 @@ export function toVenue(loc, fallbackCategory = 'attraction') {
 
 const tokens = (q) => String(q || '').toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
 
+/** How many of the other sources' venues an opt-in search looks up by name. */
+const ENRICH_LIMIT = Math.max(0, Number(process.env.ROAM_TRIPADVISOR_ENRICH ?? 8));
+/** Name matches per lookup: Terra ranks loosely ("Trafalgar Square" → "Colonel Saab Trafalgar Square" first), so two tries. */
+const ENRICH_SIZE = 2;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const norm = (name) => String(name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\b(the|a|an|restaurant|cafe|bar|pub)\b/g, '').replace(/[^a-z0-9]/g, '');
+const kmBetween = (a, b) => { const R = 6371, r = (d) => (d * Math.PI) / 180; const h = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lng - a.lng) / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
+
+/** A box of ±radiusKm around a point; Terra's radius mode is unusable, the box works. */
+function boxAround(center, radiusKm) {
+  const dLat = radiusKm / 111;
+  const dLng = radiusKm / (111 * Math.max(0.2, Math.cos((center.lat * Math.PI) / 180)));
+  return { sw_lat: center.lat - dLat, sw_lon: center.lng - dLng, ne_lat: center.lat + dLat, ne_lon: center.lng + dLng };
+}
+
 export const tripadvisorSource = {
   key: 'tripadvisor',
   label: 'Tripadvisor',
@@ -127,33 +152,65 @@ export const tripadvisorSource = {
   optIn: true,
 
   /**
-   * One nearby call per group (restaurants, attractions). Ratings come with the
-   * page, so no details are fetched here. Terra's text search is not
-   * geo-bounded and bills every ID it returns, so a query is applied to the
-   * nearby page by name instead; the other sources carry text search.
+   * One bounding-box page, unfiltered because Terra ignores its filters, then
+   * cut to the wanted kinds by URL type and to the radius by distance. This is
+   * the "just Tripadvisor" testing view; it is not a good browse on its own.
    */
-  async search({ center, radiusKm = 3, categories = [], query = '', limit = 30 } = {}) {
+  async search({ center, radiusKm = 3, categories = [], query = '', limit = 30, sources = [] } = {}) {
     if (!KEY() || !center || center.lat == null) return [];
-    const groups = [];
+    // With other sources in the mix the page is a waste; `enrich` does the work.
+    if (Array.isArray(sources) && sources.length > 1) return [];
     const wantsFood = !categories.length || categories.some((c) => ['restaurant', 'cafe', 'pub', 'bar', 'food'].includes(c));
     const wantsThings = !categories.length || categories.some((c) => ['attraction', 'event', 'things'].includes(c));
-    if (wantsFood) groups.push(['RESTAURANT', 'restaurant']);
-    if (wantsThings) groups.push(['ATTRACTION', 'attraction']);
-    const size = Math.min(NEARBY_PAGE, Math.max(1, Math.ceil(limit / Math.max(1, groups.length))));
-    const out = [];
-    for (const [category, roamCategory] of groups) {
-      const data = await get('/catalog/locations/nearby', {
-        lat: center.lat, lon: center.lng, radius: Math.min(radiusKm, 25), unit: 'KM', category, size,
-      });
-      for (const item of data.data || []) {
-        const v = toVenue(item.location ?? item, roamCategory);
-        // Terra has answered an ATTRACTION query with cafés; the URL kind is the truth, so off-group listings are dropped.
-        if (v.category === roamCategory) out.push(v);
-      }
-    }
+    const kinds = new Set([...(wantsFood ? ['restaurant'] : []), ...(wantsThings ? ['attraction'] : [])]);
+    const size = Math.min(NEARBY_PAGE, Math.max(1, limit));
+    const data = await get('/catalog/locations/nearby', { ...boxAround(center, Math.min(radiusKm, 25)), size });
     const terms = tokens(query);
-    const matched = terms.length ? out.filter((v) => { const n = v.name.toLowerCase(); return terms.some((t) => n.includes(t)); }) : out;
-    return matched.filter((v) => Number.isFinite(v.lat) && Number.isFinite(v.lng));
+    const out = [];
+    for (const item of data.data || []) {
+      const v = toVenue(item.location ?? item, wantsThings ? 'attraction' : 'restaurant');
+      if (!Number.isFinite(v.lat) || !Number.isFinite(v.lng)) continue;
+      if (!kinds.has(v.category)) continue;
+      if (kmBetween(center, v) > radiusKm) continue;
+      if (terms.length && !terms.some((t) => v.name.toLowerCase().includes(t))) continue;
+      out.push(v);
+    }
+    return out;
+  },
+
+  /**
+   * Look up other sources' venues by name and return Tripadvisor's records; the
+   * resolver merges them where name and position agree, so a wrong hit costs an
+   * entity but never reaches the screen. Unrated venues (OpenStreetMap-only)
+   * go first, then the nearest, up to ENRICH_LIMIT lookups.
+   */
+  async enrich(venues, { center, locality = null } = {}) {
+    if (!KEY() || !ENRICH_LIMIT) return [];
+    const candidates = venues
+      .filter((v) => v.source !== 'tripadvisor' && v.name && Number.isFinite(v.lat))
+      .map((v) => ({ v, d: center ? kmBetween(center, v) : 0 }))
+      .sort((a, b) => (a.v.rating == null) === (b.v.rating == null) ? a.d - b.d : (a.v.rating == null ? -1 : 1))
+      .slice(0, ENRICH_LIMIT);
+    const out = [];
+    const seen = new Set();
+    for (const { v } of candidates) {
+      const params = { query: v.name.slice(0, 200), size: ENRICH_SIZE };
+      if (locality) params.geo_name = locality;
+      let data;
+      try { data = await get('/catalog/locations/search', params); } catch (err) { if (/429/.test(err.message)) { await sleep(1200); continue; } throw err; }
+      for (const item of data.data || []) {
+        const loc = item.location ?? item;
+        const hit = toVenue(loc, v.category);
+        if (seen.has(hit.sourcePlaceId) || !Number.isFinite(hit.lat)) continue;
+        // Only a record that will merge is worth returning; the resolver's rule is the same test.
+        if (norm(hit.name) !== norm(v.name) || kmBetween(hit, v) > 0.4) continue;
+        seen.add(hit.sourcePlaceId);
+        out.push(hit);
+        break;
+      }
+      await sleep(150); // Discover: 10 requests/second, and 429s arrive well before that
+    }
+    return out;
   },
 
   /** Full detail plus up to 3 reviews (Discover). Two billable entities per view. */
