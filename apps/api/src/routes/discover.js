@@ -32,6 +32,7 @@ router.post('/', async (req, res, next) => {
       includeEvents = false,
       outingStart = null,
       excludeSeen = false,
+      sources = [],
     } = req.body || {};
 
     if (!origin || typeof origin.lat !== 'number' || typeof origin.lng !== 'number') {
@@ -55,7 +56,9 @@ router.post('/', async (req, res, next) => {
       query: searchQuery.trim(),
       includeEvents,
       outingStart,
+      sources,
     });
+    if (sourcesQueried.includes('tripadvisor')) await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'tripadvisor', 'discover']);
 
     const pace = paceOf(household);
     let inCatchment = deriveCatchment({ origin, maxTravelMinutes, mode, venues }).filter((v) => v.travelMinutes <= Math.max(maxTravelMinutes, travelLimitFor(pace, v)));

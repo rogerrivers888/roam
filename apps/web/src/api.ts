@@ -199,7 +199,7 @@ export type PlanAction =
   | { type: 'choose'; optionId: string | null }
   | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number; travelMode?: Trip['travelMode']; includeChains?: boolean; pricePoint?: PricePoint };
 
-export type SourcesStatus = { enabled: { key: string; label: string; attribution: string | null }[]; routing: string; available: { key: string; label: string; env: string; on: boolean }[] };
+export type SourcesStatus = { enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; available: { key: string; label: string; env: string; on: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number } } };
 
 // ---------------------------------------------------------------------------
 // Calls
@@ -234,7 +234,8 @@ export const api = {
   /** `bias.near` keeps matches inside that area first (a trip's city); `bias.country` never leaves that country. */
   geocode: (q: string, limit = 6, bias?: { near?: Place | null; country?: string | null; kind?: 'lodging' | null }) =>
     request<{ results: Place[]; attribution: string }>(`/api/places/geocode${qs({ q, limit, near: bias?.near ? `${bias.near.lat},${bias.near.lng}` : undefined, country: bias?.country ?? undefined, kind: bias?.kind ?? undefined })}`),
-  searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number }) =>
+  /** `sources` names opt-in sources for this one search (e.g. 'tripadvisor'); they never run otherwise. */
+  searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number; sources?: string }) =>
     request<{ near: Place & { how: string }; radiusKm: number; results: Venue[]; sourcesQueried: string[]; degradedSources: { source: string; error: string }[]; attribution: string[] }>(`/api/places/search${qs(p)}`),
   place: (venueRef: string) =>
     request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[]; sourceError?: string | null }>(`/api/places/detail${qs({ ref: venueRef })}`),
@@ -262,7 +263,7 @@ export const api = {
     post<TripDetail>('/api/trips', { kind: 'trip', ...body }),
   updateTripV2: (id: string, body: Partial<{ title: string; notes: string; startDate: string; endDate: string; hasCar: boolean; travelMode: Trip['travelMode']; intensity: Trip['intensity']; dayStart: string; dayEnd: string; base: Place; baseText: string; baseKind: string; checkIn: string; checkOut: string }>) => patch<TripDetail>(`/api/trips/${id}`, body),
   updateDay: (tripId: string, dayId: string, body: Partial<{ intensity: Trip['intensity']; travelMode: Trip['travelMode']; startTime: string; endTime: string; notes: string }>) => patch<TripDetail>(`/api/trips/${tripId}/days/${dayId}`, body),
-  shortlistSearch: (tripId: string, p: { q?: string; categories?: string; radiusKm?: number; near?: string }) =>
+  shortlistSearch: (tripId: string, p: { q?: string; categories?: string; radiusKm?: number; near?: string; sources?: string }) =>
     request<{ near: Place; radiusKm: number; results: (Venue & { onShortlist: boolean })[]; degradedSources: { source: string; error: string }[] }>(`/api/trips/${tripId}/shortlist/search${qs(p)}`),
   addToShortlist: (tripId: string, body: { venueRef: string; venueLabel: string; kind?: string; category?: string | null; lat?: number | null; lng?: number | null; venue?: Partial<Venue>; note?: string; mustDo?: boolean; preferredDayId?: string | null }) => post<TripDetail>(`/api/trips/${tripId}/shortlist`, body),
   updateShortlist: (tripId: string, itemId: string, body: { note?: string; mustDo?: boolean; preferredDayId?: string | null; kind?: string }) => patch<TripDetail>(`/api/trips/${tripId}/shortlist/${itemId}`, body),

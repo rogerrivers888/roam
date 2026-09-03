@@ -74,9 +74,14 @@ function formattedHours(h) {
  * `fallbackCategory` is the category the nearby call was filtered by, since
  * catalog results do not carry one.
  */
+const URL_KIND = { Restaurant_Review: 'restaurant', Attraction_Review: 'attraction', Hotel_Review: 'other' };
+const categoryFromUrl = (u) => (typeof u === 'string' ? URL_KIND[(/\/(Restaurant_Review|Attraction_Review|Hotel_Review)-/.exec(u) || [])[1]] : undefined);
+
 export function toVenue(loc, fallbackCategory = 'attraction') {
   const cats = loc.categories || [];
-  const top = cats.map((c) => TOP_LEVEL[c.top_level_category]).find(Boolean);
+  // Catalog pages carry no category, but the Tripadvisor URL says what kind of listing it is.
+  const top = cats.map((c) => TOP_LEVEL[c.top_level_category]).find(Boolean)
+    ?? categoryFromUrl(loc.urls?.tripadvisor?.main ?? loc.urls?.tripadvisor);
   const labels = cats.flatMap((c) => [c.display_name, c.parent_category?.display_name, ...(Array.isArray(c.hierarchy) ? c.hierarchy : [])]).filter(Boolean);
   const attrs = loc.attributes || [];
   const cuisines = attrs.filter((a) => /cuisine/i.test(a.type || '')).map((a) => String(a.name || '').toLowerCase()).filter(Boolean);
@@ -118,6 +123,8 @@ export const tripadvisorSource = {
   retention: { placeId: 'indefinite', displayFields: 'none' },
   attribution: { text: TRIPADVISOR_ATTRIBUTION, requiresAuthorCredit: true },
   enabled: () => Boolean(KEY()),
+  /** Never searched unless the request names it — every ID returned is billed. */
+  optIn: true,
 
   /**
    * One nearby call per group (restaurants, attractions). Ratings come with the
@@ -138,7 +145,11 @@ export const tripadvisorSource = {
       const data = await get('/catalog/locations/nearby', {
         lat: center.lat, lon: center.lng, radius: Math.min(radiusKm, 25), unit: 'KM', category, size,
       });
-      for (const item of data.data || []) out.push(toVenue(item.location ?? item, roamCategory));
+      for (const item of data.data || []) {
+        const v = toVenue(item.location ?? item, roamCategory);
+        // Terra has answered an ATTRACTION query with cafés; the URL kind is the truth, so off-group listings are dropped.
+        if (v.category === roamCategory) out.push(v);
+      }
     }
     const terms = tokens(query);
     const matched = terms.length ? out.filter((v) => { const n = v.name.toLowerCase(); return terms.some((t) => n.includes(t)); }) : out;

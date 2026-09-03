@@ -8,7 +8,7 @@ import { computeBudget, INTENSITY_TARGETS } from '../domain/budget.js';
 import { TRAVEL_MODES } from '../domain/travel.js';
 import { dayAsTrip, datesBetween, slotFor } from '../domain/days.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
-import { searchAllSources } from '../sources/index.js';
+import { searchAllSources, optInFrom } from '../sources/index.js';
 import { kmBetween } from '../domain/travel.js';
 import { currentHousehold } from './household.js';
 import { visitPayload } from './places.js';
@@ -342,8 +342,10 @@ router.get('/:id/shortlist/search', async (req, res, next) => {
     }
     const radiusKm = Math.min(25, Number(req.query.radiusKm) || 3);
     const categories = req.query.categories ? String(req.query.categories).split(',').filter(Boolean) : [];
-    const { venues, degraded, sourcesQueried } = await searchAllSources({ center, radiusKm, categories, query: String(req.query.q || '').trim(), includeEvents: false });
+    const sources = optInFrom(req.query.sources);
+    const { venues, degraded, sourcesQueried } = await searchAllSources({ center, radiusKm, categories, query: String(req.query.q || '').trim(), includeEvents: false, sources });
     await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search']);
+    if (sourcesQueried.includes('tripadvisor')) await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'tripadvisor', 'trip.shortlist.search']);
     const { rows: existing } = await query('select venue_ref from trip_shortlist where trip_id = $1', [trip.id]);
     const have = new Set(existing.map((r) => r.venue_ref));
     const results = venues.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, distanceKm: Number(kmBetween(center, v).toFixed(2)), onShortlist: have.has(`${v.source}:${v.sourcePlaceId}`) }))

@@ -42,10 +42,20 @@ app.use('/api/atlas', atlasRoutes);
 app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
 
 /** Which sources are live — the Settings screen shows this. */
-app.get('/api/sources', (_req, res) => {
+app.get('/api/sources', async (_req, res, next) => {
+  try {
+  // Opt-in sources (Tripadvisor) are live but only run when a search names them; report how often that has happened.
+  const live = enabledSources({ includeOptIn: true });
+  const household = await currentHousehold();
+  const { rows } = await query(
+    `select count(*)::int as all_time, count(*) filter (where created_at >= date_trunc('month', now()))::int as this_month
+       from provider_calls where household_id = $1 and provider = 'tripadvisor'`,
+    [household.id],
+  );
   res.json({
-    enabled: enabledSources().map((s) => ({ key: s.key, label: s.label, attribution: s.attribution?.text ?? null })),
+    enabled: live.map((s) => ({ key: s.key, label: s.label, attribution: s.attribution?.text ?? null, optIn: Boolean(s.optIn) })),
     routing: routingEnabled() ? 'google-routes' : 'estimated',
+    usage: { tripadvisor: { searchesAllTime: rows[0]?.all_time ?? 0, searchesThisMonth: rows[0]?.this_month ?? 0 } },
     available: [
       { key: 'google', label: 'Google Places + Routes', env: 'GOOGLE_MAPS_API_KEY' },
       { key: 'tripadvisor', label: 'Tripadvisor', env: 'TRIPADVISOR_API_KEY' },
@@ -54,8 +64,11 @@ app.get('/api/sources', (_req, res) => {
       { key: 'predicthq', label: 'PredictHQ events (incl. community)', env: 'PREDICTHQ_API_KEY' },
       { key: 'datathistle', label: 'Data Thistle UK listings', env: 'DATATHISTLE_API_KEY' },
       { key: 'scout', label: 'Local scout (Claude reads local what\'s-on pages)', env: 'ROAM_LOCAL_SCOUT=on' },
-    ].map((a) => ({ ...a, on: enabledSources().some((s) => s.key === a.key) })),
+    ].map((a) => ({ ...a, on: live.some((s) => s.key === a.key), optIn: Boolean(live.find((s) => s.key === a.key)?.optIn) })),
   });
+  } catch (err) {
+    next(err);
+  }
 });
 
 /** Google photos are fetched here so the key never reaches the browser; nothing is stored. */

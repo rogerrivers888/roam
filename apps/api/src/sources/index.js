@@ -23,14 +23,25 @@ const REGISTRY = [fixturesSource, osmSource, googleSource, tripadvisorSource, ti
 /** Sources that return timed events, so "nothing on" can be told from "not looked". */
 export const eventSources = () => enabledSources().filter((s) => s.events);
 
-/** Sources are enabled by config, not by code change (Epic 2 C8). */
-export function enabledSources() {
+/**
+ * Sources are enabled by config, not by code change (Epic 2 C8).
+ *
+ * A source marked `optIn` (Tripadvisor: billed per location returned, 1,000
+ * free for the account's lifetime) is live but silent: it only searches when
+ * the request names it in `sources`. `includeOptIn: true` lists them all,
+ * which the status endpoint and the detail view need.
+ */
+export function enabledSources({ includeOptIn = [] } = {}) {
   const configured = (process.env.ROAM_SOURCES || 'fixtures,osm,google,tripadvisor,ticketmaster,seatgeek,predicthq,datathistle,scout')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  return REGISTRY.filter((s) => configured.includes(s.key) && (typeof s.enabled !== 'function' || s.enabled()));
+  const wanted = (key) => includeOptIn === true || (Array.isArray(includeOptIn) && includeOptIn.includes(key));
+  return REGISTRY.filter((s) => configured.includes(s.key) && (typeof s.enabled !== 'function' || s.enabled()) && (!s.optIn || wanted(s.key)));
 }
+
+/** Parse a request's `sources` opt-in list ("tripadvisor" or "tripadvisor,other"). */
+export const optInFrom = (raw) => (Array.isArray(raw) ? raw : String(raw || '').split(',')).map((s) => String(s).trim()).filter(Boolean);
 
 const normaliseName = (name) =>
   name
@@ -161,7 +172,7 @@ export const recallVenue = (ref) => recent.get(ref) ?? null;
 
 /** Fan out across every enabled source; one failing source must not block a search (Epic 2 C7). */
 export async function searchAllSources(params) {
-  const sources = enabledSources();
+  const sources = enabledSources({ includeOptIn: optInFrom(params.sources) });
   const settled = await Promise.allSettled(sources.map((s) => s.search(params)));
 
   const raw = [];

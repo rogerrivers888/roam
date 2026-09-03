@@ -9,7 +9,7 @@
 
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
-import { searchAllSources, enabledSources, recallVenue } from '../sources/index.js';
+import { searchAllSources, enabledSources, recallVenue, optInFrom } from '../sources/index.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { resolveConcept, conceptByKey } from '../domain/concepts.js';
 import { kmBetween } from '../domain/travel.js';
@@ -160,11 +160,13 @@ places.get('/search', async (req, res, next) => {
     const categories = req.query.categories ? String(req.query.categories).split(',').filter(Boolean) : [];
     const radiusKm = Math.min(25, Number(req.query.radiusKm) || 3);
     const q = String(req.query.q || '').trim();
+    const sources = optInFrom(req.query.sources);
 
     const { venues, degraded, sourcesQueried } = await searchAllSources({
-      center: { lat: near.lat, lng: near.lng }, radiusKm, categories, query: q, includeEvents: false,
+      center: { lat: near.lat, lng: near.lng }, radiusKm, categories, query: q, includeEvents: false, sources,
     });
     await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, sourcesQueried.join('+') || 'none', 'places.search']);
+    if (sourcesQueried.includes('tripadvisor')) await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'tripadvisor', 'places.search']);
 
     const inRange = venues
       .map((v) => ({ ...v, distanceKm: Number(kmBetween(near, v).toFixed(2)) }))
@@ -198,7 +200,8 @@ places.get('/detail', async (req, res, next) => {
     const { source, id } = splitRef(req.query.ref);
     if (!source || !id) return res.status(400).json({ error: 'ref_required' });
     const ref = `${source}:${id}`;
-    const src = enabledSources().find((s) => s.key === source);
+    // A ref the household already holds may be opened whatever the search opted into.
+    const src = enabledSources({ includeOptIn: true }).find((s) => s.key === source);
     let venue = recallVenue(ref);
     let sourceError = null;
     if (!venue && src?.get) {
