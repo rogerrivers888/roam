@@ -137,6 +137,14 @@
   .viewtog div{padding:5px 9px;border-radius:8px;color:var(--ink2);display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;cursor:pointer}
   .viewtog .on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
   .r,.seg div,.chip,.btn{cursor:pointer}
+  .frow{display:flex;gap:8px;align-items:center}
+  .frow .chip{height:32px;margin:0;padding:0 11px;font-size:12px}
+  .frow .viewtog{height:32px;padding:2px}
+  .frow .viewtog div{padding:0 9px;height:100%}
+  .rate{display:inline-flex;align-items:center;gap:3px;height:24px;padding:0 8px;border-radius:999px;background:var(--accentSoft);color:var(--accent);font-weight:700;font-size:12px;flex:none}
+  .rate .ic{width:12px;height:12px;fill:currentColor}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:0;margin:0 2px 0 1px;border:1px solid rgba(0,0,0,.08)}
+  .ci.sp{background:var(--goldSoft);color:var(--gold);box-shadow:inset 0 0 0 1.5px var(--gold)}
   .cnt.n{background:var(--muted);color:var(--ink2)}
   .story{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
   .story>div{width:390px}
@@ -242,6 +250,9 @@
         <li><b>Two dropdowns under it.</b> <i>Status</i>: Any, Been, To try, Special. <i>Type</i>: the kinds of thing in the segment you're on — museums, parks &amp; playgrounds, theatre &amp; shows, pubs &amp; bars, clubs &amp; live music… or cuisines under Food &amp; drink. Both show counts and update each other.</li>
         <li><b>Pubs.</b> "Pubs &amp; bars" is a type under Things to do; a pub that serves food is also under Food &amp; drink as "Pub food". So The Churchill Arms shows in both, once each. Clubs and live music are a type of their own, for the older ones.</li>
         <li><b>List or Map.</b> A toggle at the right of the segment row. Map fills the screen; tap a pin for the place; the same filters apply to the pins. No map under the list.</li>
+        <li><b>One number, mine.</b> The row shows your own rating as a star and a score out of 5 (halves allowed, so 4.5). No hearts per person, no "Been 3×", no date: all of that is in the drawer when you tap the row, visit by visit. Not rated yet shows To try. Out of 10 works the same way if you'd rather.</li>
+        <li><b>Where it is, at a glance.</b> The postcode district and the nearest Underground station with its line as a coloured dot: <i>W1T · ● Goodge Street</i>. Outside London it is the district and the nearest railway station; where there is neither, the area name.</li>
+        <li><b>Special</b> is the gold box round the icon, so the star only ever means your rating.</li>
         <li>Add a place sits with the title. Search by name, for a place you already know.</li>
       </ul>
     </div>
@@ -261,21 +272,22 @@
 </section>
 
 <script>
+const LINE={Northern:'#000000',Central:'#E32017',Piccadilly:'#003688',Victoria:'#0098D4',District:'#00782A',Bakerloo:'#B36305'};
 const PLACES=[
- {n:'Circolo Popolare',k:'eat',t:'Italian',a:'Fitzrovia',st:'been',sp:true,v:['l','l','f'],vis:1,d:'3 Sep',x:150,y:150,real:true},
- {n:'National Gallery',k:'do',t:'Museums',a:'Trafalgar Square',st:'try',x:190,y:210,real:true},
- {n:"St James's Park",k:'do',t:'Parks & playgrounds',a:'Westminster',st:'try',x:176,y:250,real:true},
- {n:'Dishoom Covent Garden',k:'eat',t:'Indian',a:'Covent Garden',st:'been',v:['l','l','l'],vis:2,d:'Jun 2026',x:215,y:180},
- {n:'The Churchill Arms',k:'do',t:'Pubs & bars',t2:'Pub food',a:'Kensington',st:'been',v:['l','f','f'],vis:1,d:'May 2026',x:60,y:220},
- {n:'Science Museum',k:'do',t:'Museums',a:'South Kensington',st:'been',sp:true,v:['f','l','l'],vis:3,d:'Feb 2026',x:80,y:260},
- {n:'Natural History Museum',k:'do',t:'Museums',a:'South Kensington',st:'been',v:['l','l','l'],vis:2,d:'Feb 2026',x:88,y:280},
- {n:'Sky Garden',k:'do',t:'Viewpoints',a:'City of London',st:'try',x:290,y:170},
- {n:'Flat Iron Soho',k:'eat',t:'Steak',a:'Soho',st:'been',v:['l','n','l'],vis:1,d:'Jan 2026',x:170,y:120},
- {n:'Bao Soho',k:'eat',t:'Taiwanese',a:'Soho',st:'try',x:178,y:132},
- {n:'Lyric Theatre',k:'do',t:'Theatre & shows',a:'Soho',st:'try',x:184,y:160},
- {n:"Ronnie Scott's",k:'do',t:'Clubs & live music',a:'Soho',st:'try',sp:true,x:192,y:145},
- {n:"Regent's Park playground",k:'do',t:'Parks & playgrounds',a:"Regent's Park",st:'been',v:['f','f','l'],vis:4,d:'Aug 2026',x:140,y:60},
- {n:'Hamleys',k:'do',t:'Shops',a:'Regent Street',st:'been',v:['n','f','l'],vis:1,d:'Dec 2025',x:160,y:170},
+ {n:'Circolo Popolare',k:'eat',t:'Italian',a:'Fitzrovia',pc:'W1T',tu:'Goodge Street',ln:'Northern',st:'been',sp:true,me:4.5,vis:1,d:'3 Sep',x:150,y:150,real:true},
+ {n:'National Gallery',k:'do',t:'Museums',a:'Trafalgar Square',pc:'WC2N',tu:'Charing Cross',ln:'Bakerloo',st:'try',x:190,y:210,real:true},
+ {n:"St James's Park",k:'do',t:'Parks & playgrounds',a:'Westminster',pc:'SW1A',tu:"St James's Park",ln:'District',st:'try',x:176,y:250,real:true},
+ {n:'Dishoom Covent Garden',k:'eat',t:'Indian',a:'Covent Garden',pc:'WC2H',tu:'Covent Garden',ln:'Piccadilly',st:'been',me:4.5,vis:2,d:'Jun 2026',x:215,y:180},
+ {n:'The Churchill Arms',k:'do',t:'Pubs & bars',t2:'Pub food',a:'Kensington',pc:'W8',tu:'Notting Hill Gate',ln:'Central',st:'been',me:4,vis:1,d:'May 2026',x:60,y:220},
+ {n:'Science Museum',k:'do',t:'Museums',a:'South Kensington',pc:'SW7',tu:'South Kensington',ln:'Piccadilly',st:'been',sp:true,me:3.5,vis:3,d:'Feb 2026',x:80,y:260},
+ {n:'Natural History Museum',k:'do',t:'Museums',a:'South Kensington',pc:'SW7',tu:'South Kensington',ln:'District',st:'been',me:4,vis:2,d:'Feb 2026',x:88,y:280},
+ {n:'Sky Garden',k:'do',t:'Viewpoints',a:'City of London',pc:'EC3M',tu:'Monument',ln:'District',st:'try',x:290,y:170},
+ {n:'Flat Iron Soho',k:'eat',t:'Steak',a:'Soho',pc:'W1F',tu:'Piccadilly Circus',ln:'Bakerloo',st:'been',me:4,vis:1,d:'Jan 2026',x:170,y:120},
+ {n:'Bao Soho',k:'eat',t:'Taiwanese',a:'Soho',pc:'W1F',tu:'Oxford Circus',ln:'Victoria',st:'try',x:178,y:132},
+ {n:'Lyric Theatre',k:'do',t:'Theatre & shows',a:'Soho',pc:'W1D',tu:'Piccadilly Circus',ln:'Piccadilly',st:'try',x:184,y:160},
+ {n:"Ronnie Scott's",k:'do',t:'Clubs & live music',a:'Soho',pc:'W1D',tu:'Leicester Square',ln:'Northern',st:'try',sp:true,x:192,y:145},
+ {n:"Regent's Park playground",k:'do',t:'Parks & playgrounds',a:"Regent's Park",pc:'NW1',tu:"Regent's Park",ln:'Bakerloo',st:'been',me:3,vis:4,d:'Aug 2026',x:140,y:60},
+ {n:'Hamleys',k:'do',t:'Shops',a:'Regent Street',pc:'W1B',tu:'Oxford Circus',ln:'Central',st:'been',me:2.5,vis:1,d:'Dec 2025',x:160,y:170},
 ];
 const ICON={eat:'utensils',do:'landmark'};
 const TICON={'Museums':'landmark','Parks & playgrounds':'trees','Pubs & bars':'coffee','Clubs & live music':'music','Theatre & shows':'ticket','Viewpoints':'compass','Shops':'shopping-bag'};
@@ -284,7 +296,8 @@ const ic=(n,c)=>`<svg class="ic ${c||''}"><use href="#i-${n}"/></svg>`;
 const tabbar=`<div class="tabbar"><div>${ic('sparkles','l')}Plan</div><div class="on">${ic('map-pin','l')}Places</div><div>${ic('calendar','l')}Trips</div><div>${ic('users','l')}Household</div><div>${ic('settings','l')}Settings</div></div>`;
 const status=`<div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>`;
 const chev=`<svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg>`;
-const vd=v=>v?`<div class="vd">${v.map(x=>`<i class="${x}">${x==='l'?ic('heart','s fill'):x==='n'?'✕':'–'}</i>`).join('')}</div>`:'';
+const where=p=>`${p.pc} · <span class="dot" style="background:${LINE[p.ln]}"></span>${p.tu}`;
+const mine=p=>p.me?`<span class="rate">${ic('star')}${p.me}</span>`:`<span class="chip want" style="margin:0">To try</span>`;
 function inKind(p,k){return k==='all'||p.k===k||(k==='eat'&&p.t2);}
 function typeOf(p,k){return k==='eat'&&p.k!=='eat'?p.t2:p.t;}
 function filtered(s){return PLACES.filter(p=>inKind(p,s.kind)&&(s.status==='any'||(s.status==='special'?p.sp:p.st===s.status))&&(!s.type||typeOf(p,s.kind)===s.type));}
@@ -307,16 +320,16 @@ function cityScreen(s){
   const hdr=`<div class="hdr"><div class="btn ghost sm" data-a="back">${ic('arrow-left','s')}${s.single?'Places':'United Kingdom'}</div><div class="btn sm">${ic('sparkles','s')}Plan a trip here</div></div>
   <div class="hdr"><div><div class="title">London</div><div class="tiny">United Kingdom · 14 places · 8 been · 6 to try</div></div><div class="btn ghost sm">${ic('plus','s')}Add a place</div></div>
   <div class="seg">${[['all','Everything'],['do','Things to do'],['eat','Food & drink']].map(([k,l])=>`<div class="${s.kind===k?'on':''}" data-a="kind" data-k="${k}">${l} <span class="tiny">${cnt(k)}</span></div>`).join('')}</div>
-  <div style="display:flex;gap:8px"><div class="dd"><span class="chip ${s.status!=='any'?'on':'ghost'}" data-a="dd" data-d="status">${statusLbl} ${ic('chevron-down','s')}</span>${s.dd==='status'?`<div class="menu">${[['any','Any status',all.length],['been','Been',nb],['try','To try',nt],['special','Special',ns]].map(([k,l,n])=>`<div class="${s.status===k?'on':''}" data-a="status" data-s="${k}">${l}<span>${n}</span></div>`).join('')}</div>`:''}</div>
+  <div class="frow"><div class="dd"><span class="chip ${s.status!=='any'?'on':'ghost'}" data-a="dd" data-d="status">${statusLbl} ${ic('chevron-down','s')}</span>${s.dd==='status'?`<div class="menu">${[['any','Any status',all.length],['been','Been',nb],['try','To try',nt],['special','Special',ns]].map(([k,l,n])=>`<div class="${s.status===k?'on':''}" data-a="status" data-s="${k}">${l}<span>${n}</span></div>`).join('')}</div>`:''}</div>
   <div class="dd"><span class="chip ${s.type?'on':'ghost'}" data-a="dd" data-d="type">${typeLbl} ${ic('chevron-down','s')}</span>${s.dd==='type'?`<div class="menu">${[[null,s.kind==='eat'?'Any cuisine':'Any type',null],...typesFor(s).map(([t,n])=>[t,t,n])].map(([k,l,n])=>`<div class="${(s.type||null)===k?'on':''}" data-a="type" data-t="${k===null?'':k}">${l}<span>${n===null?'':n}</span></div>`).join('')}</div>`:''}</div>
   <span class="chip ghost">A–Z ${ic('chevron-down','s')}</span>
   <div class="viewtog" style="margin-left:auto"><div class="${s.view==='list'?'on':''}" data-a="view" data-v="list">${ic('list','s')}</div><div class="${s.view==='map'?'on':''}" data-a="view" data-v="map">${ic('map','s')}</div></div></div>`;
   if(s.view==='map'){
     const sel=rows[s.sel]||null;
     return hdr+`<div class="bigmap" data-a="mapbg"><div class="roads"></div>${rows.map((p,i)=>`<div class="pin ${p.sp?'g':p.st==='been'?'b':'w'} ${sel===p?'sel':''}" style="left:${p.x}px;top:${p.y}px" data-a="pin" data-i="${i}"></div>${sel===p?`<div class="lbl" style="left:${p.x-20}px;top:${p.y-26}px">${p.n}</div>`:''}`).join('')}
-    ${sel?`<div class="card pincard"><div class="pr" style="border:0;padding:0"><div class="ci">${ic(TICON[sel.t]||ICON[sel.k])}</div><div class="t"><div class="name">${sel.n} ${sel.sp?`<svg class="ic s fill" style="color:var(--gold)"><use href="#i-star"/></svg>`:''}</div><div class="meta">${sel.t} · ${sel.a}${sel.vis?` · Been ${sel.vis}× · ${sel.d}`:' · To try'}</div></div>${sel.v?vd(sel.v):`<span class="chip want" style="margin:0">To try</span>`}</div><div class="tiny" style="margin-top:6px">Tap again for the drawer: Ours first, then overview, reviews, hours, photos.</div></div>`:`<div class="tiny" style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.8);padding:3px 8px;border-radius:8px">${rows.length} pins · green been · purple to try · gold special · tap one</div>`}</div>`;
+    ${sel?`<div class="card pincard"><div class="pr" style="border:0;padding:0"><div class="ci ${sel.sp?'sp':''}">${ic(TICON[sel.t]||ICON[sel.k])}</div><div class="t"><div class="name">${sel.n}</div><div class="meta">${sel.t} · ${where(sel)}</div></div>${mine(sel)}</div><div class="tiny" style="margin-top:6px">Tap again for the drawer: Ours first, then overview, reviews, hours, photos.</div></div>`:`<div class="tiny" style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.8);padding:3px 8px;border-radius:8px">${rows.length} pins · green been · purple to try · gold special · tap one</div>`}</div>`;
   }
-  return hdr+`<div class="scroll"><div class="card" style="padding:2px 12px">${rows.map(p=>`<div class="pr"><div class="ci">${ic(TICON[typeOf(p,s.kind)]||TICON[p.t]||ICON[p.k])}</div><div class="t"><div class="name">${p.n} ${p.sp?`<svg class="ic s fill" style="color:var(--gold)"><use href="#i-star"/></svg>`:''}</div><div class="meta">${typeOf(p,s.kind)} · ${p.a}${p.vis?` · Been ${p.vis}× · ${p.d}`:''}</div></div>${p.v?vd(p.v):`<span class="chip want" style="margin:0">To try</span>`}</div>`).join('')||`<div class="pr"><div class="small">Nothing matches — clear a filter.</div></div>`}</div><div class="tiny">${rows.length} of 14 · tap a row for the drawer.</div></div>`;
+  return hdr+`<div class="scroll"><div class="card" style="padding:2px 12px">${rows.map(p=>`<div class="pr"><div class="ci ${p.sp?'sp':''}">${ic(TICON[typeOf(p,s.kind)]||TICON[p.t]||ICON[p.k])}</div><div class="t"><div class="name">${p.n}</div><div class="meta">${typeOf(p,s.kind)} · ${where(p)}</div></div>${mine(p)}</div>`).join('')||`<div class="pr"><div class="small">Nothing matches — clear a filter.</div></div>`}</div><div class="tiny">${rows.length} of 14 · tap a row for the drawer.</div></div>`;
 }
 function render(el,s){el.innerHTML=status+`<div class="screen">${s.level==='city'?cityScreen(s):atlasScreen(s)}</div>`+tabbar;}
 function wire(el,s){el.addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(!a)return;const d=a.dataset;
@@ -339,7 +352,7 @@ const STEPS=[
  ['2b · One country',{single:true},'Only the UK in the atlas: the cities are the first screen.'],
  ['3 · Inside London',{level:'city'},'Everything, any status, list. No trips.'],
  ['4 · Things to do, Type open',{level:'city',kind:'do',dd:'type'},'The Type dropdown for things to do, with counts. Pubs & bars and Clubs & live music are types here.'],
- ['5 · Food & drink · Been',{level:'city',kind:'eat',status:'been'},'Food you have been to. The Churchill Arms appears here as Pub food.'],
+ ['5 · Food & drink · Been',{level:'city',kind:'eat',status:'been'},'Food you have been to, each with your own score. The Churchill Arms appears here as Pub food.'],
  ['6 · Map',{level:'city',view:'map',sel:0},'Map fills the screen; the same filters apply; a tapped pin shows its card.'],
 ];
 const story=document.getElementById('story');
