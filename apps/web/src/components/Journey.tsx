@@ -342,7 +342,12 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
           <Pressable onPress={() => setEndpointFor('end')} style={styles.row} accessibilityRole="button"><Text style={[styles.time, journey.overBy ? { color: colors.overrun, fontWeight: '700' } : null]}>{stops.length ? journey.homeAt : ''}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><View style={{ flex: 1 }}><Text style={type.h3} numberOfLines={1}>{endPt.kind === 'home' ? 'Home' : endPt.label.split(',')[0]}</Text><Text style={type.tiny}>{stops.length ? `by ${journey.endAt}` : 'Tap to end somewhere else'}</Text></View><Icon name="edit" size={14} color={colors.inkFaint} /></Pressable>
         </>
       ) : null}
-      {journey && !stops.length ? <Text style={[type.small, { paddingVertical: spacing.md }]}>Nothing in the running for {fmtDate(day.date)} yet. Find places, or bring one back from the ones set aside.</Text> : null}
+      {journey && !stops.length ? (
+        <View style={{ paddingVertical: spacing.md, gap: spacing.sm }}>
+          <Text style={type.small}>Nothing in the running for {fmtDate(day.date)} yet.</Text>
+          <Button label="Find places to shortlist" icon="search" kind="secondary" onPress={onFind} />
+        </View>
+      ) : null}
     </Card>
   );
 

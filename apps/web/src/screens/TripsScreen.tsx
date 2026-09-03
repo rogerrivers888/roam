@@ -9,8 +9,6 @@ import { TimeBar } from '../components/TimeBar';
 import { FaceRow } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
 import { DateRangePicker, monthSpanLabel } from '../components/DateRangePicker';
-import { SourceDataPanel, useSourceFilter } from '../components/SourceData';
-import { isAdmin } from '../admin';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { BrowsePool } from '../components/BrowsePool';
 import { MapView, MapPin } from '../components/MapView';
@@ -19,7 +17,7 @@ import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
 import { CategoryIcon, Icon } from '../components/Icon';
 import { ShortlistJourney, TripJourneyDay } from '../components/Journey';
-import { BrowseNear } from '../components/BrowseNear';
+import { BrowseNear, FindState, emptyFind } from '../components/BrowseNear';
 import { getSpeakPref } from './SettingsScreen';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
@@ -285,7 +283,7 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
 // Trip page
 // ---------------------------------------------------------------------------
 
-type Section = 'shortlist' | 'day' | 'stay' | 'data';
+type Section = 'find' | 'shortlist' | 'day' | 'stay';
 
 /** Two taps to delete a trip: its days, stops and shortlist go with it; visits and ratings stay (they lose the link). */
 function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<void> }) {
@@ -304,16 +302,21 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
   const [d, setD] = useState<TripDetail | null>(null);
   const [section, setSection] = useState<Section>('shortlist');
   const [dayId, setDayId] = useState<string | null>(null);
-  const [finding, setFinding] = useState(false);
   const [planning, setPlanning] = useState(false);
+  // What Find fetched lives with the trip page, so tabbing away and back shows the same list without another fetch.
+  const [find, setFind] = useState<FindState>(() => emptyFind());
   const [error, setError] = useState<string | null>(null);
   const first = useRef(true);
   const load = useCallback(async () => {
     try {
       const t = await api.trip(id); setD(t);
       setDayId((cur) => cur ?? t.days[0]?.id ?? null);
-      // A saved day opens on the day; otherwise on the shortlist (owner, 3 Sep 2026).
-      if (first.current) { first.current = false; setSection(t.days[0]?.slots.some((sl) => sl.stops.length) ? 'day' : 'shortlist'); }
+      // A saved day opens on the day; a shortlist in progress on the shortlist; an empty trip on Find (owner, 3 Sep 2026).
+      if (first.current) {
+        first.current = false;
+        const running = t.shortlist.some((s) => ['to_call', 'booked', 'no_booking'].includes(s.status));
+        setSection(t.days[0]?.slots.some((sl) => sl.stops.length) ? 'day' : running ? 'shortlist' : 'find');
+      }
     } catch (e: any) { setError(e.message); }
   }, [id]);
   useEffect(() => { load(); }, [load]);
@@ -331,15 +334,15 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
       <Text style={type.small}>
         {isTrip ? fmtRange(trip.startDate, trip.endDate) : fmtDate(trip.departAt)}
         {trip.locality ? ` · ${trip.locality}${trip.country ? `, ${trip.country}` : ''}` : ''}
-        {trip.base && trip.base.kind !== 'home' ? ` · staying at ${trip.base.label}` : ''}{attendees.length ? ` · ${attendees.map((a) => a.name).join(', ')}` : ''}
+        {isTrip && trip.base && trip.base.kind !== 'home' ? ` · staying at ${trip.base.label}` : ''}{attendees.length ? ` · ${attendees.map((a) => a.name).join(', ')}` : ''}
       </Text>
     </View>
   );
 
+  // A day out has no Stay: it starts and ends at home.
   const sections: { value: Section; label: string }[] = [
-    { value: 'shortlist', label: `Shortlist (${shortlist.length})` }, { value: 'day', label: isTrip ? `Days (${days.length})` : 'The day' }, { value: 'stay', label: 'Stay' },
-    // Admin only (Settings › Sources), web layout only (owner): what each source returned for a day and where the plan lost it.
-    ...(isAdmin() && wide ? [{ value: 'data' as Section, label: 'Data' }] : []),
+    { value: 'find', label: 'Find' }, { value: 'shortlist', label: `Shortlist (${shortlist.length})` }, { value: 'day', label: isTrip ? `Days (${days.length})` : 'The day' },
+    ...(isTrip ? [{ value: 'stay' as Section, label: 'Stay' }] : []),
   ];
 
   const dayChips = isTrip ? (
@@ -360,12 +363,10 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
 
   const body = (
     <>
-      {section === 'shortlist' && day ? (
+      {section === 'find' ? (
         <View style={{ gap: spacing.md }}>
-          {dayChips}
-          <ShortlistJourney d={d} day={day} household={household} wide={wide} onChanged={load} onFind={() => setFinding((v) => !v)} onSaved={async () => { await load(); await refreshHousehold(); setSection('day'); }} />
-          {finding || !shortlist.some((s) => ['to_call', 'booked', 'no_booking'].includes(s.status)) ? <BrowseNear d={d} onChanged={load} onClose={finding ? () => setFinding(false) : undefined} /> : null}
-          {household ? (
+          <BrowseNear d={d} onChanged={load} find={find} setFind={setFind} onShortlist={() => setSection('shortlist')} />
+          {household && day ? (
             <View style={{ gap: spacing.sm }}>
               <Button label={planning ? 'Hide the planner' : 'Plan it for me'} icon="plan" kind="ghost" onPress={() => setPlanning((v) => !v)} />
               {planning ? <DayPlanner trip={d} day={day} household={household} onChanged={async () => { await load(); await refreshHousehold(); }} /> : null}
@@ -373,14 +374,19 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
           ) : null}
         </View>
       ) : null}
+      {section === 'shortlist' && day ? (
+        <View style={{ gap: spacing.md }}>
+          {dayChips}
+          <ShortlistJourney d={d} day={day} household={household} wide={wide} onChanged={load} onFind={() => setSection('find')} onSaved={async () => { await load(); await refreshHousehold(); setSection('day'); }} />
+        </View>
+      ) : null}
       {section === 'day' && day ? (
         <View style={{ gap: spacing.md }}>
           {dayChips}
-          <TripJourneyDay d={d} day={day} wide={wide} onChanged={load} onChangePlan={() => { setSection('shortlist'); setFinding(true); }} />
+          <TripJourneyDay d={d} day={day} wide={wide} onChanged={load} onChangePlan={() => setSection('shortlist')} />
         </View>
       ) : null}
-      {section === 'stay' ? <StayPanel d={d} onChanged={load} onFindNear={() => { setSection('shortlist'); setFinding(true); }} /> : null}
-      {section === 'data' && wide ? <SourceDataPanel d={d} /> : null}
+      {section === 'stay' && isTrip ? <StayPanel d={d} onChanged={load} onFindNear={() => setSection('find')} /> : null}
     </>
   );
 
@@ -614,112 +620,6 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
 }
 
 const clock24 = (iso: string) => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
-
-// ---------------------------------------------------------------------------
-// Shortlist
-// ---------------------------------------------------------------------------
-
-function ShortlistPanel({ d, onChanged }: { d: TripDetail; onChanged: () => Promise<void> }) {
-  const { trip, shortlist, days } = d;
-  const [tab, setTab] = useState<'food' | 'activity' | 'other'>('activity');
-  const [searching, setSearching] = useState(false);
-  const [q, setQ] = useState('');
-  const [radius, setRadius] = useState(2);
-  const [near, setNear] = useState<Place | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [sources, setSources] = useState<string[] | null>(trip.sources ?? null);
-  const [res, setRes] = useState<(Venue & { onShortlist: boolean })[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [atlas, setAtlas] = useState<{ venueRef: string; name: string; kind: string | null; category: string | null; lat: number | null; lng: number | null; venue: any; status: string }[]>([]);
-
-  useEffect(() => {
-    if (!trip.countryCode) return;
-    api.atlasPlaces({ country: trip.countryCode, city: trip.locality ?? undefined }).then((r) => setAtlas(r.places)).catch(() => null);
-  }, [trip.countryCode, trip.locality]);
-
-  const items = shortlist.filter((s) => s.kind === tab);
-  const search = async () => {
-    setBusy(true); setError(null);
-    try { setRes((await api.shortlistSearch(trip.id, { categories: tab === 'food' ? 'food' : tab === 'activity' ? 'things' : undefined, q: q || undefined, radiusKm: radius, near: near ? `${near.lat},${near.lng}` : undefined, sources: sources ? sources.join(',') : (trip.sources ? 'default' : undefined) })).results); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
-  };
-  const add = async (v: Venue, mustDo = false) => { await api.addToShortlist(trip.id, { venueRef: v.venueRef, venueLabel: v.name, category: v.category, lat: v.lat, lng: v.lng, venue: v, mustDo }); await onChanged(); setRes((r) => r?.map((x) => (x.venueRef === v.venueRef ? { ...x, onShortlist: true } : x)) ?? null); };
-  const fromAtlas = atlas.filter((p) => !shortlist.some((s) => s.venueRef === p.venueRef) && (p.kind ?? 'other') === tab);
-  const sf = useSourceFilter(res ?? []);
-
-  return (
-    <View style={{ gap: spacing.md }}>
-      <Segmented value={tab} options={[{ value: 'activity', label: `Things to do (${shortlist.filter((s) => s.kind === 'activity').length})` }, { value: 'food', label: `Restaurants (${shortlist.filter((s) => s.kind === 'food').length})` }, { value: 'other', label: `Other (${shortlist.filter((s) => s.kind === 'other').length})` }]} onChange={setTab} />
-      <Row>
-        <Button icon={searching ? 'close' : 'add'} label={searching ? 'Close search' : `Find ${tab === 'food' ? 'restaurants' : tab === 'activity' ? 'things to do' : 'places'} near ${near?.label ?? trip.base?.label ?? 'the centre'}`} kind={searching ? 'ghost' : 'primary'} onPress={() => setSearching((s) => !s)} />
-      </Row>
-      {searching ? (
-        <Card>
-          <Text style={type.tiny}>Near</Text>
-          <PlacePicker value={near} onPick={setNear} extra={trip.base ? [{ label: trip.base.label, lat: trip.base.lat, lng: trip.base.lng }] : []} placeholder="A neighbourhood, landmark or address (default: where you're staying)" near={trip.base ? { label: trip.locality ?? trip.base.label, lat: trip.base.lat, lng: trip.base.lng, locality: trip.locality, country: trip.country, countryCode: trip.countryCode } : null} countryCode={trip.countryCode} />
-          <Row>
-            <TextInput value={q} onChangeText={setQ} placeholder="Name contains… (optional)" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} onSubmitEditing={search} />
-            <Button label="Search" onPress={search} loading={busy} />
-          </Row>
-          <Wrap>{[1, 2, 5, 10].map((r) => <Chip key={r} label={`${r} km`} selected={radius === r} onPress={() => setRadius(r)} />)}</Wrap>
-          <SourcePicker value={sources} onChange={setSources} title="Sources for this search" />
-          {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-          {sf.chips}
-          {res ? <Text style={type.small}>{sf.filtered.length === res.length ? `${res.length} places` : `${sf.filtered.length} of ${res.length} places`}</Text> : null}
-          {res ? sf.filtered.slice(0, 40).map((v) => <VenueRow key={v.venueRef} venue={v} action={v.onShortlist ? <Chip label="On list" tone="accent" /> : <Row><Button label="Add" kind="secondary" onPress={() => add(v)} /><Button label="Must-do" icon="favourite" kind="ghost" onPress={() => add(v, true)} /></Row>} />) : null}
-        </Card>
-      ) : null}
-
-      {fromAtlas.length ? (
-        <Card style={{ backgroundColor: colors.accentSoft }}>
-          <Text style={type.h3}>From our atlas · {trip.locality ?? trip.country}</Text>
-          <Text style={type.tiny}>Places you've been to or saved here before, not yet on this trip's list.</Text>
-          {fromAtlas.map((p) => (
-            <Row key={p.venueRef} style={{ justifyContent: 'space-between' }}>
-              {p.status === 'been' ? <Icon name="check" size={14} color={colors.like} /> : p.status === 'special' ? <Icon name="favourite" size={14} color={colors.rating} fill /> : null}<Text style={[type.body, { flex: 1 }]}>{p.name}</Text>
-              <Button label="Add" kind="secondary" onPress={async () => { await api.addToShortlist(trip.id, { venueRef: p.venueRef, venueLabel: p.name, kind: p.kind ?? undefined, category: p.category, lat: p.lat, lng: p.lng, venue: p.venue ?? undefined }); await onChanged(); }} />
-            </Row>
-          ))}
-        </Card>
-      ) : null}
-
-      {items.length === 0 ? <Card><Text style={type.small}>Nothing shortlisted here yet. Search above, or add from the atlas.</Text></Card> : null}
-      {items.map((s) => <ShortlistRow key={s.id} item={s} trip={d} days={days} onChanged={onChanged} />)}
-    </View>
-  );
-}
-
-function ShortlistRow({ item, trip, days, onChanged }: { item: ShortlistItem; trip: TripDetail; days: TripDay[]; onChanged: () => Promise<void> }) {
-  const [placing, setPlacing] = useState<string | null>(null);
-  const [note, setNote] = useState(item.note ?? '');
-  const [editingNote, setEditingNote] = useState(false);
-  return (
-    <Card style={{ gap: 6 }}>
-      <Row>
-        <Pressable onPress={async () => { await api.updateShortlist(trip.trip.id, item.id, { mustDo: !item.mustDo }); await onChanged(); }} style={styles.star} accessibilityLabel={item.mustDo ? 'Must do' : 'Mark must do'}>
-          <Icon name="favourite" size={20} color={item.mustDo ? colors.rating : colors.inkFaint} fill={item.mustDo} />
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <Row><CategoryIcon category={item.category} size={16} color={colors.ink} /><Text style={[type.h3, { flexShrink: 1 }]}>{item.name}</Text></Row>
-          <Text style={type.tiny}>{[item.category, ...((item.venue?.experiences as string[]) ?? []), ...((item.venue?.cuisines as string[]) ?? [])].filter(Boolean).join(' · ')}{item.scheduled ? ' · on the plan' : ''}</Text>
-        </View>
-        <Button label="Remove" kind="ghost" onPress={async () => { await api.removeFromShortlist(trip.trip.id, item.id); await onChanged(); }} />
-      </Row>
-      {editingNote ? (
-        <Row><TextInput value={note} onChangeText={setNote} placeholder="A note — why this place" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} /><Button label="Save" kind="secondary" onPress={async () => { await api.updateShortlist(trip.trip.id, item.id, { note }); setEditingNote(false); await onChanged(); }} /></Row>
-      ) : <Pressable onPress={() => setEditingNote(true)}><Text style={type.small}>{item.note ? `“${item.note}”` : 'Add a note…'}</Text></Pressable>}
-      {!item.scheduled ? (
-        <Wrap>
-          {!placing ? days.map((dd, i) => <Chip key={dd.id} label={`Day ${i + 1}`} onPress={() => setPlacing(dd.id)} />) : (
-            <>
-              {(['morning', 'afternoon', 'evening'] as const).map((sl) => <Chip key={sl} label={SLOT_LABEL[sl]} tone="accent" onPress={async () => { await api.addDayStop(trip.trip.id, placing, { shortlistId: item.id, slot: sl }); setPlacing(null); await onChanged(); }} />)}
-              <Chip label="cancel" onPress={() => setPlacing(null)} />
-            </>
-          )}
-        </Wrap>
-      ) : null}
-    </Card>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Stay

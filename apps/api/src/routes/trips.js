@@ -358,9 +358,15 @@ router.patch('/:id/days/:dayId', async (req, res, next) => {
 
 const kindOfCategory = (c) => (['restaurant', 'cafe', 'pub', 'bar'].includes(c) ? 'food' : ['attraction', 'event'].includes(c) ? 'activity' : 'other');
 
-/** GET /api/trips/:id/shortlist/search?q=&categories=food|things&radiusKm=&near=lat,lng — near the base by default. */
+// What Find fetched for a trip is kept for hours (owner, 3 Sep 2026): going back to
+// the Find tab must not hit the sources again. Licensed content stays in memory only.
+const findCache = new Map();
+const FIND_TTL_MS = 12 * 3600_000;
+
+/** GET /api/trips/:id/shortlist/search?q=&categories=food|things&radiusKm=&near=lat,lng&refresh=1 — near the base by default. */
 router.get('/:id/shortlist/search', async (req, res, next) => {
   try {
+    const started = Date.now();
     const household = await currentHousehold();
     const trip = await loadTrip(req.params.id);
     let center = { lat: trip.base_lat ?? trip.origin_lat, lng: trip.base_lng ?? trip.origin_lng, label: trip.base_label ?? trip.origin_label };
@@ -373,13 +379,22 @@ router.get('/:id/shortlist/search', async (req, res, next) => {
     const categories = req.query.categories ? String(req.query.categories).split(',').filter(Boolean) : [];
     // The search form's picker wins; otherwise the trip's saved sources; otherwise the default set.
     const sources = req.query.sources != null ? optInFrom(req.query.sources) : (Array.isArray(trip.sources) ? trip.sources : []);
-    const { venues, degraded, sourcesQueried, units } = await searchAllSources({ center, radiusKm, categories, query: String(req.query.q || '').trim(), includeEvents: false, sources, locality: trip.locality ?? null });
-    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search', units]);
+    const q = String(req.query.q || '').trim();
+    const key = [trip.id, q.toLowerCase(), radiusKm, `${center.lat.toFixed(4)},${center.lng.toFixed(4)}`, categories.join(','), [...sources].sort().join(',')].join('|');
+    const hit = findCache.get(key);
     const { rows: existing } = await query('select venue_ref from trip_shortlist where trip_id = $1', [trip.id]);
     const have = new Set(existing.map((r) => r.venue_ref));
-    const results = venues.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, distanceKm: Number(kmBetween(center, v).toFixed(2)), onShortlist: have.has(`${v.source}:${v.sourcePlaceId}`) }))
+    const withFlags = (list) => list.map((v) => ({ ...v, onShortlist: have.has(v.venueRef) }));
+    if (hit && Date.now() - hit.at < FIND_TTL_MS && req.query.refresh !== '1') {
+      return res.json({ ...hit.payload, results: withFlags(hit.payload.results), cached: true, fetchedAt: new Date(hit.at).toISOString(), tookMs: Date.now() - started });
+    }
+    const { venues, degraded, sourcesQueried, units } = await searchAllSources({ center, radiusKm, categories, query: q, includeEvents: false, sources, locality: trip.locality ?? null });
+    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search', units]);
+    const results = venues.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, distanceKm: Number(kmBetween(center, v).toFixed(2)) }))
       .filter((v) => v.distanceKm <= radiusKm).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 120);
-    res.json({ near: center, radiusKm, results, degradedSources: degraded });
+    const payload = { near: center, radiusKm, results, degradedSources: degraded, sourcesQueried };
+    findCache.set(key, { at: Date.now(), payload });
+    res.json({ ...payload, results: withFlags(results), cached: false, fetchedAt: new Date().toISOString(), tookMs: Date.now() - started });
   } catch (err) { next(err); }
 });
 
