@@ -311,7 +311,8 @@ function rowsFor({ merged, places, checks, overnight, members = [] }) {
   const d = places.destination;
   const rows = [];
   const placeName = (pl) => (pl.locality && normName(pl.locality) !== normName(pl.label) && !pl.label.includes(',') ? `${pl.label}, ${pl.locality}` : pl.label);
-  rows.push(row('from', 'From', o ? (o.how === 'home' ? 'Home' : placeName(o)) : merged.origin || null));
+  // "Travelling from home with the family" is one line on the screen; a From row appears only when it is somewhere else, a Who row only when someone is left out.
+  if (!(o?.how === 'home' || (!o && HOME_WORDS.test(String(merged.origin || '').trim())))) rows.push(row('from', 'From', o ? placeName(o) : merged.origin || null));
   rows.push(row('to', 'To', d ? placeName(d) : merged.destination || null, !d && !merged.destination && o ? 'around where you start' : null));
   const date = merged.date ? dayWords(merged.date) : null;
   if (overnight) {
@@ -322,9 +323,8 @@ function rowsFor({ merged, places, checks, overnight, members = [] }) {
     const dur = merged.duration_minutes ? minutesWords(merged.duration_minutes) : null;
     rows.push(row('when', 'When', [date, dur].filter(Boolean).join(' · ') || null, merged.depart_time ? `leaving ${merged.depart_time}` : (date && !dur ? 'how long?' : null)));
   }
-  const everyone = merged.attending_everyone || (members.length > 1 && merged.attending?.length === members.length);
-  const who = everyone ? 'The family' : merged.attending?.length ? merged.attending.map(firstName).join(', ') : null;
-  rows.push(row('who', 'Who', who));
+  const everyone = merged.attending_everyone || (members.length > 1 && merged.attending?.length === members.length) || !merged.attending?.length;
+  if (!everyone) rows.push(row('who', 'Who', merged.attending.map(firstName).join(', ')));
   if (overnight || merged.stay) rows.push(row('stay', 'Stay', merged.stay || null, overnight && !merged.stay ? 'somewhere to sleep — not said' : null));
   const wants = merged.wants || [];
   const named = wants.filter(isNamedPlace);
@@ -360,11 +360,6 @@ function buildChecks({ merged, origin, destination, asks, anchorPlace, overnight
   const askedPlaces = Object.keys(asks).map((f) => normName(merged[f])).filter(Boolean);
   const aboutAPlace = q?.text && askedPlaces.some((pl) => normName(q.text).includes(pl));
   if (q?.text && q.choices?.length >= 2 && !aboutAPlace) add({ id: `q:${normName(q.text).slice(0, 40)}`, kind: 'open', field: null, text: q.text, choices: q.choices.map((c) => ({ label: c, say: c })), skippable: true });
-  if (members.length > 1 && !merged.attending?.length && merged.attending_everyone == null) {
-    const names = members.map((m) => m.name);
-    const list = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
-    add({ id: 'attending', kind: 'attending', field: 'who', text: `Is it all of you — ${list}?`, choices: [{ label: 'Yes, everyone', say: 'Yes, everyone is coming', value: 'all' }, ...members.map((m) => ({ label: `Without ${firstName(m.name)}`, say: `Everyone except ${m.name}`, value: `except:${m.id}` }))], skippable: true });
-  }
   if (overnight && !state.stayDecision) {
     const start = merged.date && /^\d{4}-\d{2}-\d{2}$/.test(merged.date) ? merged.date : null;
     const end = start ? (merged.end_date && merged.end_date > start ? merged.end_date : addDays(start, Math.max(1, Number(merged.nights) || 1))) : null;
@@ -951,6 +946,9 @@ router.post('/start', async (req, res, next) => {
     }
 
     const merged = mergeIntent(state.intent, intent);
+    // Unless said otherwise, the outing starts at home and everyone is coming (owner, 3 Sep 2026).
+    if (!merged.origin && household.home_lat != null) merged.origin = 'home';
+    if (!merged.attending?.length && merged.attending_everyone == null) merged.attending_everyone = true;
     // Ticks on the Who's coming row are the same statement as saying the names.
     if (Array.isArray(attendingMemberIds)) {
       const chosen = members.filter((m) => attendingMemberIds.includes(m.id));
@@ -1130,8 +1128,11 @@ router.post('/preview', async (req, res, next) => {
       purpose: 'plan.preview',
       effort: 'low',
       model: PREVIEW_MODEL,
+      thinking: 'off',
     }));
     const merged = mergeIntent(state.intent, intent);
+    if (!merged.origin && household.home_lat != null) merged.origin = 'home';
+    if (!merged.attending?.length && merged.attending_everyone == null) merged.attending_everyone = true;
     const overnight = (Number(merged.nights) || 0) >= 1 || Boolean(merged.end_date && merged.date && merged.end_date > merged.date);
     const places = {
       origin: merged.origin ? (HOME_WORDS.test(merged.origin.trim()) ? { label: 'Home', how: 'home' } : { label: merged.origin }) : null,

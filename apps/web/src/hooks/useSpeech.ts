@@ -27,10 +27,12 @@ function getRecognizer(): Recognizer | null {
 
 const join = (a: string, b: string) => [a.trim(), b.trim()].filter(Boolean).join(' ');
 
-export function useSpeech({ onFinal, lang = 'en-US' }: { onFinal: (text: string) => void; lang?: string }) {
+export function useSpeech({ onFinal, lang = 'en-GB' }: { onFinal: (text: string) => void; lang?: string }) {
   const recRef = useRef<Recognizer | null>(null);
   const wantRef = useRef(false);          // the household has not tapped Done or Cancel yet
   const finalRef = useRef('');            // phrases the recogniser has settled on, across restarts
+  const interimRef = useRef('');          // what it is still deciding on — kept if it stops mid-phrase
+  const restartsRef = useRef(0);
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [finalText, setFinalText] = useState('');
@@ -59,6 +61,7 @@ export function useSpeech({ onFinal, lang = 'en-US' }: { onFinal: (text: string)
         finalRef.current = join(finalRef.current, settled);
         setFinalText(finalRef.current);
       }
+      interimRef.current = pending;
       setInterim(pending);
     };
     rec.onerror = (event: any) => {
@@ -70,11 +73,25 @@ export function useSpeech({ onFinal, lang = 'en-US' }: { onFinal: (text: string)
       setListening(false);
     };
     rec.onend = () => {
-      // Browsers stop after a pause or a minute or so; keep going until Done.
-      if (wantRef.current) {
-        try { rec.start(); return; } catch { /* fall through */ }
+      // Browsers stop after a pause, a network blip or a minute or so; keep
+      // going until Done. Words it had not settled on are kept, not dropped,
+      // and a restart that the browser refuses straight away is tried again
+      // a moment later rather than treated as the household stopping.
+      if (!wantRef.current) { setListening(false); return; }
+      if (interimRef.current) {
+        finalRef.current = join(finalRef.current, interimRef.current);
+        interimRef.current = '';
+        setFinalText(finalRef.current);
+        setInterim('');
       }
-      setListening(false);
+      const attempt = (n: number) => {
+        if (!wantRef.current) { setListening(false); return; }
+        try { rec.start(); restartsRef.current += 1; } catch {
+          if (n < 5) setTimeout(() => attempt(n + 1), 150 * (n + 1));
+          else { wantRef.current = false; setListening(false); setError('The microphone stopped — tap Speak to carry on.'); }
+        }
+      };
+      attempt(0);
     };
 
     recRef.current = rec;
@@ -89,6 +106,8 @@ export function useSpeech({ onFinal, lang = 'en-US' }: { onFinal: (text: string)
     if (!recRef.current) return;
     setError(null);
     finalRef.current = '';
+    interimRef.current = '';
+    restartsRef.current = 0;
     setFinalText('');
     setInterim('');
     wantRef.current = true;
@@ -107,16 +126,18 @@ export function useSpeech({ onFinal, lang = 'en-US' }: { onFinal: (text: string)
     wantRef.current = false;
     try { recRef.current?.stop(); } catch { /* noop */ }
     setListening(false);
-    const text = join(finalRef.current, interim);
+    const text = join(finalRef.current, interimRef.current);
+    interimRef.current = '';
     setInterim('');
     if (text) onFinalRef.current(text);
-  }, [interim]);
+  }, []);
 
   /** Cancel: stop listening and keep nothing. */
   const cancel = useCallback(() => {
     wantRef.current = false;
     try { recRef.current?.abort(); } catch { /* noop */ }
     finalRef.current = '';
+    interimRef.current = '';
     setFinalText('');
     setInterim('');
     setListening(false);

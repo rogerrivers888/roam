@@ -89,6 +89,7 @@ export async function parseStructured({
   purpose,
   effort = 'medium',
   model = MODEL,
+  thinking = 'adaptive',
 }) {
   await assertWithinBounds({ householdId, sessionId });
 
@@ -97,7 +98,8 @@ export async function parseStructured({
     max_tokens: 4096,
     system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
     messages,
-    thinking: { type: 'adaptive' },
+    // A quick read of half a sentence (the live rows) needs speed, not reasoning: thinking off.
+    thinking: { type: thinking === 'off' ? 'disabled' : 'adaptive' },
     output_config: { effort, format: zodOutputFormat(schema) },
   });
 
