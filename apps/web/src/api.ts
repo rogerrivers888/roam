@@ -42,7 +42,7 @@ const qs = (o: Record<string, any>) => {
 // ---------------------------------------------------------------------------
 
 export type ConstraintKind = 'allergen' | 'diet' | 'dislike' | 'like';
-export type Constraint = { id: string; kind: ConstraintKind; value: string; conceptKey: string | null; conceptKind: string | null; maxMinutes?: number | null };
+export type Constraint = { id: string; kind: ConstraintKind; value: string; conceptKey: string | null; conceptKind: string | null; maxMinutes?: number | null; favourite?: boolean };
 
 export type Member = {
   id: string;
@@ -197,7 +197,7 @@ export const api = {
   deleteMember: (id: string) => del<void>(`/api/household/members/${id}`),
   addConstraint: (memberId: string, body: { kind: ConstraintKind; value: string; conceptKey?: string; maxMinutes?: number | null }) =>
     post<{ constraint: Constraint; resolved: { key: string; label: string; kind: string } | null; suggestions: Suggestion[]; hint: string | null }>(`/api/household/members/${memberId}/constraints`, body),
-  updateConstraint: (id: string, body: { maxMinutes: number | null }) => patch<{ constraint: any }>(`/api/household/constraints/${id}`, body),
+  updateConstraint: (id: string, body: { maxMinutes?: number | null; favourite?: boolean }) => patch<{ constraint: any }>(`/api/household/constraints/${id}`, body),
   deleteConstraint: (id: string) => del<void>(`/api/household/constraints/${id}`),
   learned: () => request<{ learned: Learned[]; threshold: number }>('/api/household/learned'),
   exportUrl: () => `${API_URL}/api/household/export`,

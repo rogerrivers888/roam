@@ -409,7 +409,7 @@ function StopRow({ stop, dim, pinned, busy, onLike, onDislike }: {
         {stop.reasons.length ? (
           <Wrap>
             {stop.reasons.slice(0, 3).map((r, i) => (
-              <Chip key={i} label={r.text} tone={r.kind === 'dislike' ? 'dislike' : r.kind === 'want' ? 'want' : 'like'} />
+              <Chip key={i} label={r.text} tone={r.kind === 'dislike' ? 'dislike' : r.kind === 'want' ? 'want' : 'like'} icon={r.kind === 'favourite' ? '★' : undefined} />
             ))}
           </Wrap>
         ) : null}

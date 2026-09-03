@@ -14,12 +14,18 @@ export function SuggestInput({
   onPick,
   onFree,
   autoFocus,
+  onFocus,
+  onBrowse,
 }: {
   placeholder: string;
   kinds?: string[];
   onPick: (s: Suggestion) => void | Promise<void>;
   onFree: (text: string) => void | Promise<void>;
   autoFocus?: boolean;
+  /** Called when the field gains focus — the household screen opens the browse panel here. */
+  onFocus?: () => void;
+  /** Renders a Browse button in the same row as Add, so the two always sit level. */
+  onBrowse?: () => void;
 }) {
   const [text, setText] = useState('');
   const [items, setItems] = useState<Suggestion[]>([]);
@@ -61,15 +67,20 @@ export function SuggestInput({
           placeholderTextColor={colors.inkFaint}
           style={styles.input}
           autoFocus={autoFocus}
-          onFocus={() => items.length && setOpen(true)}
+          onFocus={() => { if (items.length) setOpen(true); onFocus?.(); }}
           // Enter keeps your words unless a pill is an exact match; pills are a tap away.
           onSubmitEditing={() => (items[0] && items[0].score >= 0.97 ? pick(items[0]) : commitFree())}
           returnKeyType="done"
           autoCapitalize="none"
         />
-        <Pressable onPress={commitFree} style={styles.add} accessibilityRole="button" accessibilityLabel="Add as typed">
+        <Pressable onPress={commitFree} style={[styles.add, !text.trim() && { opacity: 0.5 }]} disabled={!text.trim()} accessibilityRole="button" accessibilityLabel="Add as typed">
           <Text style={styles.addText}>Add</Text>
         </Pressable>
+        {onBrowse ? (
+          <Pressable onPress={onBrowse} style={styles.add} accessibilityRole="button" accessibilityLabel="Browse the list">
+            <Text style={styles.addText}>Browse</Text>
+          </Pressable>
+        ) : null}
       </View>
       {open && items.length ? (
         <View style={styles.pills}>
