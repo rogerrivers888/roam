@@ -44,24 +44,27 @@ Place data is a local fixture set (`apps/api/src/sources/fixtures.js`) — inven
 
 ## Deploying as two services
 
-Each app is its own service with its own environment. Nothing here creates or configures infrastructure; it only defines what a service needs.
+Each app is its own Railway service in project `roam`, both connected to this repo's `main` branch at the **repo root** (so the root lockfile and workspaces install deterministically). Per-service commands are set with Railpack's documented override variables rather than a root directory, because the CLI cannot set a root directory:
 
-| Service | Root | Build | Start | Listens on |
-|---|---|---|---|---|
-| `api` | `apps/api` | — | `npm start` (run `npm run migrate` before it on each deploy) | `0.0.0.0:$PORT` |
-| `web` | `apps/web` | `npm run build` (`expo export --platform web`) | `npm start` (static files from `dist/`) | `0.0.0.0:$PORT` |
+| Service | Variables that define it (non-secret) | Listens on |
+|---|---|---|
+| `api` | `RAILPACK_START_CMD = npm run migrate -w @roam/api && npm start -w @roam/api` | `0.0.0.0:$PORT` |
+| `web` | `RAILPACK_BUILD_CMD = npm run build -w @roam/web` · `RAILPACK_START_CMD = npm start -w @roam/web` · `EXPO_PUBLIC_API_URL = <public URL of api>` | `0.0.0.0:$PORT` |
 
-From the repo root the same commands are `npm run <script> -w @roam/api` / `-w @roam/web`.
+Postgres is a Railway Postgres service in the same project; the `api` needs its `DATABASE_URL`.
 
-### Variables
+### Where variables live
+
+**Secrets come from Doppler at runtime** — never in the repo and never set directly as Railway variables (see `CLAUDE.md`). If the Doppler → Railway sync is configured to manage *all* variables on a service, the non-secret entries above must be mirrored in Doppler too, or the sync will remove them.
 
 **api**
 
 | Variable | Required | Notes |
 |---|---|---|
 | `PORT` | set by the platform | |
-| `DATABASE_URL` | yes | Postgres connection string |
-| `ANTHROPIC_API_KEY` | yes | conversational planner |
+| `DATABASE_URL` | yes | Postgres connection string (Doppler) |
+| `ANTHROPIC_API_KEY` | yes | conversational planner (Doppler) |
+| `RAILPACK_START_CMD` | yes | see table above (non-secret) |
 | `ROAM_SOURCES` | no | comma-separated enabled place sources; default `fixtures` |
 | `ROAM_SESSION_CALL_BOUND` / `ROAM_HOUSEHOLD_MONTHLY_CALL_BOUND` | no | spend containment bounds; defaults 40 / 3000 |
 | `ROAM_MERGE_THRESHOLD` | no | entity-resolution confidence; default 0.75 |
@@ -71,6 +74,7 @@ From the repo root the same commands are `npm run <script> -w @roam/api` / `-w @
 | Variable | Required | Notes |
 |---|---|---|
 | `PORT` | set by the platform | |
+| `RAILPACK_BUILD_CMD`, `RAILPACK_START_CMD` | yes | see table above (non-secret) |
 | `EXPO_PUBLIC_API_URL` | yes, **at build time** | Public URL of the `api` service. `EXPO_PUBLIC_*` values are inlined into the bundle by `expo export`; setting it only at runtime has no effect, and it must never hold a secret. |
 
-Provider keys for place, routing, event and speech sources are added to `api` as each source is enabled (Technical Constraints §11), never to `web`.
+Provider keys for place, routing, event and speech sources are added to `api` (via Doppler) as each source is enabled (Technical Constraints §11), never to `web`.
