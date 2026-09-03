@@ -8,11 +8,12 @@ import { PlacesScreen } from './src/screens/PlacesScreen';
 import { TripsScreen, TripPrefill } from './src/screens/TripsScreen';
 import { HouseholdScreen } from './src/screens/HouseholdScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { PrototypesScreen } from './src/screens/PrototypesScreen';
 import { Brand, BRAND_GROUND } from './src/components/Brand';
 import { useViewport, ViewportProvider } from './src/hooks/useViewport';
 import { Icon, IconName } from './src/components/Icon';
 
-type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings';
+type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes';
 const TABS: { key: Tab; label: string; icon: IconName }[] = [
   { key: 'plan', label: 'Plan', icon: 'plan' },
   { key: 'places', label: 'Places', icon: 'places' },
@@ -98,7 +99,7 @@ function Shell() {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return { tab: null as Tab | null, trip: null as string | null };
     const q = new URLSearchParams(window.location.search);
     const t = q.get('tab');
-    return { tab: TABS.some((x) => x.key === t) ? (t as Tab) : null, trip: q.get('trip') };
+    return { tab: TABS.some((x) => x.key === t) || t === 'prototypes' ? (t as Tab) : null, trip: q.get('trip') };
   }, []);
   const [tab, setTab] = useState<Tab>(fromUrl.tab ?? 'plan');
   const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking');
@@ -129,6 +130,7 @@ function Shell() {
       {tab === 'trips' ? <TripsScreen household={household} refreshHousehold={refreshHousehold} prefill={tripPrefill} onPrefillConsumed={() => setTripPrefill(null)} /> : null}
       {tab === 'household' ? <HouseholdScreen data={household} refresh={refreshHousehold} /> : null}
       {tab === 'settings' ? <SettingsScreen data={household} refresh={refreshHousehold} /> : null}
+      {tab === 'prototypes' ? <PrototypesScreen /> : null}
     </>
   );
 
@@ -161,6 +163,11 @@ function Shell() {
                 <Text style={[styles.navLabel, tab === t.key && { color: colors.accent }]}>{t.label}</Text>
               </Pressable>
             ))}
+            {/* Desktop only: the served mock-up pages, for review — not part of the phone app. */}
+            <Pressable onPress={() => setTab('prototypes')} style={[styles.navItem, tab === 'prototypes' && styles.navItemActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === 'prototypes' }}>
+              <View style={styles.navIcon}><Icon name="list" size={18} color={tab === 'prototypes' ? colors.accent : colors.inkMuted} /></View>
+              <Text style={[styles.navLabel, tab === 'prototypes' && { color: colors.accent }]}>Prototypes</Text>
+            </Pressable>
             <View style={{ flex: 1 }} />
             {household ? <Text style={type.tiny}>{household.household.name} · {household.members.length} people</Text> : null}
             {status}
