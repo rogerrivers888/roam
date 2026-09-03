@@ -45,10 +45,7 @@ function shortLabel(row, locality) {
   return `${name}, ${locality}`;
 }
 
-/** Free text → candidate places, best first. */
-export async function geocode(text, { limit = 5, near = null } = {}) {
-  const q = String(text || '').trim();
-  if (!q) return [];
+async function searchOnce(q, { limit, near }) {
   const params = new URLSearchParams({ q, format: 'jsonv2', addressdetails: '1', limit: String(limit), 'accept-language': 'en' });
   if (near?.lat != null) {
     // Bias toward the household's area without excluding the rest of the world.
@@ -57,6 +54,55 @@ export async function geocode(text, { limit = 5, near = null } = {}) {
   }
   const rows = await politeFetch(`${BASE}/search?${params}`);
   return rows.map(shape);
+}
+
+// UK-style postcodes; other countries' codes are usually plain digits that the
+// town fallback handles well enough.
+const POSTCODE = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
+
+/**
+ * Free text → candidate places, best first.
+ *
+ * Real addresses often fail as one string ("Fairways, Titlarks Hill, Ascot,
+ * SL5 0JD" matches nothing), so the lookup degrades deliberately: the whole
+ * thing, then without the first component (a house name), then the postcode,
+ * then the town. When a fallback wins, the label keeps what the user typed so
+ * "home" still reads as their address, and `matchedBy` says how precise it is.
+ */
+export async function geocode(text, { limit = 5, near = null } = {}) {
+  const q = String(text || '').trim();
+  if (!q) return [];
+
+  const attempts = [{ q, matchedBy: 'address' }];
+  const parts = q.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 3) attempts.push({ q: parts.slice(1).join(', '), matchedBy: 'street' });
+  const pc = POSTCODE.exec(q);
+  if (pc) attempts.push({ q: pc[1].toUpperCase(), matchedBy: 'postcode' });
+  if (parts.length >= 2) {
+    // The town is usually the last non-country, non-postcode component.
+    const town = [...parts].reverse().find((p) => !POSTCODE.test(p) && !/^(uk|united kingdom|england|scotland|wales|usa|united states)$/i.test(p) && p !== parts[0]);
+    if (town) attempts.push({ q: town, matchedBy: 'town' });
+  }
+
+  const tried = new Set();
+  for (const attempt of attempts) {
+    const key = attempt.q.toLowerCase();
+    if (tried.has(key)) continue;
+    tried.add(key);
+    const rows = await searchOnce(attempt.q, { limit, near });
+    if (rows.length) {
+      if (attempt.matchedBy === 'address') return rows.map((r) => ({ ...r, matchedBy: 'address' }));
+      // Approximate: keep the user's wording as the label, say how it was matched.
+      return rows.map((r) => ({
+        ...r,
+        label: parts.length > 1 ? `${parts[0]}, ${r.label}` : r.label,
+        displayName: `${q} — placed by ${attempt.matchedBy} (${r.displayName})`,
+        matchedBy: attempt.matchedBy,
+        approximate: true,
+      }));
+    }
+  }
+  return [];
 }
 
 /** Coordinates → country and locality, for grouping trips by where they happened. */

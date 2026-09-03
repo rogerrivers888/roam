@@ -20,22 +20,25 @@ export function PlacePicker({
   extra?: Place[];
 }) {
   const [text, setText] = useState('');
-  const [items, setItems] = useState<Place[]>([]);
+  const [items, setItems] = useState<(Place & { matchedBy?: string; approximate?: boolean })[]>([]);
   const [busy, setBusy] = useState(false);
+  const [searched, setSearched] = useState('');
   const [attribution, setAttribution] = useState('');
   const timer = useRef<any>(null);
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
-    if (text.trim().length < 3) { setItems([]); return; }
+    if (text.trim().length < 3) { setItems([]); setSearched(''); return; }
+    // Wait for a pause in typing: each lookup is a real request to a shared, rate-limited service.
     timer.current = setTimeout(async () => {
       setBusy(true);
       try {
         const r = await api.geocode(text, 5);
-        setItems(r.results);
+        setItems(r.results as any);
         setAttribution(r.attribution);
-      } catch { setItems([]); } finally { setBusy(false); }
-    }, 350);
+        setSearched(text);
+      } catch { setItems([]); setSearched(text); } finally { setBusy(false); }
+    }, 600);
     return () => clearTimeout(timer.current);
   }, [text]);
 
@@ -64,11 +67,16 @@ export function PlacePicker({
       {busy ? <Text style={type.tiny}>Looking…</Text> : null}
       {items.map((p, i) => (
         <Pressable key={`${p.lat},${p.lng},${i}`} onPress={() => { onPick(p); setText(''); setItems([]); }} style={styles.result} accessibilityRole="button">
-          <Text style={type.h3}>{p.label}</Text>
-          <Text style={type.tiny} numberOfLines={1}>{p.displayName}</Text>
+          <Text style={type.h3}>{p.label}{p.approximate ? '  ·  approx.' : ''}</Text>
+          <Text style={type.tiny} numberOfLines={2}>{p.displayName}</Text>
         </Pressable>
       ))}
-      {items.length ? <Text style={type.tiny}>{attribution}</Text> : null}
+      {!busy && searched && searched === text && items.length === 0 ? (
+        <Text style={[type.small, { color: colors.dislike }]}>
+          Nothing matched "{searched}". Try the postcode on its own, or the street and town without the house name.
+        </Text>
+      ) : null}
+      {items.length ? <Text style={type.tiny}>{attribution} · Tap a result to use it.</Text> : null}
     </View>
   );
 }
