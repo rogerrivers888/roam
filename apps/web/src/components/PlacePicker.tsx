@@ -12,12 +12,21 @@ export function PlacePicker({
   placeholder = 'Town, address or landmark',
   onPick,
   extra,
+  near,
+  countryCode,
+  kind,
 }: {
   value: Place | null;
   placeholder?: string;
   onPick: (p: Place | null) => void;
   /** Extra fixed choices shown first, e.g. Home. */
   extra?: Place[];
+  /** Look here first — the city a trip is in — so "Hilton" for Rome is not London's Hiltons. */
+  near?: Place | null;
+  /** Never leave this country (ISO code, e.g. IT). */
+  countryCode?: string | null;
+  /** What is being looked for: 'lodging' also tries "<name> hotel". */
+  kind?: 'lodging' | null;
 }) {
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(false);
@@ -34,14 +43,16 @@ export function PlacePicker({
     timer.current = setTimeout(async () => {
       setBusy(true);
       try {
-        const r = await api.geocode(text, 5);
+        const r = await api.geocode(text, 5, { near, country: countryCode ?? near?.countryCode ?? null, kind });
         setItems(r.results as any);
         setAttribution(r.attribution);
         setSearched(text);
       } catch { setItems([]); setSearched(text); } finally { setBusy(false); }
     }, 600);
     return () => clearTimeout(timer.current);
-  }, [text]);
+  }, [text, near?.lat, near?.lng, countryCode, kind]);
+
+  const biasName = near ? (near.locality ?? near.label) : null;
 
   const choose = (p: Place) => { onPick(p); setEditing(false); setText(''); setItems([]); };
 
@@ -73,6 +84,7 @@ export function PlacePicker({
       ) : null}
       <TextInput value={text} onChangeText={setText} placeholder={placeholder} placeholderTextColor={colors.inkFaint} style={styles.input} autoCapitalize="words" onSubmitEditing={() => { if (items[0]) choose(items[0]); }} returnKeyType="search" autoFocus={editing} />
       {value && editing ? <Pressable onPress={() => { setEditing(false); setText(''); setItems([]); }} style={styles.change}><Text style={type.small}>Cancel — keep "{value.formatted ?? value.label}"</Text></Pressable> : null}
+      {biasName ? <Text style={type.tiny}>Looking in {biasName}{near?.country ? `, ${near.country}` : ''} first{countryCode || near?.countryCode ? ' — results stay in the same country' : ''}.</Text> : null}
       {busy ? <Text style={type.tiny}>Looking…</Text> : null}
       {items.map((p, i) => (
         <Pressable key={`${p.lat},${p.lng},${i}`} onPress={() => choose(p)} style={styles.result} accessibilityRole="button">
@@ -85,7 +97,7 @@ export function PlacePicker({
       ))}
       {!busy && searched && searched === text && items.length === 0 ? (
         <Text style={[type.small, { color: colors.dislike }]}>
-          Nothing matched "{searched}". Try the postcode on its own, or the street and town without the house name.
+          Nothing matched "{searched}"{biasName ? ` in or around ${biasName}` : ''}. Try the postcode on its own, or the street and town without the house name.
         </Text>
       ) : null}
       {items.length ? <Text style={type.tiny}>{attribution} · Tap a result to use it.</Text> : null}

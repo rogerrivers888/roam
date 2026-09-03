@@ -139,7 +139,8 @@ places.get('/geocode', async (req, res, next) => {
     const m = /^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/.exec(String(req.query.near || ''));
     const near = m ? { lat: Number(m[1]), lng: Number(m[3]) } : await homeOf(household);
     const countryCode = /^[A-Za-z]{2}$/.test(String(req.query.country || '')) ? String(req.query.country).toUpperCase() : null;
-    const results = await geocode(String(req.query.q || ''), { limit: Number(req.query.limit) || 6, near, countryCode, within: Boolean(m) });
+    const kind = req.query.kind === 'lodging' ? 'lodging' : null;
+    const results = await geocode(String(req.query.q || ''), { limit: Number(req.query.limit) || 6, near, countryCode, within: Boolean(m), kind });
     await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'osm-nominatim', 'places.geocode']);
     res.json({ results, attribution: '© OpenStreetMap contributors' });
   } catch (err) {

@@ -91,7 +91,7 @@ const POSTCODE = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
  * then the town. When a fallback wins, the label keeps what the user typed so
  * "home" still reads as their address, and `matchedBy` says how precise it is.
  */
-export async function geocode(text, { limit = 5, near = null, countryCode = null, within = false } = {}) {
+export async function geocode(text, { limit = 5, near = null, countryCode = null, within = false, kind = null } = {}) {
   const q = String(text || '').trim();
   if (!q) return [];
   // `within`: look inside the area around `near` first (a trip's city), then
@@ -99,6 +99,11 @@ export async function geocode(text, { limit = 5, near = null, countryCode = null
   const passes = within && near?.lat != null ? [{ bounded: true }, { bounded: false }] : [{ bounded: false }];
 
   const attempts = [{ q, matchedBy: 'address' }];
+  // A hotel typed by its short name ("Cavalieri") is indexed under its full one
+  // ("Rome Cavalieri, A Waldorf Astoria Hotel"); adding the word finds it, and
+  // it must be tried first or a square of the same name wins. The result is the
+  // real place, so it is an exact match, not a guess.
+  if (kind === 'lodging' && !/\b(hotel|hostel|b&b|inn|resort|apartment|villa)\b/i.test(q)) attempts.unshift({ q: `${q} hotel`, matchedBy: 'address' });
   const parts = q.split(',').map((p) => p.trim()).filter(Boolean);
   if (parts.length >= 3) attempts.push({ q: parts.slice(1).join(', '), matchedBy: 'street' });
   const pc = POSTCODE.exec(q);

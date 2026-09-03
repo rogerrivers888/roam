@@ -186,7 +186,7 @@ router.post('/', async (req, res, next) => {
       let place = b.place?.lat != null ? b.place : null;
       if (!place && b.placeText) [place] = await geocode(b.placeText, { limit: 1 });
       let base = b.base?.lat != null ? b.base : null;
-      if (!base && b.baseText) [base] = await geocode(b.baseText, { limit: 1, near: place, countryCode: place?.countryCode ?? null, within: Boolean(place) });
+      if (!base && b.baseText) [base] = await geocode(b.baseText, { limit: 1, near: place, countryCode: place?.countryCode ?? null, within: Boolean(place), kind: 'lodging' });
       if (!base && (b.baseKind === 'home' || (!place && home))) base = home;
       if (!base && place) base = { ...place, label: `${place.label} (centre)` };
       if (!base) return res.status(400).json({ error: 'place_required', message: 'Say where the trip is — a city or region — or where you are staying.' });
@@ -266,7 +266,7 @@ router.patch('/:id', async (req, res, next) => {
     if (b.travelMode && !TRAVEL_MODES.includes(b.travelMode)) return res.status(400).json({ error: 'invalid_mode' });
     if (b.intensity && !INTENSITY_TARGETS[b.intensity]) return res.status(400).json({ error: 'invalid_intensity' });
     let base = b.base?.lat != null ? b.base : null;
-    if (!base && b.baseText) [base] = await geocode(b.baseText, { limit: 1, near: { lat: trip.base_lat ?? trip.origin_lat, lng: trip.base_lng ?? trip.origin_lng }, countryCode: trip.country_code ?? null, within: true });
+    if (!base && b.baseText) [base] = await geocode(b.baseText, { limit: 1, near: { lat: trip.base_lat ?? trip.origin_lat, lng: trip.base_lng ?? trip.origin_lng }, countryCode: trip.country_code ?? null, within: true, kind: 'lodging' });
     await withTransaction(async (client) => {
       const { rows } = await client.query(
         `update trips set

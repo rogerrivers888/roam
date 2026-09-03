@@ -6,6 +6,7 @@ import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap, clock, minutes } 
 import { TimeBar } from '../components/TimeBar';
 import { FaceRow } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
+import { DateRangePicker, monthSpanLabel } from '../components/DateRangePicker';
 import { MapView, MapPin } from '../components/MapView';
 import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
@@ -144,20 +145,34 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Where first, then the name: the name starts with the city, so two Rome
+  // trips read as "Rome · half-term" and "Rome · Oct 2026", never "Roma Oct 26" alone.
+  const shortName = (p: Place | null) => (!p ? '' : home && p.lat === home.lat && p.lng === home.lng ? 'Home' : (p.locality ?? p.label.split(',')[0].trim()));
+  const city = kind === 'trip' ? (place ? shortName(place) : placeText.trim()) : shortName(to) || shortName(from);
+  const defaultTitle = kind === 'trip'
+    ? (city ? `${city} · ${monthSpanLabel(start, end)}` : '')
+    : (to ? `${shortName(from) || 'Home'} → ${shortName(to)}` : from ? `Around ${shortName(from)}` : '');
+  const savedTitle = (() => {
+    const t = title.trim();
+    if (!t) return defaultTitle || undefined;
+    if (!city || t.toLowerCase().includes(city.toLowerCase())) return t;
+    return `${city} · ${t}`;
+  })();
+
   const submit = async () => {
     setBusy(true); setError(null);
     try {
       if (kind === 'trip') {
         if (!place && !placeText.trim()) { setError('Where is the trip? Pick a city or region.'); setBusy(false); return; }
         const t = await api.createMultiDayTrip({
-          title: title.trim() || undefined, place: place ?? undefined, placeText: place ? undefined : placeText.trim(), startDate: start, endDate: end,
+          title: savedTitle, place: place ?? undefined, placeText: place ? undefined : placeText.trim(), startDate: start, endDate: end,
           base: base ?? undefined, baseKind: base ? baseKind : 'other', hasCar, dayStart, dayEnd, intensity, attendingMemberIds: [...attending], seedFromAtlas: seed,
         });
         await onCreated(t);
       } else {
         if (!from) { setError('Where does it start?'); setBusy(false); return; }
         const t = await api.createTrip({
-          title: title.trim() || undefined, origin: from, destination: to ?? undefined,
+          title: savedTitle, origin: from, destination: to ?? undefined,
           departAt: new Date(`${start}T${oStart}:00`).toISOString(), returnAt: new Date(`${start}T${oEnd}:00`).toISOString(),
           travelMode: mode, intensity, attendingMemberIds: [...attending],
         });
@@ -166,29 +181,36 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
+  const nameField = (
+    <>
+      <Text style={type.h3}>Name</Text>
+      <Row>
+        {city ? <View style={styles.prefix}><Text style={type.h3}>{city} ·</Text></View> : null}
+        <TextInput value={title} onChangeText={setTitle} placeholder={city ? (kind === 'trip' ? `${monthSpanLabel(start, end)} (or your own — half-term, Gina's birthday…)` : 'Saturday at the coast…') : 'Pick where first'} placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
+      </Row>
+      {savedTitle ? <Text style={type.tiny}>Saved as “{savedTitle}”.</Text> : null}
+    </>
+  );
+
   return (
     <Card style={{ borderColor: colors.accent }}>
       <Segmented value={kind} options={[{ value: 'trip', label: 'Trip away (dates)' }, { value: 'outing', label: 'Day out (hours)' }]} onChange={setKind} />
-      <TextInput value={title} onChangeText={setTitle} placeholder={kind === 'trip' ? 'Title (optional) — e.g. Lisbon half-term' : 'Title (optional) — e.g. Saturday at the coast'} placeholderTextColor={colors.inkFaint} style={styles.input} />
 
       {kind === 'trip' ? (
         <>
           <Text style={type.h3}>Where</Text>
-          {place ? <PlacePicker value={place} onPick={setPlace} /> : (
+          {place ? <PlacePicker value={place} onPick={setPlace} countryCode={prefill?.countryCode} /> : (
             <>
               <TextInput value={placeText} onChangeText={setPlaceText} placeholder="City or region — Lisbon, the Lake District, New York" placeholderTextColor={colors.inkFaint} style={styles.input} />
               <Text style={type.tiny}>Or pick precisely:</Text>
-              <PlacePicker value={null} onPick={(p) => { setPlace(p); setPlaceText(''); }} placeholder="Search a city or region" />
+              <PlacePicker value={null} onPick={(p) => { setPlace(p); setPlaceText(''); }} placeholder="Search a city or region" countryCode={prefill?.countryCode} />
             </>
           )}
           <Text style={type.h3}>Dates</Text>
-          <Row>
-            <TextInput value={start} onChangeText={setStart} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
-            <Text style={type.small}>to</Text>
-            <TextInput value={end} onChangeText={setEnd} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
-          </Row>
+          <DateRangePicker start={start} end={end} onApply={(s, e) => { setStart(s); setEnd(e); }} />
+          {nameField}
           <Text style={type.h3}>Staying at</Text>
-          <PlacePicker value={base} onPick={setBase} placeholder="Hotel, rental or address (optional — city centre if empty)" />
+          <PlacePicker value={base} onPick={setBase} near={place} countryCode={place?.countryCode} kind="lodging" placeholder={city ? `Hotel, rental or address in ${city} (optional)` : 'Hotel, rental or address (optional — city centre if empty)'} />
           {base ? <Wrap>{(['hotel', 'rental', 'friends', 'other'] as const).map((k) => <Chip key={k} label={k} selected={baseKind === k} onPress={() => setBaseKind(k)} />)}</Wrap> : null}
           <Row style={{ justifyContent: 'space-between' }}>
             <Text style={type.body}>We'll have a car</Text>
@@ -213,14 +235,17 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
           <Text style={type.h3}>From</Text>
           <PlacePicker value={from} onPick={setFrom} extra={home ? [home] : []} />
           <Text style={type.h3}>To (optional)</Text>
-          <PlacePicker value={to} onPick={setTo} />
+          <PlacePicker value={to} onPick={setTo} near={from} />
+          <Text style={type.h3}>When</Text>
+          <DateRangePicker start={start} end={start} single onApply={(s) => setStart(s)} />
           <Row>
-            <TextInput value={start} onChangeText={setStart} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
+            <Text style={[type.small, { flex: 1 }]}>Out from</Text>
             <TextInput value={oStart} onChangeText={setOStart} style={[styles.input, { width: 80 }]} />
             <Text style={type.small}>to</Text>
             <TextInput value={oEnd} onChangeText={setOEnd} style={[styles.input, { width: 80 }]} />
           </Row>
           <Segmented value={mode} options={[{ value: 'walking', label: 'Walk' }, { value: 'cycling', label: 'Cycle' }, { value: 'driving', label: 'Drive' }, { value: 'transit', label: 'Transit' }]} onChange={setMode} />
+          {nameField}
         </>
       )}
 
@@ -568,7 +593,7 @@ function ShortlistPanel({ d, onChanged }: { d: TripDetail; onChanged: () => Prom
       {searching ? (
         <Card>
           <Text style={type.tiny}>Near</Text>
-          <PlacePicker value={near} onPick={setNear} extra={trip.base ? [{ label: trip.base.label, lat: trip.base.lat, lng: trip.base.lng }] : []} placeholder="A neighbourhood, landmark or address (default: where you're staying)" />
+          <PlacePicker value={near} onPick={setNear} extra={trip.base ? [{ label: trip.base.label, lat: trip.base.lat, lng: trip.base.lng }] : []} placeholder="A neighbourhood, landmark or address (default: where you're staying)" near={trip.base ? { label: trip.locality ?? trip.base.label, lat: trip.base.lat, lng: trip.base.lng, locality: trip.locality, country: trip.country, countryCode: trip.countryCode } : null} countryCode={trip.countryCode} />
           <Row>
             <TextInput value={q} onChangeText={setQ} placeholder="Name contains… (optional)" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} onSubmitEditing={search} />
             <Button label="Search" onPress={search} loading={busy} />
@@ -645,7 +670,7 @@ function StayPanel({ d, onChanged, onFindNear }: { d: TripDetail; onChanged: () 
     <View style={{ gap: spacing.md }}>
       <Card>
         <Text style={type.h3}>Where we're staying</Text>
-        <PlacePicker value={trip.base ? { label: trip.base.label, lat: trip.base.lat, lng: trip.base.lng, formatted: trip.base.label } : null} onPick={async (p) => { if (p) { await api.updateTripV2(trip.id, { base: p, baseKind: 'hotel' }); await onChanged(); } }} placeholder="Hotel, rental or address" />
+        <PlacePicker value={trip.base ? { label: trip.base.label, lat: trip.base.lat, lng: trip.base.lng, formatted: trip.base.label } : null} onPick={async (p) => { if (p) { await api.updateTripV2(trip.id, { base: p, baseKind: 'hotel' }); await onChanged(); } }} placeholder={trip.locality ? `Hotel, rental or address in ${trip.locality}` : 'Hotel, rental or address'} kind="lodging" near={trip.base ? { label: trip.locality ?? trip.base.label, lat: trip.base.lat, lng: trip.base.lng, locality: trip.locality, country: trip.country, countryCode: trip.countryCode } : null} countryCode={trip.countryCode} />
         {trip.base ? (
           <Row>
             <TextInput value={checkIn} onChangeText={setCheckIn} placeholder="Check-in 15:00" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
@@ -669,6 +694,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   split: { gap: spacing.md },
   input: { minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink },
+  prefix: { minHeight: TARGET, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.accentSoft },
   statRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
   stat: { flex: 1, minWidth: 120, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, alignItems: 'center' },
   dayChip: { padding: spacing.md, borderRadius: radius.md, borderWidth: 2, borderColor: colors.line, backgroundColor: colors.surfaceMuted, minWidth: 140 },

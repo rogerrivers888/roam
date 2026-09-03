@@ -51,7 +51,8 @@ const TripIntent = z.object({
   intensity: z.enum(['relaxed', 'balanced', 'packed']).nullable().describe('How full they want the time; infer only from explicit cues like "relaxed", "pack it in"'),
   wants: z.array(z.string()).describe('Specific things asked for, e.g. "ramen", "somewhere with live music", "a park"'),
   avoids: z.array(z.string()).describe('Things explicitly not wanted'),
-  attending: z.array(z.string()).describe('Household member names mentioned as coming; empty means everyone'),
+  attending: z.array(z.string()).describe('Household member names mentioned as coming; empty if nobody was named'),
+  attending_everyone: z.boolean().nullable().describe('True if they said everyone, all of us or the whole family is coming, or answered yes when the app asked whether everyone is coming; false if they named only some people; null if who is coming was not mentioned'),
   special: z.boolean().describe('True if they want somewhere special — a treat, an occasion, worth going further for'),
   reply: z.string().describe('One short, warm sentence acknowledging what was understood, or asking for the single most important missing detail'),
 });
@@ -86,7 +87,9 @@ const Refinement = z.object({
 
 const INTERPRET_SYSTEM = `You turn what a family says about an outing into a structured trip request.
 
-You are given the household (members, defaults) and a list of place names the app knows. Extract only what was said; do not invent an origin, duration or preferences. If the origin or the duration is missing, say so in the reply by asking for that one thing, briefly and warmly. Durations like "three hours" become minutes. "From X to Y" means origin X, destination Y. "Around here", "near us" and "home" mean the origin is Home. If the user names a place the app does not know, keep their wording in origin/destination anyway.
+You are given the household (members, defaults) and a list of place names the app knows. Extract only what was said; do not invent an origin, duration or preferences. If the origin or the duration is missing, say so in the reply by asking for that one thing, briefly and warmly. Durations like "three hours" become minutes. "From X to Y" means origin X, destination Y. Any way of saying home — "home", "from home", "our house", "from ours", "around here", "near us", or the household's own home address if the context shows one — means the origin is exactly the word "home". If the user names a place the app does not know, keep their wording in origin/destination anyway.
+
+Who is coming: names go in attending. "Everyone", "all of us", "the whole family", or "yes" in answer to the app asking whether everyone is coming, means attending_everyone is true. If nobody is mentioned, leave attending empty and attending_everyone null; the app will ask. The context may include the question the app last asked: a short answer like "yes", "home" or "three hours" answers that question.
 
 Dates: resolve "Saturday", "tomorrow", "next Friday" to a YYYY-MM-DD from today's date in the context. Durations: "spend three hours there" is time at the destination and excludes travel. A fixed commitment (a show, a match, a booking) with a time is an anchor, not a departure — fill in the anchor with the venue if you know it (well-known productions and teams have known venues), and leave place_text null if you are not sure rather than guessing.
 
@@ -128,6 +131,7 @@ function householdContext(household, members) {
     now: new Date().toTimeString().slice(0, 5),
     household: {
       name: household.name,
+      home: household.home_lat != null ? household.home_label : null,
       defaultVisitMinutes: household.default_visit_minutes,
       maxTravelMinutes: household.max_travel_minutes,
       defaultIntensity: household.default_intensity,
@@ -147,10 +151,14 @@ function householdContext(household, members) {
  * Where a spoken place is: the household's home, a place the app knows, or —
  * for anywhere else in the world — a geocoded match biased toward home.
  */
+// "home", "from home", "our house", "from ours", "the house", "my place"...
+const HOME_WORDS = /^(?:from\s+|at\s+)?(?:our\s+|my\s+|the\s+)?(?:home|house|place|ours)$/i;
+
 async function resolveSpokenPlace(text, household) {
   if (!text) return null;
   const home = household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null;
-  if (/^(home|our house|the house|ours)$/i.test(text.trim()) && home) return { ...home, how: 'home' };
+  const said = text.trim().replace(/[.!,]+$/, '');
+  if (home && (HOME_WORDS.test(said) || said.toLowerCase() === String(household.home_label || '').toLowerCase())) return { ...home, how: 'home' };
   const known = resolvePlace(text);
   if (known) return { ...known, how: 'known' };
   try {
@@ -166,6 +174,26 @@ function roundUpToQuarter(date) {
   d.setSeconds(0, 0);
   d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15);
   return d;
+}
+
+/**
+ * "Sunningdale → London · Paddington the Musical": where from, where to, what
+ * for — so the list reads at a glance. Places are named by their town, not
+ * their full address; home is looked up once so it reads as its village.
+ */
+async function outingTitle({ origin, destination, anchorPlace, anchor }) {
+  const nameOf = async (p) => {
+    if (!p) return null;
+    if (p.locality) return p.locality;
+    if (p.how === 'home') {
+      try { const r = await reverseGeocode(p.lat, p.lng, { zoom: 14 }); if (r?.locality) return r.locality; } catch { /* fall back to the label */ }
+    }
+    return String(p.label).split(',')[0].trim();
+  };
+  const from = await nameOf(origin);
+  const to = await nameOf(anchorPlace ?? destination);
+  const route = to && to !== from ? `${from} → ${to}` : `Around ${from}`;
+  return anchor?.name ? `${route} · ${anchor.name}` : route;
 }
 
 /** Turn an intent into a trip row in the database. */
@@ -199,7 +227,7 @@ async function createTripFromIntent({ household, members, intent, origin, destin
   const intensity = intent.intensity && INTENSITY_TARGETS[intent.intensity] ? intent.intensity : household.default_intensity;
   // Where the day happens: the anchor's venue, else the destination, else the origin.
   const base = anchorPlace ?? destination ?? origin;
-  const title = anchor ? `${anchor.name}` : destination ? `${origin.label} → ${destination.label}` : `Out from ${origin.label}`;
+  const title = await outingTitle({ origin, destination, anchorPlace, anchor });
 
   const { rows } = await query(
     `insert into trips (household_id, kind, title, origin_label, origin_lat, origin_lng,
@@ -420,11 +448,16 @@ router.post('/start', async (req, res, next) => {
       session = rows[0];
     }
     const state = session.state;
+    const lastAsked = [...(state.transcript || [])].reverse().find((t) => t.role === 'assistant');
     state.transcript = [...(state.transcript || []), { role: 'user', text: utterance }];
 
     // Earlier partial intent (e.g. origin given, duration still missing) is
-    // carried so the household only has to answer the gap.
-    const prior = state.intent ? `Earlier in this conversation the user said: ${JSON.stringify(state.intent)}` : '';
+    // carried so the household only has to answer the gap; the question they
+    // are answering is carried too, so "yes" and "home" mean something.
+    const prior = [
+      state.intent ? `Earlier in this conversation the user said: ${JSON.stringify(state.intent)}` : '',
+      lastAsked ? `The app last asked: "${lastAsked.text}"` : '',
+    ].filter(Boolean).join('\n');
 
     const intent = await parseStructured({
       system: INTERPRET_SYSTEM,
@@ -460,9 +493,20 @@ router.post('/start', async (req, res, next) => {
     if (!merged.duration_minutes) missing.push('duration');
     if (merged.destination && !destination) missing.push('destination_unknown');
     if (merged.anchor && !anchorPlace) missing.push('anchor_place');
+    // Who's coming decides which allergens exclude, so it is confirmed rather
+    // than assumed — asked once, after the where and how long are settled.
+    const everyoneNames = members.map((m) => m.name);
+    const askWhoIsComing = intent.understood && !missing.length && members.length > 1 && !merged.attending?.length && merged.attending_everyone == null && !state.askedAttending;
+    if (askWhoIsComing) missing.push('attending');
 
     if (!intent.understood || missing.length) {
       let reply = intent.reply;
+      if (missing.includes('origin') && household.home_lat != null) reply = 'Where are you starting from? You can just say "home".';
+      if (missing.length === 1 && missing[0] === 'attending') {
+        state.askedAttending = true;
+        const list = everyoneNames.length > 2 ? `${everyoneNames.slice(0, -1).join(', ')} and ${everyoneNames.at(-1)}` : everyoneNames.join(' and ');
+        reply = `Is it all of you — ${list}? Say yes, or tell me who's coming.`;
+      }
       if (missing.includes('origin_unknown')) reply = `I couldn't place "${merged.origin}" — try the town or a fuller address, or set your home address in Settings and just say "home".`;
       if (missing.includes('destination_unknown')) reply = `I couldn't place "${merged.destination}" — try the full name with the town, like "the British Museum, London".`;
       if (missing.includes('anchor_place')) reply = merged.anchor?.place_text
@@ -481,11 +525,21 @@ router.post('/start', async (req, res, next) => {
     const pool = await retrievePool({ household, trip: dayTrip, attendees, intent: merged, sessionId: session.id });
 
     if (merged.anchor && anchorPlace) {
+      const tzA = trip.timezone || DEFAULT_TZ;
       const startsAt = merged.anchor.start_time
-        ? wallToUtc(trip.day.date, merged.anchor.start_time.padStart(5, '0'), trip.timezone || DEFAULT_TZ).toISOString()
+        ? wallToUtc(trip.day.date, merged.anchor.start_time.padStart(5, '0'), tzA).toISOString()
         : dayTrip.depart_at;
-      const endsAt = new Date(new Date(startsAt).getTime() + (merged.anchor.duration_minutes ?? 120) * 60_000).toISOString();
+      const anchorMinutes = merged.anchor.duration_minutes ?? 120;
+      const endsAt = new Date(new Date(startsAt).getTime() + anchorMinutes * 60_000).toISOString();
       const key = `anchor:${merged.anchor.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+      // The booking is already a plan: it goes on the day now, so the trip shows
+      // "1 planned" before any option is chosen. Committing an option replaces
+      // the day's stops and puts it back in its place.
+      await query(
+        `insert into trip_stops (trip_id, day_id, slot, start_time, position, venue_ref, venue_name, lat, lng, dwell_minutes)
+         values ($1,$2,$3,$4::time,1,$5,$6,$7,$8,$9)`,
+        [trip.id, trip.day.id, slotFor(startsAt, tzA), wallClock(startsAt, tzA).hhmm, key, merged.anchor.name, anchorPlace.lat, anchorPlace.lng, anchorMinutes],
+      );
       pool.candidates.unshift({
         key, source: 'anchor', sourcePlaceId: key.split(':')[1], name: merged.anchor.name, category: 'event',
         cuisines: [], experiences: [merged.anchor.kind === 'other' || merged.anchor.kind === 'booking' ? 'theatre' : merged.anchor.kind], allergens: [], dietaryOptions: undefined,

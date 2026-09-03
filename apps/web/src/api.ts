@@ -209,7 +209,9 @@ export const api = {
     request<{ suggestions: Suggestion[] }>(`/api/concepts/suggest${qs({ q, kinds: kinds?.join(','), limit })}`),
 
   // places & visits
-  geocode: (q: string, limit = 6) => request<{ results: Place[]; attribution: string }>(`/api/places/geocode${qs({ q, limit })}`),
+  /** `bias.near` keeps matches inside that area first (a trip's city); `bias.country` never leaves that country. */
+  geocode: (q: string, limit = 6, bias?: { near?: Place | null; country?: string | null; kind?: 'lodging' | null }) =>
+    request<{ results: Place[]; attribution: string }>(`/api/places/geocode${qs({ q, limit, near: bias?.near ? `${bias.near.lat},${bias.near.lng}` : undefined, country: bias?.country ?? undefined, kind: bias?.kind ?? undefined })}`),
   searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number }) =>
     request<{ near: Place & { how: string }; radiusKm: number; results: Venue[]; sourcesQueried: string[]; degradedSources: { source: string; error: string }[]; attribution: string[] }>(`/api/places/search${qs(p)}`),
   place: (venueRef: string) =>

@@ -30,6 +30,11 @@ const CATEGORY_ICON: Record<string, string> = {
   restaurant: '🍽', cafe: '☕', pub: '🍺', bar: '🍸', attraction: '🏛', event: '🎟',
 };
 
+const MISSING_LABEL: Record<string, string> = {
+  origin: 'where from', origin_unknown: "where from (couldn't place it)", duration: 'how long', destination_unknown: "where to (couldn't place it)",
+  anchor_place: 'which venue', attending: "who's coming",
+};
+
 export function PlanScreen({ household }: { household: HouseholdResponse | null }) {
   const { width } = useWindowDimensions();
   const cardWidth = Math.min(width, 760) - spacing.lg * 2;
@@ -207,7 +212,17 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
       {plan && !plan.trip && plan.missing?.length ? (
         <Card>
           <Text style={type.h3}>Still need</Text>
-          <Wrap>{plan.missing.map((m) => <Chip key={m} label={m.replace('_', ' ')} tone="accent" />)}</Wrap>
+          <Wrap>{plan.missing.map((m) => <Chip key={m} label={MISSING_LABEL[m] ?? m.replace(/_/g, ' ')} tone="accent" />)}</Wrap>
+          {/* Every question has a tap answer that sends the same words as saying them. */}
+          {plan.missing.includes('origin') && household?.household.home ? (
+            <Wrap><Chip label="From home" onPress={() => send('From home')} /></Wrap>
+          ) : null}
+          {plan.missing.includes('attending') ? (
+            <Wrap>
+              <Chip label="Yes, everyone" tone="accent" onPress={() => send('Yes, everyone is coming')} />
+              {members.map((m) => <Chip key={m.id} label={`Without ${m.name}`} onPress={() => send(`Everyone except ${m.name}`)} />)}
+            </Wrap>
+          ) : null}
         </Card>
       ) : null}
 
