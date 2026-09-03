@@ -95,8 +95,8 @@ function SwipeRow({ children, onRight, onLeft, enabled = true }: { children: Rea
   const leftOpacity = x.interpolate({ inputRange: [-90, -40, 0], outputRange: [1, 0.5, 0], extrapolate: 'clamp' });
   return (
     <View style={{ overflow: 'hidden' }}>
-      <Animated.View style={[styles.under, styles.underL, { opacity: rightOpacity }]}><Icon name="booked" size={16} color="#fff" /><Text style={styles.underText}>Booked</Text></Animated.View>
-      <Animated.View style={[styles.under, styles.underR, { opacity: leftOpacity }]}><Text style={styles.underText}>Fully booked</Text><Icon name="full" size={16} color="#fff" /></Animated.View>
+      <Animated.View style={[styles.under, styles.underL, { opacity: rightOpacity }]}><Icon name="booked" size={16} color={colors.bg} /><Text style={styles.underText}>Booked</Text></Animated.View>
+      <Animated.View style={[styles.under, styles.underR, { opacity: leftOpacity }]}><Text style={styles.underText}>Fully booked</Text><Icon name="full" size={16} color={colors.bg} /></Animated.View>
       <Animated.View style={{ transform: [{ translateX: x }], backgroundColor: colors.surface }} {...pan.panHandlers}>{children}</Animated.View>
     </View>
   );
@@ -314,7 +314,7 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
   const list = (
     <Card style={{ paddingVertical: 2, paddingHorizontal: spacing.md, gap: 0 }}>
       {journey && home ? (
-        <Pressable onPress={() => setEndpointFor('start')} style={styles.row} accessibilityRole="button"><Text style={styles.time}>{journey.startAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><View style={{ flex: 1 }}><Text style={type.h3} numberOfLines={1}>Leave {home.kind === 'home' ? 'home' : home.label.split(',')[0]}</Text><Text style={type.tiny}>{home.kind === 'home' ? 'Tap to start somewhere else' : home.kind === 'base' ? 'Where you\'re staying · tap to change' : 'Tap to change'}</Text></View><Icon name="edit" size={14} color={colors.inkFaint} /></Pressable>
+        <Pressable onPress={() => setEndpointFor('start')} style={styles.row} accessibilityRole="button"><Text style={styles.time}>{journey.startAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color={colors.bg} /></View><View style={{ flex: 1 }}><Text style={type.h3} numberOfLines={1}>Leave {home.kind === 'home' ? 'home' : home.label.split(',')[0]}</Text><Text style={type.tiny}>{home.kind === 'home' ? 'Tap to start somewhere else' : home.kind === 'base' ? 'Where you\'re staying · tap to change' : 'Tap to change'}</Text></View><Icon name="edit" size={14} color={colors.inkFaint} /></Pressable>
       ) : null}
       {stops.map((s, i) => (
         <View key={s.id}>
@@ -339,7 +339,7 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
       {journey && home && endPt ? (
         <>
           {journey.legHome ? <LegPill leg={journey.legHome} hasCar={hasCar} onPress={legTap(null, journey.legHome, endPt.label, `Back by ${journey.endAt}.`)} /> : null}
-          <Pressable onPress={() => setEndpointFor('end')} style={styles.row} accessibilityRole="button"><Text style={[styles.time, journey.overBy ? { color: colors.overrun, fontWeight: '700' } : null]}>{stops.length ? journey.homeAt : ''}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><View style={{ flex: 1 }}><Text style={type.h3} numberOfLines={1}>{endPt.kind === 'home' ? 'Home' : endPt.label.split(',')[0]}</Text><Text style={type.tiny}>{stops.length ? `by ${journey.endAt}` : 'Tap to end somewhere else'}</Text></View><Icon name="edit" size={14} color={colors.inkFaint} /></Pressable>
+          <Pressable onPress={() => setEndpointFor('end')} style={styles.row} accessibilityRole="button"><Text style={[styles.time, journey.overBy ? { color: colors.overrun, fontWeight: '700' } : null]}>{stops.length ? journey.homeAt : ''}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color={colors.bg} /></View><View style={{ flex: 1 }}><Text style={type.h3} numberOfLines={1}>{endPt.kind === 'home' ? 'Home' : endPt.label.split(',')[0]}</Text><Text style={type.tiny}>{stops.length ? `by ${journey.endAt}` : 'Tap to end somewhere else'}</Text></View><Icon name="edit" size={14} color={colors.inkFaint} /></Pressable>
         </>
       ) : null}
       {journey && !stops.length ? (
@@ -357,7 +357,7 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
   const mapCard = selected && journey && home ? (
     <Card style={{ gap: 2 }}>
       <View style={styles.tlStop}>
-        <View style={[styles.num, { backgroundColor: prevStop ? (prevStop.fixed ? colors.ink : colors.accent) : colors.rating }]}>{prevStop ? <Text style={styles.numText}>{selIndex}</Text> : <Icon name="home" size={13} color="#fff" />}</View>
+        <View style={[styles.num, { backgroundColor: prevStop ? (prevStop.fixed ? colors.ink : colors.accent) : colors.rating }]}>{prevStop ? <Text style={styles.numText}>{selIndex}</Text> : <Icon name="home" size={13} color={colors.bg} />}</View>
         <View style={{ flex: 1 }}><Text style={[type.body, { fontWeight: '700' }]}>{prevStop ? prevStop.name : home.label}</Text><Text style={type.tiny}>Leave by <Text style={{ color: colors.ink, fontWeight: '700' }}>{selected.legIn.leaveBy}</Text></Text></View>
       </View>
       <View style={styles.tlLeg}><View style={[styles.tlBar, { backgroundColor: colors.want }]} /><LegPill leg={selected.legIn} hasCar={hasCar} onPress={legTap(selected, selected.legIn, selected.name, null)} /></View>
@@ -374,7 +374,7 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
         <>
           <View style={styles.tlLeg}><View style={[styles.tlBar, { backgroundColor: colors.line }]} />{nextStop ? <LegPill leg={nextStop.legIn} hasCar={hasCar} onPress={legTap(nextStop, nextStop.legIn, nextStop.name, null)} hint={`leave ${selected.name.split(' ')[0]} by ${selected.mustLeaveBy}`} /> : journey.legHome ? <LegPill leg={journey.legHome} hasCar={hasCar} onPress={legTap(null, journey.legHome, (endPt ?? home).label, null)} hint={`leave by ${selected.mustLeaveBy}`} /> : null}</View>
           <View style={styles.tlStop}>
-            <View style={[styles.num, { backgroundColor: nextStop ? (nextStop.fixed ? colors.ink : colors.accent) : colors.rating }]}>{nextStop ? <Text style={styles.numText}>{selIndex + 2}</Text> : <Icon name="home" size={13} color="#fff" />}</View>
+            <View style={[styles.num, { backgroundColor: nextStop ? (nextStop.fixed ? colors.ink : colors.accent) : colors.rating }]}>{nextStop ? <Text style={styles.numText}>{selIndex + 2}</Text> : <Icon name="home" size={13} color={colors.bg} />}</View>
             <View style={{ flex: 1 }}><Text style={[type.body, { fontWeight: '700' }]}>{nextStop ? nextStop.name : (endPt ?? home).label}</Text><Text style={type.tiny}>{nextStop ? (nextStop.fixed ? `Booked for ${nextStop.fixedAt}` : `Arrive ${nextStop.arriveAt}`) : `By ${journey.endAt}`}</Text></View>
           </View>
         </>
@@ -471,7 +471,7 @@ export function TripJourneyDay({ d, day, onChangePlan, onChanged, wide }: { d: T
       <MapView pins={pins} lines={lines} height={wide ? 420 : 200} />
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       <Card style={{ paddingVertical: 2, paddingHorizontal: spacing.md, gap: 0 }}>
-        {journey && home ? <View style={styles.row}><Text style={styles.time}>{journey.startAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>Leave {home.kind === 'home' ? 'home' : home.label.split(',')[0]}</Text></View> : null}
+        {journey && home ? <View style={styles.row}><Text style={styles.time}>{journey.startAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color={colors.bg} /></View><Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>Leave {home.kind === 'home' ? 'home' : home.label.split(',')[0]}</Text></View> : null}
         {stops.map((s, i) => {
           const from = point(i > 0 ? stops[i - 1] : null, home!);
           return (
@@ -498,7 +498,7 @@ export function TripJourneyDay({ d, day, onChangePlan, onChanged, wide }: { d: T
               <View style={styles.legPill}><Icon name={journey.legHome.mode} size={13} color={colors.ink} /><Text style={styles.legText}>{fmtMinutes(journey.legHome.minutes)}</Text></View>
               <Row style={{ gap: 2 }}><Text style={type.tiny}>directions</Text><Icon name="more" size={12} color={colors.inkFaint} /></Row>
             </Pressable>
-            <View style={styles.row}><Text style={styles.time}>{journey.homeAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>{(endPt ?? home).kind === 'home' ? 'Home' : (endPt ?? home).label.split(',')[0]}</Text></View>
+            <View style={styles.row}><Text style={styles.time}>{journey.homeAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color={colors.bg} /></View><Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>{(endPt ?? home).kind === 'home' ? 'Home' : (endPt ?? home).label.split(',')[0]}</Text></View>
           </>
         ) : null}
         {journey && !stops.length ? <Text style={[type.small, { paddingVertical: spacing.md }]}>Nothing saved for this day yet.</Text> : null}
@@ -522,7 +522,7 @@ const styles = StyleSheet.create({
   time: { width: 42, fontSize: 12, color: colors.inkMuted, fontVariant: ['tabular-nums'] },
   num: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   numAside: { backgroundColor: 'transparent', borderWidth: 2, borderColor: colors.inkFaint, borderStyle: 'dashed' },
-  numText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  numText: { color: colors.bg, fontSize: 12, fontWeight: '700' },
   tel: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
   telOff: { backgroundColor: colors.surfaceMuted },
   legRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 3, paddingLeft: 50, backgroundColor: colors.surface },
@@ -531,7 +531,7 @@ const styles = StyleSheet.create({
   under: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14 },
   underL: { backgroundColor: colors.like, justifyContent: 'flex-start' },
   underR: { backgroundColor: colors.overrun, justifyContent: 'flex-end' },
-  underText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  underText: { color: colors.bg, fontWeight: '800', fontSize: 13 },
   modebar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   timeInput: { minHeight: 32, width: 64, paddingHorizontal: 8, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 13, fontWeight: '700', color: colors.ink, textAlign: 'center' },
   warn: { flexDirection: 'row', gap: 6, alignItems: 'flex-start', padding: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.overrunSoft },

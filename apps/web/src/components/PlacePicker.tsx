@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
   },
   result: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
   use: { minHeight: 36, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: colors.accent, justifyContent: 'center' },
-  useText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  useText: { color: colors.bg, fontWeight: '700', fontSize: 13 },
   chosen: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.accentSoft },
   change: { minHeight: TARGET, justifyContent: 'center', paddingHorizontal: spacing.sm },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

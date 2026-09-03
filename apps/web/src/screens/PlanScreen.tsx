@@ -386,7 +386,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
                 accessibilityLabel="What do you want to do"
               />
               {speech.listening ? (
-                <Pressable onPress={speech.stop} style={styles.stop} accessibilityRole="button" accessibilityLabel="Stop"><Icon name="stop" size={14} color="#fff" /><Text style={styles.stopText}>Stop</Text></Pressable>
+                <Pressable onPress={speech.stop} style={styles.stop} accessibilityRole="button" accessibilityLabel="Stop"><Icon name="stop" size={14} color={colors.bg} /><Text style={styles.stopText}>Stop</Text></Pressable>
               ) : (
                 <Row style={{ justifyContent: 'space-between' }}>
                   {speech.supported ? (
@@ -419,7 +419,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
               </Row>
               {answered.map((a) => (
                 <Row key={a.id} style={styles.check}>
-                  <View style={[styles.num, { backgroundColor: colors.accent }]}><Icon name="check" size={12} color="#fff" /></View>
+                  <View style={[styles.num, { backgroundColor: colors.accent }]}><Icon name="check" size={12} color={colors.bg} /></View>
                   <Text style={[type.small, { flex: 1 }]} numberOfLines={2}>{a.text} <Text style={{ fontWeight: '700', color: colors.ink }}>{a.answer}</Text></Text>
                 </Row>
               ))}
@@ -608,7 +608,7 @@ const styles = StyleSheet.create({
   whoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32, paddingHorizontal: 4 },
   inputLive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   stop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, minHeight: TARGET, borderRadius: radius.pill, backgroundColor: colors.overrun },
-  stopText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  stopText: { color: colors.bg, fontWeight: '700', fontSize: 15 },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: 6, borderRadius: radius.sm },
   rowLine: { borderTopWidth: 1, borderTopColor: colors.line },
   rowCheck: { backgroundColor: '#FBF6EA' },
@@ -622,7 +622,7 @@ const styles = StyleSheet.create({
   checks: { borderLeftWidth: 3, borderLeftColor: colors.dislike, gap: spacing.sm },
   check: { gap: 6, paddingTop: 6 },
   num: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  numText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  numText: { color: colors.bg, fontSize: 11, fontWeight: '700' },
   mic: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.pill,
     backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.line,

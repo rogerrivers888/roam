@@ -117,7 +117,7 @@ function MonthGrid({ y, m, selStart, selEnd, onPick, onNav, navLeft, navRight, t
     cells.push(
       <Pressable key={d} onPress={() => onPick(y, m, d)} style={styles.cell} accessibilityRole="button" accessibilityLabel={`${d} ${MONTHS[m]} ${y}`} accessibilityState={{ selected: isSel }}>
         <View style={[styles.day, isSel && styles.daySelected, inRange && styles.dayInRange, !isSel && isToday && styles.dayToday]}>
-          <Text style={[styles.dayText, isSel && { color: '#fff', fontWeight: '700' }]}>{d}</Text>
+          <Text style={[styles.dayText, isSel && { color: colors.bg, fontWeight: '700' }]}>{d}</Text>
         </View>
       </Pressable>,
     );

@@ -86,7 +86,7 @@ export function Button({
   iconFill?: boolean;
 }) {
   const bg = kind === 'primary' ? colors.accent : kind === 'danger' ? colors.overrunSoft : kind === 'secondary' ? colors.surfaceMuted : 'transparent';
-  const fg = kind === 'primary' ? '#fff' : kind === 'danger' ? colors.overrun : colors.ink;
+  const fg = kind === 'primary' ? colors.bg : kind === 'danger' ? colors.overrun : colors.ink;
   return (
     <Pressable
       onPress={onPress}

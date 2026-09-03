@@ -5,6 +5,7 @@ import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Row, Segmented, SectionTitle, StatusLine, Stepper, minutes } from '../components/ui';
 import { PlacePicker } from '../components/PlacePicker';
 import { ProvidersTable } from '../components/ProvidersTable';
+import { useTheme } from '../hooks/useTheme';
 import { isAdmin, setAdmin } from '../admin';
 import { Icon } from '../components/Icon';
 
@@ -43,6 +44,7 @@ function Preferences({ data, refresh }: { data: HouseholdResponse; refresh: () =
   const { household } = data;
   const [name, setName] = useState(household.name ?? '');
   const [speak, setSpeak] = useState(getSpeakPref());
+  const { pref: themePref, setPref: setThemePref } = useTheme();
   const [confirm, setConfirm] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [homeMsg, setHomeMsg] = useState<string | null>(null);
@@ -90,6 +92,11 @@ function Preferences({ data, refresh }: { data: HouseholdResponse; refresh: () =
         <Segmented value={household.defaultIntensity}
           options={[{ value: 'relaxed', label: 'Relaxed' }, { value: 'balanced', label: 'Balanced' }, { value: 'packed', label: 'Packed' }]}
           onChange={async (v) => { await api.updateHousehold({ defaultIntensity: v }); await refresh(); }} />
+      </Card>
+
+      <SectionTitle hint="Follow the device, or pick one. Kept on this device.">Appearance</SectionTitle>
+      <Card>
+        <Segmented value={themePref} options={[{ value: 'system', label: 'Device' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} onChange={setThemePref} />
       </Card>
 
       <SectionTitle>Voice</SectionTitle>

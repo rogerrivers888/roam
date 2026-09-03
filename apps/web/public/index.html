@@ -23,6 +23,12 @@
       /* 100vh includes Safari's bar; fill-available does not */
       #root { min-height: 100vh; min-height: -webkit-fill-available; display: flex; }
     </style>
+      <style>
+      :root { --roam-bg: #F7F6F2; --roam-surface: #FFFFFF; --roam-ink: #1D1B16; color-scheme: light; }
+      body { background: var(--roam-bg); }
+      [data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.86) contrast(0.9); }
+      [data-theme="dark"] .leaflet-container { background: #14130F; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

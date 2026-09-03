@@ -38,7 +38,7 @@ export function TakePicker({ rows, onChange, subject = 'this place' }: { rows: T
                   accessibilityState={{ checked: on }}
                   accessibilityLabel={`${r.name}: ${o.label}`}
                 >
-                  <Text style={[styles.optText, on && { color: '#fff' }]}>{o.label}</Text>
+                  <Text style={[styles.optText, on && { color: colors.bg }]}>{o.label}</Text>
                 </Pressable>
               );
             })}

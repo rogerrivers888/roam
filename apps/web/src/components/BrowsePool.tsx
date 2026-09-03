@@ -189,7 +189,7 @@ function BrowseRow({ item, isPinned, isShortlisted, busy, addLabel, addedLabel, 
       </Pressable>
       <View style={{ gap: 6 }}>
         <Pressable onPress={isPinned && onRemove ? onRemove : onAdd} disabled={busy || (isPinned && !onRemove)} style={[styles.btn, isPinned && styles.btnOn]} accessibilityRole="button">
-          <Icon name={isPinned ? 'keep' : 'add'} size={14} color={isPinned ? '#fff' : colors.ink} fill={isPinned} /><Text style={[styles.btnText, isPinned && { color: '#fff' }]}>{isPinned ? addedLabel : addLabel}</Text>
+          <Icon name={isPinned ? 'keep' : 'add'} size={14} color={isPinned ? colors.bg : colors.ink} fill={isPinned} /><Text style={[styles.btnText, isPinned && { color: '#fff' }]}>{isPinned ? addedLabel : addLabel}</Text>
         </Pressable>
         {onShortlist ? (
           <Pressable onPress={async () => { await onShortlist(); setSaved(true); }} disabled={busy || saved || isShortlisted} style={styles.btn} accessibilityRole="button">

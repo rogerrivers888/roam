@@ -157,7 +157,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
         />
         <Row style={{ justifyContent: 'space-between' }}>
           {listening ? (
-            <Pressable onPress={onStop} style={styles.stop} accessibilityRole="button" accessibilityLabel="Stop"><Icon name="stop" size={14} color="#fff" /><Text style={styles.stopText}>Stop</Text></Pressable>
+            <Pressable onPress={onStop} style={styles.stop} accessibilityRole="button" accessibilityLabel="Stop"><Icon name="stop" size={14} color={colors.bg} /><Text style={styles.stopText}>Stop</Text></Pressable>
           ) : supported ? (
             <Pressable onPress={onSpeak} style={styles.mic} accessibilityRole="button" accessibilityLabel="Speak"><Icon name="mic" size={18} color={colors.ink} /><Text style={[type.small, { fontWeight: '600' }]}>Speak</Text></Pressable>
           ) : <View />}
@@ -221,6 +221,6 @@ const styles = StyleSheet.create({
   boxLive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   mic: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.line },
   stop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET, paddingHorizontal: spacing.lg, borderRadius: radius.pill, backgroundColor: colors.overrun },
-  stopText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  stopText: { color: colors.bg, fontWeight: '700', fontSize: 15 },
   idea: { paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line, flexDirection: 'row', gap: spacing.sm },
 });

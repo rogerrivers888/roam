@@ -100,7 +100,7 @@ export function StopCard({ stop, mode, baseLabel, previousName, dim, pinned, bus
 
       <View style={{ gap: 6 }}>
         <Pressable onPress={onLike} disabled={busy} style={[styles.reactBtn, pinned && styles.reactBtnOn]} accessibilityRole="button" accessibilityLabel={pinned ? `Stop keeping ${stop.name}` : `Keep ${stop.name}`}>
-          <View style={styles.reactInner}><Icon name="keep" size={14} color={pinned ? '#fff' : colors.ink} fill={pinned} /><Text style={[styles.reactText, pinned && { color: '#fff' }]}>{pinned ? 'Keeping' : 'Keep'}</Text></View>
+          <View style={styles.reactInner}><Icon name="keep" size={14} color={pinned ? colors.bg : colors.ink} fill={pinned} /><Text style={[styles.reactText, pinned && { color: '#fff' }]}>{pinned ? 'Keeping' : 'Keep'}</Text></View>
         </Pressable>
         {!isAnchor ? (
           <Pressable onPress={onDislike} disabled={busy} style={styles.reactBtn} accessibilityRole="button" accessibilityLabel={`Not ${stop.name}`}>
@@ -168,7 +168,7 @@ function StopDetails({ stop }: { stop: OptionStop }) {
 
 const styles = StyleSheet.create({
   stop: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
-  stopPos: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.dwell, color: '#fff', textAlign: 'center', lineHeight: 22, fontSize: 12, fontWeight: '700', overflow: 'hidden' },
+  stopPos: { width: 22, height: 22, borderRadius: 11, backgroundColor: colors.dwell, color: colors.bg, textAlign: 'center', lineHeight: 22, fontSize: 12, fontWeight: '700', overflow: 'hidden' },
   details: { minHeight: 32, justifyContent: 'center', alignSelf: 'flex-start' },
   detail: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
   review: { gap: 2, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },

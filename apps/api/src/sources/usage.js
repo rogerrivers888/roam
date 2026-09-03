@@ -19,7 +19,7 @@ export async function usageBetween(householdId, from = EPOCH, to = FAR) {
   // Rows written with units: the provider counted what it billed for.
   const { rows: metered } = await query(
     `select k.key, count(*)::int as calls, coalesce(sum(k.value::numeric), 0)::float as units
-       from provider_calls pc cross join lateral jsonb_each_text(pc.units) k
+       from provider_calls pc cross join lateral jsonb_each_text(case when jsonb_typeof(pc.units) = 'object' then pc.units else '{}'::jsonb end) k
       where pc.household_id = $1 and pc.created_at >= $2 and pc.created_at < $3
       group by k.key`,
     [householdId, from, to],
@@ -32,10 +32,14 @@ export async function usageBetween(householdId, from = EPOCH, to = FAR) {
 
   // Every row for the total, and the unmetered ones (Claude calls, rows from
   // before the units column) placed by provider and purpose with estimated units.
+  // A row whose units is a bare number (a routes call that recorded its
+  // element count without naming the line) is placed like a legacy row but
+  // keeps its real count.
   const { rows } = await query(
-    `select provider, purpose, (units is null) as legacy, count(*)::int as calls, coalesce(sum(estimated_cost_usd), 0)::float as cost_usd
+    `select provider, purpose, (units is null or jsonb_typeof(units) <> 'object') as legacy, count(*)::int as calls, coalesce(sum(estimated_cost_usd), 0)::float as cost_usd,
+            coalesce(sum(case when jsonb_typeof(units) = 'number' then (units #>> '{}')::numeric end), 0)::float as num_units
        from provider_calls where household_id = $1 and created_at >= $2 and created_at < $3
-      group by provider, purpose, (units is null)`,
+      group by provider, purpose, (units is null or jsonb_typeof(units) <> 'object')`,
     [householdId, from, to],
   );
   for (const r of rows) {
@@ -45,7 +49,7 @@ export async function usageBetween(householdId, from = EPOCH, to = FAR) {
     for (const { key, units } of legacyLines(r.provider, r.purpose)) {
       if (!lines[key]) lines[key] = empty();
       lines[key].calls += r.calls;
-      lines[key].units += units * r.calls;
+      lines[key].units += r.num_units > 0 ? r.num_units : units * r.calls;
       lines[key].costUsd += key === 'claude' || key === 'scout' ? r.cost_usd : 0;
       // Claude rows are exact (tokens are recorded); search rows are a guess.
       if (key !== 'claude' && key !== 'scout') lines[key].estimated = true;
@@ -111,7 +115,7 @@ export async function usageByMonth(householdId, months = 12) {
 
   const { rows: metered } = await query(
     `select to_char(date_trunc('month', pc.created_at), 'YYYY-MM') as month, k.key, count(*)::int as calls, coalesce(sum(k.value::numeric), 0)::float as units
-       from provider_calls pc cross join lateral jsonb_each_text(pc.units) k
+       from provider_calls pc cross join lateral jsonb_each_text(case when jsonb_typeof(pc.units) = 'object' then pc.units else '{}'::jsonb end) k
       where pc.household_id = $1 and pc.created_at >= $2
       group by 1, 2`,
     [householdId, start],
@@ -119,7 +123,8 @@ export async function usageByMonth(householdId, months = 12) {
   for (const r of metered) { if (!labels.includes(r.month)) continue; const b = bucket(r.key)[r.month]; b.calls += r.calls; b.units += r.units; }
 
   const { rows } = await query(
-    `select to_char(date_trunc('month', created_at), 'YYYY-MM') as month, provider, purpose, (units is null) as legacy, count(*)::int as calls, coalesce(sum(estimated_cost_usd), 0)::float as cost_usd
+    `select to_char(date_trunc('month', created_at), 'YYYY-MM') as month, provider, purpose, (units is null or jsonb_typeof(units) <> 'object') as legacy, count(*)::int as calls, coalesce(sum(estimated_cost_usd), 0)::float as cost_usd,
+            coalesce(sum(case when jsonb_typeof(units) = 'number' then (units #>> '{}')::numeric end), 0)::float as num_units
        from provider_calls where household_id = $1 and created_at >= $2
       group by 1, 2, 3, 4`,
     [householdId, start],
@@ -131,7 +136,7 @@ export async function usageByMonth(householdId, months = 12) {
     if (!r.legacy) continue;
     for (const { key, units } of legacyLines(r.provider, r.purpose)) {
       const b = bucket(key)[r.month];
-      b.calls += r.calls; b.units += units * r.calls;
+      b.calls += r.calls; b.units += r.num_units > 0 ? r.num_units : units * r.calls;
       b.costUsd += key === 'claude' || key === 'scout' ? r.cost_usd : 0;
       if (key !== 'claude' && key !== 'scout') b.estimated = true;
     }
