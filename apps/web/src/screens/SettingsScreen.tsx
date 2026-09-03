@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Linking, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { api, HouseholdResponse, Place } from '../api';
+import { api, HouseholdResponse, Place, SourcesStatus } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
-import { Button, Card, Row, Segmented, SectionTitle, StatusLine, Stepper, minutes } from '../components/ui';
+import { Button, Card, Chip, Row, Segmented, SectionTitle, StatusLine, Stepper, minutes } from '../components/ui';
 import { PlacePicker } from '../components/PlacePicker';
 
 export const SPEAK_KEY = 'roam.speakReplies';
@@ -18,6 +18,8 @@ export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | nu
 
   useEffect(() => { setName(data?.household.name ?? ''); }, [data?.household.name]);
   useEffect(() => { fetch(`${api.exportUrl().replace('/export', '/spend')}`).then((r) => r.json()).then(setSpend).catch(() => null); }, [data]);
+  const [sources, setSources] = useState<SourcesStatus | null>(null);
+  useEffect(() => { api.sources().then(setSources).catch(() => null); }, []);
 
   if (!data) return <View style={styles.page}><Text style={type.small}>Loading…</Text></View>;
   const { household } = data;
@@ -95,9 +97,19 @@ export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | nu
         ) : <Text style={type.small}>—</Text>}
       </Card>
 
-      <SectionTitle>Sources</SectionTitle>
+      <SectionTitle hint="Ratings, review counts, reviews, prices and family flags come from licensed sources. Until one is on, cards say so rather than guess.">Sources</SectionTitle>
       <Card>
-        <Text style={type.small}>Places and geocoding: © OpenStreetMap contributors (open data — no reviews, ratings or allergen information). Boston fixtures: invented, for development. Google, Yelp and TripAdvisor slot in behind the same interface once their credentials and spend caps exist.</Text>
+        <Text style={type.small}>Places and geocoding: © OpenStreetMap contributors — open data with no reviews, ratings or prices.</Text>
+        {sources ? sources.available.map((a) => (
+          <Row key={a.key} style={{ justifyContent: 'space-between' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={type.body}>{a.label}</Text>
+              <Text style={type.tiny}>{a.key === 'google' ? 'Ratings, review counts, 5 reviews, prices, children flags, real travel times.' : a.key === 'tripadvisor' ? 'Ratings, 5 reviews and photos per place; strong for attractions.' : 'Timed events inside an outing.'} Switched on by the owner adding {a.env} through Doppler.</Text>
+            </View>
+            <Chip label={a.on ? 'On' : 'Off'} tone={a.on ? 'like' : 'neutral'} />
+          </Row>
+        )) : <Text style={type.tiny}>Checking which sources are live…</Text>}
+        {sources ? <Text style={type.tiny}>Travel times: {sources.routing === 'google-routes' ? 'Google Routes' : 'estimated from distance'}.</Text> : null}
       </Card>
 
       <SectionTitle hint="Everything the household has generated. Place content from licensed sources is never included — only identifiers and what you wrote.">Your data</SectionTitle>

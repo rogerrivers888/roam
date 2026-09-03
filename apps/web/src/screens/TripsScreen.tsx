@@ -7,6 +7,8 @@ import { TimeBar } from '../components/TimeBar';
 import { FaceRow } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
 import { DateRangePicker, monthSpanLabel } from '../components/DateRangePicker';
+import { StopCard } from '../components/StopCard';
+import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { MapView, MapPin } from '../components/MapView';
 import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
@@ -523,11 +525,13 @@ function DayPlanPanel({ trip, day, onCommitted }: { trip: TripDetail; day: TripD
       </Row>
       {plan ? (
         <>
-          <Row>
+          <Wrap>
             <Chip label={`Things to do ≥ ${plan.constraints?.minActivities ?? 0}`} onPress={() => act({ type: 'set', minActivities: ((plan.constraints?.minActivities ?? 0) + 1) % 4 })} />
             <Chip label={`Meals ≥ ${plan.constraints?.minFood ?? 0}`} onPress={() => act({ type: 'set', minFood: ((plan.constraints?.minFood ?? 0) + 1) % 3 })} />
             <Chip label={`Pool: ${plan.pool?.size ?? 0} places`} />
-          </Row>
+          </Wrap>
+          <PricePointControl value={plan.constraints?.pricePoint ?? 'any'} onChange={(v) => act({ type: 'set', pricePoint: v })} />
+          <ChainsControl includeChains={plan.constraints?.includeChains ?? false} hidden={plan.pool?.hiddenChains ?? 0} onChange={(v) => act({ type: 'set', includeChains: v })} />
           {plan.options.length === 0 ? <StatusLine>Nothing fits yet — try fewer must-haves or a longer day.</StatusLine> : null}
           {plan.options.map((o) => (
             <View key={o.id} style={[styles.option, viewing === o.id && { borderColor: colors.accent }]}>
@@ -535,15 +539,18 @@ function DayPlanPanel({ trip, day, onCommitted }: { trip: TripDetail; day: TripD
                 <Text style={type.h3}>{o.title}</Text>
                 <Text style={type.tiny}>{o.basis} · {o.stops.length} stops · {o.budget.remainingMinutes >= 0 ? `${minutes(o.budget.remainingMinutes)} free` : `over by ${minutes(-o.budget.remainingMinutes)}`}</Text>
               </Pressable>
-              {o.stops.map((s) => (
-                <View key={s.id} style={styles.optStop}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={type.body}>{s.arriveAt ? `${clock(s.arriveAt)} · ` : ''}{CATEGORY_ICON[s.category] ?? ''} {s.name}{s.pinned ? ' ★' : ''}</Text>
-                    <Text style={type.tiny}>+{s.travelFromPrevMinutes} min · stay {minutes(s.dwellMinutes)}{s.reasons?.length ? ` · ${s.reasons.map((r) => r.text).join('; ')}` : ''}</Text>
-                  </View>
-                  <Pressable onPress={() => act({ type: plan.selection?.pinned.includes(s.id) ? 'unlike' : 'like', stopId: s.id })} style={[styles.react, plan.selection?.pinned.includes(s.id) && { backgroundColor: colors.like }]}><Text style={[styles.reactText, plan.selection?.pinned.includes(s.id) && { color: '#fff' }]}>{plan.selection?.pinned.includes(s.id) ? '♥' : '♡'}</Text></Pressable>
-                  <Pressable onPress={() => act({ type: 'dislike', stopId: s.id })} style={styles.react}><Text style={styles.reactText}>✕</Text></Pressable>
-                </View>
+              {o.stops.map((s, i) => (
+                <StopCard
+                  key={s.id}
+                  stop={s}
+                  mode={day.travelMode}
+                  baseLabel={trip.trip.base?.label ?? trip.trip.origin.label}
+                  previousName={i === 0 ? (trip.trip.base?.label ?? trip.trip.origin.label) : o.stops[i - 1].name}
+                  pinned={!!plan.selection?.pinned.includes(s.id)}
+                  busy={!!busy}
+                  onLike={() => act({ type: plan.selection?.pinned.includes(s.id) ? 'unlike' : 'like', stopId: s.id })}
+                  onDislike={() => act({ type: 'dislike', stopId: s.id })}
+                />
               ))}
               <Button label="Use this plan for the day" onPress={() => commit(o.id)} disabled={!!busy} />
             </View>

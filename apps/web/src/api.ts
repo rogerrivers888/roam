@@ -101,12 +101,15 @@ export type Budget = {
   exceedsMaxTravel: boolean; maxTravelMinutes: number | null; estimated: boolean;
 };
 
+export type Review = { text: string; rating: number | null; author: string | null; authorUri?: string | null; when: string | null };
+
 export type Venue = {
   venueRef: string; source: string; sourcePlaceId: string; name: string; category: string;
   cuisines: string[]; experiences: string[]; allergens: string[]; dietaryOptions?: string[];
-  priceLevel: number | null; rating: number | null; goodForChildren: boolean | null; lat: number; lng: number;
+  priceLevel: number | null; rating: number | null; ratingCount?: number | null; goodForChildren: boolean | null; menuForChildren?: boolean | null; lat: number; lng: number;
   dishes: { concept: string; name: string; comment?: string; veg?: boolean }[];
   website?: string | null; openingHours?: string | null; address?: string | null; attribution?: string;
+  summary?: string | null; mapsUrl?: string | null; externalUrl?: string | null; reviews?: Review[]; chain?: boolean; brand?: string | null;
   distanceKm?: number;
   household?: { visits?: number; lastOn?: string; loved?: number; notForMe?: number; ledger?: string } | null;
 };
@@ -123,10 +126,18 @@ export type Visit = {
   itemTakes?: number;
 };
 
+export type PricePoint = 'any' | 'affordable' | 'mid' | 'upmarket';
+
 export type OptionStop = {
   id: string; position: number; venueRef: string; name: string; category: string; lat: number; lng: number;
   dwellMinutes: number; waitMinutes?: number; travelFromPrevMinutes: number; arriveAt?: string; leaveAt?: string;
   reasons: Reason[]; justification: string | null; startsAt: string | null; endsAt: string | null; pinned: boolean; fixed?: boolean; uniqueToThisOption?: boolean;
+  // What kind of place, how rated and by whom, what it costs, how far — so a card can be judged.
+  source?: string; cuisines?: string[]; experiences?: string[];
+  rating?: number | null; ratingCount?: number | null; ratingSource?: string | null; priceLevel?: number | null;
+  chain?: boolean; brand?: string | null; goodForChildren?: boolean | null; menuForChildren?: boolean | null;
+  address?: string | null; website?: string | null; summary?: string | null; openingHours?: string | null;
+  distanceKm?: number | null; travelFromBaseMinutes?: number | null; attribution?: string | null;
 };
 
 export type TripOption = {
@@ -168,8 +179,8 @@ export type PlanResponse = {
   anchor?: { name: string; start_time: string | null; duration_minutes: number | null; kind: string; place: Place } | null; intent?: Record<string, any>; missing?: string[]; trip?: Trip;
   options: TripOption[];
   selection?: { pinned: string[]; excluded: string[]; chosenOptionId: string | null };
-  constraints?: { minActivities: number; minFood: number };
-  pool?: { size: number; targetFill: number; excludedByAllergen: { name: string; reasons: string[] }[] };
+  constraints?: { minActivities: number; minFood: number; includeChains?: boolean; pricePoint?: PricePoint };
+  pool?: { size: number; targetFill: number; excludedByAllergen: { name: string; reasons: string[] }[]; hiddenChains?: number };
   suggestedPreferences?: SuggestedPreference[]; spend?: Spend;
   attending?: { id: string; name: string }[]; reach?: { maxTravelMinutes: number; estimated: boolean };
   applied?: any; ambiguous?: string | null; transcript?: { role: 'user' | 'assistant'; text: string }[];
@@ -178,7 +189,9 @@ export type PlanResponse = {
 export type PlanAction =
   | { type: 'like' | 'unlike' | 'dislike' | 'restore'; stopId: string }
   | { type: 'choose'; optionId: string | null }
-  | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number; travelMode?: Trip['travelMode'] };
+  | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number; travelMode?: Trip['travelMode']; includeChains?: boolean; pricePoint?: PricePoint };
+
+export type SourcesStatus = { enabled: { key: string; label: string; attribution: string | null }[]; routing: string; available: { key: string; label: string; env: string; on: boolean }[] };
 
 // ---------------------------------------------------------------------------
 // Calls
@@ -186,6 +199,7 @@ export type PlanAction =
 
 export const api = {
   health: () => request<{ ok: boolean; db: string }>('/health'),
+  sources: () => request<SourcesStatus>('/api/sources'),
 
   // household
   household: () => request<HouseholdResponse>('/api/household'),
@@ -215,7 +229,7 @@ export const api = {
   searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number }) =>
     request<{ near: Place & { how: string }; radiusKm: number; results: Venue[]; sourcesQueried: string[]; degradedSources: { source: string; error: string }[]; attribution: string[] }>(`/api/places/search${qs(p)}`),
   place: (venueRef: string) =>
-    request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[] }>(`/api/places/detail${qs({ ref: venueRef })}`),
+    request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[]; sourceError?: string | null }>(`/api/places/detail${qs({ ref: venueRef })}`),
   savePlace: (venueRef: string, status: 'saved' | 'dismissed' | 'special' = 'saved', context?: { label?: string; venue?: Partial<Venue>; category?: string | null; lat?: number; lng?: number; note?: string; country?: string | null; countryCode?: string | null; locality?: string | null }) =>
     post<{ venueRef: string; status: string }>('/api/places/save', { ref: venueRef, status, ...(context ?? {}) }),
   createAtlasCity: (body: { placeText?: string; place?: Place }) => post<{ city: { name: string; country: string; countryCode: string; lat: number; lng: number } }>('/api/atlas/cities', body),

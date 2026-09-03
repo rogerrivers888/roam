@@ -43,6 +43,10 @@ export function maxReachMinutes(pace, { special = false } = {}) {
 
 // Fixed allowances for quick stops; the household's typical time applies to the rest.
 const QUICK = { cafe: 45, bar: 60 };
+// Sights and browsing take less than a museum: a viewpoint is half an hour, a
+// market or bookshop three quarters, a bath house or statue you look at is 45.
+const QUICK_EXPERIENCE = { viewpoint: 30, market: 45, bookshop: 45, shopping: 60 };
+const QUICK_LOOK = 45;
 
 /**
  * Time allowance for a stop: the kind's typical time, shortened by any
@@ -55,6 +59,9 @@ export function dwellAllowance(pace, venue, attendees = []) {
   }
   const p = pace[kindOf(venue)];
   let minutes = QUICK[venue.category] ? Math.min(p.typicalMinutes, QUICK[venue.category]) : p.typicalMinutes;
+  const quickExp = (venue.experiences || []).map((e) => QUICK_EXPERIENCE[e]).filter(Boolean);
+  if (quickExp.length) minutes = Math.min(minutes, Math.max(...quickExp));
+  if (venue.quickLook) minutes = Math.min(minutes, QUICK_LOOK);
   let cappedBy = null;
   for (const member of attendees) {
     for (const pref of [...(member.likes || []), ...(member.dislikes || [])]) {

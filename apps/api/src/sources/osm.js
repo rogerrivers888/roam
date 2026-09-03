@@ -110,7 +110,13 @@ function toVenue(el) {
     matchedDish: null,
     website: t.website || t['contact:website'] || null,
     openingHours: t.opening_hours || null,
-    address: [t['addr:housenumber'], t['addr:street'], t['addr:city']].filter(Boolean).join(' ') || null,
+    address: [[t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' '), t['addr:suburb'] || t['addr:city'], t['addr:postcode']].filter(Boolean).join(', ') || null,
+    // Mappers tag groups as brand; index.js turns this into the chain label.
+    brand: t.brand || null,
+    // A sight you look at rather than go into (a bath house, a statue, a
+    // viewpoint) gets a short allowance, not an afternoon.
+    quickLook: ['viewpoint', 'artwork'].includes(t.tourism) || ['ruins', 'archaeological_site', 'bath', 'wayside_shrine', 'city_gate', 'memorial'].includes(t.historic)
+      || (t.tourism === 'attraction' && !t.opening_hours && !t.website && !t.fee),
     attribution: OSM_ATTRIBUTION,
   };
 }
@@ -157,12 +163,13 @@ export const osmSource = {
     let data = null;
     let r = Math.min(radiusKm, 25);
     let lastErr = null;
-    while (r >= 0.75 && !data) {
+    // Always try at least once: a 600 m search must not be skipped for being small.
+    do {
       try {
         data = await overpass(buildQuery({ center, radiusM: r * 1000, categories: [...groups], query: query?.trim(), limit }));
       } catch (err) { lastErr = err; r /= 2; }
-    }
-    if (!data) throw lastErr;
+    } while (!data && r >= 0.75);
+    if (!data) throw lastErr ?? new Error('Overpass unavailable');
     const venues = (data.elements || []).map(toVenue).filter(Boolean);
     // Dedupe identical names at the same spot (a node and its building way),
     // then keep the nearest — Overpass's own order is arbitrary.

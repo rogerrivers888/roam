@@ -16,7 +16,7 @@ import { resolvePlace, KNOWN_PLACES } from '../sources/fixtures.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, TRAVEL_MODES } from '../domain/travel.js';
 import { applyConstraints } from '../domain/ranking.js';
-import { composeOptions } from '../domain/options.js';
+import { composeOptions, PRICE_POINTS } from '../domain/options.js';
 import { paceOf, travelLimitFor, maxReachMinutes } from '../domain/pace.js';
 import { dayAsTrip, slotFor } from '../domain/days.js';
 import { routingEnabled, travelMatrixMinutes, routeBetween } from '../sources/routing.js';
@@ -54,6 +54,8 @@ const TripIntent = z.object({
   attending: z.array(z.string()).describe('Household member names mentioned as coming; empty if nobody was named'),
   attending_everyone: z.boolean().nullable().describe('True if they said everyone, all of us or the whole family is coming, or answered yes when the app asked whether everyone is coming; false if they named only some people; null if who is coming was not mentioned'),
   special: z.boolean().describe('True if they want somewhere special — a treat, an occasion, worth going further for'),
+  price_point: z.enum(['affordable', 'mid', 'upmarket']).nullable().describe('How much they want to spend on food, if said: "cheap and cheerful" is affordable, "nice but not silly" is mid, "upmarket", "high quality", "somewhere really good" is upmarket; null if not said'),
+  avoid_chains: z.boolean().nullable().describe('True if they said no chains, independents only, somewhere unique or family-run; false if they said chains are fine; null if not mentioned'),
   reply: z.string().describe('One short, warm sentence acknowledging what was understood, or asking for the single most important missing detail'),
 });
 
@@ -71,6 +73,8 @@ const Refinement = z.object({
     travel_mode: z.enum(['walking', 'cycling', 'driving', 'transit']).nullable(),
     min_activities: z.number().int().nullable(),
     min_food_stops: z.number().int().nullable(),
+    price_point: z.enum(['any', 'affordable', 'mid', 'upmarket']).nullable().describe('"somewhere upmarket" → upmarket, "cheaper" → affordable, "doesn\'t matter" → any'),
+    avoid_chains: z.boolean().nullable().describe('"no chains" → true, "chains are fine" → false'),
   }).describe('Changes to the trip itself; all null if none'),
   suggested_preferences: z.array(z.object({
     member: z.string().nullable().describe('Member name if the preference is about one person, else null for the household'),
@@ -88,6 +92,8 @@ const Refinement = z.object({
 const INTERPRET_SYSTEM = `You turn what a family says about an outing into a structured trip request.
 
 You are given the household (members, defaults) and a list of place names the app knows. Extract only what was said; do not invent an origin, duration or preferences. If the origin or the duration is missing, say so in the reply by asking for that one thing, briefly and warmly. Durations like "three hours" become minutes. "From X to Y" means origin X, destination Y. Any way of saying home — "home", "from home", "our house", "from ours", "around here", "near us", or the household's own home address if the context shows one — means the origin is exactly the word "home". If the user names a place the app does not know, keep their wording in origin/destination anyway.
+
+Money and chains: "somewhere upmarket", "really good", "a proper steakhouse" set price_point upmarket; "cheap", "quick bite" affordable. "No chains", "independent", "family-run", "somewhere unique" set avoid_chains true.
 
 Who is coming: names go in attending. "Everyone", "all of us", "the whole family", or "yes" in answer to the app asking whether everyone is coming, means attending_everyone is true. If nobody is mentioned, leave attending empty and attending_everyone null; the app will ask. The context may include the question the app last asked: a short answer like "yes", "home" or "three hours" answers that question.
 
@@ -393,12 +399,14 @@ async function recompose(session, household) {
     pinned: state.pinned,
     excluded: state.excluded,
     attendees: state.attendeePrefs || [],
+    includeChains: state.includeChains === true,
+    pricePoint: PRICE_POINTS.includes(state.pricePoint) ? state.pricePoint : 'any',
   });
   return { trip, ...composed };
 }
 
 async function respond(res, { session, household, reply, extra = {} }) {
-  const { trip, options, poolSize, target } = await recompose(session, household);
+  const { trip, options, poolSize, target, hiddenChains } = await recompose(session, household);
   const spend = await spendSummary({ householdId: household.id, sessionId: session.id });
   res.json({
     sessionId: session.id,
@@ -414,8 +422,8 @@ async function respond(res, { session, household, reply, extra = {} }) {
       excluded: session.state.excluded,
       chosenOptionId: session.state.chosenOptionId ?? null,
     },
-    constraints: { minActivities: session.state.minActivities, minFood: session.state.minFood },
-    pool: { size: poolSize, targetFill: target, excludedByAllergen: session.state.excludedByAllergen ?? [] },
+    constraints: { minActivities: session.state.minActivities, minFood: session.state.minFood, includeChains: session.state.includeChains === true, pricePoint: PRICE_POINTS.includes(session.state.pricePoint) ? session.state.pricePoint : 'any' },
+    pool: { size: poolSize, targetFill: target, excludedByAllergen: session.state.excludedByAllergen ?? [], hiddenChains: hiddenChains ?? 0 },
     suggestedPreferences: session.state.suggestedPreferences ?? [],
     spend,
     ...extra,
@@ -582,6 +590,9 @@ router.post('/start', async (req, res, next) => {
     state.minFood = wantsToEat;
     state.pinned = state.anchor ? [pool.candidates[0].key] : [];
     state.excluded = [];
+    // No chains unless asked for; "somewhere special" means upmarket.
+    state.includeChains = merged.avoid_chains === false;
+    state.pricePoint = merged.price_point ?? (merged.special ? 'upmarket' : 'any');
     state.chosenOptionId = null;
     state.suggestedPreferences = [];
     state.attending = attendees.map((a) => ({ id: a.id, name: a.name }));
@@ -667,6 +678,8 @@ router.post('/refine', async (req, res, next) => {
     const tc = refinement.trip_changes || {};
     if (tc.min_activities != null) state.minActivities = tc.min_activities;
     if (tc.min_food_stops != null) state.minFood = tc.min_food_stops;
+    if (tc.price_point) state.pricePoint = tc.price_point;
+    if (tc.avoid_chains != null) state.includeChains = !tc.avoid_chains;
     if (tc.duration_minutes != null || tc.intensity || tc.travel_mode) {
       await applyTripChanges(session, { durationMinutes: tc.duration_minutes, intensity: tc.intensity, travelMode: tc.travel_mode });
     }
@@ -719,6 +732,8 @@ router.post('/act', async (req, res, next) => {
       case 'set':
         if (action.minActivities != null) state.minActivities = Number(action.minActivities);
         if (action.minFood != null) state.minFood = Number(action.minFood);
+        if (action.includeChains != null) state.includeChains = Boolean(action.includeChains);
+        if (action.pricePoint && PRICE_POINTS.includes(action.pricePoint)) state.pricePoint = action.pricePoint;
         await applyTripChanges(session, {
           intensity: action.intensity && INTENSITY_TARGETS[action.intensity] ? action.intensity : null,
           durationMinutes: action.durationMinutes != null ? Number(action.durationMinutes) : null,
@@ -824,7 +839,21 @@ router.post('/day', async (req, res, next) => {
       cand.shortlisted = true;
       cand.mustDo = item.must_do;
     }
-    const candidates = [...pool.candidates, ...extra].sort((a, b) => b.score - a.score);
+    // A booking already on the day (the show said aloud when the trip was made)
+    // is fixed: every option is built around it, and the pool treats it as the
+    // day's one ticketed thing.
+    const { rows: booked } = await query(`select * from trip_stops where day_id = $1 and venue_ref like 'anchor:%' order by start_time`, [dayId]);
+    const tzD = trip.timezone || DEFAULT_TZ;
+    const fixedStops = booked.map((s) => {
+      const startsAt = wallToUtc(days[0].date, (s.start_time || trip.depart_at.slice(11, 16) || '12:00').slice(0, 5), tzD).toISOString();
+      return {
+        key: s.venue_ref, source: 'anchor', sourcePlaceId: s.venue_ref.split(':')[1], name: s.venue_name, category: 'event', cuisines: [], experiences: ['theatre'], allergens: [],
+        lat: s.lat, lng: s.lng, dishes: [], justification: null, matchedDish: null, travelMinutes: 0, score: 1000, fixed: true,
+        startsAt, endsAt: new Date(new Date(startsAt).getTime() + (s.dwell_minutes || 120) * 60_000).toISOString(),
+        reasons: [{ kind: 'want', text: `Your booking${s.start_time ? ` at ${s.start_time.slice(0, 5)}` : ''}` }],
+      };
+    });
+    const candidates = [...fixedStops, ...pool.candidates.filter((c) => !fixedStops.some((f) => f.key === c.key)), ...extra].sort((a, b) => b.score - a.score);
 
     const defaults = { relaxed: [1, 0], balanced: [1, 1], packed: [2, 1] }[trip.intensity] ?? [1, 1];
     Object.assign(state, {
@@ -832,8 +861,11 @@ router.post('/day', async (req, res, next) => {
       excludedByAllergen: pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons })),
       minActivities: minActivities ?? defaults[0],
       minFood: minFood ?? defaults[1],
-      pinned: shortlist.filter((i) => i.must_do).map((i) => i.venue_ref).filter((r) => candidates.some((c) => c.key === r)),
+      pinned: [...fixedStops.map((f) => f.key), ...shortlist.filter((i) => i.must_do).map((i) => i.venue_ref).filter((r) => candidates.some((c) => c.key === r))],
       excluded: [],
+      includeChains: false,
+      pricePoint: 'any',
+      anchor: fixedStops[0] ? { name: fixedStops[0].name, start_time: booked[0].start_time?.slice(0, 5) ?? null, duration_minutes: booked[0].dwell_minutes, kind: 'booking', place: { label: fixedStops[0].name, lat: fixedStops[0].lat, lng: fixedStops[0].lng } } : null,
       chosenOptionId: null,
       suggestedPreferences: [],
       attending: attendees.map((a) => ({ id: a.id, name: a.name })),

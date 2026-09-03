@@ -10,6 +10,7 @@ import { osmSource } from './osm.js';
 import { googleSource } from './google.js';
 import { tripadvisorSource } from './tripadvisor.js';
 import { ticketmasterSource } from './ticketmaster.js';
+import { detectChain } from '../domain/chains.js';
 
 // Licensed sources register here and switch on when their key exists;
 // ROAM_SOURCES still narrows the set (Epic 2 C10: no code change to enable/disable).
@@ -79,11 +80,12 @@ export function resolveVenues(rawRecords) {
       resolved.push({
         key: `${record.source}:${record.sourcePlaceId}`,
         ...record,
+        ...detectChain(record),
         contributingSources: [record.source],
         // Which source supplied each displayed field, and — once licensed
         // sources are live — when that field must be discarded.
         provenance: Object.fromEntries(
-          ['name', 'category', 'rating', 'priceLevel', 'lat', 'lng'].map((f) => [
+          ['name', 'category', 'rating', 'ratingCount', 'priceLevel', 'lat', 'lng'].map((f) => [
             f,
             { source: record.source, expiresAt: null },
           ]),
@@ -104,6 +106,8 @@ export function resolveVenues(rawRecords) {
       }
     }
     if (!candidate.dietaryOptions?.length && record.dietaryOptions?.length) candidate.dietaryOptions = record.dietaryOptions;
+    if (!candidate.chain) Object.assign(candidate, detectChain({ ...record, chain: undefined }));
+    if (!candidate.address && record.address) candidate.address = record.address;
     if (record.cuisines?.length) candidate.cuisines = [...new Set([...(candidate.cuisines || []), ...record.cuisines])];
     if (record.experiences?.length) candidate.experiences = [...new Set([...(candidate.experiences || []), ...record.experiences])];
     candidate.attributionText = [...new Set([candidate.attributionText || candidate.attribution?.text || candidate.attributionLabel, record.attribution].filter(Boolean))].join(' · ');

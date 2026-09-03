@@ -7,7 +7,7 @@
 // and it also governs how long each stop is allowed (Requirements §5).
 
 import { computeBudget, INTENSITY_TARGETS } from './budget.js';
-import { estimateTravelMinutes } from './travel.js';
+import { estimateTravelMinutes, kmBetween } from './travel.js';
 import { paceOf, dwellAllowance } from './pace.js';
 import { wallClock, DEFAULT_TZ } from './time.js';
 
@@ -190,6 +190,16 @@ const BASES = [
  * @param pinned    venue keys that must appear in every option ("I like this")
  * @param excluded  venue keys that must not appear ("not that")
  */
+// Price point, against a source's 0–4 price level. Unknown stays in: the data
+// is missing, not the place unsuitable — the card says "price unknown".
+export const PRICE_POINTS = ['any', 'affordable', 'mid', 'upmarket'];
+function priceOk(c, pricePoint) {
+  if (!pricePoint || pricePoint === 'any' || !isFood(c) || c.priceLevel == null) return true;
+  if (pricePoint === 'affordable') return c.priceLevel <= 2;
+  if (pricePoint === 'mid') return c.priceLevel >= 2 && c.priceLevel <= 3;
+  return c.priceLevel >= 3; // upmarket
+}
+
 export function composeOptions({
   trip,
   household,
@@ -200,15 +210,22 @@ export function composeOptions({
   excluded = [],
   maxOptions = 3,
   attendees = [],
+  includeChains = false,
+  pricePoint = 'any',
 }) {
   const excludedSet = new Set(excluded);
+  const pinnedSet = new Set(pinned);
   const target = INTENSITY_TARGETS[trip.intensity] ?? INTENSITY_TARGETS.balanced;
   const intensityDwell = INTENSITY_DWELL[trip.intensity] ?? 1;
+  const base = { lat: trip.origin_lat, lng: trip.origin_lng };
 
   const usable = pool
     // Anything ranked below zero (needs a booking, plainly unsuitable) is out
     // for every basis, including the ones that order by distance.
     .filter((c) => !excludedSet.has(c.key) && eventInsideWindow(c, trip) && (c.fixed || (c.score ?? 0) >= 0))
+    // Chains and price are the household's choice for the day. A place they
+    // pinned, shortlisted or booked is theirs whatever the setting says.
+    .filter((c) => c.fixed || c.shortlisted || pinnedSet.has(c.key) || ((includeChains || !c.chain) && priceOk(c, pricePoint)))
     .map((c) => { const a = dwellFor(c, household, attendees); return { ...c, baseDwell: a.minutes, dwellCappedBy: a.cappedBy }; });
   const byKey = new Map(usable.map((c) => [c.key, c]));
   const pinnedStops = pinned.map((k) => byKey.get(k)).filter(Boolean);
@@ -323,6 +340,26 @@ export function composeOptions({
       endsAt: s.endsAt ?? null,
       pinned: pinned.includes(s.key),
       fixed: Boolean(s.fixed),
+      // What kind of place, how it is rated and by whom, what it costs, how far
+      // it is — so a card can say more than a name and a reason.
+      source: s.source,
+      cuisines: s.cuisines ?? [],
+      experiences: s.experiences ?? [],
+      rating: s.rating ?? null,
+      ratingCount: s.ratingCount ?? null,
+      ratingSource: s.rating != null ? (s.provenance?.rating?.source ?? s.source) : null,
+      priceLevel: s.priceLevel ?? null,
+      chain: Boolean(s.chain),
+      brand: s.brand ?? null,
+      goodForChildren: s.goodForChildren ?? null,
+      menuForChildren: s.menuForChildren ?? null,
+      address: s.address ?? null,
+      website: s.website ?? null,
+      summary: s.summary ?? null,
+      openingHours: s.openingHours ?? null,
+      distanceKm: s.lat != null && base.lat != null ? Number(kmBetween(base, s).toFixed(1)) : null,
+      travelFromBaseMinutes: typeof s.travelMinutes === 'number' ? Math.round(s.travelMinutes) : null,
+      attribution: s.attributionText ?? s.attribution ?? null,
     }));
 
     options.push({
@@ -350,5 +387,6 @@ export function composeOptions({
     }
   }
 
-  return { options, poolSize: usable.length, target };
+  const hiddenChains = pool.filter((c) => c.chain && !c.fixed && !c.shortlisted && !pinnedSet.has(c.key) && !excludedSet.has(c.key) && !includeChains).length;
+  return { options, poolSize: usable.length, target, hiddenChains, pricePoint, includeChains };
 }

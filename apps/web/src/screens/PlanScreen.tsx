@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
-import { api, ApiError, HouseholdResponse, OptionStop, PlanAction, PlanResponse, TripOption } from '../api';
+import { api, ApiError, HouseholdResponse, PlanAction, PlanResponse, TripOption } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Stepper, Wrap, minutes, clock } from '../components/ui';
 import { TimeBar } from '../components/TimeBar';
 import { FaceRow } from '../components/Faces';
+import { StopCard } from '../components/StopCard';
+import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { getSpeakPref } from './SettingsScreen';
 
@@ -247,6 +249,8 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
           />
           <Stepper label="Things to do, at least" value={plan.constraints?.minActivities ?? 0} onChange={(v) => act({ type: 'set', minActivities: v })} max={5} />
           <Stepper label="Places to eat or drink, at least" value={plan.constraints?.minFood ?? 0} onChange={(v) => act({ type: 'set', minFood: v })} max={4} />
+          <PricePointControl value={plan.constraints?.pricePoint ?? 'any'} onChange={(v) => act({ type: 'set', pricePoint: v })} />
+          <ChainsControl includeChains={plan.constraints?.includeChains ?? false} hidden={plan.pool?.hiddenChains ?? 0} onChange={(v) => act({ type: 'set', includeChains: v })} />
           <Text style={[type.small, { marginTop: 4 }]}>How full should the day be?</Text>
           <Segmented
             value={plan.trip.intensity}
@@ -286,6 +290,7 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
                 option={option}
                 width={cardWidth}
                 trip={plan!.trip!}
+                baseLabel={plan!.journey?.to ?? plan!.trip!.destination?.label ?? plan!.trip!.origin.label}
                 pinned={new Set(plan!.selection?.pinned ?? [])}
                 differences={differences}
                 viewing={viewing === option.id}
@@ -357,9 +362,9 @@ function labelFor(key: string, plan: PlanResponse): string {
 }
 
 function OptionCard({
-  option, width, trip, pinned, differences, viewing, chosen, committed, busy, onAct, onCommit,
+  option, width, trip, baseLabel, pinned, differences, viewing, chosen, committed, busy, onAct, onCommit,
 }: {
-  option: TripOption; width: number; trip: NonNullable<PlanResponse['trip']>;
+  option: TripOption; width: number; trip: NonNullable<PlanResponse['trip']>; baseLabel: string;
   pinned: Set<string>; differences: boolean; viewing: boolean; chosen: boolean; committed: boolean; busy: boolean;
   onAct: (a: PlanAction) => void; onCommit: () => void;
 }) {
@@ -382,10 +387,13 @@ function OptionCard({
       ) : null}
 
       <View style={{ gap: spacing.sm }}>
-        {option.stops.map((stop) => (
-          <StopRow
+        {option.stops.map((stop, i) => (
+          <StopCard
             key={stop.id}
             stop={stop}
+            mode={trip.travelMode}
+            baseLabel={baseLabel}
+            previousName={i === 0 ? baseLabel : option.stops[i - 1].name}
             dim={differences && !stop.uniqueToThisOption}
             pinned={pinned.has(stop.id)}
             busy={busy}
@@ -402,43 +410,6 @@ function OptionCard({
         disabled={busy || committed}
       />
     </Card>
-  );
-}
-
-function StopRow({ stop, dim, pinned, busy, onLike, onDislike }: {
-  stop: OptionStop; dim: boolean; pinned: boolean; busy: boolean; onLike: () => void; onDislike: () => void;
-}) {
-  return (
-    <View style={[styles.stop, dim && { opacity: 0.35 }]}>
-      <View style={{ flex: 1, gap: 3 }}>
-        <Row>
-          <Text style={styles.stopPos}>{stop.position}</Text>
-          <Text style={[type.h3, { flex: 1 }]} numberOfLines={2}>
-            {stop.fixed ? '📌 ' : CATEGORY_ICON[stop.category] ?? '•'} {stop.name}{stop.fixed ? ' (fixed)' : ''}
-          </Text>
-        </Row>
-        <Text style={type.small}>
-          +{stop.travelFromPrevMinutes} min to get there · stay {minutes(stop.dwellMinutes)}
-          {stop.startsAt ? ` · ${clock(stop.startsAt)}–${clock(stop.endsAt!)}` : ''}
-        </Text>
-        {stop.reasons.length ? (
-          <Wrap>
-            {stop.reasons.slice(0, 3).map((r, i) => (
-              <Chip key={i} label={r.text} tone={r.kind === 'dislike' ? 'dislike' : r.kind === 'want' ? 'want' : 'like'} icon={r.kind === 'favourite' ? '★' : undefined} />
-            ))}
-          </Wrap>
-        ) : null}
-        {stop.justification ? <Text style={type.tiny}>"{stop.justification}"</Text> : null}
-      </View>
-      <View style={{ gap: 6 }}>
-        <Pressable onPress={onLike} disabled={busy} style={[styles.reactBtn, pinned && styles.reactBtnOn]} accessibilityRole="button" accessibilityLabel={pinned ? `Stop keeping ${stop.name}` : `Keep ${stop.name}`}>
-          <Text style={[styles.reactText, pinned && { color: '#fff' }]}>{pinned ? '♥ Keeping' : '♡ Keep'}</Text>
-        </Pressable>
-        <Pressable onPress={onDislike} disabled={busy} style={styles.reactBtn} accessibilityRole="button" accessibilityLabel={`Not ${stop.name}`}>
-          <Text style={styles.reactText}>✕ Not this</Text>
-        </Pressable>
-      </View>
-    </View>
   );
 }
 
@@ -489,15 +460,4 @@ const styles = StyleSheet.create({
   optionCardViewing: { borderColor: colors.inkFaint },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.line },
   dotOn: { backgroundColor: colors.accent },
-  stop: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
-  stopPos: {
-    width: 22, height: 22, borderRadius: 11, backgroundColor: colors.dwell, color: '#fff',
-    textAlign: 'center', lineHeight: 22, fontSize: 12, fontWeight: '700', overflow: 'hidden',
-  },
-  reactBtn: {
-    minHeight: 40, minWidth: 96, paddingHorizontal: 10, borderRadius: radius.sm,
-    backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center',
-  },
-  reactBtnOn: { backgroundColor: colors.like },
-  reactText: { fontSize: 13, fontWeight: '700', color: colors.ink },
 });

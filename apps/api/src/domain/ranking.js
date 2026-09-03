@@ -138,11 +138,30 @@ export function applyConstraints({ venues, attendees, learned = [] }) {
       reasons.push({ kind: 'note', text: 'Needs a booking — tell Roam if you have one' });
     }
 
-    // A child is coming: places known not to suit children fall well down the list.
-    if (attendees.some((m) => m.isMinor) && (venue.goodForChildren === false || venue.category === 'bar')) {
+    // A child is coming: places known not to suit children fall well down the list;
+    // places known to welcome them say so.
+    const childComing = attendees.some((m) => m.isMinor);
+    if (childComing && (venue.goodForChildren === false || venue.category === 'bar')) {
       score -= 25;
       reasons.push({ kind: 'note', text: 'Not really for children' });
     }
+    if (childComing && venue.goodForChildren === true) {
+      score += 6;
+      reasons.push({ kind: 'kids', text: 'Good for children' });
+    }
+    if (childComing && venue.menuForChildren === true) {
+      score += 3;
+      reasons.push({ kind: 'kids', text: "Children's menu" });
+    }
+
+    // Independents edge ahead of chains on ties; whether chains are offered at
+    // all is the household's call (options.js), so this is a nudge, not a bar.
+    if (venue.chain) {
+      score -= 4;
+      reasons.push({ kind: 'chain', text: venue.brand ? `Chain (${venue.brand})` : 'Chain' });
+    }
+    // Many reviews behind a rating make it worth more than the same number from six people.
+    if (venue.rating != null && venue.ratingCount) score += Math.min(6, Math.log10(venue.ratingCount + 1) * 2);
 
     // Closer is better, but only as a tie-breaker — never enough to outrank taste.
     if (typeof venue.travelMinutes === 'number') score -= venue.travelMinutes * 0.15;
