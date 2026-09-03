@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roam · Places tab — what it is, and three ways to lay it out</title>
+<style>
+  :root{--bg:#F7F6F2;--surface:#fff;--muted:#F0EEE8;--ink:#1D1B16;--ink2:#6B675E;--ink3:#A8A399;--line:#E4E0D6;--accent:#1F5F5B;--accentSoft:#DCEBE9;--want:#4A4A8A;--wantSoft:#E6E6F5;--over:#C0392B;--overSoft:#F8E1DE;--like:#2E7D32;--likeSoft:#E3F1E4;--gold:#B0771E;--goldSoft:#F6EBD5;--brand:#ec3013}
+  *{box-sizing:border-box}
+  body{margin:0;background:#E9E6DF;font:14px/1.45 -apple-system,Inter,Segoe UI,Helvetica,Arial,sans-serif;color:var(--ink);padding:32px}
+  h1{font-size:26px;margin:0 0 4px}
+  .lede{color:var(--ink2);max-width:900px;margin:0 0 28px}
+  section{margin:0 0 56px}
+  h2{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 16px;max-width:900px}
+  .row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+  .notes{width:320px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13px}
+  .notes h4{margin:0 0 6px;font-size:13px}
+  .notes ul{margin:0 0 10px;padding-left:18px}
+  .notes li{margin:0 0 4px}
+  .notes .rec{background:var(--accentSoft);color:var(--accent);border-radius:8px;padding:8px 10px;font-weight:600}
+  .cap{font-size:12px;color:var(--ink2);text-align:center;margin:8px 0 0;max-width:390px}
+  table.t{border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;max-width:1000px;font-size:13px}
+  table.t th,table.t td{padding:9px 12px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+  table.t th{background:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.3px;color:var(--ink2)}
+  table.t tr:first-child th{border-top:0}
+  table.t td b{font-weight:600}
+  .ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
+  .ic.s{width:13px;height:13px;vertical-align:-2px}
+  .ic.l{width:20px;height:20px}
+  .ic.fill{fill:currentColor}
+  /* phone */
+  .phone{width:390px;height:844px;background:var(--bg);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;flex:none}
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700}
+  .screen{flex:1;overflow:hidden;padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+  .tabbar{height:64px;border-top:1px solid var(--line);background:var(--surface);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--ink3)}
+  .tabbar div{text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px}.tabbar .on{color:var(--accent);font-weight:700}
+  .title{font-size:22px;font-weight:700;letter-spacing:-.3px}
+  .hdr{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:0 14px;border-radius:10px;font-weight:700;font-size:13px;background:var(--accent);color:#fff;white-space:nowrap}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+  .btn.sec{background:var(--accentSoft);color:var(--accent)}
+  .btn.sm{min-height:30px;padding:0 10px;font-size:12px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .h3{font-weight:600;font-size:15px}
+  .small{font-size:13px;color:var(--ink2)}
+  .tiny{font-size:11px;color:var(--ink3)}
+  .kicker{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--ink3);margin:6px 0 0}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:11px;font-weight:600;margin:2px 4px 0 0;white-space:nowrap}
+  .chip.want{background:var(--wantSoft);color:var(--want);border-color:transparent}
+  .chip.like{background:var(--likeSoft);color:var(--like);border-color:transparent}
+  .chip.gold{background:var(--goldSoft);color:var(--gold);border-color:transparent}
+  .chip.acc{background:var(--accentSoft);color:var(--accent);border-color:transparent}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .chip.ghost{color:var(--ink2)}
+  .seg{display:flex;background:var(--muted);border-radius:10px;padding:3px}
+  .seg div{flex:1;text-align:center;padding:7px 4px;border-radius:8px;font-size:12px;font-weight:600;color:var(--ink2);display:flex;align-items:center;justify-content:center;gap:4px}
+  .seg .on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  /* expandable rows */
+  .list{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .r{display:flex;align-items:center;gap:10px;padding:11px 12px;border-top:1px solid var(--line);cursor:pointer;min-height:48px}
+  .r:first-child{border-top:0}
+  .r .t{flex:1;min-width:0}
+  .r .name{font-weight:600;font-size:15px;line-height:1.2}
+  .r .meta{font-size:12px;color:var(--ink2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .r .meta b{color:var(--ink);font-weight:600}
+  .r .chev{color:var(--ink3);transition:transform .15s}
+  .r.open .chev{transform:rotate(90deg)}
+  .r.sub{padding-left:38px;background:#FBFAF7}
+  .r.sub .name{font-size:14px}
+  .r.head{background:var(--muted)}
+  .r.head .name{font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink2);font-weight:700}
+  .kids{display:none}.kids.open{display:block}
+  .cnt{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;margin-left:2px}
+  .cnt.been{background:var(--likeSoft);color:var(--like)}
+  .cnt.try{background:var(--wantSoft);color:var(--want)}
+  .cnt.sp{background:var(--goldSoft);color:var(--gold)}
+  .cnt.trip{background:var(--accentSoft);color:var(--accent)}
+  .cnt.past{background:var(--muted);color:var(--ink2)}
+  /* inside a destination */
+  .pr{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+  .pr:first-child{border-top:0}
+  .pr .ci{width:28px;height:28px;border-radius:8px;background:var(--muted);display:flex;align-items:center;justify-content:center;color:var(--ink2);flex:none}
+  .pr .t{flex:1;min-width:0}
+  .pr .name{font-weight:600;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pr .meta{font-size:11px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vd{display:inline-flex;gap:3px;flex:none}
+  .vd i{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-style:normal;font-size:10px;font-weight:700;color:#fff}
+  .vd .l{background:var(--like)}.vd .f{background:var(--ink3)}.vd .n{background:var(--over)}
+  .tr{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+  .tr:first-child{border-top:0}
+  .tr .d{width:58px;flex:none;font-size:11px;font-weight:700;color:var(--accent);line-height:1.2}
+  .tr.past .d{color:var(--ink3)}
+  .tr .t{flex:1;min-width:0}
+  .tr .name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tr .meta{font-size:11px;color:var(--ink2)}
+  .map{height:120px;border-radius:10px;background:linear-gradient(135deg,#E6EBE3,#D5DED7);position:relative;overflow:hidden}
+  .map .pin{position:absolute;width:18px;height:18px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .map .pin.b{background:var(--like)}.map .pin.w{background:var(--want)}.map .pin.g{background:var(--gold)}
+  .map .roads{position:absolute;inset:0;background:repeating-linear-gradient(115deg,transparent 0 38px,rgba(255,255,255,.55) 38px 40px),repeating-linear-gradient(25deg,transparent 0 54px,rgba(255,255,255,.5) 54px 56px)}
+  .recent{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:var(--surface);border:1px dashed var(--line);font-size:12px}
+  .recent .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .foot{font-size:12px;color:var(--ink2);padding:4px 2px}
+  /* web frame */
+  .web{width:1040px;height:640px;background:var(--bg);border:8px solid #2A2823;border-radius:14px;overflow:hidden;display:flex;box-shadow:0 20px 40px rgba(0,0,0,.18)}
+  .web .nav{width:150px;background:var(--surface);border-right:1px solid var(--line);padding:16px 10px;display:flex;flex-direction:column;gap:2px}
+  .web .nav .brand{font-family:"Caveat","Bradley Hand",cursive;font-weight:700;font-size:26px;color:var(--brand);margin:0 0 12px 6px}
+  .web .nav div.i{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink2)}
+  .web .nav div.i.on{background:var(--accentSoft);color:var(--accent)}
+  .web .col{padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .web .c1{width:300px;border-right:1px solid var(--line)}
+  .web .c2{width:340px;border-right:1px solid var(--line)}
+  .web .c3{flex:1}
+  .web .map{height:100%;flex:1}
+  .diff{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:1000px}
+  .diff .card h4{margin:0 0 6px;font-size:14px}
+  .diff .card p{margin:0 0 6px;font-size:13px;color:var(--ink2)}
+  .warn{background:var(--overSoft);border:1px solid #EFC7C1;border-radius:12px;padding:12px 14px;max-width:900px;font-size:13px}
+  .warn b{color:var(--over)}
+  @media (max-width:900px){body{padding:16px}.web{display:none}.notes{width:100%}.diff{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+<symbol id="i-arrow-down" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-down" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v14" /> <path d="m19 12-7 7-7-7" /></symbol>
+<symbol id="i-arrow-left" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-left" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m12 19-7-7 7-7" /> <path d="M19 12H5" /></symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-right" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /></symbol>
+<symbol id="i-baby" viewBox="0 0 24 24"><svg class="lucide lucide-baby" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9 12h.01" /> <path d="M15 12h.01" /> <path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5" /> <path d="M19 6.3a9 9 0 0 1 1.8 3.9 2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5s-.9 2.5-2 2.5c-.8 0-1.5-.4-1.5-1" /></symbol>
+<symbol id="i-badge-check" viewBox="0 0 24 24"><svg class="lucide lucide-badge-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" /> <path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="i-ban" viewBox="0 0 24 24"><svg class="lucide lucide-ban" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m4.9 4.9 14.2 14.2" /></symbol>
+<symbol id="i-bed" viewBox="0 0 24 24"><svg class="lucide lucide-bed" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2 4v16" /> <path d="M2 8h18a2 2 0 0 1 2 2v10" /> <path d="M2 17h20" /> <path d="M6 8v9" /></symbol>
+<symbol id="i-bookmark" viewBox="0 0 24 24"><svg class="lucide lucide-bookmark" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" /></symbol>
+<symbol id="i-building-2" viewBox="0 0 24 24"><svg class="lucide lucide-building-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" /> <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" /> <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" /> <path d="M10 6h4" /> <path d="M10 10h4" /> <path d="M10 14h4" /> <path d="M10 18h4" /></symbol>
+<symbol id="i-bus-front" viewBox="0 0 24 24"><svg class="lucide lucide-bus-front" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 6 2 7" /> <path d="M10 6h4" /> <path d="m22 7-2-1" /> <rect width="16" height="16" x="4" y="3" rx="2" /> <path d="M4 11h16" /> <path d="M8 15h.01" /> <path d="M16 15h.01" /> <path d="M6 19v2" /> <path d="M18 21v-2" /></symbol>
+<symbol id="i-bus" viewBox="0 0 24 24"><svg class="lucide lucide-bus" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 6v6" /> <path d="M15 6v6" /> <path d="M2 12h19.6" /> <path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3" /> <circle cx="7" cy="18" r="2" /> <path d="M9 18h5" /> <circle cx="16" cy="18" r="2" /></symbol>
+<symbol id="i-calendar-check" viewBox="0 0 24 24"><svg class="lucide lucide-calendar-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 2v4" /> <path d="M16 2v4" /> <rect width="18" height="18" x="3" y="4" rx="2" /> <path d="M3 10h18" /> <path d="m9 16 2 2 4-4" /></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24"><svg class="lucide lucide-calendar" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 2v4" /> <path d="M16 2v4" /> <rect width="18" height="18" x="3" y="4" rx="2" /> <path d="M3 10h18" /></symbol>
+<symbol id="i-car-taxi-front" viewBox="0 0 24 24"><svg class="lucide lucide-car-taxi-front" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10 2h4" /> <path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8" /> <path d="M7 14h.01" /> <path d="M17 14h.01" /> <rect width="18" height="8" x="3" y="10" rx="2" /> <path d="M5 18v2" /> <path d="M19 18v2" /></symbol>
+<symbol id="i-car" viewBox="0 0 24 24"><svg class="lucide lucide-car" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" /> <circle cx="7" cy="17" r="2" /> <path d="M9 17h6" /> <circle cx="17" cy="17" r="2" /></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><svg class="lucide lucide-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 6 9 17l-5-5" /></symbol>
+<symbol id="i-chevron-down" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-down" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m6 9 6 6 6-6" /></symbol>
+<symbol id="i-chevron-left" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-left" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m15 18-6-6 6-6" /></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-right" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /></symbol>
+<symbol id="i-chevron-up" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-up" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 15-6-6-6 6" /></symbol>
+<symbol id="i-circle-check" viewBox="0 0 24 24"><svg class="lucide lucide-circle-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="i-circle-dot" viewBox="0 0 24 24"><svg class="lucide lucide-circle-dot" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <circle cx="12" cy="12" r="1" /></symbol>
+<symbol id="i-circle-x" viewBox="0 0 24 24"><svg class="lucide lucide-circle-x" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m15 9-6 6" /> <path d="m9 9 6 6" /></symbol>
+<symbol id="i-clock-3" viewBox="0 0 24 24"><svg class="lucide lucide-clock-3" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <polyline points="12 6 12 12 16.5 12" /></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><svg class="lucide lucide-clock" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <polyline points="12 6 12 12 16 14" /></symbol>
+<symbol id="i-coffee" viewBox="0 0 24 24"><svg class="lucide lucide-coffee" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10 2v2" /> <path d="M14 2v2" /> <path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" /> <path d="M6 2v2" /></symbol>
+<symbol id="i-compass" viewBox="0 0 24 24"><svg class="lucide lucide-compass" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" /> <circle cx="12" cy="12" r="10" /></symbol>
+<symbol id="i-door-open" viewBox="0 0 24 24"><svg class="lucide lucide-door-open" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M13 4h3a2 2 0 0 1 2 2v14" /> <path d="M2 20h3" /> <path d="M13 20h9" /> <path d="M10 12v.01" /> <path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z" /></symbol>
+<symbol id="i-ellipsis" viewBox="0 0 24 24"><svg class="lucide lucide-ellipsis" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="1" /> <circle cx="19" cy="12" r="1" /> <circle cx="5" cy="12" r="1" /></symbol>
+<symbol id="i-external-link" viewBox="0 0 24 24"><svg class="lucide lucide-external-link" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 3h6v6" /> <path d="M10 14 21 3" /> <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></symbol>
+<symbol id="i-footprints" viewBox="0 0 24 24"><svg class="lucide lucide-footprints" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z" /> <path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z" /> <path d="M16 17h4" /> <path d="M4 13h4" /></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><svg class="lucide lucide-globe" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /> <path d="M2 12h20" /></symbol>
+<symbol id="i-grip-vertical" viewBox="0 0 24 24"><svg class="lucide lucide-grip-vertical" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="9" cy="12" r="1" /> <circle cx="9" cy="5" r="1" /> <circle cx="9" cy="19" r="1" /> <circle cx="15" cy="12" r="1" /> <circle cx="15" cy="5" r="1" /> <circle cx="15" cy="19" r="1" /></symbol>
+<symbol id="i-house" viewBox="0 0 24 24"><svg class="lucide lucide-house" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /> <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
+<symbol id="i-ice-cream-cone" viewBox="0 0 24 24"><svg class="lucide lucide-ice-cream-cone" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m7 11 4.08 10.35a1 1 0 0 0 1.84 0L17 11" /> <path d="M17 7A5 5 0 0 0 7 7" /> <path d="M17 7a2 2 0 0 1 0 4H7a2 2 0 0 1 0-4" /></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><svg class="lucide lucide-image" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="18" height="18" x="3" y="3" rx="2" ry="2" /> <circle cx="9" cy="9" r="2" /> <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><svg class="lucide lucide-info" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M12 16v-4" /> <path d="M12 8h.01" /></symbol>
+<symbol id="i-landmark" viewBox="0 0 24 24"><svg class="lucide lucide-landmark" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <line x1="3" x2="21" y1="22" y2="22" /> <line x1="6" x2="6" y1="18" y2="11" /> <line x1="10" x2="10" y1="18" y2="11" /> <line x1="14" x2="14" y1="18" y2="11" /> <line x1="18" x2="18" y1="18" y2="11" /> <polygon points="12 2 20 7 4 7" /></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><svg class="lucide lucide-list" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 12h.01" /> <path d="M3 18h.01" /> <path d="M3 6h.01" /> <path d="M8 12h13" /> <path d="M8 18h13" /> <path d="M8 6h13" /></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><svg class="lucide lucide-lock" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="18" height="11" x="3" y="11" rx="2" ry="2" /> <path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
+<symbol id="i-map-pin" viewBox="0 0 24 24"><svg class="lucide lucide-map-pin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /> <circle cx="12" cy="10" r="3" /></symbol>
+<symbol id="i-map-pinned" viewBox="0 0 24 24"><svg class="lucide lucide-map-pinned" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 8c0 3.613-3.869 7.429-5.393 8.795a1 1 0 0 1-1.214 0C9.87 15.429 6 11.613 6 8a6 6 0 0 1 12 0" /> <circle cx="12" cy="8" r="2" /> <path d="M8.714 14h-3.71a1 1 0 0 0-.948.683l-2.004 6A1 1 0 0 0 3 22h18a1 1 0 0 0 .948-1.316l-2-6a1 1 0 0 0-.949-.684h-3.712" /></symbol>
+<symbol id="i-map" viewBox="0 0 24 24"><svg class="lucide lucide-map" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z" /> <path d="M15 5.764v15" /> <path d="M9 3.236v15" /></symbol>
+<symbol id="i-message-square" viewBox="0 0 24 24"><svg class="lucide lucide-message-square" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><svg class="lucide lucide-mic" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /> <path d="M19 10v2a7 7 0 0 1-14 0v-2" /> <line x1="12" x2="12" y1="19" y2="22" /></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><svg class="lucide lucide-minus" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /></symbol>
+<symbol id="i-music" viewBox="0 0 24 24"><svg class="lucide lucide-music" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9 18V5l12-2v13" /> <circle cx="6" cy="18" r="3" /> <circle cx="18" cy="16" r="3" /></symbol>
+<symbol id="i-navigation" viewBox="0 0 24 24"><svg class="lucide lucide-navigation" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <polygon points="3 11 22 2 13 21 11 13 3 11" /></symbol>
+<symbol id="i-palette" viewBox="0 0 24 24"><svg class="lucide lucide-palette" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /> <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /> <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /> <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /> <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" /></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24"><svg class="lucide lucide-pencil" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" /></symbol>
+<symbol id="i-phone-call" viewBox="0 0 24 24"><svg class="lucide lucide-phone-call" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /> <path d="M14.05 2a9 9 0 0 1 8 7.94" /> <path d="M14.05 6A5 5 0 0 1 18 10" /></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24"><svg class="lucide lucide-phone" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><svg class="lucide lucide-plus" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /></symbol>
+<symbol id="i-pound-sterling" viewBox="0 0 24 24"><svg class="lucide lucide-pound-sterling" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 7c0-5.333-8-5.333-8 0" /> <path d="M10 7v14" /> <path d="M6 21h12" /> <path d="M6 13h10" /></symbol>
+<symbol id="i-route" viewBox="0 0 24 24"><svg class="lucide lucide-route" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="6" cy="19" r="3" /> <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /> <circle cx="18" cy="5" r="3" /></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><svg class="lucide lucide-search" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="11" cy="11" r="8" /> <path d="m21 21-4.3-4.3" /></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><svg class="lucide lucide-settings" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /> <circle cx="12" cy="12" r="3" /></symbol>
+<symbol id="i-shopping-bag" viewBox="0 0 24 24"><svg class="lucide lucide-shopping-bag" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /> <path d="M3 6h18" /> <path d="M16 10a4 4 0 0 1-8 0" /></symbol>
+<symbol id="i-sliders-horizontal" viewBox="0 0 24 24"><svg class="lucide lucide-sliders-horizontal" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <line x1="21" x2="14" y1="4" y2="4" /> <line x1="10" x2="3" y1="4" y2="4" /> <line x1="21" x2="12" y1="12" y2="12" /> <line x1="8" x2="3" y1="12" y2="12" /> <line x1="21" x2="16" y1="20" y2="20" /> <line x1="12" x2="3" y1="20" y2="20" /> <line x1="14" x2="14" y1="2" y2="6" /> <line x1="8" x2="8" y1="10" y2="14" /> <line x1="16" x2="16" y1="18" y2="22" /></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24"><svg class="lucide lucide-sparkles" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /> <path d="M20 3v4" /> <path d="M22 5h-4" /> <path d="M4 17v2" /> <path d="M5 18H3" /></symbol>
+<symbol id="i-star" viewBox="0 0 24 24"><svg class="lucide lucide-star" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" /></symbol>
+<symbol id="i-tent-tree" viewBox="0 0 24 24"><svg class="lucide lucide-tent-tree" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="4" cy="4" r="2" /> <path d="m14 5 3-3 3 3" /> <path d="m14 10 3-3 3 3" /> <path d="M17 14V2" /> <path d="M17 14H7l-5 8h20Z" /> <path d="M8 14v8" /> <path d="m9 14 5 8" /></symbol>
+<symbol id="i-ticket-check" viewBox="0 0 24 24"><svg class="lucide lucide-ticket-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /> <path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="i-ticket" viewBox="0 0 24 24"><svg class="lucide lucide-ticket" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /> <path d="M13 5v2" /> <path d="M13 17v2" /> <path d="M13 11v2" /></symbol>
+<symbol id="i-train-front" viewBox="0 0 24 24"><svg class="lucide lucide-train-front" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 3.1V7a4 4 0 0 0 8 0V3.1" /> <path d="m9 15-1-1" /> <path d="m15 15 1-1" /> <path d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z" /> <path d="m8 19-2 3" /> <path d="m16 19 2 3" /></symbol>
+<symbol id="i-trash-2" viewBox="0 0 24 24"><svg class="lucide lucide-trash-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 6h18" /> <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /> <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /> <line x1="10" x2="10" y1="11" y2="17" /> <line x1="14" x2="14" y1="11" y2="17" /></symbol>
+<symbol id="i-user-round" viewBox="0 0 24 24"><svg class="lucide lucide-user-round" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="8" r="5" /> <path d="M20 21a8 8 0 0 0-16 0" /></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><svg class="lucide lucide-users" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /> <circle cx="9" cy="7" r="4" /> <path d="M22 21v-2a4 4 0 0 0-3-3.87" /> <path d="M16 3.13a4 4 0 0 1 0 7.75" /></symbol>
+<symbol id="i-utensils" viewBox="0 0 24 24"><svg class="lucide lucide-utensils" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" /> <path d="M7 2v20" /> <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" /></symbol>
+<symbol id="i-wand-sparkles" viewBox="0 0 24 24"><svg class="lucide lucide-wand-sparkles" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" /> <path d="m14 7 3 3" /> <path d="M5 6v4" /> <path d="M19 14v4" /> <path d="M10 2v2" /> <path d="M7 8H3" /> <path d="M21 16h-4" /> <path d="M11 3H9" /></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><svg class="lucide lucide-x" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /></symbol>
+<symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
+<symbol id="i-trees" viewBox="0 0 24 24"><path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"/><path d="M7 16v6"/><path d="M13 19v3"/><path d="M12 19h8.3a1 1 0 0 0 .7-1.7L18 14h.3a1 1 0 0 0 .7-1.7L16 9h.2a1 1 0 0 0 .8-1.7L13 3l-1.4 1.5"/></symbol>
+<symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+</svg>
+<h1>Places tab — what it is, and three ways to lay it out</h1>
+<p class="lede">Your question was really three: <b>what is a place</b>, <b>how should the Places tab be laid out</b> (rows, not twenty pills), and <b>where Places ends and Trips begins</b>. The words come first, then three layouts that answer the third question differently, then the screen inside a destination (shared by all three) and a web layout. Rows with a chevron open and close.</p>
+
+<section>
+  <h2>Words first</h2>
+  <p class="sub">Today the app says "place" for both London and Circolo Popolare, and "city" for a row you can type into. That is where the confusion starts. Four words, each with one meaning and one way of coming into being.</p>
+  <table class="t">
+    <tr><th style="width:130px">Word</th><th style="width:300px">What it is</th><th>How it gets created</th></tr>
+    <tr><td><b>Destination</b></td><td>Somewhere you would say you are going: a city (London, Bath, Rome) or a named region (Lake District, Cotswolds). One London — everything inside Greater London files under it.</td><td>By itself, the moment a trip is planned there or a visit is logged there. By hand only when you add one on purpose ("we're going to Lisbon"). <b>Never from a bare search.</b></td></tr>
+    <tr><td><b>Area</b></td><td>A part of a destination: Soho, Greenwich, Richmond, the Bath city centre. Never its own row in the list — a label on a place, and a filter inside the destination.</td><td>Read from the map data when the place is saved (the borough or district). Nothing for you to create.</td></tr>
+    <tr><td><b>Place</b></td><td>A venue: a restaurant, a museum, a park. Lives inside one destination, carries the family's verdicts, Been / To try / Special.</td><td>Any visit, save, special or shortlist entry writes it in. Or "Add a place" inside a destination for one you already know.</td></tr>
+    <tr><td><b>Visit</b></td><td>One dated occasion at a place, with who went and what each person thought.</td><td>"We've been here" on a place, or a trip stop marked as visited. Not a screen of its own in options B and C — the Been filter and the "last went" date do that job.</td></tr>
+  </table>
+  <div class="warn" style="margin-top:14px"><b>Seen in your live atlas today.</b> Two rows called "United Kingdom" and "Italy" sit under those countries as if they were cities. They came from the Add box: typing a country name creates a "city" named after the country. That is the "do I create it?" confusion made concrete, and it goes away under every option below (a country typed into Add asks which city, or is refused). Greater London vs Outer London: Richmond and Greenwich are inside Greater London, so they are <b>areas of London</b>; Windsor and Ascot are outside, so they are their own destinations.</div>
+</section>
+
+<section>
+  <h2>Where Places and Trips overlap today</h2>
+  <p class="sub">The same jobs are reachable from two or three doors. Each option below closes doors differently.</p>
+  <table class="t">
+    <tr><th style="width:260px">Job</th><th>Doors today</th></tr>
+    <tr><td>Search for somewhere new near a point</td><td>Places › Find places &nbsp;·&nbsp; Trips › a trip › Find &nbsp;·&nbsp; Plan › Inspire me</td></tr>
+    <tr><td>See where we have been</td><td>Places › Visits &nbsp;·&nbsp; Places › Our atlas › Been filter &nbsp;·&nbsp; Trips › Past</td></tr>
+    <tr><td>Add a place we already know</td><td>Places › a city › Add a place &nbsp;·&nbsp; Trips › a trip › Shortlist</td></tr>
+    <tr><td>Filter by country or city</td><td>Places › Our atlas (drill in) &nbsp;·&nbsp; Places › Visits (country chips)</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Option A — Rows that open, nothing else moves</h2>
+  <p class="sub">Your ask as stated: the atlas becomes expandable rows, Add sits beside the title, the sentence is one line. Find and Visits stay as tabs. The smallest change; the overlap stays.</p>
+  <div class="row">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+        <div class="screen">
+          <div class="hdr"><div class="title">Places</div><div class="btn sec sm"><svg class="ic s"><use href="#i-plus"/></svg>Add</div></div>
+          <div class="small" style="margin-top:-6px">Where you've been and what you liked.</div>
+          <div class="seg"><div class="on">Our atlas</div><div>Find places</div><div>Visits</div></div>
+          <div class="list">
+            <div class="r open" onclick="tog(this,'a-gb')"><svg class="ic chev"><use href="#i-chevron-right"/></svg><div class="t"><div class="name">United Kingdom</div><div class="meta">2 destinations · 3 places · <b>1 been</b></div></div></div>
+            <div class="kids open" id="a-gb">
+              <div class="r sub"><div class="t"><div class="name">London</div><div class="meta">3 places <span class="cnt been">1 been</span><span class="cnt try">2 to try</span><span class="cnt sp"><svg class="ic s fill"><use href="#i-star"/></svg>1</span><span class="cnt trip">1 trip</span></div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+              <div class="r sub"><div class="t"><div class="name">Bath</div><div class="meta">No places yet · <span class="cnt trip">pub lunch, 11 Sep</span></div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+            </div>
+            <div class="r" onclick="tog(this,'a-it')"><svg class="ic chev"><use href="#i-chevron-right"/></svg><div class="t"><div class="name">Italy</div><div class="meta">1 destination · no places yet</div></div></div>
+            <div class="kids" id="a-it">
+              <div class="r sub"><div class="t"><div class="name">Rome</div><div class="meta">No places yet · <span class="cnt trip">3 nights, 3 Sep</span></div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+            </div>
+          </div>
+          <div class="foot">One country only? The country row is skipped and the destinations are the list.</div>
+        </div>
+        <div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div class="on"><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div><svg class="ic l"><use href="#i-calendar"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+      </div>
+      <p class="cap">Tap United Kingdom or Italy to fold and unfold.</p>
+    </div>
+    <div class="notes">
+      <h4>What changes</h4>
+      <ul>
+        <li>Country cards with city pills become one list: a country row that opens to its destinations. Counts read left to right: places, been, to try, special, trips.</li>
+        <li>Add moves up beside the title and opens the same city search as today. The sentence is one line.</li>
+        <li>Tapping a destination opens the dense list you already have (see "Inside a destination" below).</li>
+      </ul>
+      <h4>What stays</h4>
+      <ul>
+        <li>Find places and Visits as tabs, unchanged.</li>
+        <li>Trips keeps Up next / Later / Past.</li>
+      </ul>
+      <h4>Where it falls short</h4>
+      <ul><li>Every overlap in the table above survives. You still search from three doors and see "been" from three.</li></ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Option B — Separate more: Places remembers, a trip searches</h2>
+  <p class="sub">Places is only the atlas: what you have been to, liked, and want to try. Nothing is searched here. Finding somewhere new always happens inside a trip (Plan makes one in a breath, even for tonight), so what you find lands on a shortlist and, once visited, back here. Visits fold into the atlas: a Been filter and a last-went date do the job, with the latest three at the top.</p>
+  <div class="row">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+        <div class="screen">
+          <div class="hdr"><div class="title">Places</div><div class="btn sec sm"><svg class="ic s"><use href="#i-plus"/></svg>Add</div></div>
+          <div class="small" style="margin-top:-6px">Been, liked, and still to try — everywhere you've gone.</div>
+          <div class="recent"><svg class="ic" style="color:var(--ink3)"><use href="#i-history"/></svg><div class="t"><b>Circolo Popolare</b> · Wed 3 Sep · London</div><div class="vd"><i class="l"><svg class="ic s fill" style="width:10px;height:10px"><use href="#i-heart"/></svg></i><i class="l"><svg class="ic s fill" style="width:10px;height:10px"><use href="#i-heart"/></svg></i><i class="f">–</i></div></div>
+          <div class="list">
+            <div class="r head"><div class="t"><div class="name">United Kingdom</div></div><span class="tiny">3 places</span></div>
+            <div class="r"><div class="t"><div class="name">London</div><div class="meta"><span class="cnt been">1 been</span><span class="cnt try">2 to try</span><span class="cnt sp"><svg class="ic s fill"><use href="#i-star"/></svg>1</span> · last went 3 Sep</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+            <div class="r"><div class="t"><div class="name">Bath</div><div class="meta">Nothing yet · a trip on 11 Sep will fill it</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+            <div class="r head"><div class="t"><div class="name">Italy</div></div><span class="tiny">0 places</span></div>
+            <div class="r"><div class="t"><div class="name">Rome</div><div class="meta">Nothing yet · a trip on 3 Sep will fill it</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+          </div>
+          <div class="seg"><div class="on">Everything</div><div><span class="cnt been" style="margin:0">Been</span></div><div><span class="cnt try" style="margin:0">To try</span></div><div><span class="cnt sp" style="margin:0"><svg class="ic s fill"><use href="#i-star"/></svg></span></div></div>
+          <div class="foot">Looking for somewhere new? <b style="color:var(--accent)">Plan a trip</b> — Find lives inside every trip, and what you find comes back here once you've been.</div>
+        </div>
+        <div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div class="on"><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div><svg class="ic l"><use href="#i-calendar"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+      </div>
+      <p class="cap">Country names are section labels, not rows to open; with one country they vanish.</p>
+    </div>
+    <div class="notes">
+      <h4>What changes</h4>
+      <ul>
+        <li>No tabs on Places. The list is the destinations; the filter under it is Been / To try / Special across the whole atlas (so "everywhere we've been" is one tap, which is what Visits was for).</li>
+        <li>"Find places" leaves Places. Search is a trip's job: Plan › a trip › Find, near the base, saving to that trip's shortlist.</li>
+        <li>"Visits" leaves Places. Each destination row carries the last-went date; the three most recent visits sit at the top; inside a destination, rows carry Been N× and the date, as now.</li>
+        <li>Add asks for a city or region and refuses a country.</li>
+      </ul>
+      <h4>What stays</h4>
+      <ul><li>Trips keeps Up next / Later / Past. Past trips are the dated record; Places is the by-destination record.</li></ul>
+      <h4>Cost</h4>
+      <ul><li>A spontaneous "what's near here right now" needs a trip first. Plan already does this in one line ("dinner tonight near home"), so the extra step is small — but it is a step.</li></ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Option C — Join up: one row per destination holds its trips and its places</h2>
+  <p class="sub">Your question "is Places just expired trips?" answered with yes, and more: a destination row shows what is coming up there, what happened there, and what you know there. Past trips move out of Trips into Places (Trips shows only what is ahead). Search still lives inside a trip, as in B.</p>
+  <div class="row">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+        <div class="screen">
+          <div class="hdr"><div class="title">Places</div><div class="btn sec sm"><svg class="ic s"><use href="#i-plus"/></svg>Add</div></div>
+          <div class="small" style="margin-top:-6px">Everywhere you've gone: the places, and every trip there.</div>
+          <div class="list">
+            <div class="r open" onclick="tog(this,'c-lon')"><svg class="ic chev"><use href="#i-chevron-right"/></svg><div class="t"><div class="name">London <span class="tiny" style="font-weight:500">· United Kingdom</span></div><div class="meta"><span class="cnt trip">Sat 5 Sep</span> Paddington · 3 places · <b>1 been</b></div></div></div>
+            <div class="kids open" id="c-lon" style="background:#FBFAF7;padding:4px 12px 10px 38px;border-top:1px solid var(--line)">
+              <div class="kicker">Trips here</div>
+              <div class="tr"><div class="d">SAT<br>5 SEP</div><div class="t"><div class="name">Paddington the Musical</div><div class="meta">Day out · shortlist 8 · 2 to call</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+              <div class="tr past"><div class="d">DEC<br>2025</div><div class="t"><div class="name">Christmas lights</div><div class="meta">Past · 4 stops · 1 visit logged</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+              <div class="kicker">Our places</div>
+              <div class="tr"><div class="t"><div class="meta" style="font-size:12px"><span class="cnt been" style="margin-left:0">1 been</span><span class="cnt try">2 to try</span><span class="cnt sp"><svg class="ic s fill"><use href="#i-star"/></svg>1</span></div></div><div class="btn ghost sm">Open the list</div></div>
+              <div style="display:flex;gap:8px;margin-top:8px"><div class="btn sm"><svg class="ic s"><use href="#i-sparkles"/></svg>Plan a trip here</div></div>
+            </div>
+            <div class="r" onclick="tog(this,'c-bath')"><svg class="ic chev"><use href="#i-chevron-right"/></svg><div class="t"><div class="name">Bath <span class="tiny" style="font-weight:500">· United Kingdom</span></div><div class="meta"><span class="cnt trip">Fri 11 Sep</span> pub lunch · 1 night · no places yet</div></div></div>
+            <div class="kids" id="c-bath" style="background:#FBFAF7;padding:4px 12px 10px 38px;border-top:1px solid var(--line)">
+              <div class="kicker">Trips here</div>
+              <div class="tr"><div class="d">FRI<br>11 SEP</div><div class="t"><div class="name">Bath · pub lunch</div><div class="meta">1 night · shortlist empty</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+              <div class="kicker">Our places</div>
+              <div class="tr"><div class="t"><div class="meta" style="font-size:12px">Nothing here yet — the trip's shortlist will fill it.</div></div></div>
+            </div>
+            <div class="r" onclick="tog(this,'c-rome')"><svg class="ic chev"><use href="#i-chevron-right"/></svg><div class="t"><div class="name">Rome <span class="tiny" style="font-weight:500">· Italy</span></div><div class="meta"><span class="cnt trip">Thu 3 Sep</span> 3 nights · no places yet</div></div></div>
+            <div class="kids" id="c-rome" style="background:#FBFAF7;padding:4px 12px 10px 38px;border-top:1px solid var(--line)">
+              <div class="kicker">Trips here</div>
+              <div class="tr"><div class="d">THU<br>3 SEP</div><div class="t"><div class="name">Roma Oct 26</div><div class="meta">3 nights · shortlist empty</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+            </div>
+          </div>
+          <div class="list"><div class="r" onclick="tog(this,'c-past')"><svg class="ic chev"><use href="#i-chevron-right"/></svg><div class="t"><div class="name" style="font-size:14px">Past trips by date</div><div class="meta">The same trips, newest first, when you can't remember where</div></div><span class="cnt past">1</span></div>
+            <div class="kids" id="c-past"><div class="r sub"><div class="t"><div class="name">Christmas lights</div><div class="meta">London · Dec 2025</div></div></div></div></div>
+        </div>
+        <div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div class="on"><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div><svg class="ic l"><use href="#i-calendar"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+      </div>
+      <p class="cap">Tap London, Bath, Rome or "Past trips by date". "Christmas lights" is made up to show a past trip; your live account has none yet.</p>
+    </div>
+    <div class="notes">
+      <h4>What changes</h4>
+      <ul>
+        <li>The row is the destination, not the country; the country is a small suffix. Sort: soonest trip first, then most recently visited. Countries reappear as section labels only when the list passes about ten destinations.</li>
+        <li>Opening a row shows <b>Trips here</b> (upcoming then past), <b>Our places</b> with counts and "Open the list", and <b>Plan a trip here</b>.</li>
+        <li><b>Trips</b> loses its Past fold and shows only Up next / Later. One line at the bottom: "Past trips live in Places".</li>
+        <li>Find and Visits leave Places, as in B.</li>
+      </ul>
+      <h4>Why this one</h4>
+      <ul>
+        <li>It answers your question directly: Trips is what's ahead, Places is where you've been and what you know. No job has two doors.</li>
+        <li>Going back somewhere starts from one row: what we liked, what's left, plan again.</li>
+      </ul>
+      <div class="rec">Recommended: C, with B's rule that search lives inside a trip.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Inside a destination — shared by all three</h2>
+  <p class="sub">The dense list you already approved, with two additions: the trips there at the top (C) and an <b>Area</b> filter for a big city so London can be Soho or Greenwich without becoming two destinations.</p>
+  <div class="row">
+    <div>
+      <div class="phone">
+        <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+        <div class="screen">
+          <div class="hdr"><div class="btn ghost sm"><svg class="ic s"><use href="#i-arrow-left"/></svg>Places</div><div class="btn sm"><svg class="ic s"><use href="#i-sparkles"/></svg>Plan a trip here</div></div>
+          <div><div class="title">London</div><div class="small">United Kingdom · 3 places · 1 trip coming · 1 past</div></div>
+          <div class="card" style="padding:4px 12px">
+            <div class="kicker">Trips here</div>
+            <div class="tr"><div class="d">SAT<br>5 SEP</div><div class="t"><div class="name">Paddington the Musical</div><div class="meta">Day out · shortlist 8 · 2 to call</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+            <div class="tr past"><div class="d">DEC<br>2025</div><div class="t"><div class="name">Christmas lights</div><div class="meta">Past · 4 stops</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+          </div>
+          <div class="hdr"><div class="kicker" style="margin:0">Our places · 3</div><div class="btn ghost sm"><svg class="ic s"><use href="#i-plus"/></svg>Add a place</div></div>
+          <div class="seg"><div class="on">Everything</div><div>Things to do</div><div>Food &amp; drink</div></div>
+          <div><span class="chip like">Been 1</span><span class="chip want">To try 2</span><span class="chip gold"><svg class="ic s fill"><use href="#i-star"/></svg>Special 1</span><span class="chip ghost">Area <svg class="ic s"><use href="#i-chevron-down"/></svg></span><span class="chip ghost">A–Z <svg class="ic s"><use href="#i-chevron-down"/></svg></span></div>
+          <div class="card" style="padding:2px 12px">
+            <div class="pr"><div class="ci"><svg class="ic"><use href="#i-utensils"/></svg></div><div class="t"><div class="name">Circolo Popolare <svg class="ic s fill" style="color:var(--gold)"><use href="#i-star"/></svg></div><div class="meta">Italian · Fitzrovia · Been 1× · 3 Sep</div></div><div class="vd"><i class="l"><svg class="ic s fill" style="width:10px;height:10px"><use href="#i-heart"/></svg></i><i class="l"><svg class="ic s fill" style="width:10px;height:10px"><use href="#i-heart"/></svg></i><i class="f">–</i></div></div>
+            <div class="pr"><div class="ci"><svg class="ic"><use href="#i-landmark"/></svg></div><div class="t"><div class="name">National Gallery</div><div class="meta">Museum · Trafalgar Square · To try · on the Paddington shortlist</div></div><span class="chip want" style="margin:0">To try</span></div>
+            <div class="pr"><div class="ci"><svg class="ic"><use href="#i-trees"/></svg></div><div class="t"><div class="name">St James's Park</div><div class="meta">Park · Westminster · To try</div></div><span class="chip want" style="margin:0">To try</span></div>
+          </div>
+          <div class="map"><div class="roads"></div><div class="pin g" style="left:150px;top:36px"></div><div class="pin w" style="left:190px;top:64px"></div><div class="pin w" style="left:176px;top:84px"></div></div>
+          <div class="tiny">Tap a row or a pin for the drawer: Ours first, then the source's overview, reviews, hours, photos.</div>
+        </div>
+        <div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div class="on"><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div><svg class="ic l"><use href="#i-calendar"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+      </div>
+      <p class="cap">Real rows from your atlas. "Fitzrovia", "Trafalgar Square", "Westminster" are the area labels the Area filter would use.</p>
+    </div>
+    <div class="notes">
+      <h4>Area, not another destination</h4>
+      <ul>
+        <li>The area is the district the map data gives the place (today it is stripped when the city is folded to London; keeping it is one column, <code>household_places.area</code>).</li>
+        <li>The Area chip lists the areas with counts: Fitzrovia 1 · Trafalgar Square 1 · Westminster 1. It only appears when the destination has more than one area.</li>
+        <li>Same for Bath (city centre, Widcombe) and a region like the Lake District (Keswick, Ambleside, Windermere) — where the "cities" are areas of the destination you actually said you were going to.</li>
+      </ul>
+      <h4>Add a place here</h4>
+      <ul><li>Name search only (a place you already know), records it as To try or Been. It is not a discovery tool; that is a trip's Find.</li></ul>
+      <h4>Trips here</h4>
+      <ul><li>Under A and B this block still appears, but past trips also stay in the Trips tab. Under C this is their only home.</li></ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Web — Option C on a wide window</h2>
+  <p class="sub">Three columns: destinations, the open destination, the map. The destination column is the same rows as the phone; the middle is the phone's inside-a-destination screen; the map stays on the right so the drawer (opening from the right) covers the map, not the list — the opposite of today's Places, which is why the map should move.</p>
+  <div class="web">
+    <div class="nav"><div class="brand">Roam</div><div class="i"><svg class="ic"><use href="#i-sparkles"/></svg>Plan</div><div class="i on"><svg class="ic"><use href="#i-map-pin"/></svg>Places</div><div class="i"><svg class="ic"><use href="#i-calendar"/></svg>Trips</div><div class="i"><svg class="ic"><use href="#i-users"/></svg>Household</div><div class="i"><svg class="ic"><use href="#i-settings"/></svg>Settings</div></div>
+    <div class="col c1">
+      <div class="hdr"><div class="title" style="font-size:20px">Places</div><div class="btn sec sm"><svg class="ic s"><use href="#i-plus"/></svg>Add</div></div>
+      <div class="tiny">Everywhere you've gone: the places, and every trip there.</div>
+      <div class="list">
+        <div class="r" style="background:var(--accentSoft)"><div class="t"><div class="name">London <span class="tiny" style="font-weight:500">· UK</span></div><div class="meta"><span class="cnt trip">Sat 5 Sep</span> · 3 places · <b>1 been</b></div></div><svg class="ic" style="color:var(--accent)"><use href="#i-chevron-right"/></svg></div>
+        <div class="r"><div class="t"><div class="name">Bath <span class="tiny" style="font-weight:500">· UK</span></div><div class="meta"><span class="cnt trip">Fri 11 Sep</span> · no places yet</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+        <div class="r"><div class="t"><div class="name">Rome <span class="tiny" style="font-weight:500">· Italy</span></div><div class="meta"><span class="cnt trip">Thu 3 Sep</span> · no places yet</div></div><svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg></div>
+      </div>
+      <div class="list"><div class="r"><svg class="ic chev"><use href="#i-chevron-right"/></svg><div class="t"><div class="name" style="font-size:13px">Past trips by date</div></div><span class="cnt past">1</span></div></div>
+    </div>
+    <div class="col c2">
+      <div class="hdr"><div><div class="title" style="font-size:20px">London</div><div class="tiny">United Kingdom · 3 places · 1 trip coming · 1 past</div></div><div class="btn sm">Plan a trip here</div></div>
+      <div class="card" style="padding:4px 12px">
+        <div class="kicker">Trips here</div>
+        <div class="tr"><div class="d">SAT<br>5 SEP</div><div class="t"><div class="name">Paddington the Musical</div><div class="meta">Day out · shortlist 8</div></div></div>
+        <div class="tr past"><div class="d">DEC<br>2025</div><div class="t"><div class="name">Christmas lights</div><div class="meta">Past · 4 stops</div></div></div>
+      </div>
+      <div class="hdr"><div class="kicker" style="margin:0">Our places · 3</div><div class="btn ghost sm"><svg class="ic s"><use href="#i-plus"/></svg>Add a place</div></div>
+      <div class="seg"><div class="on">Everything</div><div>Things to do</div><div>Food &amp; drink</div></div>
+      <div><span class="chip like">Been 1</span><span class="chip want">To try 2</span><span class="chip gold"><svg class="ic s fill"><use href="#i-star"/></svg>1</span><span class="chip ghost">Area <svg class="ic s"><use href="#i-chevron-down"/></svg></span></div>
+      <div class="card" style="padding:2px 12px">
+        <div class="pr"><div class="ci"><svg class="ic"><use href="#i-utensils"/></svg></div><div class="t"><div class="name">Circolo Popolare <svg class="ic s fill" style="color:var(--gold)"><use href="#i-star"/></svg></div><div class="meta">Italian · Fitzrovia · Been 1× · 3 Sep</div></div><div class="vd"><i class="l"><svg class="ic s fill" style="width:10px;height:10px"><use href="#i-heart"/></svg></i><i class="l"><svg class="ic s fill" style="width:10px;height:10px"><use href="#i-heart"/></svg></i><i class="f">–</i></div></div>
+        <div class="pr"><div class="ci"><svg class="ic"><use href="#i-landmark"/></svg></div><div class="t"><div class="name">National Gallery</div><div class="meta">Museum · Trafalgar Square</div></div><span class="chip want" style="margin:0">To try</span></div>
+        <div class="pr"><div class="ci"><svg class="ic"><use href="#i-trees"/></svg></div><div class="t"><div class="name">St James's Park</div><div class="meta">Park · Westminster</div></div><span class="chip want" style="margin:0">To try</span></div>
+      </div>
+    </div>
+    <div class="col c3" style="padding:0"><div class="map" style="border-radius:0"><div class="roads"></div><div class="pin g" style="left:70px;top:210px"></div><div class="pin w" style="left:130px;top:262px"></div><div class="pin w" style="left:116px;top:310px"></div></div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Side by side</h2>
+  <table class="t">
+    <tr><th style="width:240px"></th><th>A · Rows that open</th><th>B · Separate more</th><th>C · Join up</th></tr>
+    <tr><td>Tabs on Places</td><td>Our atlas · Find · Visits</td><td>None</td><td>None</td></tr>
+    <tr><td>Where you search for somewhere new</td><td>Places › Find, or a trip</td><td>A trip only</td><td>A trip only</td></tr>
+    <tr><td>Where "been" lives</td><td>Visits tab, plus the Been filter</td><td>Been filter; last-went date on rows; three latest at the top</td><td>Been filter; last-went date; past trips on the destination row</td></tr>
+    <tr><td>Past trips</td><td>Trips › Past</td><td>Trips › Past</td><td>Places, under each destination, plus a by-date fold</td></tr>
+    <tr><td>Trips tab shows</td><td>Up next · Later · Past</td><td>Up next · Later · Past</td><td>Up next · Later</td></tr>
+    <tr><td>Adding a destination</td><td>Add beside the title; countries refused</td><td>Same</td><td>Same</td></tr>
+    <tr><td>Size of the change</td><td>Small (one screen)</td><td>Medium (drops two panels)</td><td>Medium (drops two panels, moves Past)</td></tr>
+  </table>
+</section>
+
+<script>
+function tog(el,id){var k=document.getElementById(id);var o=!k.classList.contains('open');k.classList.toggle('open',o);el.classList.toggle('open',o);}
+</script>
+</body>
+</html>
