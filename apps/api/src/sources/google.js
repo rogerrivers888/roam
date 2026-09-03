@@ -48,12 +48,17 @@ const TYPE_TO_EXPERIENCE = {
   market: 'market', book_store: 'bookshop', adventure_sports_center: 'climbing', tourist_attraction: null,
 };
 
+// Types that describe the setting, not the food: kept out of the cuisine list.
+const NOT_A_CUISINE = new Set(['fine dining', 'fast food', 'family', 'buffet', 'brunch', 'breakfast', 'dessert']);
 function cuisineFromTypes(types = []) {
   return types
     .filter((t) => /_restaurant$/.test(t))
     .map((t) => t.replace(/_restaurant$/, '').replace(/_/g, ' '))
-    .filter((c) => !['fine dining', 'fast food', 'family'].includes(c) || true);
+    .filter((c) => !NOT_A_CUISINE.has(c));
 }
+
+// Somewhere you go to look, shop or do — even when Google also lists a café inside it.
+const THING_FIRST = new Set([...THING_TYPES, 'department_store', 'shopping_mall', 'market', 'book_store', 'performing_arts_theater', 'movie_theater', 'stadium', 'concert_hall', 'church', 'place_of_worship', 'library', 'visitor_center']);
 
 function priceLevelNumber(p) {
   return { PRICE_LEVEL_FREE: 0, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4 }[p] ?? null;
@@ -62,7 +67,14 @@ function priceLevelNumber(p) {
 function toVenue(place, justification = null) {
   const types = place.types || [];
   const primary = place.primaryType || types[0] || '';
-  let category = TYPE_TO_CATEGORY[primary] || types.map((t) => TYPE_TO_CATEGORY[t]).find(Boolean) || 'attraction';
+  // The primary type decides. A museum with a café is a museum; Selfridges is
+  // not a café because it has one; only when the primary type says nothing do
+  // the secondary types get a say.
+  const primaryIsThing = THING_FIRST.has(primary) || (TYPE_TO_EXPERIENCE[primary] !== undefined && !TYPE_TO_CATEGORY[primary]);
+  let category = TYPE_TO_CATEGORY[primary]
+    || (primaryIsThing || types.some((t) => THING_FIRST.has(t) && !TYPE_TO_CATEGORY[primary]) ? 'attraction' : null)
+    || types.map((t) => TYPE_TO_CATEGORY[t]).find(Boolean)
+    || 'attraction';
   const experiences = [...new Set([TYPE_TO_EXPERIENCE[primary], ...types.map((t) => TYPE_TO_EXPERIENCE[t])].filter(Boolean))];
   if (category === 'attraction' && !experiences.length && !types.some((t) => t in TYPE_TO_EXPERIENCE)) category = 'attraction';
   const cuisines = cuisineFromTypes(types);
@@ -93,6 +105,8 @@ function toVenue(place, justification = null) {
     website: place.websiteUri ?? null,
     mapsUrl: place.googleMapsUri ?? null,
     summary: place.editorialSummary?.text ?? null,
+    upmarket: types.includes('fine_dining_restaurant') || null,
+    styles: types.includes('fast_food_restaurant') ? ['fast-food'] : [],
     // Photo references only; the image is fetched through our proxy with the key.
     photos: (place.photos || []).slice(0, 3).map((p) => ({ ref: p.name, attribution: (p.authorAttributions || []).map((a) => a.displayName).join(', ') })),
     ticketed: ['movie_theater', 'performing_arts_theater', 'stadium', 'concert_hall'].includes(primary),

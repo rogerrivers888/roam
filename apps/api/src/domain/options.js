@@ -352,6 +352,21 @@ export function composeOptions({
     if (options.length >= maxOptions) break;
   }
 
+  // The household's own picks as a plan of their own: whatever they added, in
+  // the best order, so "save the day" needs no algorithmic option chosen.
+  if (pinnedStops.length) {
+    const picks = pinnedStops.map((c) => withDwell(c, 1));
+    const { timed, budget } = evaluate(picks);
+    if (timed) {
+      options.push({
+        id: 'pinned', title: 'Your picks', basis: 'Only what you added, in the best order', budget, allowanceScale: 1,
+        stops: timed.map((s, i) => ({ ...richFields(s, base), position: i + 1, dwellMinutes: s.dwellMinutes, dwellCappedBy: s.dwellCappedBy ?? null, waitMinutes: s.waitMinutes, travelFromPrevMinutes: s.travelFromPrevMinutes, arriveAt: s.arriveAt, leaveAt: s.leaveAt, pinned: true })),
+        counts: { activities: timed.filter(isActivity).length, food: timed.filter(isFood).length },
+        shortfall: { activities: 0, food: 0 },
+      });
+    }
+  }
+
   // What makes each option different from the others (research §6.2 "Differences").
   for (const option of options) {
     const others = options.filter((o) => o !== option);
@@ -371,9 +386,9 @@ export function composeOptions({
     .map((c) => ({ ...richFields(c, base), dwellMinutes: dwellFor(c, household, attendees).minutes, pinned: pinnedSet.has(c.key), score: c.score ?? null }));
   // Capped per group, so a city centre's hundreds of cafés never crowd out the things to do.
   const browseCapped = [
-    ...browse.filter((b) => b.category === 'event').slice(0, 40),
-    ...browse.filter((b) => isActivity(b) && b.category !== 'event').slice(0, 60),
-    ...browse.filter((b) => isFood(b)).slice(0, 60),
+    ...browse.filter((b) => b.category === 'event').slice(0, 60),
+    ...browse.filter((b) => isActivity(b) && b.category !== 'event').slice(0, 80),
+    ...browse.filter((b) => isFood(b)).slice(0, 80),
     ...browse.filter((b) => !isActivity(b) && !isFood(b)).slice(0, 20),
   ];
 
@@ -412,6 +427,8 @@ function richFields(s, base) {
     brand: s.brand ?? null,
     goodForChildren: s.goodForChildren ?? null,
     menuForChildren: s.menuForChildren ?? null,
+    reservable: s.reservable ?? null,
+    mapsUrl: s.mapsUrl ?? null,
     address: s.address ?? null,
     website: s.website ?? null,
     summary: s.summary ?? null,

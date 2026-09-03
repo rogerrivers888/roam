@@ -1,89 +1,147 @@
-import React, { useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { BrowseItem } from '../api';
 import { colors, radius, spacing, type } from '../theme';
-import { Button, Card, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
+import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
 import { priceMarks, typeLine } from './StopCard';
 import { VenuePhoto } from './VenuePhoto';
+import { VenueDrawer } from './VenueDrawer';
 
 /**
- * Everything Roam found for the day — not just the three plans. Three lists:
- * things to do, places to eat, and what's on (timed events). Each row can go
- * straight into every plan ("Add to plan"), onto the trip's shortlist for any
- * day, or be set aside. "What's on" is honest about its source: with no event
- * listings source switched on, it says so instead of showing an empty list.
+ * The planner's main view (owner, 3 Sep 2026): everything found near the base
+ * in three lists — things to do, places to eat, what's on — with a filter and
+ * sort bar, not a mishmash and not algorithm-named plans. "Best match" is the
+ * ranking from the API: rating and review count weigh heaviest, then the
+ * household's tastes, children, and distance. Tap a row for the detail drawer.
  */
 
-type Tab = 'things' | 'food' | 'events';
+export type BrowseTab = 'things' | 'food' | 'events';
+type Sort = 'best' | 'rating' | 'reviews' | 'nearest' | 'time';
 const FOOD = new Set(['restaurant', 'cafe', 'pub', 'bar']);
-const tabOf = (b: BrowseItem): Tab => (b.category === 'event' ? 'events' : FOOD.has(b.category) ? 'food' : 'things');
-const SOURCE_LABEL: Record<string, string> = { google: 'Google', tripadvisor: 'Tripadvisor', osm: 'OpenStreetMap', ticketmaster: 'Ticketmaster' };
+export const tabOf = (b: BrowseItem): BrowseTab => (b.category === 'event' ? 'events' : FOOD.has(b.category) ? 'food' : 'things');
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/-/g, ' ');
 
-export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, onAdd, onRemove, onDislike, onShortlist }: {
+export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLabel = '+ Add to plan', addedLabel = '♥ In the plan', onAdd, onRemove, onDislike, onShortlist, shortlistedRefs }: {
   items: BrowseItem[];
   eventsSource: string | null | undefined;
   baseLabel: string;
   pinned: Set<string>;
   busy: boolean;
+  addLabel?: string;
+  addedLabel?: string;
   onAdd: (item: BrowseItem) => void;
-  onRemove: (item: BrowseItem) => void;
+  onRemove?: (item: BrowseItem) => void;
   onDislike: (item: BrowseItem) => void;
   /** Present inside a trip: saves to that trip's shortlist for any day. */
   onShortlist?: (item: BrowseItem) => Promise<void>;
+  shortlistedRefs?: Set<string>;
 }) {
-  const [tab, setTab] = useState<Tab>('things');
-  const [shown, setShown] = useState(12);
-  const counts = { things: items.filter((b) => tabOf(b) === 'things').length, food: items.filter((b) => tabOf(b) === 'food').length, events: items.filter((b) => tabOf(b) === 'events').length };
-  const list = items.filter((b) => tabOf(b) === tab);
+  const [tab, setTab] = useState<BrowseTab>('things');
+  const [sort, setSort] = useState<Sort>('best');
+  const [facets, setFacets] = useState<Set<string>>(new Set());
+  const [shown, setShown] = useState(15);
+  const [open, setOpen] = useState<BrowseItem | null>(null);
+
+  const counts = useMemo(() => ({ things: items.filter((b) => tabOf(b) === 'things').length, food: items.filter((b) => tabOf(b) === 'food').length, events: items.filter((b) => tabOf(b) === 'events').length }), [items]);
+  const inTab = useMemo(() => items.filter((b) => tabOf(b) === tab), [items, tab]);
+
+  // Facets: cuisines for food, kinds of thing for the rest — from what is actually here, most common first.
+  const facetList = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const b of inTab) for (const f of (tab === 'food' ? b.cuisines : b.experiences) ?? []) c.set(f, (c.get(f) ?? 0) + 1);
+    return [...c.entries()].sort((a, b) => b[1] - a[1]).slice(0, 14);
+  }, [inTab, tab]);
+
+  const list = useMemo(() => {
+    let l = inTab;
+    if (facets.size) l = l.filter((b) => ((tab === 'food' ? b.cuisines : b.experiences) ?? []).some((f) => facets.has(f)));
+    const by: Record<Sort, (a: BrowseItem, b: BrowseItem) => number> = {
+      best: (a, b) => (b.score ?? 0) - (a.score ?? 0),
+      rating: (a, b) => (b.rating ?? 0) - (a.rating ?? 0) || (b.ratingCount ?? 0) - (a.ratingCount ?? 0),
+      reviews: (a, b) => (b.ratingCount ?? 0) - (a.ratingCount ?? 0),
+      nearest: (a, b) => (a.distanceKm ?? 99) - (b.distanceKm ?? 99),
+      time: (a, b) => new Date(a.startsAt ?? 0).getTime() - new Date(b.startsAt ?? 0).getTime(),
+    };
+    return [...l].sort(by[sort]);
+  }, [inTab, facets, sort, tab]);
+
+  const switchTab = (t: BrowseTab) => { setTab(t); setFacets(new Set()); setShown(15); setSort(t === 'events' ? 'time' : 'best'); };
+  const toggleFacet = (f: string) => setFacets((s) => { const n = new Set(s); n.has(f) ? n.delete(f) : n.add(f); return n; });
+  const sortOptions: { value: Sort; label: string }[] = tab === 'events'
+    ? [{ value: 'time', label: 'By time' }, { value: 'nearest', label: 'Nearest' }, { value: 'best', label: 'Best match' }]
+    : [{ value: 'best', label: 'Best match' }, { value: 'rating', label: 'Top rated' }, { value: 'reviews', label: 'Most reviewed' }, { value: 'nearest', label: 'Nearest' }];
 
   return (
-    <Card style={{ gap: spacing.sm }}>
-      <Text style={type.h3}>Everything Roam found near {baseLabel}</Text>
-      <Text style={type.tiny}>The plans above are a start. Add anything here to every plan, or shortlist it for another day. Chains and price follow the choices above.</Text>
-      <Segmented value={tab} options={[{ value: 'things', label: `Things to do (${counts.things})` }, { value: 'food', label: `Places to eat (${counts.food})` }, { value: 'events', label: `What's on (${counts.events})` }]} onChange={(t) => { setTab(t); setShown(12); }} />
+    <View style={{ gap: spacing.sm }}>
+      <Segmented value={tab} options={[{ value: 'things', label: `Things to do (${counts.things})` }, { value: 'food', label: `Places to eat (${counts.food})` }, { value: 'events', label: `What's on (${counts.events})` }]} onChange={switchTab} />
+      <Row style={{ flexWrap: 'wrap' }}>
+        <Text style={type.tiny}>Sort</Text>
+        <View style={{ flex: 1, minWidth: 260 }}><Segmented value={sort} options={sortOptions} onChange={setSort} /></View>
+      </Row>
+      {facetList.length ? (
+        <Wrap>
+          <Text style={[type.tiny, { alignSelf: 'center' }]}>{tab === 'food' ? 'Food' : 'Kind'}</Text>
+          {facetList.map(([f, n]) => <Chip key={f} label={`${cap(f)} (${n})`} selected={facets.has(f)} onPress={() => toggleFacet(f)} />)}
+          {facets.size ? <Chip label="Clear" onPress={() => setFacets(new Set())} /> : null}
+        </Wrap>
+      ) : null}
+      {sort === 'best' ? <Text style={type.tiny}>Best match weighs the rating and how many people gave it most, then what you like, whether it suits children, and distance from {baseLabel}.</Text> : null}
 
       {tab === 'events' && !eventsSource ? (
         <View style={styles.notice}>
           <Text style={type.body}>No event listings source is switched on, so Roam can't see what's on that day.</Text>
-          <Text style={type.small}>Ticketmaster (free key) lists shows, gigs, sport, exhibitions and family events with their times; they would appear here and be planned around. Street performers and pop-ups aren't in any listing we can query. The owner switches it on in Settings › Sources.</Text>
+          <Text style={type.small}>Ticketmaster (free key) lists shows, gigs, sport, exhibitions and family events with their times. Street performers and pop-ups aren't in any listing we can query. The owner switches it on in Settings › Sources.</Text>
         </View>
       ) : null}
-      {tab === 'events' && eventsSource && !list.length ? <Text style={type.small}>Nothing listed on {SOURCE_LABEL[eventsSource] ?? eventsSource} inside this day's window and reach.</Text> : null}
-      {tab !== 'events' && !list.length ? <Text style={type.small}>Nothing in this group within reach.</Text> : null}
+      {tab === 'events' && eventsSource && !list.length ? <Text style={type.small}>Nothing listed by {eventsSource} inside this day's window and reach.</Text> : null}
+      {tab !== 'events' && !list.length ? <Text style={type.small}>{facets.size ? 'Nothing matches that filter — clear it to see everything.' : 'Nothing in this group within reach.'}</Text> : null}
 
-      {list.slice(0, shown).map((b) => <BrowseRow key={b.id} item={b} isPinned={pinned.has(b.id)} busy={busy} onAdd={() => onAdd(b)} onRemove={() => onRemove(b)} onDislike={() => onDislike(b)} onShortlist={onShortlist ? () => onShortlist(b) : undefined} />)}
-      {list.length > shown ? <Button label={`Show ${Math.min(12, list.length - shown)} more`} kind="ghost" onPress={() => setShown((n) => n + 12)} /> : null}
-    </Card>
+      {list.slice(0, shown).map((b) => (
+        <BrowseRow key={b.id} item={b} isPinned={pinned.has(b.id)} isShortlisted={!!shortlistedRefs?.has(b.venueRef) || !!b.shortlisted} busy={busy}
+          addLabel={addLabel} addedLabel={addedLabel} onOpen={() => setOpen(b)}
+          onAdd={() => onAdd(b)} onRemove={onRemove ? () => onRemove(b) : undefined} onDislike={() => onDislike(b)} onShortlist={onShortlist ? () => onShortlist(b) : undefined} />
+      ))}
+      {list.length > shown ? <Button label={`Show ${Math.min(15, list.length - shown)} more of ${list.length}`} kind="ghost" onPress={() => setShown((n) => n + 15)} /> : null}
+
+      <VenueDrawer item={open} baseLabel={baseLabel} onClose={() => setOpen(null)} onAdd={(b) => { onAdd(b); }} onShortlist={onShortlist} added={open ? pinned.has(open.id) : false} shortlisted={open ? !!shortlistedRefs?.has(open.venueRef) : false} />
+    </View>
   );
 }
 
-function BrowseRow({ item, isPinned, busy, onAdd, onRemove, onDislike, onShortlist }: { item: BrowseItem; isPinned: boolean; busy: boolean; onAdd: () => void; onRemove: () => void; onDislike: () => void; onShortlist?: () => Promise<void> }) {
-  const [saved, setSaved] = useState(item.shortlisted);
+function BrowseRow({ item, isPinned, isShortlisted, busy, addLabel, addedLabel, onOpen, onAdd, onRemove, onDislike, onShortlist }: {
+  item: BrowseItem; isPinned: boolean; isShortlisted: boolean; busy: boolean; addLabel: string; addedLabel: string;
+  onOpen: () => void; onAdd: () => void; onRemove?: () => void; onDislike: () => void; onShortlist?: () => Promise<void>;
+}) {
+  const [saved, setSaved] = useState(false);
   const price = priceMarks(item.priceLevel);
   const isEvent = item.category === 'event';
   return (
     <View style={styles.row}>
-      <VenuePhoto photos={item.photos} size={56} credit={false} />
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text style={type.h3}>{item.name}{item.chain ? '  ' : ''}{item.chain ? <Text style={[type.tiny, { color: colors.dislike }]}>chain</Text> : null}</Text>
-        <Text style={type.small}>
-          {isEvent && item.startsAt ? `${clock(item.startsAt)}${item.venueName ? ` · ${item.venueName}` : ''} · ` : ''}
-          {typeLine(item)}{price ? ` · ${price}` : ''}
-          {item.rating != null ? ` · ★ ${item.rating.toFixed(1)}${item.ratingCount ? ` (${item.ratingCount.toLocaleString()})` : ''}` : ''}
-          {item.distanceKm != null ? ` · ${item.distanceKm} km` : ''}{item.travelFromBaseMinutes != null ? `, ${item.travelFromBaseMinutes} min` : ''}
-          {!isEvent ? ` · about ${minutes(item.dwellMinutes)}` : ''}
-        </Text>
-        {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').slice(0, 3).map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
-        {item.justification ? <Text style={type.tiny} numberOfLines={2}>"{item.justification}"</Text> : null}
-        {item.externalUrl ? <Pressable onPress={() => Linking.openURL(item.externalUrl!)}><Text style={[type.tiny, { color: colors.accent }]}>Tickets and details</Text></Pressable> : null}
-      </View>
+      <Pressable onPress={onOpen} style={{ flexDirection: 'row', gap: spacing.md, flex: 1 }} accessibilityRole="button" accessibilityLabel={`Open ${item.name}`}>
+        <VenuePhoto photos={item.photos} size={72} credit={false} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={type.h3}>{item.name}{item.chain ? <Text style={[type.tiny, { color: colors.dislike }]}>  chain</Text> : null}</Text>
+          <Text style={type.small}>
+            {isEvent && item.startsAt ? `${clock(item.startsAt)}${item.venueName ? ` · ${item.venueName}` : ''} · ` : ''}
+            {typeLine(item)}{price ? ` · ${price}` : ''}
+          </Text>
+          <Text style={type.small}>
+            {item.rating != null ? <Text style={{ fontWeight: '700', color: colors.ink }}>★ {item.rating.toFixed(1)}</Text> : <Text style={type.tiny}>no rating</Text>}
+            {item.ratingCount ? ` (${item.ratingCount.toLocaleString()})` : ''}
+            {item.distanceKm != null ? ` · ${item.distanceKm} km` : ''}{item.travelFromBaseMinutes != null ? `, ${item.travelFromBaseMinutes} min` : ''}
+            {!isEvent ? ` · about ${minutes(item.dwellMinutes)}` : ''}
+          </Text>
+          {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').slice(0, 3).map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
+          <Text style={[type.tiny, { color: colors.accent }]}>Details, reviews, hours, photos ›</Text>
+        </View>
+      </Pressable>
       <View style={{ gap: 6 }}>
-        <Pressable onPress={isPinned ? onRemove : onAdd} disabled={busy} style={[styles.btn, isPinned && styles.btnOn]} accessibilityRole="button">
-          <Text style={[styles.btnText, isPinned && { color: '#fff' }]}>{isPinned ? '♥ In every plan' : '+ Add to plan'}</Text>
+        <Pressable onPress={isPinned && onRemove ? onRemove : onAdd} disabled={busy || (isPinned && !onRemove)} style={[styles.btn, isPinned && styles.btnOn]} accessibilityRole="button">
+          <Text style={[styles.btnText, isPinned && { color: '#fff' }]}>{isPinned ? addedLabel : addLabel}</Text>
         </Pressable>
         {onShortlist ? (
-          <Pressable onPress={async () => { await onShortlist(); setSaved(true); }} disabled={busy || saved} style={styles.btn} accessibilityRole="button">
-            <Text style={styles.btnText}>{saved ? '✓ Shortlisted' : '☆ Shortlist'}</Text>
+          <Pressable onPress={async () => { await onShortlist(); setSaved(true); }} disabled={busy || saved || isShortlisted} style={styles.btn} accessibilityRole="button">
+            <Text style={styles.btnText}>{saved || isShortlisted ? '✓ Shortlisted' : '☆ Shortlist'}</Text>
           </Pressable>
         ) : null}
         <Pressable onPress={onDislike} disabled={busy} style={styles.btn} accessibilityRole="button"><Text style={styles.btnText}>✕ Not this</Text></Pressable>
@@ -94,7 +152,7 @@ function BrowseRow({ item, isPinned, busy, onAdd, onRemove, onDislike, onShortli
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
-  btn: { minHeight: 36, minWidth: 120, paddingHorizontal: 10, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
+  btn: { minHeight: 36, minWidth: 124, paddingHorizontal: 10, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   btnOn: { backgroundColor: colors.like },
   btnText: { fontSize: 12, fontWeight: '700', color: colors.ink },
   notice: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: 4 },

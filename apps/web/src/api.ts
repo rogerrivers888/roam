@@ -141,7 +141,7 @@ export type OptionStop = {
   rating?: number | null; ratingCount?: number | null; ratingSource?: string | null; priceLevel?: number | null;
   chain?: boolean; brand?: string | null; goodForChildren?: boolean | null; menuForChildren?: boolean | null;
   address?: string | null; website?: string | null; summary?: string | null; openingHours?: string | null;
-  distanceKm?: number | null; travelFromBaseMinutes?: number | null; attribution?: string | null;
+  distanceKm?: number | null; travelFromBaseMinutes?: number | null; attribution?: string | null; reservable?: boolean | null; mapsUrl?: string | null;
   photos?: VenuePhotoRef[];
 };
 

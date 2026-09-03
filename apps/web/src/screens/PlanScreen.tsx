@@ -2,12 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
-import { api, ApiError, HouseholdResponse, PlanAction, PlanResponse, TripOption } from '../api';
+import { api, ApiError, HouseholdResponse, PlanAction, PlanResponse } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Stepper, Wrap, minutes, clock } from '../components/ui';
 import { TimeBar } from '../components/TimeBar';
 import { FaceRow } from '../components/Faces';
-import { StopCard } from '../components/StopCard';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { BrowsePool } from '../components/BrowsePool';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
@@ -129,6 +128,8 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
   };
 
   const members = household?.members ?? [];
+  const baseLabel = plan?.journey?.to ?? plan?.trip?.destination?.label ?? plan?.trip?.origin.label ?? 'here';
+  const picks = plan?.options?.find((o) => o.id === 'pinned') ?? null;
   const attending = useMemo(
     () => new Set((plan?.attending ?? members).map((m) => m.id)),
     [plan?.attending, members],
@@ -270,65 +271,37 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
         </Card>
       ) : null}
 
-      {/* Options */}
+      {/* Everything found, browse-first; picks are kept in every plan and saved as the day */}
       {hasOptions ? (
         <>
-          <View style={styles.optionsHeader}>
-            <Text style={type.h2}>{plan!.options.length === 1 ? 'One plan fits' : `${plan!.options.length} ways to do it`}</Text>
-            <Pressable onPress={() => setDifferences((d) => !d)} style={styles.toggle} accessibilityRole="switch" accessibilityState={{ checked: differences }}>
-              <Text style={[type.small, differences && { color: colors.accent, fontWeight: '700' }]}>Differences</Text>
-            </Pressable>
-          </View>
-          <Text style={type.tiny}>
-            Built from the same {plan!.pool?.size ?? '—'} places — changing things here makes no new lookups.
-          </Text>
-
-          <ScrollView
-            ref={pagerRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            snapToInterval={cardWidth + spacing.md}
-            decelerationRate="fast"
-            onMomentumScrollEnd={onPagerScroll}
-            onScrollEndDrag={onPagerScroll}
-            contentContainerStyle={{ gap: spacing.md, paddingVertical: spacing.sm }}
-            style={{ marginHorizontal: -spacing.lg, paddingHorizontal: spacing.lg }}
-          >
-            {plan!.options.map((option) => (
-              <OptionCard
-                key={option.id}
-                option={option}
-                width={cardWidth}
-                trip={plan!.trip!}
-                baseLabel={plan!.journey?.to ?? plan!.trip!.destination?.label ?? plan!.trip!.origin.label}
-                pinned={new Set(plan!.selection?.pinned ?? [])}
-                differences={differences}
-                viewing={viewing === option.id}
-                chosen={plan!.selection?.chosenOptionId === option.id}
-                committed={committed === option.id}
-                busy={busy === 'updating'}
-                onAct={act}
-                onCommit={() => commit(option.id)}
-              />
-            ))}
-          </ScrollView>
-
-          <Row style={{ justifyContent: 'center' }}>
-            {plan!.options.map((o) => (
-              <View key={o.id} style={[styles.dot, viewing === o.id && styles.dotOn]} />
-            ))}
-          </Row>
-
+          <Text style={type.h2}>Everything Roam found near {baseLabel}</Text>
+          <Text style={type.tiny}>Built from the same {plan!.pool?.size ?? '—'} places — filtering and sorting here makes no new lookups. Tap a place for reviews, hours and photos.</Text>
           <BrowsePool
             items={plan!.browse ?? []}
             eventsSource={plan!.eventsSource}
-            baseLabel={plan!.journey?.to ?? plan!.trip!.destination?.label ?? plan!.trip!.origin.label}
+            baseLabel={baseLabel}
             pinned={new Set(plan!.selection?.pinned ?? [])}
             busy={busy === 'updating'}
+            addLabel="+ Add to plan"
+            addedLabel="♥ In the plan"
             onAdd={(b) => act({ type: 'like', stopId: b.id })}
             onRemove={(b) => act({ type: 'unlike', stopId: b.id })}
             onDislike={(b) => act({ type: 'dislike', stopId: b.id })}
           />
+          <Card style={{ borderColor: colors.accent }}>
+            <Text style={type.h3}>Your day</Text>
+            {picks ? (
+              <>
+                <TimeBar budget={picks.budget} stops={picks.stops} compact />
+                {picks.stops.map((s) => <Text key={s.id} style={type.body}>{s.arriveAt ? `${clock(s.arriveAt)} · ` : ''}{s.name}{s.fixed ? ' (your booking)' : ''} · {minutes(s.dwellMinutes)}</Text>)}
+                <Text style={type.tiny}>{minutes(picks.budget.travelMinutes)} travelling · {picks.budget.remainingMinutes >= 0 ? `${minutes(picks.budget.remainingMinutes)} free` : `over by ${minutes(-picks.budget.remainingMinutes)}`}</Text>
+              </>
+            ) : <Text style={type.small}>Nothing added yet. Add places above, or let Roam fill the day.</Text>}
+            <Row>
+              <Button label={committed ? 'Saved as your day ✓' : picks ? 'Save these as the day' : 'Let Roam fill the day'} onPress={() => commit(picks?.id ?? plan!.options[0]?.id)} disabled={busy === 'updating' || !!committed || !plan!.options.length} />
+              {picks && !committed ? <Button label="Let Roam fill the rest" kind="secondary" onPress={() => commit(plan!.options.find((o) => o.id !== 'pinned')?.id ?? picks.id)} disabled={busy === 'updating'} /> : null}
+            </Row>
+          </Card>
 
           {plan!.selection?.excluded?.length ? (
             <Card>
@@ -380,58 +353,6 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
 function labelFor(key: string, plan: PlanResponse): string {
   for (const o of plan.options) for (const s of o.stops) if (s.id === key) return s.name;
   return key.split(':').pop() ?? key;
-}
-
-function OptionCard({
-  option, width, trip, baseLabel, pinned, differences, viewing, chosen, committed, busy, onAct, onCommit,
-}: {
-  option: TripOption; width: number; trip: NonNullable<PlanResponse['trip']>; baseLabel: string;
-  pinned: Set<string>; differences: boolean; viewing: boolean; chosen: boolean; committed: boolean; busy: boolean;
-  onAct: (a: PlanAction) => void; onCommit: () => void;
-}) {
-  return (
-    <Card style={[styles.optionCard, { width }, viewing && styles.optionCardViewing, chosen && { borderColor: colors.accent }]}>
-      <View>
-        <Text style={type.h2}>{option.title}</Text>
-        <Text style={type.small}>{option.basis}</Text>
-      </View>
-      <TimeBar budget={option.budget} stops={option.stops} compact />
-      <Text style={type.tiny}>
-        {option.stops.length} stops · {minutes(option.budget.travelMinutes)} travelling · {option.budget.remainingMinutes >= 0 ? `${minutes(option.budget.remainingMinutes)} free` : `over by ${minutes(-option.budget.remainingMinutes)}`}
-      </Text>
-      {option.shortfall.activities || option.shortfall.food ? (
-        <StatusLine tone="warn">
-          Couldn't fit {option.shortfall.activities ? `${option.shortfall.activities} more thing${option.shortfall.activities > 1 ? 's' : ''} to do` : ''}
-          {option.shortfall.activities && option.shortfall.food ? ' and ' : ''}
-          {option.shortfall.food ? `${option.shortfall.food} more place${option.shortfall.food > 1 ? 's' : ''} to eat` : ''} in the window.
-        </StatusLine>
-      ) : null}
-
-      <View style={{ gap: spacing.sm }}>
-        {option.stops.map((stop, i) => (
-          <StopCard
-            key={stop.id}
-            stop={stop}
-            mode={trip.travelMode}
-            baseLabel={baseLabel}
-            previousName={i === 0 ? baseLabel : option.stops[i - 1].name}
-            dim={differences && !stop.uniqueToThisOption}
-            pinned={pinned.has(stop.id)}
-            busy={busy}
-            onLike={() => onAct({ type: pinned.has(stop.id) ? 'unlike' : 'like', stopId: stop.id })}
-            onDislike={() => onAct({ type: 'dislike', stopId: stop.id })}
-          />
-        ))}
-      </View>
-
-      <Button
-        label={committed ? 'Saved as your trip ✓' : chosen ? 'Use this plan' : 'Use this plan'}
-        kind={committed ? 'secondary' : 'primary'}
-        onPress={onCommit}
-        disabled={busy || committed}
-      />
-    </Card>
-  );
 }
 
 function SuggestedPreferenceRow({ pref, members }: { pref: { member: string | null; kind: 'like' | 'dislike'; value: string }; members: HouseholdResponse['members'] }) {

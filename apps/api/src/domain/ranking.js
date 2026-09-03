@@ -76,7 +76,13 @@ export function applyConstraints({ venues, attendees, learned = [] }) {
     }
 
     const reasons = [];
-    let score = (venue.rating ?? 3.5) * 10;
+    // Rating first, and how many people stand behind it (owner, 3 Sep 2026:
+    // "strong weighting towards the reviews... an exceptional restaurant makes
+    // up for not being an exact match"). Confidence grows with the review
+    // count and is full at ~1,000; an unrated place sits at the neutral 30.
+    const confidence = venue.ratingCount ? Math.min(1, Math.log10(venue.ratingCount + 1) / 3) : venue.rating != null ? 0.4 : 0;
+    let score = 30 + (venue.rating != null ? (venue.rating - 3.5) * 25 * confidence : 0) + (venue.ratingCount ? Math.min(10, Math.log10(venue.ratingCount + 1) * 2.5) : 0);
+    if (venue.rating != null && venue.rating >= 4.5 && (venue.ratingCount ?? 0) >= 500) reasons.push({ kind: 'rating', text: `Rated ${venue.rating.toFixed(1)} by ${venue.ratingCount.toLocaleString()} people` });
 
     for (const member of attendees) {
       // --- Dislikes and likes: rank, never exclude, always say why.
@@ -160,8 +166,6 @@ export function applyConstraints({ venues, attendees, learned = [] }) {
       score -= 4;
       reasons.push({ kind: 'chain', text: venue.brand ? `Chain (${venue.brand})` : 'Chain' });
     }
-    // Many reviews behind a rating make it worth more than the same number from six people.
-    if (venue.rating != null && venue.ratingCount) score += Math.min(6, Math.log10(venue.ratingCount + 1) * 2);
 
     // Closer is better, but only as a tie-breaker — never enough to outrank taste.
     if (typeof venue.travelMinutes === 'number') score -= venue.travelMinutes * 0.15;
