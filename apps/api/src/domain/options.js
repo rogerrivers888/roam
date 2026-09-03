@@ -223,6 +223,9 @@ export function composeOptions({
     // Anything ranked below zero (needs a booking, plainly unsuitable) is out
     // for every basis, including the ones that order by distance.
     .filter((c) => !excludedSet.has(c.key) && eventInsideWindow(c, trip) && (c.fixed || (c.score ?? 0) >= 0))
+    // A theatre or cinema needs a ticket and a showtime: it is only ever the
+    // booking the household named, never a wander-in suggestion.
+    .filter((c) => c.fixed || !c.ticketed || pinnedSet.has(c.key))
     // Chains and price are the household's choice for the day. A place they
     // pinned, shortlisted or booked is theirs whatever the setting says.
     .filter((c) => c.fixed || c.shortlisted || pinnedSet.has(c.key) || ((includeChains || !c.chain) && priceOk(c, pricePoint)))
