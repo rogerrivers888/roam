@@ -33,7 +33,7 @@ export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | nu
 
       <SectionTitle hint="Used whenever you say 'from home' or search near home.">Home</SectionTitle>
       <Card>
-        <PlacePicker value={household.home} onPick={setHome} placeholder="Your address, or just the street and town" />
+        <PlacePicker value={household.home} onPick={setHome} placeholder="House name or number, street, town, postcode" />
         {!household.home ? <StatusLine>Not set. Roam can't plan "from home" until it knows where that is.</StatusLine> : null}
       </Card>
 
@@ -44,11 +44,23 @@ export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | nu
           <TextInput value={name} onChangeText={setName} style={[styles.input, { flex: 1 }]} />
           <Button label="Save" kind="secondary" onPress={async () => { await api.updateHousehold({ name: name.trim() || household.name }); await refresh(); }} />
         </Row>
-        <Text style={[type.small, { marginTop: spacing.sm }]}>Our usual pace — applied to every plan unless you change it for one outing.</Text>
-        <Stepper label="Time at a place" value={household.defaultVisitMinutes} min={15} max={240} step={15} format={minutes}
-          onChange={async (v) => { await api.updateHousehold({ defaultVisitMinutes: v }); await refresh(); }} />
-        <Stepper label="Max travelling" value={household.maxTravelMinutes} min={10} max={180} step={5} format={minutes}
-          onChange={async (v) => { await api.updateHousehold({ maxTravelMinutes: v }); await refresh(); }} />
+      </Card>
+
+      <SectionTitle hint="Eating and doing have different rhythms. 'Special' is the exception you'd make for somewhere worth going further for.">Our pace</SectionTitle>
+      <Card>
+        {(['food', 'activity'] as const).map((k) => (
+          <View key={k} style={{ gap: 4, marginBottom: spacing.md }}>
+            <Text style={type.h3}>{k === 'food' ? 'Food & drink' : 'Things to do'}</Text>
+            <Stepper label="Usually spend" value={household.pace[k].typicalMinutes} min={15} max={480} step={15} format={minutes}
+              onChange={async (v) => { await api.updateHousehold({ pace: { [k]: { typicalMinutes: v } } }); await refresh(); }} />
+            <Stepper label="Longest we'd allow" value={household.pace[k].maxMinutes} min={30} max={720} step={30} format={minutes}
+              onChange={async (v) => { await api.updateHousehold({ pace: { [k]: { maxMinutes: v } } }); await refresh(); }} />
+            <Stepper label="Usual max travel" value={household.pace[k].maxTravelMinutes} min={5} max={240} step={5} format={minutes}
+              onChange={async (v) => { await api.updateHousehold({ pace: { [k]: { maxTravelMinutes: v } } }); await refresh(); }} />
+            <Stepper label="…if it's special" value={household.pace[k].maxTravelIfSpecialMinutes} min={5} max={360} step={15} format={minutes}
+              onChange={async (v) => { await api.updateHousehold({ pace: { [k]: { maxTravelIfSpecialMinutes: v } } }); await refresh(); }} />
+          </View>
+        ))}
         <Text style={type.small}>How full we like a day</Text>
         <Segmented value={household.defaultIntensity}
           options={[{ value: 'relaxed', label: 'Relaxed' }, { value: 'balanced', label: 'Balanced' }, { value: 'packed', label: 'Packed' }]}

@@ -17,6 +17,7 @@ import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { deriveCatchment, reachRadiusKm, TRAVEL_MODES } from '../domain/travel.js';
 import { applyConstraints } from '../domain/ranking.js';
 import { composeOptions } from '../domain/options.js';
+import { paceOf, travelLimitFor, maxReachMinutes } from '../domain/pace.js';
 import { INTENSITY_TARGETS } from '../domain/budget.js';
 import { currentHousehold, loadMembers, toAttendees, loadLearnedPreferences } from './household.js';
 
@@ -39,6 +40,7 @@ const TripIntent = z.object({
   wants: z.array(z.string()).describe('Specific things asked for, e.g. "ramen", "somewhere with live music", "a park"'),
   avoids: z.array(z.string()).describe('Things explicitly not wanted'),
   attending: z.array(z.string()).describe('Household member names mentioned as coming; empty means everyone'),
+  special: z.boolean().describe('True if they want somewhere special — a treat, an occasion, worth going further for'),
   reply: z.string().describe('One short, warm sentence acknowledging what was understood, or asking for the single most important missing detail'),
 });
 
@@ -199,9 +201,11 @@ async function createTripFromIntent({ household, members, intent, origin, destin
 /** Retrieve the candidate pool ONCE for a trip (Epic 5 C3). */
 async function retrievePool({ household, trip, attendees, intent, sessionId }) {
   const durationMinutes = Math.round((new Date(trip.return_at) - new Date(trip.depart_at)) / 60_000);
-  // Reach is bounded by the household's tolerance and by the window itself:
-  // nobody wants to spend more than a third of three hours getting somewhere.
-  const maxTravelMinutes = Math.min(household.max_travel_minutes, Math.max(15, Math.round(durationMinutes / 3)));
+  const pace = paceOf(household);
+  const special = Boolean(intent.special);
+  // Reach is bounded by the household's pace (per kind, wider if special) and
+  // by the window itself: nobody spends more than a third of three hours travelling.
+  const maxTravelMinutes = Math.min(maxReachMinutes(pace, { special }), Math.max(15, Math.round(durationMinutes / 2)));
 
   const wantsText = (intent.wants || []).join(' ');
   const originPoint = { lat: trip.origin_lat, lng: trip.origin_lng };
@@ -218,7 +222,13 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
     [household.id, sessionId, sourcesQueried.join('+') || 'none', 'plan.retrieve'],
   );
 
-  const inReach = deriveCatchment({ origin: originPoint, maxTravelMinutes, mode: trip.travel_mode, venues });
+  // Places the household has marked special may be further than the usual limit.
+  const { rows: specials } = await query(`select source || ':' || source_place_id as ref from place_ledger where household_id = $1 and status = 'special'`, [household.id]);
+  const specialRefs = new Set(specials.map((r) => r.ref));
+  const inReach = deriveCatchment({ origin: originPoint, maxTravelMinutes, mode: trip.travel_mode, venues })
+    .map((v) => ({ ...v, special: specialRefs.has(`${v.source}:${v.sourcePlaceId}`) }))
+    // A restaurant 40 minutes away is out; a castle 40 minutes away is fine.
+    .filter((v) => v.travelMinutes <= travelLimitFor(pace, v, { special }));
   const learned = await loadLearnedPreferences(household.id);
   const { candidates, excluded } = applyConstraints({ venues: inReach, attendees, learned });
 
@@ -267,6 +277,7 @@ async function recompose(session, household) {
     minFood: state.minFood,
     pinned: state.pinned,
     excluded: state.excluded,
+    attendees: state.attendeePrefs || [],
   });
   return { trip, ...composed };
 }
@@ -375,6 +386,7 @@ router.post('/start', async (req, res, next) => {
     state.chosenOptionId = null;
     state.suggestedPreferences = [];
     state.attending = attendees.map((a) => ({ id: a.id, name: a.name }));
+    state.attendeePrefs = attendees;
     state.transcript.push({ role: 'assistant', text: intent.reply });
     await saveSession(session.id, state, trip.id);
 

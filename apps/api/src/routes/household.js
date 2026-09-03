@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
-import { ALLERGENS, matchConcepts, resolveConcept, conceptByKey } from '../domain/concepts.js';
+import { ALLERGENS, matchConcepts, resolveConcept, conceptByKey, isNegated } from '../domain/concepts.js';
+
+const NEGATION_PREFIX = /^(not|no|never|without|anything but|nothing)\s+/i;
 import { geocode } from '../sources/geocode.js';
 import { spendSummary } from '../claude.js';
+import { paceOf, DEFAULT_PACE } from '../domain/pace.js';
 
 const router = Router();
 
@@ -25,12 +28,23 @@ export async function currentHousehold() {
 }
 
 const ageOf = (birthYear) => (birthYear ? new Date().getFullYear() - birthYear : null);
+/** Exact age from a birthday, else a rough one from the year. */
+function ageFrom(birthDate, birthYear) {
+  if (birthDate) {
+    const b = new Date(birthDate);
+    const now = new Date();
+    let age = now.getFullYear() - b.getFullYear();
+    if (now.getMonth() < b.getMonth() || (now.getMonth() === b.getMonth() && now.getDate() < b.getDate())) age -= 1;
+    return age;
+  }
+  return ageOf(birthYear);
+}
 
 export async function loadMembers(householdId) {
   const { rows } = await query(
     `select m.*,
             coalesce(json_agg(json_build_object('id', c.id, 'kind', c.kind, 'value', c.value,
-                                                'conceptKey', c.concept_key, 'conceptKind', c.concept_kind))
+                                                'conceptKey', c.concept_key, 'conceptKind', c.concept_kind, 'maxMinutes', c.max_minutes))
                      filter (where c.id is not null), '[]') as constraints
        from members m
        left join member_constraints c on c.member_id = m.id
@@ -41,13 +55,14 @@ export async function loadMembers(householdId) {
   );
 
   return rows.map((row) => {
-    const age = ageOf(row.birth_year);
+    const age = ageFrom(row.birth_date, row.birth_year);
     return {
       id: row.id,
       name: row.name,
       isMinor: age != null ? age < 13 : row.is_minor,
       age,
       birthYear: row.birth_year,
+      birthDate: row.birth_date,
       relationship: row.relationship,
       avatarUrl: row.avatar_url,
       typicalVisitMinutes: row.typical_visit_minutes,
@@ -62,7 +77,7 @@ export async function loadMembers(householdId) {
 
 /** Members flattened for the ranking layer. */
 export function toAttendees(members) {
-  const pref = (c) => ({ value: c.value, conceptKey: c.conceptKey ?? null });
+  const pref = (c) => ({ value: c.value, conceptKey: c.conceptKey ?? null, maxMinutes: c.maxMinutes ?? null });
   return members.map((m) => ({
     id: m.id,
     name: m.name,
@@ -116,7 +131,7 @@ export async function loadLearnedPreferences(householdId) {
 function kindsFor(constraintKind) {
   if (constraintKind === 'diet') return ['diet'];
   if (constraintKind === 'allergen') return null;
-  return ['dish', 'cuisine', 'experience'];
+  return ['dish', 'cuisine', 'ingredient', 'style', 'experience'];
 }
 
 router.get('/', async (_req, res, next) => {
@@ -131,6 +146,7 @@ router.get('/', async (_req, res, next) => {
         maxTravelMinutes: household.max_travel_minutes,
         defaultIntensity: household.default_intensity,
         home: household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null,
+        pace: paceOf(household),
       },
       members,
       learned: await loadLearnedPreferences(household.id),
@@ -144,7 +160,8 @@ router.get('/', async (_req, res, next) => {
 router.patch('/', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { name, defaultVisitMinutes, maxTravelMinutes, defaultIntensity, home, homeText } = req.body;
+    const { name, defaultVisitMinutes, maxTravelMinutes, defaultIntensity, home, homeText, pace } = req.body;
+    const mergedPace = pace ? { food: { ...paceOf(household).food, ...(pace.food || {}) }, activity: { ...paceOf(household).activity, ...(pace.activity || {}) } } : null;
     // Home may arrive as a picked place or as typed text to geocode (Epic 3 M3).
     let homePlace = home?.lat != null ? home : null;
     if (!homePlace && homeText?.trim()) [homePlace] = await geocode(homeText, { limit: 1 });
@@ -157,14 +174,15 @@ router.patch('/', async (req, res, next) => {
               default_intensity     = coalesce($5, default_intensity),
               home_label            = coalesce($6, home_label),
               home_lat              = coalesce($7, home_lat),
-              home_lng              = coalesce($8, home_lng)
+              home_lng              = coalesce($8, home_lng),
+              pace                  = coalesce($9::jsonb, pace)
         where id = $1 returning *`,
       [household.id, name ?? null, defaultVisitMinutes ?? null, maxTravelMinutes ?? null, defaultIntensity ?? null,
-       homePlace?.label ?? null, homePlace?.lat ?? null, homePlace?.lng ?? null],
+       homePlace?.label ?? null, homePlace?.lat ?? null, homePlace?.lng ?? null, mergedPace ? JSON.stringify(mergedPace) : null],
     );
     const h = rows[0];
     res.json({ household: { id: h.id, name: h.name, defaultVisitMinutes: h.default_visit_minutes, maxTravelMinutes: h.max_travel_minutes, defaultIntensity: h.default_intensity,
-      home: h.home_lat != null ? { label: h.home_label, lat: h.home_lat, lng: h.home_lng } : null } });
+      home: h.home_lat != null ? { label: h.home_label, lat: h.home_lat, lng: h.home_lng } : null, pace: paceOf(h) } });
   } catch (err) {
     next(err);
   }
@@ -173,14 +191,15 @@ router.patch('/', async (req, res, next) => {
 router.post('/members', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { name, relationship = null, birthYear = null, avatarUrl = null, typicalVisitMinutes, maxTravelMinutes } = req.body;
+    const { name, relationship = null, birthYear = null, birthDate = null, avatarUrl = null, typicalVisitMinutes, maxTravelMinutes } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name_required' });
+    if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return res.status(400).json({ error: 'invalid_birth_date', message: 'Use YYYY-MM-DD' });
     if (relationship && !RELATIONSHIPS.includes(relationship)) return res.status(400).json({ error: 'invalid_relationship' });
-    const age = ageOf(birthYear);
+    const age = ageFrom(birthDate, birthYear);
     const { rows } = await query(
-      `insert into members (household_id, name, is_minor, relationship, birth_year, avatar_url, typical_visit_minutes, max_travel_minutes)
-       values ($1, $2, $3, $4, $5, $6, $7, $8) returning *`,
-      [household.id, name.trim(), age != null ? age < 13 : relationship === 'child', relationship, birthYear, avatarUrl, typicalVisitMinutes ?? null, maxTravelMinutes ?? null],
+      `insert into members (household_id, name, is_minor, relationship, birth_year, birth_date, avatar_url, typical_visit_minutes, max_travel_minutes)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
+      [household.id, name.trim(), age != null ? age < 13 : relationship === 'child', relationship, birthYear ?? (birthDate ? Number(birthDate.slice(0, 4)) : null), birthDate, avatarUrl, typicalVisitMinutes ?? null, maxTravelMinutes ?? null],
     );
     res.status(201).json({ member: rows[0] });
   } catch (err) {
@@ -190,8 +209,9 @@ router.post('/members', async (req, res, next) => {
 
 router.patch('/members/:id', async (req, res, next) => {
   try {
-    const { name, relationship, birthYear, avatarUrl, typicalVisitMinutes, maxTravelMinutes } = req.body;
+    const { name, relationship, birthYear, birthDate, avatarUrl, typicalVisitMinutes, maxTravelMinutes } = req.body;
     if (relationship && !RELATIONSHIPS.includes(relationship)) return res.status(400).json({ error: 'invalid_relationship' });
+    if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return res.status(400).json({ error: 'invalid_birth_date', message: 'Use YYYY-MM-DD' });
     if (avatarUrl && avatarUrl.length > 600_000) return res.status(413).json({ error: 'avatar_too_large', message: 'Keep photos under ~400KB' });
     const { rows } = await query(
       `update members
@@ -201,11 +221,14 @@ router.patch('/members/:id', async (req, res, next) => {
               avatar_url            = case when $5::text = '' then null else coalesce($5, avatar_url) end,
               typical_visit_minutes = coalesce($6, typical_visit_minutes),
               max_travel_minutes    = coalesce($7, max_travel_minutes),
-              is_minor              = case when coalesce($4, birth_year) is not null
+              birth_date            = coalesce($8::date, birth_date),
+              is_minor              = case when coalesce($8::date, birth_date) is not null
+                                           then age(coalesce($8::date, birth_date)) < interval '13 years'
+                                           when coalesce($4, birth_year) is not null
                                            then (extract(year from now())::int - coalesce($4, birth_year)) < 13
                                            else is_minor end
         where id = $1 returning *`,
-      [req.params.id, name ?? null, relationship ?? null, birthYear ?? null, avatarUrl ?? null, typicalVisitMinutes ?? null, maxTravelMinutes ?? null],
+      [req.params.id, name ?? null, relationship ?? null, birthYear ?? (birthDate ? Number(birthDate.slice(0, 4)) : null), avatarUrl ?? null, typicalVisitMinutes ?? null, maxTravelMinutes ?? null, birthDate ?? null],
     );
     if (!rows[0]) return res.status(404).json({ error: 'member_not_found' });
     res.json({ member: rows[0] });
@@ -232,7 +255,7 @@ router.delete('/members/:id', async (req, res, next) => {
  */
 router.post('/members/:id/constraints', async (req, res, next) => {
   try {
-    const { kind, value, conceptKey: explicitKey } = req.body;
+    const { kind, value, conceptKey: explicitKey, maxMinutes = null } = req.body;
     if (!KINDS.includes(kind)) return res.status(400).json({ error: 'invalid_kind', message: `kind must be one of ${KINDS.join(', ')}` });
     if (!value?.trim()) return res.status(400).json({ error: 'value_required' });
 
@@ -241,17 +264,35 @@ router.post('/members/:id/constraints', async (req, res, next) => {
     const stored = concept ? concept.label : value.trim();
 
     const { rows } = await query(
-      `insert into member_constraints (member_id, kind, value, concept_key, concept_kind)
-       values ($1, $2, $3, $4, $5)
-       on conflict (member_id, kind, value) do update set concept_key = excluded.concept_key, concept_kind = excluded.concept_kind
+      `insert into member_constraints (member_id, kind, value, concept_key, concept_kind, max_minutes)
+       values ($1, $2, $3, $4, $5, $6)
+       on conflict (member_id, kind, value) do update set concept_key = excluded.concept_key, concept_kind = excluded.concept_kind, max_minutes = coalesce(excluded.max_minutes, member_constraints.max_minutes)
        returning *`,
-      [req.params.id, kind, stored.toLowerCase(), concept?.key ?? null, concept?.kind ?? null],
+      [req.params.id, kind, stored.toLowerCase(), concept?.key ?? null, concept?.kind ?? null, maxMinutes ? Number(maxMinutes) : null],
     );
+    const negated = isNegated(value) && kind !== 'allergen';
     res.status(201).json({
       constraint: rows[0],
       resolved: concept ? { key: concept.key, label: concept.label, kind: concept.kind } : null,
-      suggestions: concept ? [] : matchConcepts(value, { kinds: kindsFor(kind), limit: 5 }).map((c) => ({ key: c.key, label: c.label, kind: c.kind })),
+      suggestions: concept || negated ? [] : matchConcepts(value, { kinds: kindsFor(kind), limit: 5 }).map((c) => ({ key: c.key, label: c.label, kind: c.kind })),
+      hint: negated
+        ? `Kept "${value.trim()}" as typed, but Roam doesn't read "not". Put "${value.trim().replace(NEGATION_PREFIX, '')}" in ${kind === 'like' ? 'Dislikes' : 'Likes'} instead — the two lists do the negating.`
+        : kind === 'allergen' && !ALLERGENS.includes(value.trim().toLowerCase())
+          ? `Added. Place listings rarely state "${value.trim()}", so it will flag menu items once a menu is captured rather than excluding venues today.`
+          : null,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** "Walks — up to 40 minutes": a limit on one preference. null clears it. */
+router.patch('/constraints/:id', async (req, res, next) => {
+  try {
+    const { maxMinutes } = req.body || {};
+    const { rows } = await query('update member_constraints set max_minutes = $2 where id = $1 returning *', [req.params.id, maxMinutes ? Number(maxMinutes) : null]);
+    if (!rows[0]) return res.status(404).json({ error: 'constraint_not_found' });
+    res.json({ constraint: rows[0] });
   } catch (err) {
     next(err);
   }

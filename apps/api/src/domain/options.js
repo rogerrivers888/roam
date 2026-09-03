@@ -8,6 +8,7 @@
 
 import { computeBudget, INTENSITY_TARGETS } from './budget.js';
 import { estimateTravelMinutes } from './travel.js';
+import { paceOf, dwellAllowance } from './pace.js';
 
 export const FOOD_CATEGORIES = new Set(['restaurant', 'cafe', 'pub', 'bar']);
 export const ACTIVITY_CATEGORIES = new Set(['attraction', 'event']);
@@ -27,20 +28,9 @@ const MIN_DWELL = 30;
 // A timed event can be joined a little late; later than this and it is missed.
 const EVENT_LATE_TOLERANCE_MINUTES = 10;
 
-/** Base time allowance by kind of stop (Epic 4 C5). */
-export function dwellFor(candidate, household) {
-  const base = household?.default_visit_minutes ?? 75;
-  switch (candidate.category) {
-    case 'cafe': return Math.min(base, 45);
-    case 'bar': return Math.min(base, 60);
-    case 'attraction': return Math.max(base, 90);
-    case 'event':
-      if (candidate.startsAt && candidate.endsAt) {
-        return Math.round((new Date(candidate.endsAt) - new Date(candidate.startsAt)) / 60_000);
-      }
-      return 120;
-    default: return base;
-  }
+/** Base time allowance by kind of stop (Epic 4 C5), from the household's pace and any member cap. */
+export function dwellFor(candidate, household, attendees = []) {
+  return dwellAllowance(paceOf(household), candidate, attendees);
 }
 
 function nearestNeighbour(origin, mode, stops) {
@@ -180,6 +170,7 @@ export function composeOptions({
   pinned = [],
   excluded = [],
   maxOptions = 3,
+  attendees = [],
 }) {
   const excludedSet = new Set(excluded);
   const target = INTENSITY_TARGETS[trip.intensity] ?? INTENSITY_TARGETS.balanced;
@@ -187,7 +178,7 @@ export function composeOptions({
 
   const usable = pool
     .filter((c) => !excludedSet.has(c.key) && eventInsideWindow(c, trip))
-    .map((c) => ({ ...c, baseDwell: dwellFor(c, household) }));
+    .map((c) => { const a = dwellFor(c, household, attendees); return { ...c, baseDwell: a.minutes, dwellCappedBy: a.cappedBy }; });
   const byKey = new Map(usable.map((c) => [c.key, c]));
   const pinnedStops = pinned.map((k) => byKey.get(k)).filter(Boolean);
 
@@ -277,6 +268,7 @@ export function composeOptions({
       lat: s.lat,
       lng: s.lng,
       dwellMinutes: s.dwellMinutes,
+      dwellCappedBy: s.dwellCappedBy ?? null,
       waitMinutes: s.waitMinutes,
       travelFromPrevMinutes: s.travelFromPrevMinutes,
       arriveAt: s.arriveAt,

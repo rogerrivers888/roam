@@ -21,12 +21,30 @@ async function politeFetch(url) {
   return res.json();
 }
 
+/** A full postal address, in the order people read it, from Nominatim's parts. */
+function formatAddress(a, row) {
+  const line1 = [a.house_name, a.house_number, a.road].filter(Boolean).join(' ').trim() || row.name || '';
+  const area = a.suburb || a.neighbourhood || a.village || a.hamlet || null;
+  const town = a.city || a.town || a.county || null;
+  const parts = [line1, area, town, a.state, a.postcode, a.country].filter((p, i, arr) => p && arr.indexOf(p) === i);
+  return parts.join(', ');
+}
+
 function shape(row) {
   const a = row.address || {};
   const locality = a.city || a.town || a.village || a.suburb || a.county || a.state || null;
   return {
     label: shortLabel(row, locality),
     displayName: row.display_name,
+    formatted: formatAddress(a, row),
+    address: {
+      line1: [a.house_name, a.house_number, a.road].filter(Boolean).join(' ') || row.name || null,
+      area: a.suburb || a.neighbourhood || a.village || null,
+      town: a.city || a.town || null,
+      region: a.state || a.county || null,
+      postcode: a.postcode || null,
+      country: a.country || null,
+    },
     lat: Number(row.lat),
     lng: Number(row.lon),
     country: a.country || null,
@@ -93,10 +111,12 @@ export async function geocode(text, { limit = 5, near = null } = {}) {
     if (rows.length) {
       if (attempt.matchedBy === 'address') return rows.map((r) => ({ ...r, matchedBy: 'address' }));
       // Approximate: keep the user's wording as the label, say how it was matched.
+      // Keep the address exactly as the household wrote it; only the pin is ours.
       return rows.map((r) => ({
         ...r,
-        label: parts.length > 1 ? `${parts[0]}, ${r.label}` : r.label,
-        displayName: `${q} — placed by ${attempt.matchedBy} (${r.displayName})`,
+        label: q,
+        formatted: q,
+        displayName: `Placed by ${attempt.matchedBy}: ${r.displayName}`,
         matchedBy: attempt.matchedBy,
         approximate: true,
       }));

@@ -32,7 +32,8 @@ const CATEGORY_FILTERS = {
   food: `nwr["amenity"~"^(restaurant|cafe|pub|bar|fast_food|ice_cream|biergarten)$"]["name"]`,
   things: `nwr["tourism"~"^(museum|gallery|attraction|zoo|aquarium|theme_park|viewpoint)$"]["name"];
   nwr["leisure"~"^(park|garden|nature_reserve|playground|water_park|swimming_pool|ice_rink|bowling_alley|miniature_golf|escape_game|trampoline_park|climbing|beach_resort)$"]["name"];
-  nwr["amenity"~"^(cinema|theatre|arts_centre)$"]["name"]`,
+  nwr["amenity"~"^(cinema|theatre|arts_centre)$"]["name"];
+  nwr["historic"~"^(castle|ruins|monument|memorial|fort|manor|archaeological_site|city_gate|palace|church|abbey)$"]["name"]`,
 };
 
 function escapeRegex(s) {
@@ -73,6 +74,10 @@ function toVenue(el) {
     const e = LEISURE_EXPERIENCE[t.leisure];
     if (e) experiences.push(e);
   }
+  if (t.historic) {
+    experiences.push('history');
+    if (['castle', 'fort', 'palace', 'manor'].includes(t.historic)) experiences.push('castle');
+  }
 
   const cuisines = (t.cuisine || '').split(';').map((c) => c.trim().toLowerCase().replace(/_/g, ' ')).filter(Boolean);
   const dietaryOptions = [];
@@ -97,6 +102,7 @@ function toVenue(el) {
     lat,
     lng,
     dishes: [],
+    styles: t.amenity === 'fast_food' ? ['fast-food'] : [],
     justification: null,
     matchedDish: null,
     website: t.website || t['contact:website'] || null,

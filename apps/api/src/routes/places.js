@@ -210,7 +210,7 @@ places.post('/save', async (req, res, next) => {
     const household = await currentHousehold();
     const { source, id } = splitRef(req.body?.ref);
     if (!source || !id) return res.status(400).json({ error: 'ref_required' });
-    const status = ['saved', 'dismissed'].includes(req.body?.status) ? req.body.status : 'saved';
+    const status = ['saved', 'dismissed', 'special'].includes(req.body?.status) ? req.body.status : 'saved';
     await query('insert into place_ledger (household_id, source, source_place_id, status) values ($1, $2, $3, $4)', [household.id, source, id, status]);
     res.json({ venueRef: `${source}:${id}`, status });
   } catch (err) {

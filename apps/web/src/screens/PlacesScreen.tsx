@@ -110,6 +110,7 @@ export function VenueRow({ venue, onPress, action }: { venue: Venue; onPress?: (
           {h?.loved ? <Chip label={`♥ ${h.loved}`} tone="like" /> : null}
           {h?.notForMe ? <Chip label={`✕ ${h.notForMe}`} tone="dislike" /> : null}
           {h?.ledger === 'saved' && !h?.visits ? <Chip label="Saved" /> : null}
+          {h?.ledger === 'special' ? <Chip label="★ Special" tone="accent" /> : null}
           {(venue.dietaryOptions ?? []).map((d) => <Chip key={d} label={d} />)}
           {venue.goodForChildren ? <Chip label="Good for children" /> : null}
         </Wrap>
@@ -154,8 +155,10 @@ function PlaceDetail({ venue, household, onClose, onChanged }: { venue: Venue; h
 
       <Row>
         <Button label="We've been here" onPress={() => setAdding(true)} />
-        <Button label={saved ? 'Saved ✓' : 'Save for later'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef); setSaved('yes'); }} />
+        <Button label={saved === 'yes' ? 'Saved ✓' : 'Save for later'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef); setSaved('yes'); }} />
+        <Button label={saved === 'special' ? 'Special ✓' : 'Mark as special'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'special'); setSaved('special'); }} />
       </Row>
+      <Text style={type.tiny}>Special places are worth going further for — the planner uses your "if it's special" travel limit for them.</Text>
 
       {adding && household ? (
         <VisitForm venue={venue} household={household} onDone={async () => { setAdding(false); await load(); await onChanged(); }} onCancel={() => setAdding(false)} />

@@ -42,7 +42,7 @@ const qs = (o: Record<string, any>) => {
 // ---------------------------------------------------------------------------
 
 export type ConstraintKind = 'allergen' | 'diet' | 'dislike' | 'like';
-export type Constraint = { id: string; kind: ConstraintKind; value: string; conceptKey: string | null; conceptKind: string | null };
+export type Constraint = { id: string; kind: ConstraintKind; value: string; conceptKey: string | null; conceptKind: string | null; maxMinutes?: number | null };
 
 export type Member = {
   id: string;
@@ -50,6 +50,7 @@ export type Member = {
   isMinor: boolean;
   age: number | null;
   birthYear: number | null;
+  birthDate: string | null;
   relationship: string | null;
   avatarUrl: string | null;
   typicalVisitMinutes: number | null;
@@ -60,7 +61,7 @@ export type Member = {
   likes: Constraint[];
 };
 
-export type Place = { label: string; lat: number; lng: number; country?: string | null; countryCode?: string | null; locality?: string | null; displayName?: string };
+export type Place = { label: string; lat: number; lng: number; country?: string | null; countryCode?: string | null; locality?: string | null; displayName?: string; formatted?: string; address?: { line1: string | null; area: string | null; town: string | null; region: string | null; postcode: string | null; country: string | null }; matchedBy?: string; approximate?: boolean };
 
 export type Household = {
   id: string;
@@ -69,7 +70,11 @@ export type Household = {
   maxTravelMinutes: number;
   defaultIntensity: 'relaxed' | 'balanced' | 'packed';
   home: Place | null;
+  pace: Pace;
 };
+
+export type PaceKind = { typicalMinutes: number; maxMinutes: number; maxTravelMinutes: number; maxTravelIfSpecialMinutes: number };
+export type Pace = { food: PaceKind; activity: PaceKind };
 
 export type Learned = {
   memberId: string; name: string; conceptKey: string; label: string; conceptKind: string | null;
@@ -171,20 +176,22 @@ export const api = {
 
   // household
   household: () => request<HouseholdResponse>('/api/household'),
-  updateHousehold: (body: Partial<Pick<Household, 'name' | 'defaultVisitMinutes' | 'maxTravelMinutes' | 'defaultIntensity'>> & { home?: Place; homeText?: string }) =>
+  updateHousehold: (body: Partial<Pick<Household, 'name' | 'defaultVisitMinutes' | 'maxTravelMinutes' | 'defaultIntensity'>> & { home?: Place; homeText?: string; pace?: { food?: Partial<PaceKind>; activity?: Partial<PaceKind> } }) =>
     patch<{ household: Household }>('/api/household', body),
-  addMember: (body: { name: string; relationship?: string | null; birthYear?: number | null; avatarUrl?: string | null }) => post<{ member: any }>('/api/household/members', body),
-  updateMember: (id: string, body: { name?: string; relationship?: string | null; birthYear?: number | null; avatarUrl?: string | null; typicalVisitMinutes?: number; maxTravelMinutes?: number }) =>
+  addMember: (body: { name: string; relationship?: string | null; birthYear?: number | null; birthDate?: string | null; avatarUrl?: string | null }) => post<{ member: any }>('/api/household/members', body),
+  updateMember: (id: string, body: { name?: string; relationship?: string | null; birthYear?: number | null; birthDate?: string | null; avatarUrl?: string | null; typicalVisitMinutes?: number; maxTravelMinutes?: number }) =>
     patch<{ member: any }>(`/api/household/members/${id}`, body),
   deleteMember: (id: string) => del<void>(`/api/household/members/${id}`),
-  addConstraint: (memberId: string, body: { kind: ConstraintKind; value: string; conceptKey?: string }) =>
-    post<{ constraint: Constraint; resolved: { key: string; label: string; kind: string } | null; suggestions: Suggestion[] }>(`/api/household/members/${memberId}/constraints`, body),
+  addConstraint: (memberId: string, body: { kind: ConstraintKind; value: string; conceptKey?: string; maxMinutes?: number | null }) =>
+    post<{ constraint: Constraint; resolved: { key: string; label: string; kind: string } | null; suggestions: Suggestion[]; hint: string | null }>(`/api/household/members/${memberId}/constraints`, body),
+  updateConstraint: (id: string, body: { maxMinutes: number | null }) => patch<{ constraint: any }>(`/api/household/constraints/${id}`, body),
   deleteConstraint: (id: string) => del<void>(`/api/household/constraints/${id}`),
   learned: () => request<{ learned: Learned[]; threshold: number }>('/api/household/learned'),
   exportUrl: () => `${API_URL}/api/household/export`,
   deleteHousehold: (confirmName: string) => del<{ deleted: boolean }>('/api/household', { confirmName }),
 
   // vocabulary
+  browse: () => request<{ food: { title: string; hint: string; items: { key: string; label: string; children: { key: string; label: string }[] }[] }[]; activities: { title: string; hint: string; items: { key: string; label: string; children: { key: string; label: string }[] }[] }[]; diets: { key: string; label: string }[] }>('/api/concepts/browse'),
   suggest: (q: string, kinds?: string[], limit = 8) =>
     request<{ suggestions: Suggestion[] }>(`/api/concepts/suggest${qs({ q, kinds: kinds?.join(','), limit })}`),
 
@@ -194,7 +201,7 @@ export const api = {
     request<{ near: Place & { how: string }; radiusKm: number; results: Venue[]; sourcesQueried: string[]; degradedSources: { source: string; error: string }[]; attribution: string[] }>(`/api/places/search${qs(p)}`),
   place: (venueRef: string) =>
     request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[] }>(`/api/places/detail${qs({ ref: venueRef })}`),
-  savePlace: (venueRef: string, status: 'saved' | 'dismissed' = 'saved') =>
+  savePlace: (venueRef: string, status: 'saved' | 'dismissed' | 'special' = 'saved') =>
     post<{ venueRef: string; status: string }>('/api/places/save', { ref: venueRef, status }),
   createVisit: (body: Partial<Visit> & { venueRef: string; venueLabel: string; attendeeIds?: string[]; takes?: VisitTake[]; clientId?: string; venue?: Partial<Venue> }) =>
     post<{ visit: Visit; deduplicated?: boolean }>('/api/visits', body),

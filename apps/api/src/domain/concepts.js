@@ -10,73 +10,73 @@
 // add aliases to it over time.
 
 const DISHES = [
-  ['arrabbiata', 'Arrabbiata', ['spaghetti arrabbiata', 'penne arrabbiata', "penne all'arrabbiata", 'arabiata', 'arrabiata', 'spicy tomato pasta']],
-  ['carbonara', 'Carbonara', ['spaghetti carbonara', 'pasta carbonara']],
-  ['bolognese', 'Bolognese', ['spaghetti bolognese', 'ragu', 'ragù', 'tagliatelle al ragu']],
-  ['lasagne', 'Lasagne', ['lasagna']],
-  ['margherita', 'Margherita pizza', ['pizza margherita', 'cheese pizza']],
-  ['pepperoni-pizza', 'Pepperoni pizza', ['pepperoni']],
-  ['pizza', 'Pizza', ['pizzas']],
-  ['risotto', 'Risotto', ['mushroom risotto']],
-  ['gnocchi', 'Gnocchi', []],
-  ['tiramisu', 'Tiramisu', []],
-  ['ramen', 'Ramen', ['tonkotsu ramen', 'tonkotsu', 'miso ramen', 'shoyu ramen', 'noodle soup']],
-  ['gyoza', 'Gyoza', ['dumplings', 'pork dumplings', 'potstickers']],
-  ['sushi', 'Sushi', ['nigiri', 'maki', 'sashimi', 'sushi rolls']],
-  ['katsu-curry', 'Katsu curry', ['chicken katsu', 'katsu']],
-  ['pad-thai', 'Pad thai', ['phad thai']],
-  ['green-curry', 'Thai green curry', ['green curry']],
-  ['pho', 'Pho', ['phở', 'beef pho']],
-  ['banh-mi', 'Bánh mì', ['banh mi']],
-  ['fish-and-chips', 'Fish and chips', ['fish n chips', 'battered fish', 'haddock and chips', 'cod and chips']],
-  ['sunday-roast', 'Sunday roast', ['roast dinner', 'roast beef', 'roast chicken', 'roast lamb']],
-  ['burger', 'Burger', ['burgers', 'cheeseburger', 'hamburger', 'smash burger']],
-  ['steak', 'Steak', ['ribeye', 'sirloin', 'fillet steak', 'steak frites']],
-  ['brisket', 'Brisket', ['smoked brisket']],
-  ['burnt-ends', 'Burnt ends', []],
-  ['ribs', 'Ribs', ['bbq ribs', 'pork ribs', 'baby back ribs']],
-  ['pulled-pork', 'Pulled pork', []],
-  ['fried-chicken', 'Fried chicken', ['chicken wings', 'wings', 'hot wings']],
-  ['tacos', 'Tacos', ['taco', 'carnitas tacos', 'fish tacos', 'street tacos']],
-  ['carnitas-taco', 'Carnitas tacos', ['carnitas']],
-  ['burrito', 'Burrito', ['burritos']],
-  ['quesadilla', 'Quesadilla', ['quesadillas']],
-  ['nachos', 'Nachos', []],
-  ['ceviche', 'Ceviche', []],
-  ['lomo-saltado', 'Lomo saltado', []],
-  ['clam-chowder', 'Clam chowder', ['chowder', 'new england clam chowder']],
-  ['lobster-roll', 'Lobster roll', []],
-  ['grilled-octopus', 'Grilled octopus', ['octopus', 'charred octopus']],
-  ['fish-pie', 'Fish pie', []],
-  ['moules', 'Moules', ['mussels', 'moules frites']],
-  ['falafel', 'Falafel', ['falafel wrap', 'falafel plate']],
-  ['hummus', 'Hummus', ['houmous']],
-  ['mezze', 'Mezze', ['meze', 'mezze board']],
-  ['shawarma', 'Shawarma', ['doner', 'döner', 'kebab']],
-  ['butter-chicken', 'Butter chicken', ['murgh makhani']],
-  ['tikka-masala', 'Tikka masala', ['chicken tikka masala']],
-  ['biryani', 'Biryani', []],
-  ['dosa', 'Dosa', ['masala dosa']],
-  ['dal', 'Dal', ['dhal', 'daal', 'lentil curry']],
-  ['pancakes', 'Pancakes', ['stack of pancakes', 'buttermilk pancakes']],
-  ['waffles', 'Waffles', []],
-  ['eggs-benedict', 'Eggs Benedict', ['benedict']],
-  ['avocado-toast', 'Avocado toast', ['avo toast']],
-  ['full-breakfast', 'Full breakfast', ['fry up', 'full english', 'cooked breakfast']],
-  ['croissant', 'Croissant', ['almond croissant', 'pain au chocolat']],
-  ['cinnamon-bun', 'Cinnamon bun', ['cinnamon roll']],
-  ['flat-white', 'Flat white', []],
-  ['cappuccino', 'Cappuccino', ['latte', 'coffee']],
-  ['hot-chocolate', 'Hot chocolate', []],
-  ['milkshake', 'Milkshake', ['shake']],
-  ['ice-cream', 'Ice cream', ['gelato', 'sundae']],
-  ['old-fashioned', 'Old fashioned', []],
-  ['margarita', 'Margarita', ['margaritas']],
-  ['craft-beer', 'Craft beer', ['ipa', 'beer', 'ale']],
+  ['arrabbiata', 'Arrabbiata', ['spaghetti arrabbiata', 'penne arrabbiata', "penne all'arrabbiata", 'arabiata', 'arrabiata', 'spicy tomato pasta'], 'italian'],
+  ['carbonara', 'Carbonara', ['spaghetti carbonara', 'pasta carbonara'], 'italian'],
+  ['bolognese', 'Bolognese', ['spaghetti bolognese', 'ragu', 'ragù', 'tagliatelle al ragu'], 'italian'],
+  ['lasagne', 'Lasagne', ['lasagna'], 'italian'],
+  ['margherita', 'Margherita pizza', ['pizza margherita', 'cheese pizza'], 'italian'],
+  ['pepperoni-pizza', 'Pepperoni pizza', ['pepperoni'], 'italian'],
+  ['pizza', 'Pizza', ['pizzas'], 'italian'],
+  ['risotto', 'Risotto', ['mushroom risotto'], 'italian'],
+  ['gnocchi', 'Gnocchi', [], 'italian'],
+  ['tiramisu', 'Tiramisu', [], 'italian'],
+  ['ramen', 'Ramen', ['tonkotsu ramen', 'tonkotsu', 'miso ramen', 'shoyu ramen', 'noodle soup'], 'japanese'],
+  ['gyoza', 'Gyoza', ['dumplings', 'pork dumplings', 'potstickers'], 'japanese'],
+  ['sushi', 'Sushi', ['nigiri', 'maki', 'sashimi', 'sushi rolls'], 'japanese'],
+  ['katsu-curry', 'Katsu curry', ['chicken katsu', 'katsu'], 'japanese'],
+  ['pad-thai', 'Pad thai', ['phad thai'], 'thai'],
+  ['green-curry', 'Thai green curry', ['green curry'], 'thai'],
+  ['pho', 'Pho', ['phở', 'beef pho'], 'vietnamese'],
+  ['banh-mi', 'Bánh mì', ['banh mi'], 'vietnamese'],
+  ['fish-and-chips', 'Fish and chips', ['fish n chips', 'battered fish', 'haddock and chips', 'cod and chips'], 'british'],
+  ['sunday-roast', 'Sunday roast', ['roast dinner', 'roast beef', 'roast chicken', 'roast lamb'], 'british'],
+  ['burger', 'Burger', ['burgers', 'cheeseburger', 'hamburger', 'smash burger'], 'american'],
+  ['steak', 'Steak', ['ribeye', 'sirloin', 'fillet steak', 'steak frites'], 'steakhouse'],
+  ['brisket', 'Brisket', ['smoked brisket'], 'barbecue'],
+  ['burnt-ends', 'Burnt ends', [], 'barbecue'],
+  ['ribs', 'Ribs', ['bbq ribs', 'pork ribs', 'baby back ribs'], 'barbecue'],
+  ['pulled-pork', 'Pulled pork', [], 'barbecue'],
+  ['fried-chicken', 'Fried chicken', ['chicken wings', 'wings', 'hot wings'], 'american'],
+  ['tacos', 'Tacos', ['taco', 'carnitas tacos', 'fish tacos', 'street tacos'], 'mexican'],
+  ['carnitas-taco', 'Carnitas tacos', ['carnitas'], 'mexican'],
+  ['burrito', 'Burrito', ['burritos'], 'mexican'],
+  ['quesadilla', 'Quesadilla', ['quesadillas'], 'mexican'],
+  ['nachos', 'Nachos', [], 'mexican'],
+  ['ceviche', 'Ceviche', [], 'peruvian'],
+  ['lomo-saltado', 'Lomo saltado', [], 'peruvian'],
+  ['clam-chowder', 'Clam chowder', ['chowder', 'new england clam chowder'], 'seafood'],
+  ['lobster-roll', 'Lobster roll', [], 'seafood'],
+  ['grilled-octopus', 'Grilled octopus', ['octopus', 'charred octopus'], 'seafood'],
+  ['fish-pie', 'Fish pie', [], 'british'],
+  ['moules', 'Moules', ['mussels', 'moules frites'], 'seafood'],
+  ['falafel', 'Falafel', ['falafel wrap', 'falafel plate'], 'mediterranean'],
+  ['hummus', 'Hummus', ['houmous'], 'mediterranean'],
+  ['mezze', 'Mezze', ['meze', 'mezze board'], 'mediterranean'],
+  ['shawarma', 'Shawarma', ['doner', 'döner', 'kebab'], 'mediterranean'],
+  ['butter-chicken', 'Butter chicken', ['murgh makhani'], 'indian'],
+  ['tikka-masala', 'Tikka masala', ['chicken tikka masala'], 'indian'],
+  ['biryani', 'Biryani', [], 'indian'],
+  ['dosa', 'Dosa', ['masala dosa'], 'indian'],
+  ['dal', 'Dal', ['dhal', 'daal', 'lentil curry'], 'indian'],
+  ['pancakes', 'Pancakes', ['stack of pancakes', 'buttermilk pancakes'], 'american'],
+  ['waffles', 'Waffles', [], 'american'],
+  ['eggs-benedict', 'Eggs Benedict', ['benedict'], 'american'],
+  ['avocado-toast', 'Avocado toast', ['avo toast'], 'cafe'],
+  ['full-breakfast', 'Full breakfast', ['fry up', 'full english', 'cooked breakfast'], 'british'],
+  ['croissant', 'Croissant', ['almond croissant', 'pain au chocolat'], 'cafe'],
+  ['cinnamon-bun', 'Cinnamon bun', ['cinnamon roll'], 'cafe'],
+  ['flat-white', 'Flat white', [], 'cafe'],
+  ['cappuccino', 'Cappuccino', ['latte', 'coffee'], 'cafe'],
+  ['hot-chocolate', 'Hot chocolate', [], 'cafe'],
+  ['milkshake', 'Milkshake', ['shake'], 'american'],
+  ['ice-cream', 'Ice cream', ['gelato', 'sundae'], 'cafe'],
+  ['old-fashioned', 'Old fashioned', [], 'bar'],
+  ['margarita', 'Margarita', ['margaritas'], 'mexican'],
+  ['craft-beer', 'Craft beer', ['ipa', 'beer', 'ale'], 'pub'],
   ['salad', 'Salad', ['caesar salad', 'greek salad']],
   ['soup', 'Soup', ['tomato soup', 'soup of the day']],
-  ['mac-and-cheese', 'Mac and cheese', ['macaroni cheese', 'mac n cheese']],
-  ['chips', 'Chips', ['fries', 'french fries']],
+  ['mac-and-cheese', 'Mac and cheese', ['macaroni cheese', 'mac n cheese'], 'american'],
+  ['chips', 'Chips', ['fries', 'french fries'], 'pub'],
 ];
 
 const CUISINES = [
@@ -131,11 +131,63 @@ const EXPERIENCES = [
   ['arcade', 'Arcade', ['video games', 'games arcade']],
   ['escape-room', 'Escape room', []],
   ['castle', 'Castles', ['historic house', 'stately home', 'ruins']],
+  ['history', 'Historical things', ['history', 'historic sites', 'heritage', 'old buildings', 'monuments', 'historical']],
   ['viewpoint', 'Viewpoints', ['observation deck', 'lookout', 'tower']],
   ['farm', 'Farms', ['petting zoo', 'pick your own']],
   ['festival', 'Festivals', ['fair', 'carnival']],
   ['theme-park', 'Theme parks', ['amusement park', 'rides', 'funfair']],
 ];
+
+// Things people say they like without naming a dish: an ingredient or a style.
+const INGREDIENTS = [
+  ['chicken', 'Chicken', ['chicken dishes', 'poultry']],
+  ['beef', 'Beef', []],
+  ['pork', 'Pork', ['bacon', 'ham']],
+  ['lamb', 'Lamb', []],
+  ['duck', 'Duck', []],
+  ['fish', 'Fish', ['white fish', 'salmon', 'cod', 'tuna']],
+  ['prawns', 'Prawns', ['shrimp', 'king prawns']],
+  ['cheese', 'Cheese', ['cheesy']],
+  ['eggs', 'Eggs', ['egg dishes']],
+  ['mushrooms', 'Mushrooms', ['mushroom']],
+  ['tomatoes', 'Tomatoes', ['tomato']],
+  ['vegetables', 'Vegetables', ['veg', 'greens', 'veggies']],
+  ['noodles', 'Noodles', ['noodle']],
+  ['rice', 'Rice', ['rice dishes']],
+  ['bread', 'Bread', ['sourdough', 'flatbread']],
+  ['chocolate', 'Chocolate', ['chocolatey']],
+  ['garlic', 'Garlic', []],
+  ['chilli', 'Chilli', ['chili', 'hot sauce']],
+];
+
+const STYLES = [
+  ['healthy-food', 'Healthy food', ['healthy', 'light and healthy', 'fresh food', 'clean eating', 'nutritious']],
+  ['fried-food', 'Fried food', ['fried', 'deep fried', 'greasy food', 'fast food', 'junk food', 'takeaway']],
+  ['spicy-food', 'Spicy food', ['spicy', 'hot food', 'heat']],
+  ['light-food', 'Light food', ['something light', 'light bites', 'small plates']],
+  ['comfort-food', 'Comfort food', ['hearty', 'stodge', 'home cooking']],
+  ['fine-dining', 'Fine dining', ['posh', 'fancy', 'tasting menu', 'special occasion']],
+  ['sharing-plates', 'Sharing plates', ['sharing', 'family style', 'tapas style']],
+  ['kids-menu', "Kids' menu", ["children's menu", 'child friendly food', 'kid friendly']],
+  ['big-portions', 'Big portions', ['generous portions', 'hungry']],
+  ['grilled-food', 'Grilled food', ['grilled', 'chargrilled', 'from the grill']],
+  ['sweet-treats', 'Sweet treats', ['dessert', 'desserts', 'puddings', 'cake', 'pastries']],
+];
+
+// What a style means in terms of the dishes and cuisines a venue actually lists.
+const STYLE_HINTS = {
+  'style:healthy-food': { dishes: ['salad', 'soup', 'falafel', 'mezze', 'avocado-toast', 'hummus', 'ceviche', 'sushi', 'pho'], cuisines: ['vegetarian', 'vegan', 'mediterranean', 'salad', 'juice', 'health', 'japanese', 'vietnamese'] },
+  'style:fried-food': { dishes: ['fried-chicken', 'fish-and-chips', 'chips', 'burger', 'nachos'], cuisines: ['fast food', 'fried chicken', 'chicken', 'burger', 'fish and chips', 'chip shop', 'kebab'] , styles: ['fast-food'] },
+  'style:spicy-food': { dishes: ['arrabbiata', 'green-curry', 'ceviche', 'tikka-masala', 'biryani', 'shawarma', 'tacos', 'pad-thai'], cuisines: ['thai', 'indian', 'mexican', 'szechuan', 'sichuan', 'korean', 'peruvian', 'caribbean'] },
+  'style:light-food': { dishes: ['salad', 'soup', 'mezze', 'sushi', 'avocado-toast', 'flat-white'], cuisines: ['cafe', 'tapas', 'mediterranean', 'japanese'] },
+  'style:comfort-food': { dishes: ['mac-and-cheese', 'lasagne', 'sunday-roast', 'fish-pie', 'burger', 'pancakes', 'full-breakfast'], cuisines: ['british', 'american', 'diner', 'pub'] },
+  'style:fine-dining': { dishes: [], cuisines: ['fine dining', 'french', 'steakhouse'] },
+  'style:sharing-plates': { dishes: ['mezze', 'nachos', 'gyoza'], cuisines: ['tapas', 'spanish', 'mediterranean', 'dim sum', 'korean'] },
+  'style:kids-menu': { dishes: ['margherita', 'chips', 'pancakes', 'ice-cream'], cuisines: ['pizza', 'diner', 'american'] },
+  'style:big-portions': { dishes: ['burger', 'sunday-roast', 'full-breakfast', 'burrito', 'ribs'], cuisines: ['american', 'barbecue', 'diner', 'steakhouse'] },
+  'style:grilled-food': { dishes: ['steak', 'brisket', 'ribs', 'grilled-octopus', 'shawarma'], cuisines: ['barbecue', 'steakhouse', 'grill', 'korean', 'turkish'] },
+  'style:sweet-treats': { dishes: ['tiramisu', 'ice-cream', 'cinnamon-bun', 'croissant', 'pancakes', 'waffles', 'hot-chocolate', 'milkshake'], cuisines: ['bakery', 'cafe', 'dessert', 'ice cream', 'patisserie'] },
+};
 
 const DIETS = [
   ['vegetarian', 'Vegetarian', ['veggie', 'no meat']],
@@ -154,11 +206,12 @@ const DIETS = [
 export const ALLERGENS = ['milk', 'eggs', 'fish', 'shellfish', 'tree nuts', 'peanuts', 'wheat', 'soybeans', 'sesame'];
 
 function build(kind, rows) {
-  return rows.map(([slug, label, aliases]) => ({
+  return rows.map(([slug, label, aliases, cuisine]) => ({
     key: `${kind}:${slug}`,
     kind,
     slug,
     label,
+    cuisine: cuisine ?? null,
     aliases: [label.toLowerCase(), slug.replace(/-/g, ' '), ...aliases.map((a) => a.toLowerCase())],
   }));
 }
@@ -166,6 +219,8 @@ function build(kind, rows) {
 export const CONCEPTS = [
   ...build('dish', DISHES),
   ...build('cuisine', CUISINES),
+  ...build('ingredient', INGREDIENTS),
+  ...build('style', STYLES),
   ...build('experience', EXPERIENCES),
   ...build('diet', DIETS),
 ];
@@ -197,28 +252,40 @@ function levenshtein(a, b) {
   return prev[b.length];
 }
 
-/** 0..1 similarity of a query to one alias: exact, containment, then edit distance. */
+function bestTokenMatch(token, others) {
+  let best = 0;
+  for (const o of others) {
+    const s = 1 - levenshtein(token, o) / Math.max(token.length, o.length);
+    if (s > best) best = s;
+  }
+  return best;
+}
+
+/**
+ * 0..1 similarity of a query to one alias.
+ *
+ * Only genuine equivalents score high enough to be linked automatically:
+ * exact matches, and misspellings of the same words ("spaghetti arribata" ≈
+ * "spaghetti arrabbiata"). A shorter word inside a longer name ("chicken" in
+ * "fried chicken") is a suggestion, never a match — the matcher must not turn
+ * what someone typed into something more specific than they said.
+ */
 function similarity(query, alias) {
   if (query === alias) return 1;
   if (!query || !alias) return 0;
-  if (alias.startsWith(query)) return 0.92;
-  if (alias.includes(query) || query.includes(alias)) return 0.85;
-  // Token overlap handles "spaghetti arribata" vs "spaghetti arrabbiata".
   const qt = query.split(' ');
   const at = alias.split(' ');
-  let tokenScore = 0;
-  for (const q of qt) {
-    let best = 0;
-    for (const a of at) {
-      const d = levenshtein(q, a);
-      const s = 1 - d / Math.max(q.length, a.length);
-      if (s > best) best = s;
-    }
-    tokenScore += best;
-  }
-  tokenScore /= qt.length;
+  // Symmetric token overlap: every word on both sides has to be accounted for.
+  let sum = 0;
+  for (const q of qt) sum += bestTokenMatch(q, at);
+  for (const a of at) sum += bestTokenMatch(a, qt);
+  const tokenScore = sum / (qt.length + at.length);
   const whole = 1 - levenshtein(query, alias) / Math.max(query.length, alias.length);
-  return Math.max(tokenScore * 0.95, whole);
+  let score = Math.max(tokenScore, whole);
+  // Containment is worth surfacing as a pill, but capped below the link threshold.
+  if (score < 0.75 && (alias.includes(query) || query.includes(alias))) score = 0.72;
+  else if (score < 0.7 && alias.startsWith(query)) score = 0.7;
+  return score;
 }
 
 /** Score every concept against free text; best alias wins. */
@@ -244,8 +311,14 @@ export function matchConcepts(text, { kinds = null, limit = 8 } = {}) {
 // kept as written and offered as a suggestion (Epic 2 C7 — no silent merges).
 export const RESOLVE_THRESHOLD = 0.8;
 
+// "not fried chicken", "no seafood", "anything but pubs": a negation is a
+// dislike wearing a like's clothes. It is never linked; the caller is told.
+const NEGATION = /^(not|no|never|without|anything but|nothing)\b/i;
+export const isNegated = (text) => NEGATION.test(String(text || '').trim());
+
 /** Resolve free text to one concept, or null when not confident. */
 export function resolveConcept(text, { kinds = null } = {}) {
+  if (isNegated(text)) return null;
   const [top, second] = matchConcepts(text, { kinds, limit: 2 });
   if (!top || top.score < RESOLVE_THRESHOLD) return null;
   // Two near-equal candidates is ambiguity, not a match.
@@ -256,6 +329,14 @@ export function resolveConcept(text, { kinds = null } = {}) {
 /** Does a venue carry this concept? Uses its dish concept slugs, cuisines and category. */
 export function venueHasConcept(venue, concept) {
   if (!concept) return false;
+  if (concept.kind === 'style') {
+    const hint = STYLE_HINTS[concept.key] || { dishes: [], cuisines: [], styles: [] };
+    const dishSlugs = new Set((venue.dishes || []).map((d) => d.concept));
+    if (hint.dishes.some((d) => dishSlugs.has(d))) return true;
+    const cuisines = (venue.cuisines || []).map(norm);
+    if (hint.cuisines.some((c) => cuisines.some((v) => v.includes(norm(c))))) return true;
+    if ((hint.styles || []).some((st) => (venue.styles || []).includes(st))) return true;
+  }
   const slugs = new Set([
     ...(venue.dishes || []).map((d) => `dish:${d.concept}`),
     ...(venue.cuisines || []).map((c) => `cuisine:${c}`),
@@ -272,4 +353,39 @@ export function venueHasConcept(venue, concept) {
     ...(venue.experiences || []),
   ].map(norm);
   return concept.aliases.some((a) => hay.some((h) => h === norm(a) || h.includes(norm(a))));
+}
+
+
+// ---------------------------------------------------------------------------
+// Browse: broad things first, expandable into specifics, so a household can
+// tap ten favourites instead of typing and guessing (owner feedback, 3 Sep 2026).
+// ---------------------------------------------------------------------------
+
+const ACTIVITY_GROUPS = [
+  ['Outdoors', ['park', 'walk', 'beach', 'cycling', 'boat-trip', 'viewpoint', 'farm']],
+  ['Culture', ['museum', 'art-gallery', 'history', 'castle', 'theatre', 'cinema', 'bookshop']],
+  ['Family fun', ['playground', 'zoo', 'aquarium', 'theme-park', 'trampoline', 'arcade', 'mini-golf', 'bowling', 'escape-room']],
+  ['Active', ['swimming', 'climbing', 'ice-skating', 'sports-game']],
+  ['Out at night', ['live-music', 'comedy', 'festival', 'market', 'shopping']],
+];
+
+export function browseVocabulary() {
+  const dishesByCuisine = new Map();
+  for (const d of CONCEPTS.filter((c) => c.kind === 'dish')) {
+    if (!d.cuisine) continue;
+    if (!dishesByCuisine.has(d.cuisine)) dishesByCuisine.set(d.cuisine, []);
+    dishesByCuisine.get(d.cuisine).push({ key: d.key, label: d.label });
+  }
+  const pick = (kind, slugs) => slugs.map((sl) => conceptByKey(`${kind}:${sl}`)).filter(Boolean).map((c) => ({ key: c.key, label: c.label }));
+  return {
+    food: [
+      { title: 'Cuisines', hint: 'Broad is fine — expand one to pick favourite dishes.',
+        items: CONCEPTS.filter((c) => c.kind === 'cuisine' && !['pub', 'bar', 'cafe'].includes(c.slug)).map((c) => ({ key: c.key, label: c.label, children: dishesByCuisine.get(c.slug) ?? [] })) },
+      { title: 'Styles', hint: 'How you like to eat.', items: CONCEPTS.filter((c) => c.kind === 'style').map((c) => ({ key: c.key, label: c.label, children: [] })) },
+      { title: 'Ingredients', hint: 'Things you always go for — or avoid.', items: CONCEPTS.filter((c) => c.kind === 'ingredient').map((c) => ({ key: c.key, label: c.label, children: [] })) },
+      { title: 'Places to drink and snack', hint: '', items: [...pick('cuisine', ['cafe', 'pub', 'bar']).map((c) => ({ ...c, children: dishesByCuisine.get(c.key.split(':')[1]) ?? [] }))] },
+    ],
+    activities: ACTIVITY_GROUPS.map(([title, slugs]) => ({ title, hint: '', items: pick('experience', slugs).map((c) => ({ ...c, children: [] })) })),
+    diets: CONCEPTS.filter((c) => c.kind === 'diet').map((c) => ({ key: c.key, label: c.label })),
+  };
 }

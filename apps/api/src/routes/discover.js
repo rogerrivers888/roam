@@ -4,6 +4,7 @@ import { query } from '../db.js';
 import { searchAllSources } from '../sources/index.js';
 import { deriveCatchment, detourMinutes, reachRadiusKm, TRAVEL_MODES } from '../domain/travel.js';
 import { applyConstraints } from '../domain/ranking.js';
+import { paceOf, travelLimitFor } from '../domain/pace.js';
 import { currentHousehold, loadMembers, toAttendees, loadLearnedPreferences } from './household.js';
 
 const router = Router();
@@ -56,7 +57,8 @@ router.post('/', async (req, res, next) => {
       outingStart,
     });
 
-    let inCatchment = deriveCatchment({ origin, maxTravelMinutes, mode, venues });
+    const pace = paceOf(household);
+    let inCatchment = deriveCatchment({ origin, maxTravelMinutes, mode, venues }).filter((v) => v.travelMinutes <= Math.max(maxTravelMinutes, travelLimitFor(pace, v)));
 
     if (destination?.lat != null) {
       inCatchment = inCatchment.map((venue) => ({

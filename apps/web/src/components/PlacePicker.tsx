@@ -45,9 +45,14 @@ export function PlacePicker({
   if (value) {
     return (
       <View style={styles.chosen}>
-        <View style={{ flex: 1 }}>
-          <Text style={type.h3}>{value.label}</Text>
-          {value.displayName ? <Text style={type.tiny} numberOfLines={1}>{value.displayName}</Text> : null}
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={type.h3}>{value.formatted ?? value.label}</Text>
+          {value.address ? (
+            <Text style={type.small}>
+              {[value.address.town, value.address.region, value.address.postcode, value.address.country].filter(Boolean).join(' · ')}
+            </Text>
+          ) : value.country ? <Text style={type.small}>{[value.locality, value.country].filter(Boolean).join(' · ')}</Text> : null}
+          {value.approximate ? <Text style={type.tiny}>Pin placed by {value.matchedBy} — the map data has no exact entry for this address.</Text> : null}
         </View>
         <Pressable onPress={() => onPick(null)} style={styles.change} accessibilityRole="button"><Text style={type.small}>Change</Text></Pressable>
       </View>
@@ -67,8 +72,8 @@ export function PlacePicker({
       {busy ? <Text style={type.tiny}>Looking…</Text> : null}
       {items.map((p, i) => (
         <Pressable key={`${p.lat},${p.lng},${i}`} onPress={() => { onPick(p); setText(''); setItems([]); }} style={styles.result} accessibilityRole="button">
-          <Text style={type.h3}>{p.label}{p.approximate ? '  ·  approx.' : ''}</Text>
-          <Text style={type.tiny} numberOfLines={2}>{p.displayName}</Text>
+          <Text style={type.h3}>{p.formatted ?? p.label}</Text>
+          <Text style={type.tiny} numberOfLines={2}>{p.approximate ? p.displayName : [p.address?.town, p.address?.postcode, p.country].filter(Boolean).join(' · ')}</Text>
         </Pressable>
       ))}
       {!busy && searched && searched === text && items.length === 0 ? (

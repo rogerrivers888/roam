@@ -62,7 +62,8 @@ export function SuggestInput({
           style={styles.input}
           autoFocus={autoFocus}
           onFocus={() => items.length && setOpen(true)}
-          onSubmitEditing={() => (items[0] && items[0].score >= 0.8 ? pick(items[0]) : commitFree())}
+          // Enter keeps your words unless a pill is an exact match; pills are a tap away.
+          onSubmitEditing={() => (items[0] && items[0].score >= 0.97 ? pick(items[0]) : commitFree())}
           returnKeyType="done"
           autoCapitalize="none"
         />
