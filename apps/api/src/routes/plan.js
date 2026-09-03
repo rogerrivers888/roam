@@ -500,7 +500,8 @@ async function createStayFromIntent({ household, members, intent, destination })
   const nights = Math.max(1, Number(intent.nights) || 1);
   const end = intent.end_date && /^\d{4}-\d{2}-\d{2}$/.test(intent.end_date) && intent.end_date > start ? intent.end_date : addDays(start, nights);
   const city = destination.locality || destination.label;
-  const what = intent.anchor?.name || intent.wants?.[0] || null;
+  // The trip is named for the thing they came for (a booking, a named place), never for a meal.
+  const what = intent.anchor?.name || (intent.wants || []).find(isNamedPlace) || null;
   const title = `${city} · ${what ?? new Date(`${start}T12:00:00`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`;
   const notes = [
     intent.stay ? `Stay: ${intent.stay}` : null,
@@ -1629,6 +1630,11 @@ router.get('/:sessionId', async (req, res, next) => {
     const session = await loadSession(req.params.sessionId);
     const st = session.state;
     const base = { sessionId: session.id, intent: st.intent ?? null, options: [], transcript: st.transcript ?? [], rows: st.rows ?? null, checks: st.checks ?? [], answered: st.answered ?? [], ready: Boolean(st.ready), question: st.checks?.[0] ?? null };
+    // A run lost to a restart never reports back: after five minutes say so instead of spinning.
+    if (st.running && st.runStartedAt && Date.now() - new Date(st.runStartedAt).getTime() > 5 * 60_000) {
+      st.running = false; st.outcome = { kind: 'error', message: 'the plan was interrupted' };
+      await saveSession(session.id, st, null);
+    }
     if (st.running) return res.json({ ...base, running: true, reply: null });
     if (st.outcome?.kind === 'handoff') return res.json({ ...base, reply: st.outcome.reply, handoff: st.outcome.handoff });
     if (st.outcome?.kind === 'error') return res.json({ ...base, reply: `That didn't work: ${st.outcome.message}. Try Plan it again.`, failed: true });
