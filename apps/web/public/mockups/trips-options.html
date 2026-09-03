@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Roam · Trips tab — three options</title>
+<style>
+  :root{--bg:#F7F6F2;--surface:#fff;--muted:#F0EEE8;--ink:#1D1B16;--ink2:#6B675E;--ink3:#A8A399;--line:#E4E0D6;--accent:#1F5F5B;--accentSoft:#DCEBE9;--want:#4A4A8A;--wantSoft:#E6E6F5;--over:#C0392B;--overSoft:#F8E1DE;--like:#2E7D32;--gold:#B0771E}
+  *{box-sizing:border-box}
+  body{margin:0;background:#E9E6DF;font:14px/1.45 -apple-system,Inter,Segoe UI,Helvetica,Arial,sans-serif;color:var(--ink);padding:32px}
+  h1{font-size:26px;margin:0 0 4px}
+  .lede{color:var(--ink2);max-width:900px;margin:0 0 28px}
+  section{margin:0 0 48px}
+  h2{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 16px;max-width:900px}
+  .row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+  .notes{width:300px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13px}
+  .notes h4{margin:0 0 6px;font-size:13px}
+  .notes ul{margin:0 0 10px;padding-left:18px}
+  .notes li{margin:0 0 4px}
+  .cap{font-size:12px;color:var(--ink2);text-align:center;margin:8px 0 0}
+  /* phone */
+  .phone{width:390px;height:844px;background:var(--bg);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column}
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700}
+  .screen{flex:1;overflow:hidden;padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+  .tabbar{height:64px;border-top:1px solid var(--line);background:var(--surface);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--ink3)}
+  .tabbar div{text-align:center}.tabbar .on{color:var(--accent);font-weight:700}
+  .tabbar span{display:block;font-size:18px}
+  .title{font-size:22px;font-weight:700;letter-spacing:-.3px}
+  .hdr{display:flex;justify-content:space-between;align-items:center}
+  .btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:10px;font-weight:700;font-size:13px;background:var(--accent);color:#fff;white-space:nowrap}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+  .btn.sec{background:var(--accentSoft);color:var(--accent)}
+  .btn.sm{min-height:30px;padding:0 10px;font-size:12px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .card.hero{border-color:var(--accent);border-width:2px}
+  .h3{font-weight:600;font-size:15px}
+  .small{font-size:13px;color:var(--ink2)}
+  .tiny{font-size:11px;color:var(--ink3)}
+  .chip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:11px;font-weight:600;margin:2px 4px 0 0}
+  .chip.want{background:var(--wantSoft);color:var(--want);border-color:transparent}
+  .chip.acc{background:var(--accentSoft);color:var(--accent);border-color:transparent}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .dd{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-size:12px;font-weight:600}
+  .dd:after{content:"▾";color:var(--ink3)}
+  .ddrow{display:flex;gap:6px;flex-wrap:wrap}
+  .search{height:40px;border-radius:10px;border:1px solid var(--line);background:var(--surface);display:flex;align-items:center;padding:0 12px;gap:8px;color:var(--ink3);font-size:13px}
+  .search b{color:var(--ink);font-weight:500}
+  .fold{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:12px;background:var(--muted);color:var(--ink2);font-weight:600;font-size:13px}
+  .fold span{color:var(--ink3);font-weight:400}
+  .seg{display:flex;background:var(--muted);border-radius:10px;padding:3px}
+  .seg div{flex:1;text-align:center;padding:7px 4px;border-radius:8px;font-size:12px;font-weight:600;color:var(--ink2)}
+  .seg .on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  /* journey list */
+  .stop{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
+  .stop:first-child{border-top:0}
+  .num{width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px}
+  .num.aside{background:transparent;border:2px dashed var(--ink3);color:var(--ink3)}
+  .num.fix{background:var(--ink)}
+  .stop .t{flex:1;min-width:0}
+  .stop .name{font-weight:600;font-size:14px}
+  .stop .name.aside{color:var(--ink3);text-decoration:line-through}
+  .time{font-variant-numeric:tabular-nums;font-size:12px;color:var(--ink2);width:44px;flex:none;padding-top:3px}
+  .time b{color:var(--ink)}
+  .leg{display:flex;gap:6px;align-items:center;padding:2px 0 2px 34px;font-size:11px;color:var(--ink3)}
+  .leg i{font-style:normal;padding:2px 7px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink2)}
+  .leg i.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .warn{background:var(--overSoft);color:var(--over);font-size:12px;padding:6px 10px;border-radius:8px;font-weight:600}
+  .ok{background:var(--accentSoft);color:var(--accent);font-size:12px;padding:6px 10px;border-radius:8px;font-weight:600}
+  /* result rows */
+  .res{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line);align-items:center}
+  .ph{width:56px;height:56px;border-radius:8px;background:linear-gradient(135deg,#d9d3c4,#bfb8a6);flex:none}
+  .res .t{flex:1;min-width:0}
+  .res .name{font-weight:600;font-size:14px}
+  .star{font-weight:700;color:var(--ink)}
+  /* map */
+  .map{position:relative;border-radius:12px;overflow:hidden;background:#EEF0EA}
+  .map svg{display:block;width:100%;height:100%}
+  .pin{position:absolute;transform:translate(-50%,-100%);width:26px;height:26px;border-radius:50% 50% 50% 0;transform-origin:bottom left;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,.25)}
+  .pin span{transform:rotate(45deg)}
+  .pin{transform:translate(-50%,-100%) rotate(-45deg)}
+  .pin.aside{background:#fff;color:var(--ink3);border:2px dashed var(--ink3)}
+  .pin.fix{background:var(--ink)}
+  .pin.home{background:var(--gold)}
+  .maplab{position:absolute;left:8px;top:8px;background:rgba(255,255,255,.92);border-radius:8px;padding:4px 8px;font-size:11px;font-weight:600}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:18px 18px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.15);padding:8px 14px 14px;display:flex;flex-direction:column;gap:8px}
+  .handle{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 4px}
+  .float{position:absolute;left:14px;right:14px;top:14px}
+  .caro{position:absolute;left:0;right:0;bottom:190px;display:flex;gap:10px;padding:0 14px;overflow:hidden}
+  .caro .card{min-width:240px;flex:none;padding:8px 10px}
+  table.cmp{border-collapse:collapse;width:100%;max-width:1100px;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:13px}
+  table.cmp th,table.cmp td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  table.cmp th{background:var(--muted)}
+  .kbd{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--muted);padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+
+<h1>Trips tab — three ways to cut it down</h1>
+<p class="lede">Each option is a coherent direction covering both screens you raised: the Trips home (what you see first) and the day view (where you build the journey). All three share the same rules: only trips in the next two weeks are in view, no country grouping on the home screen, one “Shortlist” action per place, places are never lost (set aside, not removed), and travel time between consecutive stops is shown for walk, car, taxi and tube. Every trip gets a Delete.</p>
+
+<!-- ============================================================ OPTION 1 -->
+<section>
+<h2>Option 1 · “Up next” list + journey box</h2>
+<p class="sub">The most conservative cut. The home is a short list with the next fortnight open and everything else folded. The day is three stacked boxes: Journey, Find places, Plan it for me. Closest to today’s code, so quickest to ship.</p>
+<div class="row">
+
+<div>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>●●●</span></div>
+  <div class="screen">
+    <div class="hdr"><div class="title">Trips</div><div class="btn sm">+ New</div></div>
+    <div class="tiny" style="margin-top:-6px">UP NEXT · 14 DAYS</div>
+    <div class="card hero">
+      <div class="hdr"><div class="h3">Paddington the Musical</div><div class="tiny">Sat</div></div>
+      <div class="small">Sat 5 Sep · 10:00–16:00 · London</div>
+      <div class="small" style="margin-top:4px">Sunningdale → Savoy Theatre · Roger, Gina, Phoenix</div>
+      <div style="margin-top:6px"><span class="chip acc">4 on the journey</span><span class="chip">2 set aside</span><span class="chip want">Fits · 25 min spare</span></div>
+    </div>
+    <div class="card">
+      <div class="hdr"><div class="h3">Museum day</div><div class="tiny">Sat</div></div>
+      <div class="small">Sat 5 Sep · 10:00–16:00 · London</div>
+      <div style="margin-top:6px"><span class="chip">Nothing on the journey yet</span></div>
+    </div>
+    <div class="fold">Later <span>· Lisbon half-term, 26 Oct</span> <b>›</b></div>
+    <div class="fold">Past <span>· 1 day out</span> <b>›</b></div>
+    <div style="flex:1"></div>
+    <div class="tiny" style="text-align:center">Countries and dates are inside each card, not a filter.</div>
+  </div>
+  <div class="tabbar"><div><span>🏠</span>Home</div><div><span>📍</span>Places</div><div class="on"><span>🧭</span>Trips</div><div><span>👪</span>Household</div><div><span>⚙️</span>Settings</div></div>
+</div>
+<p class="cap">Home · next fortnight open, rest folded</p>
+</div>
+
+<div>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>●●●</span></div>
+  <div class="screen">
+    <div class="hdr"><div><div class="tiny">‹ TRIPS</div><div class="title" style="font-size:18px">Paddington the Musical</div></div><div class="btn ghost sm">⋯</div></div>
+    <div class="small" style="margin-top:-6px">Sat 5 Sep · out 10:00, home by 16:00</div>
+    <div class="card" style="padding:8px;gap:6px;display:flex;flex-direction:column">
+      <div class="map" style="height:190px">
+        <svg viewBox="0 0 360 190"><g stroke="#DDE0D6" stroke-width="6" fill="none"><path d="M0 60 C90 50 140 90 360 70"/><path d="M40 0 L70 190"/><path d="M200 0 C 210 90 260 120 250 190"/><path d="M0 140 L360 150"/></g>
+          <polyline points="60,150 130,120 210,95 285,60" fill="none" stroke="#1F5F5B" stroke-width="3" stroke-dasharray="1 0"/>
+          <polyline points="285,60 300,130" fill="none" stroke="#A8A399" stroke-width="2" stroke-dasharray="4 4"/></svg>
+        <div class="pin home" style="left:60px;top:150px"><span>H</span></div>
+        <div class="pin" style="left:130px;top:120px"><span>1</span></div>
+        <div class="pin" style="left:210px;top:95px"><span>2</span></div>
+        <div class="pin fix" style="left:285px;top:60px"><span>3</span></div>
+        <div class="pin" style="left:300px;top:130px"><span>4</span></div>
+        <div class="pin aside" style="left:110px;top:60px"><span>5</span></div>
+        <div class="pin aside" style="left:330px;top:100px"><span>6</span></div>
+        <div class="maplab">Route by tube · 1 h 05 travelling</div>
+      </div>
+      <div class="ok">Fits the day · 25 min spare · looks balanced</div>
+      <div>
+        <div class="stop"><div class="time">10:00</div><div class="num" style="background:var(--gold)">H</div><div class="t"><div class="name">Leave Sunningdale</div></div></div>
+        <div class="leg"><i class="on">🚇 48</i><i>🚗 62</i><i>🚕 62</i></div>
+        <div class="stop"><div class="time">10:50</div><div class="num">1</div><div class="t"><div class="name">Dishoom Covent Garden</div><div class="tiny">brunch · ★ 4.6 (12,400) · 1 h</div></div><div class="tiny">›</div></div>
+        <div class="leg"><i class="on">🚶 9</i><i>🚇 7</i><i>🚕 6</i></div>
+        <div class="stop"><div class="time">12:00</div><div class="num">2</div><div class="t"><div class="name">Somerset House</div><div class="tiny">courtyard · ★ 4.5 · 1 h 15</div></div><div class="tiny">›</div></div>
+        <div class="leg"><i class="on">🚶 12</i><i>🚇 9</i><i>🚕 8</i></div>
+        <div class="stop"><div class="time"><b>14:30</b></div><div class="num fix">3</div><div class="t"><div class="name">Paddington the Musical · Savoy</div><div class="tiny">booked · doors 14:30 · 2 h 30</div></div><div class="tiny">›</div></div>
+        <div class="leg"><i class="on">🚶 11</i><i>🚇 6</i><i>🚕 9</i></div>
+        <div class="stop"><div class="time">17:10</div><div class="num">4</div><div class="t"><div class="name">Gelupo</div><div class="tiny">ice cream · 20 min</div></div><div class="tiny">›</div></div>
+        <div class="stop"><div class="time"></div><div class="num aside">5</div><div class="t"><div class="name aside">Sir John Soane’s Museum</div><div class="tiny">set aside · tap to bring back</div></div></div>
+        <div class="stop"><div class="time"></div><div class="num aside">6</div><div class="t"><div class="name aside">Flat Iron Covent Garden</div><div class="tiny">set aside</div></div></div>
+      </div>
+    </div>
+    <div class="btn sec" style="width:100%">🔍 Find places to add</div>
+    <div class="tiny" style="text-align:center">Short of time? <u>Let Roam plan this day</u></div>
+  </div>
+  <div class="tabbar"><div><span>🏠</span>Home</div><div><span>📍</span>Places</div><div class="on"><span>🧭</span>Trips</div><div><span>👪</span>Household</div><div><span>⚙️</span>Settings</div></div>
+</div>
+<p class="cap">Day · Journey is the whole screen</p>
+</div>
+
+<div>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>●●●</span></div>
+  <div class="screen">
+    <div class="hdr"><div class="h3">Find places near the Savoy</div><div class="btn ghost sm">Done</div></div>
+    <div class="search">🔍 <b>Search by name or type…</b><span style="margin-left:auto">🎙</span></div>
+    <div class="ddrow"><div class="dd">Things to do</div><div class="dd">Best match</div><div class="dd">Any price</div><div class="dd" style="margin-left:auto">Filters · 1</div></div>
+    <div class="card" style="padding:4px 12px">
+      <div class="res"><div class="ph"></div><div class="t"><div class="name">Sir John Soane’s Museum</div><div class="small">museum · free · about 1 h</div><div class="small"><span class="star">★ 4.7</span> (3,900) · 0.6 km, 8 min walk</div></div><div class="btn sm">☆ Shortlist</div></div>
+      <div class="res"><div class="ph"></div><div class="t"><div class="name">Covent Garden Market</div><div class="small">market · about 45 min</div><div class="small"><span class="star">★ 4.5</span> (61,000) · 0.3 km, 4 min walk</div></div><div class="btn sm">☆ Shortlist</div></div>
+      <div class="res"><div class="ph"></div><div class="t"><div class="name">Courtauld Gallery</div><div class="small">gallery · £ · about 1 h 15</div><div class="small"><span class="star">★ 4.6</span> (2,100) · 0.2 km, 2 min walk</div></div><div class="btn sm acc" style="background:var(--accentSoft);color:var(--accent)">✓ Shortlisted</div></div>
+      <div class="res"><div class="ph"></div><div class="t"><div class="name">London Transport Museum</div><div class="small">museum · ££ · about 1 h 30</div><div class="small"><span class="star">★ 4.5</span> (9,800) · 0.3 km, 4 min walk</div></div><div class="btn sm">☆ Shortlist</div></div>
+      <div class="res"><div class="ph"></div><div class="t"><div class="name">Seven Dials</div><div class="small">shopping · about 40 min</div><div class="small"><span class="star">★ 4.4</span> (5,200) · 0.5 km, 7 min walk</div></div><div class="btn sm">☆ Shortlist</div></div>
+      <div class="tiny" style="padding:8px 0;text-align:center">Show 15 more of 38</div>
+    </div>
+    <div class="tiny" style="text-align:center">Tap a row for reviews, hours and photos. “Not this” lives in there.</div>
+  </div>
+  <div class="tabbar"><div><span>🏠</span>Home</div><div><span>📍</span>Places</div><div class="on"><span>🧭</span>Trips</div><div><span>👪</span>Household</div><div><span>⚙️</span>Settings</div></div>
+</div>
+<p class="cap">Find · three dropdowns and one action per row</p>
+</div>
+
+<div class="notes">
+  <h4>What goes</h4>
+  <ul><li>Pace segmented control, time bar, “Getting around today”, price row, chains row.</li><li>Morning / afternoon / evening slots and the Unscheduled card.</li><li>“Add to the day” button. Shortlisting on a day puts it on the journey.</li><li>Overview and Map tabs; Where / What / When filters on the home.</li></ul>
+  <h4>What stays</h4>
+  <ul><li>Best match / Top rated / Most reviewed / Nearest, now a dropdown.</li><li>Cuisine and kind chips, chains, radius and sources, behind Filters.</li><li>The detail drawer.</li></ul>
+  <h4>Trade-off</h4>
+  <ul><li>Map is small on a phone; you scroll past it to reorder.</li><li>Least new code. Ships first.</li></ul>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ OPTION 2 -->
+<section>
+<h2>Option 2 · Week strip + Journey / Find tabs</h2>
+<p class="sub">The home is anchored on a calendar: a fortnight strip with dots on the days that have something, trips for that fortnight beneath, and everything else behind one “All trips” row that opens the old filtered list. The day keeps a small map pinned at the top, and two tabs underneath: Journey and Find, so you can flick between them without losing the map.</p>
+<div class="row">
+
+<div>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>●●●</span></div>
+  <div class="screen">
+    <div class="hdr"><div class="title">Trips</div><div class="btn sm">+ New</div></div>
+    <div class="card" style="padding:10px">
+      <div class="tiny" style="margin-bottom:6px">THIS FORTNIGHT · 3–16 SEP</div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;font-size:11px">
+        <div class="tiny">T</div><div class="tiny">F</div><div class="tiny">S</div><div class="tiny">S</div><div class="tiny">M</div><div class="tiny">T</div><div class="tiny">W</div>
+        <div style="font-weight:700;color:var(--accent)">3</div><div>4</div><div style="background:var(--accent);color:#fff;border-radius:8px;font-weight:700">5</div><div>6</div><div>7</div><div>8</div><div>9</div>
+        <div>10</div><div>11</div><div>12</div><div>13</div><div>14</div><div>15</div><div>16</div>
+      </div>
+    </div>
+    <div class="card hero">
+      <div class="hdr"><div class="h3">Sat 5 Sep</div><div class="tiny">2 planned</div></div>
+      <div class="stop"><div class="time">10:00</div><div class="t"><div class="name">Paddington the Musical</div><div class="tiny">London · 4 on the journey · fits</div></div><div class="tiny">›</div></div>
+      <div class="stop"><div class="time">10:00</div><div class="t"><div class="name">Museum day</div><div class="tiny">London · nothing on the journey yet</div></div><div class="tiny">›</div></div>
+      <div class="warn" style="margin-top:6px">Two days out on the same Saturday. Keep both?</div>
+    </div>
+    <div class="fold">All trips <span>· 1 later, 1 past · by country</span> <b>›</b></div>
+    <div style="flex:1"></div>
+    <div class="tiny" style="text-align:center">The fortnight strip scrolls sideways; a dot marks a day with a trip.</div>
+  </div>
+  <div class="tabbar"><div><span>🏠</span>Home</div><div><span>📍</span>Places</div><div class="on"><span>🧭</span>Trips</div><div><span>👪</span>Household</div><div><span>⚙️</span>Settings</div></div>
+</div>
+<p class="cap">Home · calendar-led, clashes visible</p>
+</div>
+
+<div>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>●●●</span></div>
+  <div class="screen">
+    <div class="hdr"><div><div class="tiny">‹ TRIPS</div><div class="title" style="font-size:18px">Paddington the Musical</div></div><div class="btn ghost sm">⋯</div></div>
+    <div class="map" style="height:150px">
+      <svg viewBox="0 0 360 150"><g stroke="#DDE0D6" stroke-width="6" fill="none"><path d="M0 50 C90 40 140 80 360 60"/><path d="M40 0 L70 150"/><path d="M200 0 C 210 80 260 110 250 150"/></g>
+        <polyline points="60,120 130,95 210,75 285,45 300,110" fill="none" stroke="#1F5F5B" stroke-width="3"/></svg>
+      <div class="pin home" style="left:60px;top:120px"><span>H</span></div>
+      <div class="pin" style="left:130px;top:95px"><span>1</span></div>
+      <div class="pin" style="left:210px;top:75px"><span>2</span></div>
+      <div class="pin fix" style="left:285px;top:45px"><span>3</span></div>
+      <div class="pin" style="left:300px;top:110px"><span>4</span></div>
+      <div class="pin aside" style="left:110px;top:50px"><span>5</span></div>
+      <div class="maplab">Fits · 25 min spare</div>
+    </div>
+    <div class="seg"><div class="on">Journey · 4</div><div>Find</div><div>Plan for me</div></div>
+    <div class="card" style="padding:4px 12px">
+      <div class="stop"><div class="time">10:50</div><div class="num">1</div><div class="t"><div class="name">Dishoom Covent Garden</div><div class="tiny">brunch · 1 h</div></div><div class="tiny">↑↓</div></div>
+      <div class="leg"><i class="on">🚶 9</i><i>🚇 7</i><i>🚕 6</i></div>
+      <div class="stop"><div class="time">12:00</div><div class="num">2</div><div class="t"><div class="name">Somerset House</div><div class="tiny">1 h 15</div></div><div class="tiny">↑↓</div></div>
+      <div class="leg"><i class="on">🚶 12</i><i>🚇 9</i><i>🚕 8</i></div>
+      <div class="stop"><div class="time"><b>14:30</b></div><div class="num fix">3</div><div class="t"><div class="name">Paddington the Musical</div><div class="tiny">booked · 2 h 30</div></div><div class="tiny">🔒</div></div>
+      <div class="leg"><i class="on">🚶 11</i><i>🚇 6</i><i>🚕 9</i></div>
+      <div class="stop"><div class="time">17:10</div><div class="num">4</div><div class="t"><div class="name">Gelupo</div><div class="tiny">20 min</div></div><div class="tiny">↑↓</div></div>
+      <div class="stop"><div class="time"></div><div class="num aside">5</div><div class="t"><div class="name aside">Sir John Soane’s Museum</div><div class="tiny">set aside</div></div><div class="btn ghost sm">Bring back</div></div>
+    </div>
+    <div class="tiny" style="text-align:center">Tap a leg’s mode to switch it. Times recalculate.</div>
+  </div>
+  <div class="tabbar"><div><span>🏠</span>Home</div><div><span>📍</span>Places</div><div class="on"><span>🧭</span>Trips</div><div><span>👪</span>Household</div><div><span>⚙️</span>Settings</div></div>
+</div>
+<p class="cap">Day · Journey tab, map pinned above</p>
+</div>
+
+<div>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>●●●</span></div>
+  <div class="screen">
+    <div class="hdr"><div><div class="tiny">‹ TRIPS</div><div class="title" style="font-size:18px">Paddington the Musical</div></div><div class="btn ghost sm">⋯</div></div>
+    <div class="map" style="height:150px">
+      <svg viewBox="0 0 360 150"><g stroke="#DDE0D6" stroke-width="6" fill="none"><path d="M0 50 C90 40 140 80 360 60"/><path d="M40 0 L70 150"/><path d="M200 0 C 210 80 260 110 250 150"/></g>
+        <polyline points="130,95 210,75 285,45 300,110" fill="none" stroke="#C9C3B5" stroke-width="3"/></svg>
+      <div class="pin" style="left:130px;top:95px;background:#C9C3B5"><span>1</span></div>
+      <div class="pin" style="left:210px;top:75px;background:#C9C3B5"><span>2</span></div>
+      <div class="pin fix" style="left:285px;top:45px"><span>3</span></div>
+      <div class="pin" style="left:300px;top:110px;background:#C9C3B5"><span>4</span></div>
+      <div class="pin" style="left:240px;top:110px;background:var(--want)"><span>•</span></div>
+      <div class="pin" style="left:160px;top:50px;background:var(--want)"><span>•</span></div>
+      <div class="pin" style="left:320px;top:70px;background:var(--want)"><span>•</span></div>
+      <div class="maplab">Purple: results · grey: your journey</div>
+    </div>
+    <div class="seg"><div>Journey · 4</div><div class="on">Find</div><div>Plan for me</div></div>
+    <div class="search">🔍 <b>Search near the Savoy…</b><span style="margin-left:auto">🎙</span></div>
+    <div class="ddrow"><div class="dd">Places to eat</div><div class="dd">Top rated</div><div class="dd">Mid-range</div><div class="dd" style="margin-left:auto">Filters</div></div>
+    <div class="card" style="padding:4px 12px">
+      <div class="res"><div class="ph"></div><div class="t"><div class="name">The Barbary</div><div class="small">North African · ££ · about 1 h 15</div><div class="small"><span class="star">★ 4.7</span> (2,900) · 5 min walk</div></div><div class="btn sm">☆</div></div>
+      <div class="res"><div class="ph"></div><div class="t"><div class="name">Flat Iron Covent Garden</div><div class="small">steak · £ · about 1 h · Phoenix likes</div><div class="small"><span class="star">★ 4.6</span> (8,100) · 4 min walk</div></div><div class="btn sm acc" style="background:var(--accentSoft);color:var(--accent)">✓</div></div>
+      <div class="res"><div class="ph"></div><div class="t"><div class="name">Balthazar</div><div class="small">French brasserie · £££ · about 1 h 30</div><div class="small"><span class="star">★ 4.4</span> (6,300) · 3 min walk</div></div><div class="btn sm">☆</div></div>
+    </div>
+  </div>
+  <div class="tabbar"><div><span>🏠</span>Home</div><div><span>📍</span>Places</div><div class="on"><span>🧭</span>Trips</div><div><span>👪</span>Household</div><div><span>⚙️</span>Settings</div></div>
+</div>
+<p class="cap">Day · Find tab, results also on the map</p>
+</div>
+
+<div class="notes">
+  <h4>What’s different from Option 1</h4>
+  <ul><li>Home shows time first: clashes like two Saturday outings are visible, which today’s list hides.</li><li>Map never scrolls away. Results appear as purple pins while you search, so “is it on the way?” is answered before you shortlist.</li><li>“Plan for me” is a third tab rather than a link, so it is discoverable without being in the way.</li></ul>
+  <h4>Trade-off</h4>
+  <ul><li>Three tabs on the day plus five in the tab bar: more navigation than Option 1.</li><li>The fortnight strip needs the “All trips” list to survive underneath for Lisbon and past trips.</li></ul>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ OPTION 3 -->
+<section>
+<h2>Option 3 · Straight into the next trip, map-led</h2>
+<p class="sub">No home list at all. The Trips tab opens on whatever is next. A switcher at the top lists the rest, grouped Up next / Later / Past. The day is a full-height map with a bottom sheet for the journey. Search floats over the map and results come back as a card carousel you swipe through, each one a pin.</p>
+<div class="row">
+
+<div>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>●●●</span></div>
+  <div class="screen" style="padding:0">
+    <div class="map" style="position:absolute;inset:44px 0 64px;border-radius:0">
+      <svg viewBox="0 0 390 736"><g stroke="#DDE0D6" stroke-width="8" fill="none"><path d="M0 200 C120 180 200 260 390 220"/><path d="M60 0 L110 736"/><path d="M230 0 C 250 300 330 420 300 736"/><path d="M0 480 L390 500"/><path d="M0 620 C150 600 250 660 390 640"/></g>
+        <polyline points="70,560 150,420 240,330 300,240 330,400" fill="none" stroke="#1F5F5B" stroke-width="4"/></svg>
+      <div class="pin home" style="left:70px;top:560px"><span>H</span></div>
+      <div class="pin" style="left:150px;top:420px"><span>1</span></div>
+      <div class="pin" style="left:240px;top:330px"><span>2</span></div>
+      <div class="pin fix" style="left:300px;top:240px"><span>3</span></div>
+      <div class="pin" style="left:330px;top:400px"><span>4</span></div>
+      <div class="pin aside" style="left:190px;top:200px"><span>5</span></div>
+      <div class="pin aside" style="left:350px;top:300px"><span>6</span></div>
+    </div>
+    <div class="float" style="top:54px;display:flex;flex-direction:column;gap:8px">
+      <div class="dd" style="height:40px;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.12)">Paddington the Musical · Sat 5 Sep</div>
+      <div class="search" style="box-shadow:0 2px 8px rgba(0,0,0,.12)">🔍 <b>Find places to add…</b><span style="margin-left:auto">🎙</span></div>
+    </div>
+    <div class="sheet" style="bottom:64px">
+      <div class="handle"></div>
+      <div class="hdr"><div class="h3">Journey · 4 stops</div><div class="ok" style="padding:3px 8px">Fits · 25 min spare</div></div>
+      <div class="stop" style="padding:6px 0"><div class="time">10:50</div><div class="num">1</div><div class="t"><div class="name">Dishoom Covent Garden</div></div><div class="tiny">🚇 48 from home</div></div>
+      <div class="stop" style="padding:6px 0"><div class="time">12:00</div><div class="num">2</div><div class="t"><div class="name">Somerset House</div></div><div class="tiny">🚶 9</div></div>
+      <div class="stop" style="padding:6px 0"><div class="time"><b>14:30</b></div><div class="num fix">3</div><div class="t"><div class="name">Paddington the Musical</div></div><div class="tiny">🚶 12</div></div>
+      <div class="stop" style="padding:6px 0"><div class="time">17:10</div><div class="num">4</div><div class="t"><div class="name">Gelupo</div></div><div class="tiny">🚶 11</div></div>
+      <div class="tiny" style="text-align:center">Pull up for set-aside places, legs by mode, and “Plan for me”</div>
+    </div>
+  </div>
+  <div class="tabbar" style="position:absolute;left:0;right:0;bottom:0"><div><span>🏠</span>Home</div><div><span>📍</span>Places</div><div class="on"><span>🧭</span>Trips</div><div><span>👪</span>Household</div><div><span>⚙️</span>Settings</div></div>
+</div>
+<p class="cap">Trips opens here · next trip, map, sheet</p>
+</div>
+
+<div>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>●●●</span></div>
+  <div class="screen" style="padding:0">
+    <div class="map" style="position:absolute;inset:44px 0 64px;border-radius:0;filter:saturate(.8)">
+      <svg viewBox="0 0 390 736"><g stroke="#DDE0D6" stroke-width="8" fill="none"><path d="M0 200 C120 180 200 260 390 220"/><path d="M60 0 L110 736"/><path d="M230 0 C 250 300 330 420 300 736"/><path d="M0 480 L390 500"/></g>
+        <polyline points="150,420 240,330 300,240 330,400" fill="none" stroke="#C9C3B5" stroke-width="4"/></svg>
+      <div class="pin" style="left:150px;top:420px;background:#C9C3B5"><span>1</span></div>
+      <div class="pin" style="left:240px;top:330px;background:#C9C3B5"><span>2</span></div>
+      <div class="pin fix" style="left:300px;top:240px"><span>3</span></div>
+      <div class="pin" style="left:330px;top:400px;background:#C9C3B5"><span>4</span></div>
+      <div class="pin" style="left:200px;top:290px;background:var(--want)"><span>A</span></div>
+      <div class="pin" style="left:270px;top:360px;background:var(--want);transform:translate(-50%,-100%) rotate(-45deg) scale(1.25)"><span>B</span></div>
+      <div class="pin" style="left:120px;top:250px;background:var(--want)"><span>C</span></div>
+    </div>
+    <div class="float" style="top:54px;display:flex;flex-direction:column;gap:8px">
+      <div class="search" style="box-shadow:0 2px 8px rgba(0,0,0,.12)">🔍 <b>museum</b><span style="margin-left:auto;color:var(--accent);font-weight:700">Cancel</span></div>
+      <div class="ddrow"><div class="dd" style="box-shadow:0 2px 6px rgba(0,0,0,.1)">Things to do</div><div class="dd" style="box-shadow:0 2px 6px rgba(0,0,0,.1)">Best match</div><div class="dd" style="box-shadow:0 2px 6px rgba(0,0,0,.1)">Any price</div></div>
+    </div>
+    <div class="caro" style="bottom:150px">
+      <div class="card" style="min-width:230px"><div class="hdr"><div class="name" style="font-weight:600">A · Sir John Soane’s</div><span class="star">★ 4.7</span></div><div class="tiny">museum · free · 1 h · 8 min walk from 2</div><div class="warn" style="margin-top:6px;padding:3px 8px">+22 min detour</div></div>
+      <div class="card hero" style="min-width:230px"><div class="hdr"><div class="name" style="font-weight:600">B · Courtauld Gallery</div><span class="star">★ 4.6</span></div><div class="tiny">gallery · £ · 1 h 15 · 2 min walk from 2</div><div class="ok" style="margin-top:6px;padding:3px 8px">+4 min · on the way</div><div class="btn sm" style="margin-top:6px;width:100%">☆ Shortlist</div></div>
+      <div class="card" style="min-width:230px"><div class="hdr"><div class="name" style="font-weight:600">C · London Transport</div><span class="star">★ 4.5</span></div><div class="tiny">museum · ££ · 1 h 30</div></div>
+    </div>
+    <div class="sheet" style="bottom:64px;padding-bottom:10px">
+      <div class="handle"></div>
+      <div class="hdr"><div class="h3">Journey · 4 stops</div><div class="tiny">3 of 38 results shown · swipe for more</div></div>
+    </div>
+  </div>
+  <div class="tabbar" style="position:absolute;left:0;right:0;bottom:0"><div><span>🏠</span>Home</div><div><span>📍</span>Places</div><div class="on"><span>🧭</span>Trips</div><div><span>👪</span>Household</div><div><span>⚙️</span>Settings</div></div>
+</div>
+<p class="cap">Searching · results as pins and a carousel, detour first</p>
+</div>
+
+<div>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>●●●</span></div>
+  <div class="screen">
+    <div class="hdr"><div class="title" style="font-size:18px">Switch trip</div><div class="btn ghost sm">Close</div></div>
+    <div class="tiny">UP NEXT</div>
+    <div class="card hero"><div class="h3">Paddington the Musical</div><div class="small">Sat 5 Sep · London · 4 stops · fits</div></div>
+    <div class="card"><div class="h3">Museum day</div><div class="small">Sat 5 Sep · London · nothing yet</div></div>
+    <div class="tiny">LATER</div>
+    <div class="card"><div class="h3">Lisbon half-term</div><div class="small">26–28 Oct · Portugal · 3 days</div></div>
+    <div class="tiny">PAST</div>
+    <div class="card" style="opacity:.6"><div class="h3">Russell Square → British Museum</div><div class="small">Thu 3 Sep · London</div></div>
+    <div style="flex:1"></div>
+    <div class="btn" style="width:100%">+ New trip</div>
+    <div class="tiny" style="text-align:center">Swipe a card left to delete. Duplicates are flagged on creation.</div>
+  </div>
+  <div class="tabbar"><div><span>🏠</span>Home</div><div><span>📍</span>Places</div><div class="on"><span>🧭</span>Trips</div><div><span>👪</span>Household</div><div><span>⚙️</span>Settings</div></div>
+</div>
+<p class="cap">Switcher · the only “list” in this option</p>
+</div>
+
+<div class="notes">
+  <h4>What’s different</h4>
+  <ul><li>Zero taps to the thing you actually want on a Saturday morning: the map of today.</li><li>Detour is the first number on a result, drawn as a dashed spur from the route, which is what the research says makes “is it on the way?” verifiable.</li><li>The list of trips becomes a switcher, so USA / Italy / UK never appear together.</li></ul>
+  <h4>Trade-off</h4>
+  <ul><li>Most new work: full-height map, bottom sheet, carousel, detour calculation per result.</li><li>A trip with no stops opens on an empty map. Needs a good empty state.</li><li>Least like the rest of the app today.</li></ul>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ COMPARE -->
+<section>
+<h2>Side by side</h2>
+<table class="cmp">
+<tr><th></th><th>Option 1 · Up next list</th><th>Option 2 · Week strip + tabs</th><th>Option 3 · Map-led</th></tr>
+<tr><td>Trips home</td><td>Short list, fortnight open, Later / Past folded</td><td>Fortnight calendar strip, then that fortnight’s trips, “All trips” folded</td><td>None. Opens on the next trip; a switcher lists the rest</td></tr>
+<tr><td>Day view</td><td>Journey box, Find button, Plan link</td><td>Pinned small map, Journey / Find / Plan tabs</td><td>Full map, bottom sheet journey, floating search</td></tr>
+<tr><td>Where results show</td><td>List in a sheet</td><td>List and purple pins on the pinned map</td><td>Carousel over the map, lettered pins, detour first</td></tr>
+<tr><td>Reorder</td><td>Up / down on each row</td><td>Up / down on each row</td><td>Up / down in the sheet</td></tr>
+<tr><td>New API work</td><td>Set-aside flag, fixed-time stops, legs by mode</td><td>Same as 1</td><td>Same as 1, plus detour per result and a route polyline</td></tr>
+<tr><td>Build effort</td><td>Smallest</td><td>Medium</td><td>Largest</td></tr>
+<tr><td>Wide screen (≥1000px)</td><td>Journey left, map right, Find as a right rail</td><td>Same, tabs become side by side</td><td>Map fills, sheet becomes a left panel</td></tr>
+</table>
+<p class="sub" style="margin-top:14px"><b>Recommendation.</b> Build Option 1 first: it removes everything you named, keeps the parts you like, and every piece of it carries straight into Options 2 and 3 later (the journey list, the legs, the dropdown row, the set-aside state). Borrow one thing from Option 3 on day one: the detour number on each result, because the routing is already wired for it.</p>
+</section>
+
+</body>
+</html>
