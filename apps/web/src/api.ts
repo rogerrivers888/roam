@@ -225,6 +225,8 @@ export type PlanResponse = {
   checks?: PlanCheck[];
   answered?: { id: string; text: string; answer: string }[];
   ready?: boolean;
+  // Plan it runs in the background: poll the session until this clears.
+  running?: boolean; failed?: boolean;
   // An overnight stay was set up as a dated trip: open it in Trips.
   handoff?: { tripId: string; title: string } | null;
 };

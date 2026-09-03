@@ -878,7 +878,7 @@ router.post('/start', async (req, res, next) => {
         const reply = `Still to check: ${before[0].text}`;
         return res.json({ sessionId: session.id, reply, rows: state.rows ?? [], checks: before, answered: state.answered, ready: false, intent: state.intent, options: [] });
       }
-      return executePlan({ household, members, session, state, res });
+      return startRun({ household, members, session, state, res });
     }
 
     // An answer to something in the queue is applied as it was tapped — no interpretation, no guess.
@@ -1094,7 +1094,8 @@ router.post('/go', async (req, res, next) => {
     const state = session.state;
     if (!state.intent) return res.status(409).json({ error: 'nothing_to_plan', message: 'Say where and when first.' });
     if (state.checks?.length) return res.json({ sessionId: session.id, reply: `Still to check: ${state.checks[0].text}`, rows: state.rows ?? [], checks: state.checks, answered: state.answered ?? [], ready: false, intent: state.intent, options: [] });
-    return executePlan({ household, members, session, state, res });
+    if (state.running) return res.json({ sessionId: session.id, running: true, reply: 'Still working on it.', rows: state.rows ?? [], checks: [], answered: state.answered ?? [], ready: true, intent: state.intent, options: [] });
+    return startRun({ household, members, session, state, res });
   } catch (err) {
     next(err);
   }
@@ -1186,7 +1187,7 @@ async function executePlan({ household, members, session, state, res }) {
       ].filter(Boolean).join(' ');
       state.transcript.push({ role: 'assistant', text: reply });
       await saveSession(session.id, state, trip.id);
-      return res.json({ sessionId: session.id, reply, rows: state.rows ?? [], checks: [], answered: state.answered ?? [], ready: true, intent: merged, missing: [], options: [], handoff: { tripId: trip.id, title: trip.title } });
+      return { kind: 'handoff', reply, handoff: { tripId: trip.id, title: trip.title } };
     }
 
     const { trip, attending } = await createTripFromIntent({ household, members, intent: merged, origin, destination, anchorPlace, sources: pickedSources });
@@ -1274,10 +1275,26 @@ async function executePlan({ household, members, session, state, res }) {
 
     session.state = state;
     session.trip_id = trip.id;
-    await respond(res, {
-      session, household, reply,
-      extra: { intent: merged, missing: [], attending: state.attending, reach: { maxTravelMinutes: pool.maxTravelMinutes, estimated: true }, degradedSources: pool.degraded, journey: state.journey, anchor: state.anchor, date: trip.day.date },
-    });
+    return { kind: 'pool', reply, extra: { intent: merged, missing: [], attending: state.attending, reach: { maxTravelMinutes: pool.maxTravelMinutes, estimated: true }, degradedSources: pool.degraded, journey: state.journey, anchor: state.anchor, date: trip.day.date } };
+}
+
+/**
+ * Plan it runs in the background: the request returns at once with
+ * `running: true`, the screen polls GET /api/plan/:sessionId, and the outcome
+ * (a trip to open, or the day's pool) is kept on the session — so a slow
+ * search, a redeploy or a closed tab never loses the plan.
+ */
+async function startRun({ household, members, session, state, res }) {
+  state.running = true;
+  state.outcome = null;
+  state.runStartedAt = new Date().toISOString();
+  await saveSession(session.id, state, null);
+  res.json({ sessionId: session.id, running: true, reply: 'Working on it — this takes a minute or two.', rows: state.rows ?? [], checks: [], answered: state.answered ?? [], ready: true, intent: state.intent, options: [] });
+  executePlan({ household, members, session, state, res: null })
+    .then((outcome) => { state.running = false; state.outcome = outcome.kind === 'handoff' ? { kind: 'handoff', reply: outcome.reply, handoff: outcome.handoff } : { kind: 'pool', reply: outcome.reply, extra: outcome.extra }; })
+    .catch((err) => { state.running = false; state.outcome = { kind: 'error', message: err?.message || String(err) }; })
+    .then(() => saveSession(session.id, state, session.trip_id ?? null))
+    .catch(() => { /* the poll will time out and say so */ });
 }
 
 /**
@@ -1610,10 +1627,13 @@ router.get('/:sessionId', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const session = await loadSession(req.params.sessionId);
-    if (!session.state.pool) {
-      return res.json({ sessionId: session.id, intent: session.state.intent ?? null, options: [], transcript: session.state.transcript ?? [], rows: session.state.rows ?? null, checks: session.state.checks ?? [], answered: session.state.answered ?? [], ready: Boolean(session.state.ready), question: session.state.checks?.[0] ?? null });
-    }
-    await respond(res, { session, household, reply: null, extra: { transcript: session.state.transcript ?? [], intent: session.state.intent } });
+    const st = session.state;
+    const base = { sessionId: session.id, intent: st.intent ?? null, options: [], transcript: st.transcript ?? [], rows: st.rows ?? null, checks: st.checks ?? [], answered: st.answered ?? [], ready: Boolean(st.ready), question: st.checks?.[0] ?? null };
+    if (st.running) return res.json({ ...base, running: true, reply: null });
+    if (st.outcome?.kind === 'handoff') return res.json({ ...base, reply: st.outcome.reply, handoff: st.outcome.handoff });
+    if (st.outcome?.kind === 'error') return res.json({ ...base, reply: `That didn't work: ${st.outcome.message}. Try Plan it again.`, failed: true });
+    if (!st.pool) return res.json(base);
+    await respond(res, { session, household, reply: st.outcome?.kind === 'pool' ? st.outcome.reply : null, extra: { transcript: st.transcript ?? [], intent: st.intent, ...(st.outcome?.kind === 'pool' ? st.outcome.extra : {}) } });
   } catch (err) {
     next(err);
   }

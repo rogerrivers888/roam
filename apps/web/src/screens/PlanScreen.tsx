@@ -113,13 +113,30 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
     }
   }, [busy, plan?.trip, sessionId, viewing, attendingIds, take]);
 
-  // Plan it: the rows are settled, run the plan.
+  // Plan it: the rows are settled, run the plan. The server answers at once and
+  // works on; the screen asks every few seconds until the trip or the pool lands.
   const go = useCallback(async () => {
     if (!sessionId || busy) return;
     setError(null);
     setBusy('thinking');
     try { take(await api.planGo(sessionId), false); } catch (e: any) { setError(e instanceof ApiError ? e.message : String(e?.message || e)); } finally { setBusy(false); }
   }, [sessionId, busy, take]);
+  useEffect(() => {
+    if (!plan?.running || !sessionId) return;
+    let live = true;
+    const started = Date.now();
+    const tick = async () => {
+      try {
+        const next = await api.planGet(sessionId);
+        if (!live) return;
+        if (next.running) { if (Date.now() - started > 8 * 60_000) { setError('Still working after eight minutes — try Plan it again in a moment.'); setPlan((p) => (p ? { ...p, running: false } : p)); } return; }
+        take({ ...next, sessionId }, false);
+        if (next.failed) setError(next.reply ?? 'That did not work.');
+      } catch { /* a dropped poll is harmless; the next one asks again */ }
+    };
+    const h = setInterval(tick, 3000);
+    return () => { live = false; clearInterval(h); };
+  }, [plan?.running, sessionId, take]);
 
   const skip = useCallback(async (id: string) => {
     if (!sessionId || busy) return;
@@ -135,22 +152,31 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
     },
   });
 
-  // While the household is talking, the words so far are read every few seconds and the rows fill.
+  // While the household is talking, the words so far are read every few
+  // seconds and the rows fill. A fixed beat, not a debounce: the transcript
+  // changes with every word, so a timer that resets on change would never fire.
+  const transcriptRef = useRef('');
+  transcriptRef.current = speech.transcript;
+  const previewBusy = useRef(false);
   useEffect(() => {
-    if (!speech.listening || mode !== 'tell' || fieldRef.current || plan?.trip) return;
-    const t = speech.transcript.trim();
-    if (t.length < 15 || t === lastPreviewed.current || t.length - lastPreviewed.current.length < 12 || previewCount.current >= 8) return;
-    const h = setTimeout(async () => {
+    if (!speech.listening || mode !== 'tell' || plan?.trip) return;
+    const beat = async () => {
+      if (fieldRef.current || previewBusy.current || previewCount.current >= 8) return;
+      const t = transcriptRef.current.trim();
+      if (t.length < 15 || t === lastPreviewed.current || t.length - lastPreviewed.current.length < 10) return;
+      previewBusy.current = true;
       lastPreviewed.current = t;
       previewCount.current += 1;
       try {
         const r = await api.planPreview(t, sessionId);
         setSessionId((cur) => cur ?? r.sessionId);
         setPreviewRows(r.rows);
-      } catch { /* the rows fill when they stop */ }
-    }, 2500);
-    return () => clearTimeout(h);
-  }, [speech.transcript, speech.listening, mode, sessionId, plan?.trip]);
+      } catch { /* the rows fill when they stop */ } finally { previewBusy.current = false; }
+    };
+    const first = setTimeout(beat, 1500);
+    const h = setInterval(beat, 4000);
+    return () => { clearTimeout(first); clearInterval(h); };
+  }, [speech.listening, mode, sessionId, plan?.trip]);
   useEffect(() => { if (!speech.listening) { previewCount.current = 0; lastPreviewed.current = ''; } }, [speech.listening]);
 
   const act = useCallback(async (action: PlanAction) => {
@@ -212,7 +238,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
     if (plan?.options?.length && !plan.options.some((o) => o.id === viewing)) setViewing(plan.options[0].id);
   }, [plan?.options, viewing]);
 
-  const rows: PlanRow[] = (speech.listening && previewRows) ? previewRows : (plan?.rows ?? EMPTY_ROWS);
+  const rows: PlanRow[] = previewRows && (speech.listening || busy === 'thinking') ? previewRows : (plan?.rows ?? EMPTY_ROWS);
   const checks = plan?.checks ?? [];
   const answered = plan?.answered ?? [];
   const lastReply = [...turns].reverse().find((t) => t.role === 'assistant')?.text ?? null;
@@ -332,7 +358,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
                   {input.trim() ? (
                     <Button label="Send" onPress={() => send(input)} disabled={!!busy} />
                   ) : plan?.trip ? null : (
-                    <Button label="Plan it" icon="plan" onPress={go} disabled={!ready || !!busy} />
+                    <Button label={plan?.running ? 'Working…' : 'Plan it'} icon="plan" onPress={go} disabled={!ready || !!busy || !!plan?.running} />
                   )}
                 </Row>
               )}
@@ -373,7 +399,18 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
             </Card>
           ) : null}
 
-          {lastReply && !plan?.trip ? <Text style={[type.small, { paddingHorizontal: 4 }]}>{lastReply}</Text> : null}
+          {plan?.running ? (
+            <Card style={{ borderColor: colors.accent }}>
+              <Row><ActivityIndicator color={colors.accent} /><Text style={[type.body, { flex: 1 }]}>Setting it up — finding places, working out the day. A minute or two; you can leave this tab and come back.</Text></Row>
+            </Card>
+          ) : null}
+          {plan?.handoff ? (
+            <Card style={{ borderColor: colors.accent }}>
+              <Text style={type.h3}>{plan.handoff.title} is set up</Text>
+              {lastReply ? <Text style={type.small}>{lastReply}</Text> : null}
+              <Button label="Open the trip" icon="trips" onPress={() => onOpenTrip?.(plan.handoff!.tripId)} />
+            </Card>
+          ) : lastReply && !plan?.trip ? <Text style={[type.small, { paddingHorizontal: 4 }]}>{lastReply}</Text> : null}
         </>
       )}
 
