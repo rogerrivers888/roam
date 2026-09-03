@@ -6,6 +6,7 @@ const NEGATION_PREFIX = /^(not|no|never|without|anything but|nothing)\s+/i;
 import { geocode } from '../sources/geocode.js';
 import { spendSummary } from '../claude.js';
 import { paceOf, DEFAULT_PACE } from '../domain/pace.js';
+import { isValidTimezone } from '../domain/time.js';
 
 const router = Router();
 
@@ -44,7 +45,7 @@ export async function loadMembers(householdId) {
   const { rows } = await query(
     `select m.*,
             coalesce(json_agg(json_build_object('id', c.id, 'kind', c.kind, 'value', c.value,
-                                                'conceptKey', c.concept_key, 'conceptKind', c.concept_kind, 'maxMinutes', c.max_minutes))
+                                                'conceptKey', c.concept_key, 'conceptKind', c.concept_kind, 'maxMinutes', c.max_minutes, 'favourite', c.favourite))
                      filter (where c.id is not null), '[]') as constraints
        from members m
        left join member_constraints c on c.member_id = m.id
@@ -77,7 +78,7 @@ export async function loadMembers(householdId) {
 
 /** Members flattened for the ranking layer. */
 export function toAttendees(members) {
-  const pref = (c) => ({ value: c.value, conceptKey: c.conceptKey ?? null, maxMinutes: c.maxMinutes ?? null });
+  const pref = (c) => ({ value: c.value, conceptKey: c.conceptKey ?? null, maxMinutes: c.maxMinutes ?? null, favourite: Boolean(c.favourite) });
   return members.map((m) => ({
     id: m.id,
     name: m.name,
@@ -147,6 +148,7 @@ router.get('/', async (_req, res, next) => {
         defaultIntensity: household.default_intensity,
         home: household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null,
         pace: paceOf(household),
+        timezone: household.timezone,
       },
       members,
       learned: await loadLearnedPreferences(household.id),
@@ -160,7 +162,8 @@ router.get('/', async (_req, res, next) => {
 router.patch('/', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { name, defaultVisitMinutes, maxTravelMinutes, defaultIntensity, home, homeText, pace } = req.body;
+    const { name, defaultVisitMinutes, maxTravelMinutes, defaultIntensity, home, homeText, pace, timezone } = req.body;
+    if (timezone && !isValidTimezone(timezone)) return res.status(400).json({ error: 'invalid_timezone' });
     const mergedPace = pace ? { food: { ...paceOf(household).food, ...(pace.food || {}) }, activity: { ...paceOf(household).activity, ...(pace.activity || {}) } } : null;
     // Home may arrive as a picked place or as typed text to geocode (Epic 3 M3).
     let homePlace = home?.lat != null ? home : null;
@@ -175,14 +178,15 @@ router.patch('/', async (req, res, next) => {
               home_label            = coalesce($6, home_label),
               home_lat              = coalesce($7, home_lat),
               home_lng              = coalesce($8, home_lng),
-              pace                  = coalesce($9::jsonb, pace)
+              pace                  = coalesce($9::jsonb, pace),
+              timezone              = coalesce($10, timezone)
         where id = $1 returning *`,
       [household.id, name ?? null, defaultVisitMinutes ?? null, maxTravelMinutes ?? null, defaultIntensity ?? null,
-       homePlace?.label ?? null, homePlace?.lat ?? null, homePlace?.lng ?? null, mergedPace ? JSON.stringify(mergedPace) : null],
+       homePlace?.label ?? null, homePlace?.lat ?? null, homePlace?.lng ?? null, mergedPace ? JSON.stringify(mergedPace) : null, timezone ?? null],
     );
     const h = rows[0];
     res.json({ household: { id: h.id, name: h.name, defaultVisitMinutes: h.default_visit_minutes, maxTravelMinutes: h.max_travel_minutes, defaultIntensity: h.default_intensity,
-      home: h.home_lat != null ? { label: h.home_label, lat: h.home_lat, lng: h.home_lng } : null, pace: paceOf(h) } });
+      home: h.home_lat != null ? { label: h.home_label, lat: h.home_lat, lng: h.home_lng } : null, pace: paceOf(h), timezone: h.timezone } });
   } catch (err) {
     next(err);
   }
@@ -255,7 +259,7 @@ router.delete('/members/:id', async (req, res, next) => {
  */
 router.post('/members/:id/constraints', async (req, res, next) => {
   try {
-    const { kind, value, conceptKey: explicitKey, maxMinutes = null } = req.body;
+    const { kind, value, conceptKey: explicitKey, maxMinutes = null, favourite = false } = req.body;
     if (!KINDS.includes(kind)) return res.status(400).json({ error: 'invalid_kind', message: `kind must be one of ${KINDS.join(', ')}` });
     if (!value?.trim()) return res.status(400).json({ error: 'value_required' });
 
@@ -264,11 +268,11 @@ router.post('/members/:id/constraints', async (req, res, next) => {
     const stored = concept ? concept.label : value.trim();
 
     const { rows } = await query(
-      `insert into member_constraints (member_id, kind, value, concept_key, concept_kind, max_minutes)
-       values ($1, $2, $3, $4, $5, $6)
-       on conflict (member_id, kind, value) do update set concept_key = excluded.concept_key, concept_kind = excluded.concept_kind, max_minutes = coalesce(excluded.max_minutes, member_constraints.max_minutes)
+      `insert into member_constraints (member_id, kind, value, concept_key, concept_kind, max_minutes, favourite)
+       values ($1, $2, $3, $4, $5, $6, $7)
+       on conflict (member_id, kind, value) do update set concept_key = excluded.concept_key, concept_kind = excluded.concept_kind, max_minutes = coalesce(excluded.max_minutes, member_constraints.max_minutes), favourite = excluded.favourite or member_constraints.favourite
        returning *`,
-      [req.params.id, kind, stored.toLowerCase(), concept?.key ?? null, concept?.kind ?? null, maxMinutes ? Number(maxMinutes) : null],
+      [req.params.id, kind, stored.toLowerCase(), concept?.key ?? null, concept?.kind ?? null, maxMinutes ? Number(maxMinutes) : null, kind === 'like' && Boolean(favourite)],
     );
     const negated = isNegated(value) && kind !== 'allergen';
     res.status(201).json({
@@ -286,11 +290,20 @@ router.post('/members/:id/constraints', async (req, res, next) => {
   }
 });
 
-/** "Walks — up to 40 minutes": a limit on one preference. null clears it. */
+/**
+ * "Walks — up to 40 minutes": a limit on one preference (null clears it), and
+ * "favourite": the one this person will generally pick over the others.
+ * Only the fields sent are changed.
+ */
 router.patch('/constraints/:id', async (req, res, next) => {
   try {
-    const { maxMinutes } = req.body || {};
-    const { rows } = await query('update member_constraints set max_minutes = $2 where id = $1 returning *', [req.params.id, maxMinutes ? Number(maxMinutes) : null]);
+    const body = req.body || {};
+    const sets = [];
+    const params = [req.params.id];
+    if ('maxMinutes' in body) { params.push(body.maxMinutes ? Number(body.maxMinutes) : null); sets.push(`max_minutes = $${params.length}`); }
+    if ('favourite' in body) { params.push(Boolean(body.favourite)); sets.push(`favourite = $${params.length} and kind = 'like'`); }
+    if (!sets.length) return res.status(400).json({ error: 'nothing_to_update', message: 'send maxMinutes and/or favourite' });
+    const { rows } = await query(`update member_constraints set ${sets.join(', ')} where id = $1 returning *`, params);
     if (!rows[0]) return res.status(404).json({ error: 'constraint_not_found' });
     res.json({ constraint: rows[0] });
   } catch (err) {

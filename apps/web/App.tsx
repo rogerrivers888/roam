@@ -31,7 +31,15 @@ export default function App() {
   const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(null);
 
   const refreshHousehold = useCallback(async () => {
-    try { setHousehold(await api.household()); } catch { setHousehold(null); }
+    try {
+      const h = await api.household();
+      // "3 pm" means 3 pm where the family is: keep the household's timezone in step with the device.
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz && h.household.timezone && h.household.timezone !== tz) {
+        try { await api.updateHousehold({ timezone: tz }); h.household.timezone = tz; } catch { /* keep server value */ }
+      }
+      setHousehold(h);
+    } catch { setHousehold(null); }
   }, []);
 
   useEffect(() => {

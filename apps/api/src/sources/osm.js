@@ -17,6 +17,7 @@ const AMENITY_TO_CATEGORY = {
   cinema: 'attraction', theatre: 'attraction', arts_centre: 'attraction',
 };
 const AMENITY_EXPERIENCE = { cinema: 'cinema', theatre: 'theatre', arts_centre: 'art-gallery' };
+const NOT_FOR_CHILDREN = /comedy|nightclub|casino|strip|adult/i;
 const TOURISM_EXPERIENCE = {
   museum: 'museum', gallery: 'art-gallery', attraction: null, zoo: 'zoo', aquarium: 'aquarium',
   theme_park: 'theme-park', viewpoint: 'viewpoint', artwork: 'art-gallery',
@@ -33,7 +34,7 @@ const CATEGORY_FILTERS = {
   things: `nwr["tourism"~"^(museum|gallery|attraction|zoo|aquarium|theme_park|viewpoint)$"]["name"];
   nwr["leisure"~"^(park|garden|nature_reserve|playground|water_park|swimming_pool|ice_rink|bowling_alley|miniature_golf|escape_game|trampoline_park|climbing|beach_resort)$"]["name"];
   nwr["amenity"~"^(cinema|theatre|arts_centre)$"]["name"];
-  nwr["historic"~"^(castle|ruins|monument|memorial|fort|manor|archaeological_site|city_gate|palace|church|abbey)$"]["name"]`,
+  nwr["historic"~"^(castle|ruins|fort|manor|archaeological_site|palace|abbey)$"]["name"]`,
 };
 
 function escapeRegex(s) {
@@ -74,7 +75,7 @@ function toVenue(el) {
     const e = LEISURE_EXPERIENCE[t.leisure];
     if (e) experiences.push(e);
   }
-  if (t.historic) {
+  if (t.historic && !['memorial', 'monument', 'church', 'wayside_cross', 'boundary_stone', 'milestone'].includes(t.historic)) {
     experiences.push('history');
     if (['castle', 'fort', 'palace', 'manor'].includes(t.historic)) experiences.push('castle');
   }
@@ -98,7 +99,7 @@ function toVenue(el) {
     dietaryOptions: (t.cuisine || Object.keys(t).some((k) => k.startsWith('diet:'))) ? dietaryOptions : undefined,
     priceLevel: null,
     rating: null,
-    goodForChildren: t.kids_area === 'yes' || t.leisure === 'playground' ? true : null,
+    goodForChildren: t.kids_area === 'yes' || t.leisure === 'playground' ? true : (t.amenity === 'nightclub' || t.amenity === 'bar' || NOT_FOR_CHILDREN.test(t.name) || t['min_age']) ? false : null,
     lat,
     lng,
     dishes: [],
@@ -143,7 +144,7 @@ export const osmSource = {
    * @param categories ['food','things'] groups; empty = both
    * @param query      optional name filter (case-insensitive)
    */
-  async search({ center, radiusKm = 3, categories = [], query = '', limit = 150 } = {}) {
+  async search({ center, radiusKm = 3, categories = [], query = '', limit = 400 } = {}) {
     if (!center || center.lat == null) return [];
     const groups = new Set();
     for (const c of categories || []) {
@@ -161,13 +162,15 @@ export const osmSource = {
     }
     if (!data) throw lastErr;
     const venues = (data.elements || []).map(toVenue).filter(Boolean);
-    // Dedupe identical names at the same spot (a node and its building way).
+    // Dedupe identical names at the same spot (a node and its building way),
+    // then keep the nearest — Overpass's own order is arbitrary.
     const seen = new Map();
     for (const v of venues) {
       const k = `${v.name.toLowerCase()}|${v.lat.toFixed(3)}|${v.lng.toFixed(3)}`;
       if (!seen.has(k)) seen.set(k, v);
     }
-    return [...seen.values()];
+    const d2 = (v) => (v.lat - center.lat) ** 2 + ((v.lng - center.lng) * Math.cos((center.lat * Math.PI) / 180)) ** 2;
+    return [...seen.values()].sort((a, b) => d2(a) - d2(b)).slice(0, 250);
   },
 };
 

@@ -46,6 +46,7 @@ export function publicTrip(t) {
     country: t.country,
     countryCode: t.country_code,
     locality: t.locality,
+    timezone: t.timezone ?? null,
   };
 }
 
@@ -194,11 +195,11 @@ router.post('/', async (req, res, next) => {
         const { rows } = await client.query(
           `insert into trips (household_id, kind, title, notes, place_label, start_date, end_date,
                               base_label, base_lat, base_lng, base_kind, base_check_in, base_check_out, has_car, day_start, day_end,
-                              origin_label, origin_lat, origin_lng, depart_at, return_at, travel_mode, intensity)
-           values ($1,'trip',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$7,$8,$9,($5::date + $14::time), ($6::date + $15::time),$16,$17) returning *`,
+                              origin_label, origin_lat, origin_lng, depart_at, return_at, travel_mode, intensity, timezone)
+           values ($1,'trip',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$7,$8,$9,($5::date + $14::time), ($6::date + $15::time),$16,$17,$18) returning *`,
           [household.id, b.title?.trim() || null, b.notes?.trim() || null, place?.label ?? b.placeText ?? base.label, b.startDate, b.endDate,
            base.label, base.lat, base.lng, b.baseKind ?? (base === home ? 'home' : 'hotel'), b.checkIn ?? null, b.checkOut ?? null, b.hasCar !== false,
-           b.dayStart ?? '09:30', b.dayEnd ?? '21:00', travelMode, intensity],
+           b.dayStart ?? '09:30', b.dayEnd ?? '21:00', travelMode, intensity, household.timezone || 'Europe/London'],
         );
         const created = rows[0];
         for (const memberId of await ids(client)) await client.query('insert into trip_attendees (trip_id, member_id) values ($1, $2) on conflict do nothing', [created.id, memberId]);
@@ -238,10 +239,10 @@ router.post('/', async (req, res, next) => {
     const trip = await withTransaction(async (client) => {
       const { rows } = await client.query(
         `insert into trips (household_id, kind, title, notes, origin_label, origin_lat, origin_lng, destination_label, destination_lat, destination_lng,
-                            depart_at, return_at, travel_mode, intensity, start_date, end_date, base_label, base_lat, base_lng, base_kind, has_car, day_start, day_end)
-         values ($1,'outing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$10::date,$11::date,$4,$5,$6,'home',$14,$10::time,$11::time) returning *`,
+                            depart_at, return_at, travel_mode, intensity, start_date, end_date, base_label, base_lat, base_lng, base_kind, has_car, day_start, day_end, timezone)
+         values ($1,'outing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,($10::timestamptz at time zone $15)::date,($11::timestamptz at time zone $15)::date,$4,$5,$6,'home',$14,($10::timestamptz at time zone $15)::time,($11::timestamptz at time zone $15)::time,$15) returning *`,
         [household.id, b.title?.trim() || null, b.notes?.trim() || null, origin.label, origin.lat, origin.lng,
-         destination?.label ?? null, destination?.lat ?? null, destination?.lng ?? null, b.departAt, b.returnAt, travelMode, intensity, b.hasCar !== false],
+         destination?.label ?? null, destination?.lat ?? null, destination?.lng ?? null, b.departAt, b.returnAt, travelMode, intensity, b.hasCar !== false, household.timezone || 'Europe/London'],
       );
       const created = rows[0];
       for (const memberId of await ids(client)) await client.query('insert into trip_attendees (trip_id, member_id) values ($1, $2) on conflict do nothing', [created.id, memberId]);
@@ -402,7 +403,7 @@ router.post('/:id/days/:dayId/stops', async (req, res, next) => {
       stop = { venueRef: rows[0].venue_ref, name: rows[0].venue_label, lat: rows[0].lat, lng: rows[0].lng, category: rows[0].category, ...b };
     }
     if (!stop.venueRef || !stop.name) return res.status(400).json({ error: 'venue_required' });
-    const slot = SLOTS.includes(b.slot) ? b.slot : b.startTime ? slotFor(`${days[0].date}T${b.startTime}:00`) : 'morning';
+    const slot = SLOTS.includes(b.slot) ? b.slot : b.startTime ? (Number(b.startTime.slice(0, 2)) < 12 ? 'morning' : Number(b.startTime.slice(0, 2)) < 17 ? 'afternoon' : 'evening') : 'morning';
     const { rows: mx } = await query('select coalesce(max(position), 0) as max from trip_stops where day_id = $1', [days[0].id]);
     const dwell = b.dwellMinutes ?? (['restaurant', 'pub'].includes(stop.category) ? household.default_visit_minutes : ['cafe', 'bar'].includes(stop.category) ? 45 : 120);
     await query(

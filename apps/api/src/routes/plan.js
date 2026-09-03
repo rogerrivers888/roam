@@ -19,6 +19,7 @@ import { applyConstraints } from '../domain/ranking.js';
 import { composeOptions } from '../domain/options.js';
 import { paceOf, travelLimitFor, maxReachMinutes } from '../domain/pace.js';
 import { dayAsTrip, slotFor } from '../domain/days.js';
+import { wallToUtc, wallClock, DEFAULT_TZ } from '../domain/time.js';
 import { INTENSITY_TARGETS } from '../domain/budget.js';
 import { currentHousehold, loadMembers, toAttendees, loadLearnedPreferences } from './household.js';
 
@@ -168,8 +169,9 @@ function roundUpToQuarter(date) {
 
 /** Turn an intent into a trip row in the database. */
 async function createTripFromIntent({ household, members, intent, origin, destination, anchorPlace }) {
-  const dateStr = intent.date && /^\d{4}-\d{2}-\d{2}$/.test(intent.date) ? intent.date : new Date().toISOString().slice(0, 10);
-  const at = (hhmm) => { const d = new Date(`${dateStr}T00:00:00`); const [h, m] = String(hhmm).split(':').map(Number); d.setHours(h, m || 0, 0, 0); return d; };
+  const tz = household.timezone || DEFAULT_TZ;
+  const dateStr = intent.date && /^\d{4}-\d{2}-\d{2}$/.test(intent.date) ? intent.date : wallClock(new Date(), tz).dateStr;
+  const at = (hhmm) => wallToUtc(dateStr, hhmm, tz);
   const duration = intent.duration_minutes;
   let depart;
   let returnAt;
@@ -191,6 +193,7 @@ async function createTripFromIntent({ household, members, intent, origin, destin
     depart = intent.date ? at('10:00') : roundUpToQuarter(new Date());
     returnAt = new Date(depart.getTime() + duration * 60_000);
   }
+  const wc = (d) => wallClock(d, tz).hhmm;
   const mode = intent.travel_mode && TRAVEL_MODES.includes(intent.travel_mode) ? intent.travel_mode : 'transit';
   const intensity = intent.intensity && INTENSITY_TARGETS[intent.intensity] ? intent.intensity : household.default_intensity;
   // Where the day happens: the anchor's venue, else the destination, else the origin.
@@ -201,21 +204,21 @@ async function createTripFromIntent({ household, members, intent, origin, destin
     `insert into trips (household_id, kind, title, origin_label, origin_lat, origin_lng,
                         destination_label, destination_lat, destination_lng,
                         depart_at, return_at, travel_mode, intensity,
-                        start_date, end_date, base_label, base_lat, base_lng, base_kind, day_start, day_end, has_car)
-     values ($1,'outing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$13::date,$14,$15,$16,$17,$19::time,$20::time,$18) returning *`,
+                        start_date, end_date, base_label, base_lat, base_lng, base_kind, day_start, day_end, has_car, timezone)
+     values ($1,'outing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$13::date,$14,$15,$16,$17,$19::time,$20::time,$18,$21) returning *`,
     [
       household.id, title,
       origin.label, origin.lat, origin.lng,
       (destination ?? anchorPlace)?.label ?? null, (destination ?? anchorPlace)?.lat ?? null, (destination ?? anchorPlace)?.lng ?? null,
       depart.toISOString(), returnAt.toISOString(), mode, intensity,
       dateStr, base.label, base.lat, base.lng, base === origin ? 'home' : 'other', mode === 'driving',
-      depart.toTimeString().slice(0, 5), returnAt.toTimeString().slice(0, 5),
+      wc(depart), wc(returnAt), tz,
     ],
   );
   const trip = rows[0];
   const { rows: dayRows } = await query(
     'insert into trip_days (trip_id, date, intensity, travel_mode, start_time, end_time) values ($1, $2, $3, $4, $5::time, $6::time) returning *',
-    [trip.id, dateStr, intensity, mode, depart.toTimeString().slice(0, 5), returnAt.toTimeString().slice(0, 5)],
+    [trip.id, dateStr, intensity, mode, wc(depart), wc(returnAt)],
   );
   trip.day = dayRows[0];
 
@@ -327,7 +330,7 @@ async function applyTripChanges(session, { durationMinutes, intensity, travelMod
       const { trip } = await sessionTrip(session);
       const start = new Date(trip.depart_at);
       const end = new Date(start.getTime() + Number(durationMinutes) * 60_000);
-      await query('update trip_days set end_time = $2::time where id = $1', [session.state.dayId, end.toTimeString().slice(0, 5)]);
+      await query('update trip_days set end_time = $2::time where id = $1', [session.state.dayId, wallClock(end, trip.timezone || DEFAULT_TZ).hhmm]);
     }
     if (intensity) await query('update trip_days set intensity = $2 where id = $1', [session.state.dayId, intensity]);
     if (travelMode) await query('update trip_days set travel_mode = $2 where id = $1', [session.state.dayId, travelMode]);
@@ -466,8 +469,8 @@ router.post('/start', async (req, res, next) => {
     const pool = await retrievePool({ household, trip: dayTrip, attendees, intent: merged, sessionId: session.id });
 
     if (merged.anchor && anchorPlace) {
-      const startsAt = dayTrip.depart_at && merged.anchor.start_time
-        ? new Date(`${trip.day.date}T${merged.anchor.start_time.padStart(5, '0')}:00`).toISOString()
+      const startsAt = merged.anchor.start_time
+        ? wallToUtc(trip.day.date, merged.anchor.start_time.padStart(5, '0'), trip.timezone || DEFAULT_TZ).toISOString()
         : dayTrip.depart_at;
       const endsAt = new Date(new Date(startsAt).getTime() + (merged.anchor.duration_minutes ?? 120) * 60_000).toISOString();
       const key = `anchor:${merged.anchor.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
@@ -481,6 +484,14 @@ router.post('/start', async (req, res, next) => {
       });
     }
 
+    if (merged.anchor && anchorPlace) {
+      // One show is enough for one day: don't propose another of the same kind.
+      const kind = merged.anchor.kind;
+      for (const c of pool.candidates) {
+        if (!c.fixed && (c.experiences || []).includes(kind)) { c.score -= 25; c.reasons = [...(c.reasons || []), { kind: 'note', text: `Another ${kind} on the same day as ${merged.anchor.name}` }]; }
+      }
+      pool.candidates.sort((a, b) => b.score - a.score);
+    }
     state.dayId = trip.day.id;
     state.anchor = merged.anchor && anchorPlace ? { ...merged.anchor, place: anchorPlace } : null;
     state.journey = { from: trip.origin_label, to: trip.base_label, minutes: estimateTravelMinutes({ lat: trip.origin_lat, lng: trip.origin_lng }, { lat: trip.base_lat, lng: trip.base_lng }, trip.travel_mode), mode: trip.travel_mode };
@@ -652,7 +663,8 @@ router.post('/commit', async (req, res, next) => {
     const household = await currentHousehold();
     const { sessionId, optionId } = req.body || {};
     const session = await loadSession(sessionId);
-    const { options } = await recompose(session, household);
+    const { options, trip: sessTrip } = await recompose(session, household);
+    const tzOf = sessTrip.timezone || DEFAULT_TZ;
     const option = options.find((o) => o.id === optionId);
     if (!option) return res.status(404).json({ error: 'option_not_found' });
 
@@ -667,7 +679,7 @@ router.post('/commit', async (req, res, next) => {
       await query(
         `insert into trip_stops (trip_id, day_id, slot, start_time, position, venue_ref, venue_name, lat, lng, dwell_minutes)
          values ($1,$2,$3,$4::time,$5,$6,$7,$8,$9,$10)`,
-        [session.trip_id, dayId, stop.arriveAt ? slotFor(stop.arriveAt) : 'morning', stop.arriveAt ? new Date(stop.arriveAt).toTimeString().slice(0, 5) : null,
+        [session.trip_id, dayId, stop.arriveAt ? slotFor(stop.arriveAt, tzOf) : 'morning', stop.arriveAt ? wallClock(stop.arriveAt, tzOf).hhmm : null,
          stop.position, stop.venueRef, stop.name, stop.lat, stop.lng, stop.dwellMinutes],
       );
       await query(

@@ -9,6 +9,7 @@
 import { computeBudget, INTENSITY_TARGETS } from './budget.js';
 import { estimateTravelMinutes } from './travel.js';
 import { paceOf, dwellAllowance } from './pace.js';
+import { wallClock, DEFAULT_TZ } from './time.js';
 
 export const FOOD_CATEGORIES = new Set(['restaurant', 'cafe', 'pub', 'bar']);
 export const ACTIVITY_CATEGORIES = new Set(['attraction', 'event']);
@@ -86,9 +87,9 @@ function simulate(trip, sequence) {
 // bars float; restaurants and pubs are pulled toward lunch, then dinner.
 const MEAL_WINDOWS = [[11.75, 14], [18, 20.5]];
 const isMeal = (s) => ['restaurant', 'pub'].includes(s.category);
-const hourOf = (iso) => { const d = new Date(iso); return d.getHours() + d.getMinutes() / 60; };
-function mealPenalty(arriveIso, windowIndex) {
-  const h = hourOf(arriveIso);
+const hourOf = (iso, tz) => wallClock(iso, tz || DEFAULT_TZ).hours;
+function mealPenalty(arriveIso, windowIndex, tz) {
+  const h = hourOf(arriveIso, tz);
   const [a, b] = MEAL_WINDOWS[Math.min(windowIndex, MEAL_WINDOWS.length - 1)];
   if (h >= a && h <= b) return 0;
   return h < a ? (a - h) * 60 : (h - b) * 60; // minutes outside the window
@@ -110,7 +111,7 @@ function schedule(trip, stops) {
       const timed = simulate(trip, attempt);
       if (!timed) continue;
       const placed = timed[i];
-      const penalty = mealPenalty(placed.arriveAt, mi) + timed.reduce((sum, s) => sum + s.travelFromPrevMinutes, 0) * 0.25;
+      const penalty = mealPenalty(placed.arriveAt, mi, trip.timezone) + timed.reduce((sum, s) => sum + s.travelFromPrevMinutes, 0) * 0.25;
       if (!best || penalty < best.penalty) best = { attempt, penalty };
     }
     sequence = best ? best.attempt : [...sequence, meal];
@@ -232,8 +233,8 @@ export function composeOptions({
   };
 
   // No second sit-down meal unless the day actually reaches dinner time.
-  const dayStartH = hourOf(trip.depart_at);
-  const dayEndH = hourOf(trip.return_at);
+  const dayStartH = hourOf(trip.depart_at, trip.timezone);
+  const dayEndH = hourOf(trip.return_at, trip.timezone);
   const mealSlots = MEAL_WINDOWS.filter(([a, b]) => dayEndH >= a + 0.75 && dayStartH <= b).length;
   // "Somewhere to eat" means a meal when the day spans a mealtime; a café only counts otherwise.
   const foodQuotaPred = mealSlots > 0 ? isMeal : isFood;

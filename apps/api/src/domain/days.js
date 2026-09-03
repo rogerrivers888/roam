@@ -2,20 +2,24 @@
 // engines already understand: base → stops → base, between the day's start
 // and end times, at the day's pace and mode.
 
-export function slotFor(isoOrDate) {
-  const h = new Date(isoOrDate).getHours();
+import { wallToUtc, wallClock, DEFAULT_TZ } from './time.js';
+
+export function slotFor(isoOrDate, tz = DEFAULT_TZ) {
+  const h = wallClock(isoOrDate, tz).hour;
   if (h < 12) return 'morning';
   if (h < 17) return 'afternoon';
   return 'evening';
 }
 
-const toIso = (date, time) => new Date(`${date}T${(time || '09:30').slice(0, 5)}:00`).toISOString();
+const toIso = (date, time, tz) => wallToUtc(date, (time || '09:30').slice(0, 5), tz).toISOString();
 
 /** Build the trip-shaped object the budget/options engines consume for one day. */
 export function dayAsTrip(trip, day) {
   const start = day.start_time || trip.day_start || '09:30';
   const end = day.end_time || trip.day_end || '21:00';
+  const tz = trip.timezone || DEFAULT_TZ;
   return {
+    timezone: tz,
     id: trip.id,
     day_id: day.id,
     title: trip.title,
@@ -25,8 +29,8 @@ export function dayAsTrip(trip, day) {
     destination_label: null,
     destination_lat: null,
     destination_lng: null,
-    depart_at: toIso(day.date, start),
-    return_at: toIso(day.date, end),
+    depart_at: toIso(day.date, start, tz),
+    return_at: toIso(day.date, end, tz),
     travel_mode: day.travel_mode || trip.travel_mode || (trip.has_car ? 'driving' : 'transit'),
     intensity: day.intensity || trip.intensity || 'balanced',
     country: trip.country,

@@ -71,6 +71,7 @@ export type Household = {
   defaultIntensity: 'relaxed' | 'balanced' | 'packed';
   home: Place | null;
   pace: Pace;
+  timezone?: string;
 };
 
 export type PaceKind = { typicalMinutes: number; maxMinutes: number; maxTravelMinutes: number; maxTravelIfSpecialMinutes: number };
@@ -188,7 +189,7 @@ export const api = {
 
   // household
   household: () => request<HouseholdResponse>('/api/household'),
-  updateHousehold: (body: Partial<Pick<Household, 'name' | 'defaultVisitMinutes' | 'maxTravelMinutes' | 'defaultIntensity'>> & { home?: Place; homeText?: string; pace?: { food?: Partial<PaceKind>; activity?: Partial<PaceKind> } }) =>
+  updateHousehold: (body: Partial<Pick<Household, 'name' | 'defaultVisitMinutes' | 'maxTravelMinutes' | 'defaultIntensity'>> & { home?: Place; homeText?: string; pace?: { food?: Partial<PaceKind>; activity?: Partial<PaceKind> }; timezone?: string }) =>
     patch<{ household: Household }>('/api/household', body),
   addMember: (body: { name: string; relationship?: string | null; birthYear?: number | null; birthDate?: string | null; avatarUrl?: string | null }) => post<{ member: any }>('/api/household/members', body),
   updateMember: (id: string, body: { name?: string; relationship?: string | null; birthYear?: number | null; birthDate?: string | null; avatarUrl?: string | null; typicalVisitMinutes?: number; maxTravelMinutes?: number }) =>

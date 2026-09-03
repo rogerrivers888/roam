@@ -88,8 +88,11 @@ export function applyConstraints({ venues, attendees, learned = [] }) {
       }
       for (const pref of member.likes) {
         if (preferenceHits(venue, pref)) {
-          score += 8;
-          reasons.push({ kind: 'like', member: member.name, memberId: member.id, value: pref.value, text: `${member.name} likes ${pref.value}` });
+          // A favourite is the one this person would generally pick over the
+          // other things they like — it ranks higher, it still never excludes.
+          score += pref.favourite ? 14 : 8;
+          reasons.push({ kind: pref.favourite ? 'favourite' : 'like', member: member.name, memberId: member.id, value: pref.value,
+            text: pref.favourite ? `${pref.value} is a favourite of ${member.name}'s` : `${member.name} likes ${pref.value}` });
         }
       }
       // --- Diet: mark, don't hide. Unknown stays unknown.
@@ -127,6 +130,12 @@ export function applyConstraints({ venues, attendees, learned = [] }) {
     const contested = new Set();
     for (const a of reasons) for (const b of reasons) {
       if (a.kind !== b.kind && a.value && b.value && norm(a.value) === norm(b.value) && a.memberId !== b.memberId) contested.add(norm(a.value));
+    }
+
+    // A child is coming: places known not to suit children fall well down the list.
+    if (attendees.some((m) => m.isMinor) && (venue.goodForChildren === false || venue.category === 'bar')) {
+      score -= 25;
+      reasons.push({ kind: 'note', text: 'Not really for children' });
     }
 
     // Closer is better, but only as a tie-breaker — never enough to outrank taste.

@@ -117,7 +117,7 @@ const VENUES = [
     cuisines: ['mexican'], allergens: ['milk', 'wheat'],
     priceLevel: 1, rating: 4.2, goodForChildren: true, lat: 42.3412, lng: -71.0655,
     dishes: [
-      { concept: 'carnitas-taco', name: 'Carnitas tacos', comment: 'Carnitas crisped on the edges, three to a plate.' },
+      { concept: 'tacos', name: 'Carnitas tacos', comment: 'Carnitas crisped on the edges, three to a plate.' },
     ],
   },
   {
@@ -133,7 +133,7 @@ const VENUES = [
     cuisines: ['italian', 'pizza'], allergens: ['wheat', 'milk'],
     priceLevel: 2, rating: 4.5, goodForChildren: true, lat: 42.3327, lng: -71.0588,
     dishes: [
-      { concept: "margherita", veg: true, name: 'Margherita', comment: 'Base is charred and chewy, not cracker-thin.' },
+      { concept: 'pizza', veg: true, name: 'Margherita', comment: 'Base is charred and chewy, not cracker-thin.' },
       { concept: "arrabbiata", veg: true, name: 'Arrabbiata pizza', comment: 'Hot enough that the children left it alone.' },
     ],
   },
