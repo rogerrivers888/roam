@@ -259,6 +259,18 @@ router.post('/', async (req, res, next) => {
 });
 
 router.get('/:id', async (req, res, next) => { try { res.json(await tripPayload(req.params.id)); } catch (err) { next(err); } });
+/** What this trip's searches and plans have cost, by provider, so the picker can show the bill it is running up. */
+router.get('/:id/spend', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `select pc.provider, count(*)::int as calls, coalesce(sum(pc.estimated_cost_usd), 0)::float as cost_usd
+         from provider_calls pc join plan_sessions ps on ps.id = pc.session_id
+        where ps.trip_id = $1 group by pc.provider order by cost_usd desc, calls desc`,
+      [req.params.id],
+    );
+    res.json({ calls: rows.reduce((n, r) => n + r.calls, 0), costUsd: rows.reduce((n, r) => n + r.cost_usd, 0), byProvider: rows });
+  } catch (err) { next(err); }
+});
 
 router.patch('/:id', async (req, res, next) => {
   try {

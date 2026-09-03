@@ -10,6 +10,7 @@ import { places as placeRoutes, visits as visitRoutes } from './routes/places.js
 import { atlas as atlasRoutes } from './routes/atlas.js';
 import { fetchPhoto } from './sources/google.js';
 import { currentHousehold } from './routes/household.js';
+import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
 import { enabledSources, defaultSourceKeys } from './sources/index.js';
 import { routingEnabled } from './sources/routing.js';
 
@@ -52,7 +53,26 @@ app.get('/api/sources', async (_req, res, next) => {
        from provider_calls where household_id = $1 and provider = 'tripadvisor'`,
     [household.id],
   );
+  // What one search costs on each source, so the picker can say it before the
+  // search runs. The scout's figure is measured from this month's runs.
+  const { rows: [scoutRow] } = await query(
+    `select coalesce(avg(estimated_cost_usd), 0)::float as avg_usd, count(*)::int as runs
+       from provider_calls where household_id = $1 and purpose = 'scout.events' and created_at >= date_trunc('month', now())`,
+    [household.id],
+  );
+  const cost = {
+    fixtures: { perSearchUsd: 0, note: 'Sample data, free.' },
+    osm: { perSearchUsd: 0, note: 'OpenStreetMap, free open data.' },
+    google: { perSearchUsd: 0, note: 'Google gives 5,000 free searches a month per kind; beyond that about $0.03 a search. The quota is capped in Cloud Console.' },
+    tripadvisor: { perSearchUsd: 0.15, note: 'Billed per location returned: 1,000 free for life (about 50 searches), then about $0.15 a search.' },
+    ticketmaster: { perSearchUsd: 0, note: 'Free.' },
+    seatgeek: { perSearchUsd: 0, note: 'Free.' },
+    predicthq: { perSearchUsd: 0, note: 'Free plan.' },
+    datathistle: { perSearchUsd: 0, note: '1,000 requests a month free; one search is one request.' },
+    scout: { perSearchUsd: scoutRow.runs ? Number(scoutRow.avg_usd.toFixed(2)) : 0.65, note: `Claude reads local what's-on pages: about $${(scoutRow.runs ? scoutRow.avg_usd : 0.65).toFixed(2)} a search (${scoutRow.runs ? 'measured this month' : 'estimate'}), capped at ${SCOUT_MONTHLY_RUNS} a month; the same place and day within 6 hours is free.` },
+  };
   res.json({
+    cost,
     enabled: live.map((s) => ({ key: s.key, label: s.label, attribution: s.attribution?.text ?? null, optIn: Boolean(s.optIn) })),
     routing: routingEnabled() ? 'google-routes' : 'estimated',
     defaults: defaultSourceKeys(),

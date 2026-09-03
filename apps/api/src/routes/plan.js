@@ -203,7 +203,7 @@ async function outingTitle({ origin, destination, anchorPlace, anchor }) {
 }
 
 /** Turn an intent into a trip row in the database. */
-async function createTripFromIntent({ household, members, intent, origin, destination, anchorPlace }) {
+async function createTripFromIntent({ household, members, intent, origin, destination, anchorPlace, sources = null }) {
   const tz = household.timezone || DEFAULT_TZ;
   const dateStr = intent.date && /^\d{4}-\d{2}-\d{2}$/.test(intent.date) ? intent.date : wallClock(new Date(), tz).dateStr;
   const at = (hhmm) => wallToUtc(dateStr, hhmm, tz);
@@ -239,15 +239,15 @@ async function createTripFromIntent({ household, members, intent, origin, destin
     `insert into trips (household_id, kind, title, origin_label, origin_lat, origin_lng,
                         destination_label, destination_lat, destination_lng,
                         depart_at, return_at, travel_mode, intensity,
-                        start_date, end_date, base_label, base_lat, base_lng, base_kind, day_start, day_end, has_car, timezone)
-     values ($1,'outing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$13::date,$14,$15,$16,$17,$19::time,$20::time,$18,$21) returning *`,
+                        start_date, end_date, base_label, base_lat, base_lng, base_kind, day_start, day_end, has_car, timezone, sources)
+     values ($1,'outing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$13::date,$14,$15,$16,$17,$19::time,$20::time,$18,$21,$22) returning *`,
     [
       household.id, title,
       origin.label, origin.lat, origin.lng,
       (destination ?? anchorPlace)?.label ?? null, (destination ?? anchorPlace)?.lat ?? null, (destination ?? anchorPlace)?.lng ?? null,
       depart.toISOString(), returnAt.toISOString(), mode, intensity,
       dateStr, base.label, base.lat, base.lng, base === origin ? 'home' : 'other', mode === 'driving',
-      wc(depart), wc(returnAt), tz,
+      wc(depart), wc(returnAt), tz, sources ? JSON.stringify(sources) : null,
     ],
   );
   const trip = rows[0];
@@ -413,9 +413,19 @@ async function recompose(session, household) {
   return { trip, ...composed };
 }
 
+/** What every planning session for this trip has cost so far (provider_calls via plan_sessions). */
+export async function tripSpend(tripId) {
+  const { rows: [r] } = await query(
+    `select count(pc.*)::int as trip_calls, coalesce(sum(pc.estimated_cost_usd), 0)::float as trip_cost_usd
+       from provider_calls pc join plan_sessions ps on ps.id = pc.session_id where ps.trip_id = $1`,
+    [tripId],
+  );
+  return { trip_calls: r.trip_calls, trip_cost_usd: r.trip_cost_usd };
+}
+
 async function respond(res, { session, household, reply, extra = {} }) {
   const { trip, options, browse, poolSize, target, hiddenChains } = await recompose(session, household);
-  const spend = await spendSummary({ householdId: household.id, sessionId: session.id });
+  const spend = { ...(await spendSummary({ householdId: household.id, sessionId: session.id })), ...(await tripSpend(trip.id)) };
   res.json({
     sessionId: session.id,
     dayId: session.state.dayId ?? null,
@@ -454,7 +464,7 @@ router.post('/start', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const members = await loadMembers(household.id);
-    const { utterance, sessionId: existingId } = req.body || {};
+    const { utterance, sessionId: existingId, sources: pickedSources } = req.body || {};
     if (!utterance?.trim()) return res.status(400).json({ error: 'utterance_required' });
 
     let session;
@@ -537,7 +547,7 @@ router.post('/start', async (req, res, next) => {
       return res.json({ sessionId: session.id, reply, intent: merged, missing, options: [] });
     }
 
-    const { trip, attending } = await createTripFromIntent({ household, members, intent: merged, origin, destination, anchorPlace });
+    const { trip, attending } = await createTripFromIntent({ household, members, intent: merged, origin, destination, anchorPlace, sources: Array.isArray(pickedSources) && pickedSources.length ? pickedSources.map(String) : null });
     const attendees = toAttendees(attending);
     // Plan the day where it happens: the pool is what's around the base, and
     // the journey there is reported separately rather than eating the window.

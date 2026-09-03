@@ -10,6 +10,7 @@ import { FaceRow } from '../components/Faces';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { BrowsePool } from '../components/BrowsePool';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
+import { SourcePicker } from '../components/SourcePicker';
 import { getSpeakPref } from './SettingsScreen';
 
 const speak = (text: string) => { if (getSpeakPref()) speakRaw(text); };
@@ -42,6 +43,8 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
   const cardWidth = Math.min(width, 760) - spacing.lg * 2;
 
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // Which sources this outing may search — chosen before the first request; the trip keeps the set.
+  const [sources, setSources] = useState<string[] | null>(null);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
@@ -73,7 +76,7 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
     try {
       const next = plan?.trip
         ? await api.planRefine(sessionId!, utterance, viewing)
-        : await api.planStart(utterance, sessionId);
+        : await api.planStart(utterance, sessionId, sources);
       setSessionId(next.sessionId);
       setPlan((prev) => ({ ...(prev ?? {} as PlanResponse), ...next }));
       if (next.reply) {
@@ -187,6 +190,7 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
         {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
         {speech.error ? <StatusLine tone="warn">{speech.error}</StatusLine> : null}
 
+        {!plan?.trip ? <SourcePicker value={sources} onChange={setSources} title="Sources for this outing" /> : null}
         <View style={styles.composer}>
           <TextInput
             value={speech.listening && speech.interim ? speech.interim : input}
@@ -336,7 +340,7 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
 
           {plan!.spend ? (
             <Text style={type.tiny}>
-              {plan!.spend.session_calls} of {plan!.spend.sessionBound} planning requests used this session · ~${plan!.spend.session_cost_usd.toFixed(3)} · this month ${plan!.spend.month_cost_usd.toFixed(2)}
+              {plan!.spend.session_calls} of {plan!.spend.sessionBound} planning requests used this session · ~${plan!.spend.session_cost_usd.toFixed(3)}{plan!.spend.trip_cost_usd != null ? ` · this outing $${plan!.spend.trip_cost_usd.toFixed(2)}` : ''} · this month ${plan!.spend.month_cost_usd.toFixed(2)}
             </Text>
           ) : null}
         </>

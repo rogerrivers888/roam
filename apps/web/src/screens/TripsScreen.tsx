@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWi
 import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, TripDay, TripDetail, TripSummary, Venue, DayStop } from '../api';
 import { colors, memberColors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap, clock, minutes } from '../components/ui';
-import { SourcePicker } from '../components/SourcePicker';
+import { SourcePicker, TripSpendLine } from '../components/SourcePicker';
 import { TimeBar } from '../components/TimeBar';
 import { FaceRow } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
@@ -728,6 +728,7 @@ function StayPanel({ d, onChanged, onFindNear }: { d: TripDetail; onChanged: () 
           <Switch value={hasCar} onValueChange={async (v) => { setHasCar(v); await api.updateTripV2(trip.id, { hasCar: v, travelMode: v ? 'driving' : 'transit' }); await onChanged(); }} />
         </Row>
         <SourcePicker value={trip.sources ?? null} onChange={async (v) => { await api.updateTripV2(trip.id, { sources: v }); await onChanged(); }} title="Sources for this trip's searches and plans" />
+        <TripSpendLine tripId={trip.id} refreshKey={trip} />
         <Button label="Find restaurants and things near here" kind="secondary" onPress={onFindNear} />
       </Card>
       {trip.base ? <Card><MapView pins={[{ id: 'base', lat: trip.base.lat, lng: trip.base.lng, label: trip.base.label, tone: 'base' }]} height={260} /></Card> : null}

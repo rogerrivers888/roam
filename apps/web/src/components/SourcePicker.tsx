@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
-import { api, SourcesStatus } from '../api';
+import { api, SourceCost, SourcesStatus } from '../api';
 import { Chip, Wrap } from './ui';
 import { type } from '../theme';
 
@@ -13,6 +13,22 @@ import { type } from '../theme';
  * Picking a single source is the testing view: results come from that source
  * alone, so you can see what each one returns and how it looks.
  */
+/** "$0.65" for a source that costs money per search, nothing for a free one. */
+const priceTag = (c?: SourceCost) => (c && c.perSearchUsd > 0 ? ` · $${c.perSearchUsd.toFixed(2)}` : '');
+
+/** What a trip's searches and plans have cost so far, beside its source picker. */
+export function TripSpendLine({ tripId, refreshKey }: { tripId: string; refreshKey?: unknown }) {
+  const [spend, setSpend] = useState<{ calls: number; costUsd: number; byProvider: { provider: string; calls: number; cost_usd: number }[] } | null>(null);
+  useEffect(() => { api.tripSpend(tripId).then(setSpend).catch(() => null); }, [tripId, refreshKey]);
+  if (!spend) return null;
+  const paid = spend.byProvider.filter((p) => p.cost_usd > 0);
+  return (
+    <Text style={type.tiny}>
+      This trip so far: {spend.calls} lookup{spend.calls === 1 ? '' : 's'} · ${spend.costUsd.toFixed(2)}{paid.length ? ` (${paid.map((p) => `${p.provider} $${p.cost_usd.toFixed(2)}`).join(', ')})` : ' — all free'}.
+    </Text>
+  );
+}
+
 export function SourcePicker({ value, onChange, title = 'Sources' }: { value: string[] | null; onChange: (v: string[] | null) => void; title?: string }) {
   const [status, setStatus] = useState<SourcesStatus | null>(null);
   useEffect(() => { api.sources().then(setStatus).catch(() => null); }, []);
@@ -28,15 +44,19 @@ export function SourcePicker({ value, onChange, title = 'Sources' }: { value: st
   const ta = status.available.find((a) => a.key === 'tripadvisor');
   const taOn = Boolean(ta?.on) && selected.includes('tripadvisor');
   const used = status.usage?.tripadvisor?.searchesAllTime ?? 0;
+  const perSearch = selected.reduce((n, k) => n + (status.cost?.[k]?.perSearchUsd ?? 0), 0);
   return (
     <View style={{ gap: 4 }}>
       <Text style={type.tiny}>{title}{isDefault ? ' (default)' : selected.length === 1 ? ` — only ${status.enabled.find((s) => s.key === selected[0])?.label ?? selected[0]}` : ''}</Text>
       <Wrap>
         {status.enabled.map((s) => (
-          <Chip key={s.key} label={`${selected.includes(s.key) ? '✓ ' : ''}${s.label}${s.optIn ? ' (billed)' : ''}`} selected={selected.includes(s.key)} tone={selected.includes(s.key) ? (s.optIn ? 'accent' : 'like') : 'neutral'} onPress={() => toggle(s.key)} />
+          <Chip key={s.key} label={`${selected.includes(s.key) ? '✓ ' : ''}${s.label}${priceTag(status.cost?.[s.key])}`} selected={selected.includes(s.key)} tone={selected.includes(s.key) ? (status.cost?.[s.key]?.perSearchUsd ? 'accent' : 'like') : 'neutral'} onPress={() => toggle(s.key)} />
         ))}
         {!isDefault ? <Chip label="Reset to default" onPress={() => onChange(null)} /> : null}
       </Wrap>
+      {perSearch > 0 ? (
+        <Text style={type.tiny}>About ${perSearch.toFixed(2)} per search with this set ({selected.filter((k) => status.cost?.[k]?.perSearchUsd).map((k) => `${status.enabled.find((s) => s.key === k)?.label ?? k} $${status.cost![k].perSearchUsd.toFixed(2)}`).join(', ')}); the rest are free.</Text>
+      ) : <Text style={type.tiny}>Every source in this set is free to search.</Text>}
       {taOn ? (
         <Text style={type.tiny}>
           {selected.length === 1

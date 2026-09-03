@@ -180,7 +180,7 @@ export type TripDetail = { trip: Trip; attendees: { id: string; name: string; is
 
 export type SuggestedPreference = { member: string | null; kind: 'like' | 'dislike'; value: string };
 
-export type Spend = { session_calls: number; session_cost_usd: number; month_calls: number; month_cost_usd: number; sessionBound: number; householdMonthlyBound: number };
+export type Spend = { session_calls: number; session_cost_usd: number; month_calls: number; month_cost_usd: number; sessionBound: number; householdMonthlyBound: number; trip_calls?: number; trip_cost_usd?: number };
 
 export type PlanResponse = {
   sessionId: string; dayId?: string | null; date?: string | null; reply: string | null;
@@ -201,7 +201,8 @@ export type PlanAction =
   | { type: 'choose'; optionId: string | null }
   | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number; travelMode?: Trip['travelMode']; includeChains?: boolean; pricePoint?: PricePoint };
 
-export type SourcesStatus = { enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; defaults?: string[]; available: { key: string; label: string; env: string; on: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number } } };
+export type SourceCost = { perSearchUsd: number; note: string };
+export type SourcesStatus = { cost?: Record<string, SourceCost>; enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; defaults?: string[]; available: { key: string; label: string; env: string; on: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number } } };
 
 // ---------------------------------------------------------------------------
 // Calls
@@ -285,7 +286,8 @@ export const api = {
     post<{ visit: Visit; tripId: string }>(`/api/trips/${tripId}/stops/${stopId}/visit`, body),
 
   // planner
-  planStart: (utterance: string, sessionId?: string | null) => post<PlanResponse>('/api/plan/start', { utterance, sessionId: sessionId ?? undefined }),
+  planStart: (utterance: string, sessionId?: string | null, sources?: string[] | null) => post<PlanResponse>('/api/plan/start', { utterance, sessionId: sessionId ?? undefined, sources: sources ?? undefined }),
+  tripSpend: (id: string) => request<{ calls: number; costUsd: number; byProvider: { provider: string; calls: number; cost_usd: number }[] }>(`/api/trips/${id}/spend`),
   planRefine: (sessionId: string, utterance: string, viewingOptionId?: string | null) => post<PlanResponse>('/api/plan/refine', { sessionId, utterance, viewingOptionId }),
   planAct: (sessionId: string, action: PlanAction) => post<PlanResponse>('/api/plan/act', { sessionId, action }),
   planCommit: (sessionId: string, optionId: string) => post<{ tripId: string; optionId: string; stops: number }>('/api/plan/commit', { sessionId, optionId }),
