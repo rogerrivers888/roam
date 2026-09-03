@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -10,71 +10,124 @@ import { SuggestInput } from '../components/SuggestInput';
 import { TastePicker } from '../components/TastePicker';
 
 // Everything a person can say about food: a dish, a cuisine, an ingredient
-// (chicken) or a style (healthy food). Leaving kinds out here is why "healthy
-// food" used to match nothing even though the placeholder suggested it.
+// (chicken) or a style (healthy food).
 const FOOD_KINDS = ['dish', 'cuisine', 'ingredient', 'style'];
 const ACTIVITY_KINDS = ['experience'];
 const DIET_KINDS = ['diet'];
 const RELATIONSHIP_LABEL: Record<string, string> = { parent: 'Parent', partner: 'Partner', child: 'Child', grandparent: 'Grandparent', sibling: 'Sibling', friend: 'Friend', other: 'Other' };
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 type Section = 'food' | 'activities';
 type Mode = 'like' | 'dislike';
 // Where the last add happened, so its follow-up ("kept as typed — also add…")
-// shows under that list rather than at the foot of the card.
+// shows under that list rather than somewhere else on the card.
 type Notice = { section: Section; kind: Constraint['kind']; hint: string | null; pending: Suggestion[] | null };
 
+/**
+ * People down the left, one after another; the chosen person's tastes on the
+ * right (owner, 3 Sep 2026). Nothing here has a Save button — every change is
+ * stored as it is made.
+ */
 export function HouseholdScreen({ data, refresh }: { data: HouseholdResponse | null; refresh: () => Promise<void> }) {
   const { width } = useWindowDimensions();
-  const twoCol = width >= 1000;
-  const [newName, setNewName] = useState('');
-  const [newRel, setNewRel] = useState<string>('child');
-  const [newYear, setNewYear] = useState('');
-  const [openId, setOpenId] = useState<string | null>(null);
+  const sideBySide = width >= 900;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  const members = data?.members ?? [];
+  const selected = members.find((m) => m.id === selectedId) ?? (sideBySide ? members[0] : undefined);
+  useEffect(() => { if (selected && selected.id !== selectedId && sideBySide) setSelectedId(selected.id); }, [selected?.id, sideBySide]);
 
   if (!data) return <View style={styles.page}><Text style={type.small}>Loading household…</Text></View>;
-  const { household, members, learned, vocabulary } = data;
+  const { household, learned, vocabulary } = data;
   const adult = members.find((m) => !m.isMinor);
+
+  const detail = (m: Member, i: number) => (
+    <MemberDetail
+      key={m.id}
+      member={m} index={i} managedBy={m.isMinor ? adult?.name : undefined}
+      relationships={vocabulary.relationships} allergens={vocabulary.allergens}
+      learned={learned.filter((l) => l.memberId === m.id)} refresh={refresh}
+      onRemoved={() => setSelectedId(null)}
+    />
+  );
+
+  const addCard = (
+    <AddPerson
+      onAdded={async (id) => { setAdding(false); await refresh(); if (id) setSelectedId(id); }}
+      onCancel={() => setAdding(false)}
+    />
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       <View>
         <Text style={type.title}>{household.name}</Text>
-        <Text style={type.small}>Who's in the family and what each person will and won't eat or do. Allergens exclude places; diets, likes and dislikes only rank them. Tap a person to edit their tastes.</Text>
+        <Text style={type.small}>Allergens exclude places; diets, likes and dislikes only rank them. Everything saves as you go.</Text>
       </View>
 
-      <View style={[styles.grid, twoCol && { flexDirection: 'row', flexWrap: 'wrap' }]}>
-        {members.map((m, i) => (
-          <View key={m.id} style={twoCol ? { width: '49%' } : undefined}>
-            <MemberCard
-              member={m} index={i} managedBy={m.isMinor ? adult?.name : undefined}
-              relationships={vocabulary.relationships} allergens={vocabulary.allergens}
-              learned={learned.filter((l) => l.memberId === m.id)} refresh={refresh}
-              open={openId === m.id} onToggle={() => setOpenId(openId === m.id ? null : m.id)}
-            />
+      {sideBySide ? (
+        <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}>
+          <View style={styles.sidebar}>
+            {members.map((m, i) => (
+              <PersonRow key={m.id} member={m} index={i} selected={!adding && selected?.id === m.id} onPress={() => { setAdding(false); setSelectedId(m.id); }} />
+            ))}
+            <Button label="+ Add someone" kind={adding ? 'secondary' : 'ghost'} onPress={() => setAdding(true)} style={{ alignSelf: 'stretch' }} />
           </View>
-        ))}
-        <View style={twoCol ? { width: '49%' } : undefined}>
-          <Card>
-            <Text style={type.h3}>Add someone</Text>
-            <TextInput value={newName} onChangeText={setNewName} placeholder="Name" placeholderTextColor={colors.inkFaint} style={styles.input} />
-            <Text style={type.tiny}>Relationship to the household</Text>
-            <Wrap>{Object.entries(RELATIONSHIP_LABEL).map(([k, l]) => <Chip key={k} label={l} selected={newRel === k} onPress={() => setNewRel(k)} />)}</Wrap>
-            <Row>
-              <Text style={[type.small, { flex: 1 }]}>Birthday (optional)</Text>
-              <TextInput value={newYear} onChangeText={setNewYear} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 0, width: 160 }]} />
-            </Row>
-            <Text style={type.tiny}>A child under 13 gets a full profile owned by an adult — no login, no voice capture.</Text>
-            <Button label="Add" disabled={!newName.trim()} onPress={async () => {
-              const r = await api.addMember({ name: newName.trim(), relationship: newRel, birthDate: /^\d{4}-\d{2}-\d{2}$/.test(newYear) ? newYear : null, birthYear: /^\d{4}$/.test(newYear) ? Number(newYear) : null });
-              setNewName(''); setNewYear('');
-              await refresh();
-              const id = (r as any)?.member?.id ?? (r as any)?.id;
-              if (id) setOpenId(id);
-            }} />
-          </Card>
+          <View style={{ flex: 1 }}>
+            {adding ? addCard : selected ? detail(selected, members.indexOf(selected)) : <Card><Text style={type.small}>Choose someone on the left.</Text></Card>}
+          </View>
         </View>
-      </View>
+      ) : (
+        <View style={{ gap: spacing.sm }}>
+          {members.map((m, i) => (
+            <View key={m.id} style={{ gap: spacing.sm }}>
+              <PersonRow member={m} index={i} selected={selectedId === m.id} onPress={() => setSelectedId(selectedId === m.id ? null : m.id)} />
+              {selectedId === m.id ? detail(m, i) : null}
+            </View>
+          ))}
+          {adding ? addCard : <Button label="+ Add someone" kind="ghost" onPress={() => setAdding(true)} style={{ alignSelf: 'flex-start' }} />}
+        </View>
+      )}
     </ScrollView>
+  );
+}
+
+function PersonRow({ member, index, selected, onPress }: { member: Member; index: number; selected: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={`Show ${member.name}`} style={[styles.personRow, selected && styles.personRowSelected]}>
+      <Avatar name={member.name} index={index} size={44} url={member.avatarUrl} />
+      <View style={{ flex: 1 }}>
+        <Text style={type.h3}>{member.name}</Text>
+        <Text style={type.tiny} numberOfLines={2}>{summarise(member)}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function AddPerson({ onAdded, onCancel }: { onAdded: (id: string | null) => Promise<void>; onCancel: () => void }) {
+  const [name, setName] = useState('');
+  const [rel, setRel] = useState<string>('child');
+  const [birth, setBirth] = useState('');
+  return (
+    <Card>
+      <Text style={type.h3}>Add someone</Text>
+      <TextInput value={name} onChangeText={setName} placeholder="Name" placeholderTextColor={colors.inkFaint} style={styles.input} autoFocus />
+      <Text style={type.tiny}>Relationship to the household</Text>
+      <Wrap>{Object.entries(RELATIONSHIP_LABEL).map(([k, l]) => <Chip key={k} label={l} selected={rel === k} onPress={() => setRel(k)} />)}</Wrap>
+      <Row>
+        <Text style={[type.small, { flex: 1 }]}>Birthday (optional)</Text>
+        <TextInput value={birth} onChangeText={setBirth} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 0, width: 160 }]} />
+      </Row>
+      <Text style={type.tiny}>A child under 13 gets a full profile owned by an adult — no login, no voice capture.</Text>
+      <Row>
+        <Button label="Add" disabled={!name.trim()} onPress={async () => {
+          const r = await api.addMember({ name: name.trim(), relationship: rel, birthDate: DATE.test(birth) ? birth : null, birthYear: /^\d{4}$/.test(birth) ? Number(birth) : null });
+          await onAdded((r as any)?.member?.id ?? null);
+        }} />
+        <Button label="Cancel" kind="ghost" onPress={onCancel} />
+      </Row>
+    </Card>
   );
 }
 
@@ -98,47 +151,43 @@ const listOf = (cs: Constraint[], max = 4) => {
   return labels.length <= max ? labels.join(', ') : `${labels.slice(0, max).join(', ')} +${labels.length - max}`;
 };
 
-/** One line that says what this person is about, for the collapsed card. */
+/** One line that says what this person is about, for the list. */
 function summarise(m: Member): string {
   const parts: string[] = [];
-  if (m.allergens.length) parts.push(`⚠ allergic to ${listOf(m.allergens)}`);
+  if (m.allergens.length) parts.push(`⚠ ${listOf(m.allergens)}`);
   if (m.diets.length) parts.push(m.diets.map((c) => c.value).join(', '));
-  const favs = m.likes.filter((c) => c.favourite);
-  const likes = [...favs, ...m.likes.filter((c) => !c.favourite)];
+  const likes = [...m.likes].sort(byFavourite);
   if (likes.length) parts.push(`likes ${listOf(likes)}`);
-  if (m.dislikes.length) parts.push(`dislikes ${listOf(m.dislikes, 3)}`);
-  return parts.length ? parts.join(' · ') : 'Nothing set yet — tap to add what they like.';
+  if (m.dislikes.length) parts.push(`not ${listOf(m.dislikes, 3)}`);
+  return parts.length ? parts.join(' · ') : 'Nothing set yet';
 }
 
-function MemberCard({ member, index, managedBy, relationships, allergens, learned, refresh, open, onToggle }: {
-  member: Member; index: number; managedBy?: string; relationships: string[]; allergens: string[]; learned: Learned[]; refresh: () => Promise<void>;
-  open: boolean; onToggle: () => void;
+function MemberDetail({ member, index, managedBy, relationships, allergens, learned, refresh, onRemoved }: {
+  member: Member; index: number; managedBy?: string; relationships: string[]; allergens: string[]; learned: Learned[]; refresh: () => Promise<void>; onRemoved: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(member.name);
-  const [birth, setBirth] = useState(member.birthDate ?? (member.birthYear ? `${member.birthYear}-01-01` : ''));
   const [browse, setBrowse] = useState<null | { section: Section; mode: Mode }>(null);
   const [detailFor, setDetailFor] = useState<Constraint | null>(null);
   const [section, setSection] = useState<Section>('food');
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  // Reset per-person UI when the selection changes.
+  useEffect(() => { setBrowse(null); setDetailFor(null); setNotice(null); setConfirmRemove(false); }, [member.id]);
 
   const add = async (kind: Constraint['kind'], value: string, conceptKey?: string) => {
-    const r = await api.addConstraint(member.id, { kind, value, conceptKey });
-    const pending = !r.resolved && r.suggestions.length ? r.suggestions : null;
-    setNotice(pending || r.hint ? { section, kind, hint: r.hint, pending } : null);
+    try {
+      const r = await api.addConstraint(member.id, { kind, value, conceptKey });
+      const pending = !r.resolved && r.suggestions.length ? r.suggestions : null;
+      setNotice(pending || r.hint ? { section, kind, hint: r.hint, pending } : null);
+    } catch (e: any) {
+      // 409: it's already on the other list. Say so where they typed.
+      const msg = e?.body?.message ?? e?.message ?? 'Could not add that.';
+      setNotice({ section, kind, hint: msg, pending: null });
+    }
     await refresh();
   };
   const remove = async (c: Constraint) => { if (detailFor?.id === c.id) setDetailFor(null); await api.deleteConstraint(c.id); await refresh(); };
-  const save = async () => {
-    await api.updateMember(member.id, { name: name.trim() || member.name, birthDate: /^\d{4}-\d{2}-\d{2}$/.test(birth) ? birth : null });
-    setEditing(false);
-    await refresh();
-  };
   const haveKeys = new Set([...member.likes, ...member.dislikes, ...member.diets].map((c) => c.conceptKey).filter(Boolean) as string[]);
-  const addMany = async (kind: Constraint['kind'], picked: { key: string; label: string }[]) => {
-    for (const p of picked) await api.addConstraint(member.id, { kind, value: p.label, conceptKey: p.key });
-    await refresh();
-  };
   const setLimit = async (c: Constraint, maxMinutes: number | null) => { await api.updateConstraint(c.id, { maxMinutes }); setDetailFor(null); await refresh(); };
   const setFavourite = async (c: Constraint, favourite: boolean) => { await api.updateConstraint(c.id, { favourite }); setDetailFor(null); await refresh(); };
   const prefLabel = (c: Constraint) => (c.maxMinutes ? `${c.value} · up to ${c.maxMinutes} min` : c.value);
@@ -164,19 +213,21 @@ function MemberCard({ member, index, managedBy, relationships, allergens, learne
     </View>
   ) : null);
 
-  // Tapping a like: make it a favourite (food) or set a time limit (activities).
+  // Tapping a like: make it a favourite, and for activities set a time limit.
   const detailBox = detailFor ? (
     <View style={styles.pendingBox}>
       <Text style={type.small}>{detailFor.value}</Text>
       {detailFor.kind === 'like' ? (
-        <Wrap>
-          <Chip label={detailFor.favourite ? '★ A favourite' : '☆ Make it a favourite'} tone="like" selected={Boolean(detailFor.favourite)} onPress={() => setFavourite(detailFor, !detailFor.favourite)} />
-        </Wrap>
+        <>
+          <Wrap>
+            <Chip label={detailFor.favourite ? '★ A favourite' : '☆ Make it a favourite'} tone="like" selected={Boolean(detailFor.favourite)} onPress={() => setFavourite(detailFor, !detailFor.favourite)} />
+          </Wrap>
+          <Text style={type.tiny}>A favourite is the one {member.name} would generally pick over the other things they like. It ranks higher; it never hides anything.</Text>
+        </>
       ) : null}
-      {detailFor.kind === 'like' ? <Text style={type.tiny}>A favourite is the one {member.name} would generally pick over the other things they like. It ranks higher; it never hides anything.</Text> : null}
       {isActivity(detailFor) ? (
         <>
-          <Text style={type.tiny}>How long is enough?</Text>
+          <Text style={type.tiny}>How long is enough? Short ones are fine, longer ones count against a place.</Text>
           <Wrap>
             {[30, 45, 60, 90, 120, 180].map((m) => <Chip key={m} label={`up to ${m} min`} selected={detailFor.maxMinutes === m} onPress={() => setLimit(detailFor, m)} />)}
             <Chip label="no limit" selected={!detailFor.maxMinutes} onPress={() => setLimit(detailFor, null)} />
@@ -193,94 +244,119 @@ function MemberCard({ member, index, managedBy, relationships, allergens, learne
   const likeChip = (c: Constraint) => (
     <Chip key={c.id} label={prefLabel(c)} tone="like" icon={c.favourite ? '★' : undefined} selected={detailFor?.id === c.id} onPress={() => setDetailFor(detailFor?.id === c.id ? null : c)} onRemove={() => remove(c)} />
   );
+  const picker = (s: Section, mode: Mode) => (browse?.section === s && browse.mode === mode ? (
+    <TastePicker section={s} mode={mode} already={haveKeys} onPick={(p) => add(mode, p.label, p.key)} onClose={() => setBrowse(null)} />
+  ) : null);
 
   return (
     <Card>
-      <Pressable onPress={editing ? undefined : onToggle} accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${member.name}`}>
-        <Row>
-          <Pressable onPress={async () => { const url = await pickPhoto(); if (url) { await api.updateMember(member.id, { avatarUrl: url }); await refresh(); } }} accessibilityRole="button" accessibilityLabel={`Change photo for ${member.name}`}>
-            <Avatar name={member.name} index={index} size={56} url={member.avatarUrl} />
-            <Text style={[type.tiny, { textAlign: 'center' }]}>{member.avatarUrl ? 'change' : 'photo'}</Text>
-          </Pressable>
-          <View style={{ flex: 1 }}>
-            {editing ? (
-              <Row>
-                <TextInput value={name} onChangeText={setName} style={[styles.input, { flex: 1 }]} />
-                <TextInput value={birth} onChangeText={setBirth} placeholder="Birthday YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { width: 170 }]} />
-              </Row>
-            ) : (
-              <>
-                <Text style={type.h2}>{member.name}</Text>
-                <Text style={type.small}>
-                  {member.relationship ? RELATIONSHIP_LABEL[member.relationship] ?? member.relationship : 'Relationship not set'}
-                  {member.age != null ? ` · ${member.age}${member.birthDate ? '' : ' (approx.)'}` : ''}
-                  {member.isMinor ? ' · under 13' : ''}
-                </Text>
-                {managedBy ? <Text style={type.tiny}>Managed by {managedBy}</Text> : null}
-                {!open ? <Text style={[type.small, { marginTop: 4 }]}>{summarise(member)}</Text> : null}
-              </>
-            )}
-          </View>
-          {editing ? <Button label="Save" kind="secondary" onPress={save} /> : open ? <Button label="Edit" kind="ghost" onPress={() => setEditing(true)} /> : null}
-          <Text style={[type.h3, { color: colors.inkMuted, paddingHorizontal: 4 }]}>{open ? '▴' : '▾'}</Text>
-        </Row>
-      </Pressable>
-      {editing ? (
-        <Wrap>{relationships.map((r) => <Chip key={r} label={RELATIONSHIP_LABEL[r] ?? r} selected={member.relationship === r} onPress={async () => { await api.updateMember(member.id, { relationship: r }); await refresh(); }} />)}</Wrap>
-      ) : null}
+      <Row>
+        <Pressable onPress={async () => { const url = await pickPhoto(); if (url) { await api.updateMember(member.id, { avatarUrl: url }); await refresh(); } }} accessibilityRole="button" accessibilityLabel={`Change photo for ${member.name}`}>
+          <Avatar name={member.name} index={index} size={56} url={member.avatarUrl} />
+          <Text style={[type.tiny, { textAlign: 'center' }]}>{member.avatarUrl ? 'change' : 'photo'}</Text>
+        </Pressable>
+        <View style={{ flex: 1 }}>
+          <Text style={type.h2}>{member.name}</Text>
+          {managedBy ? <Text style={type.tiny}>Managed by {managedBy}</Text> : null}
+        </View>
+      </Row>
 
-      {!open ? null : (
-        <>
-          <Segmented value={section} options={[{ value: 'food', label: 'Food & drink' }, { value: 'activities', label: 'Things to do' }]} onChange={(s) => { setSection(s); setBrowse(null); setDetailFor(null); }} />
+      <Segmented value={section} options={[{ value: 'food', label: 'Food & drink' }, { value: 'activities', label: 'Things to do' }]} onChange={(s) => { setSection(s); setBrowse(null); setDetailFor(null); }} />
 
-          {section === 'food' ? (
-            <View style={{ gap: spacing.md }}>
-              <AllergenGroup member={member} common={allergens} add={(v) => add('allergen', v)} remove={remove} notice={noticeFor('food', 'allergen')} />
-              <Group title="Diet" hint="Vegetarian, halal, gluten-free… ranks places by whether they have something suitable.">
-                <Wrap>{member.diets.map((c) => <Chip key={c.id} label={c.value} tone="accent" onRemove={() => remove(c)} />)}</Wrap>
-                <SuggestInput placeholder="e.g. vegetarian, halal, gluten-free" kinds={DIET_KINDS} onPick={(s) => add('diet', s.label, s.key)} onFree={(v) => add('diet', v)} />
-                {noticeFor('food', 'diet')}
-              </Group>
-              <Group title="Likes" hint="Tap into the box to pick from cuisines, styles and dishes, or type anything. Tap a pill to make it a favourite.">
-                <Wrap>{foodLikes.map(likeChip)}</Wrap>
-                {detailFor && !isActivity(detailFor) && detailFor.kind === 'like' ? detailBox : null}
-                <SuggestInput placeholder="e.g. Italian, chicken, healthy food, noodles" kinds={FOOD_KINDS} onPick={(s) => add('like', s.label, s.key)} onFree={(v) => add('like', v)} onFocus={() => openBrowse('food', 'like')} onBrowse={() => openBrowse('food', 'like')} />
-                {browse?.section === 'food' && browse.mode === 'like' ? <TastePicker section="food" mode="like" already={haveKeys} onAdd={(p) => addMany('like', p)} onClose={() => setBrowse(null)} /> : null}
-                {noticeFor('food', 'like')}
-              </Group>
-              <Group title="Dislikes" hint="Ranks a place lower — never hides it. Don't write 'not …' — this list is the 'not'.">
-                <Wrap>{foodDislikes.map((c) => <Chip key={c.id} label={prefLabel(c)} tone="dislike" onRemove={() => remove(c)} />)}</Wrap>
-                <SuggestInput placeholder="e.g. fried food, seafood, pubs, spicy food" kinds={FOOD_KINDS} onPick={(s) => add('dislike', s.label, s.key)} onFree={(v) => add('dislike', v)} onFocus={() => openBrowse('food', 'dislike')} onBrowse={() => openBrowse('food', 'dislike')} />
-                {browse?.section === 'food' && browse.mode === 'dislike' ? <TastePicker section="food" mode="dislike" already={haveKeys} onAdd={(p) => addMany('dislike', p)} onClose={() => setBrowse(null)} /> : null}
-                {noticeFor('food', 'dislike')}
-              </Group>
-              <LearnedList items={learnedFood} />
-            </View>
-          ) : (
-            <View style={{ gap: spacing.md }}>
-              <Group title="Loves doing" hint={'Kinds of outing that light this person up. Tap a pill to make it a favourite or set a limit — "walks, up to 40 min".'}>
-                <Wrap>{actLikes.map(likeChip)}</Wrap>
-                {detailFor && isActivity(detailFor) ? detailBox : null}
-                <SuggestInput placeholder="e.g. playgrounds, museums, historical things, swimming" kinds={ACTIVITY_KINDS} onPick={(s) => add('like', s.label, s.key)} onFree={(v) => add('like', v)} onFocus={() => openBrowse('activities', 'like')} onBrowse={() => openBrowse('activities', 'like')} />
-                {browse?.section === 'activities' && browse.mode === 'like' ? <TastePicker section="activities" mode="like" already={haveKeys} onAdd={(p) => addMany('like', p)} onClose={() => setBrowse(null)} /> : null}
-                {noticeFor('activities', 'like')}
-              </Group>
-              <Group title="Would rather not" hint="Ranks these lower for outings this person is on.">
-                <Wrap>{actDislikes.map((c) => <Chip key={c.id} label={prefLabel(c)} tone="dislike" onRemove={() => remove(c)} />)}</Wrap>
-                <SuggestInput placeholder="e.g. art galleries, shopping" kinds={ACTIVITY_KINDS} onPick={(s) => add('dislike', s.label, s.key)} onFree={(v) => add('dislike', v)} onFocus={() => openBrowse('activities', 'dislike')} onBrowse={() => openBrowse('activities', 'dislike')} />
-                {browse?.section === 'activities' && browse.mode === 'dislike' ? <TastePicker section="activities" mode="dislike" already={haveKeys} onAdd={(p) => addMany('dislike', p)} onClose={() => setBrowse(null)} /> : null}
-                {noticeFor('activities', 'dislike')}
-              </Group>
-              <LearnedList items={learnedAct} />
-            </View>
-          )}
-
-          <Row style={{ justifyContent: 'flex-end' }}>
-            <Button label="Remove person" kind="ghost" onPress={async () => { await api.deleteMember(member.id); await refresh(); }} />
-          </Row>
-        </>
+      {section === 'food' ? (
+        <View style={{ gap: spacing.md }}>
+          <AllergenGroup member={member} common={allergens} add={(v) => add('allergen', v)} remove={remove} notice={noticeFor('food', 'allergen')} />
+          <Group title="Diet" hint="Vegetarian, halal, gluten-free… ranks places by whether they have something suitable.">
+            <Wrap>{member.diets.map((c) => <Chip key={c.id} label={c.value} tone="accent" onRemove={() => remove(c)} />)}</Wrap>
+            <SuggestInput placeholder="e.g. vegetarian, halal, gluten-free" kinds={DIET_KINDS} onPick={(s) => add('diet', s.label, s.key)} onFree={(v) => add('diet', v)} />
+            {noticeFor('food', 'diet')}
+          </Group>
+          <Group title="Likes" hint="Tap into the box to pick from cuisines, styles and dishes, or type anything. Tap a pill to make it a favourite.">
+            <Wrap>{foodLikes.map(likeChip)}</Wrap>
+            {detailFor && !isActivity(detailFor) && detailFor.kind === 'like' ? detailBox : null}
+            <SuggestInput placeholder="e.g. Italian, chicken, healthy food, noodles" kinds={FOOD_KINDS} onPick={(s) => add('like', s.label, s.key)} onFree={(v) => add('like', v)} onFocus={() => openBrowse('food', 'like')} onBrowse={() => openBrowse('food', 'like')} />
+            {picker('food', 'like')}
+            {noticeFor('food', 'like')}
+          </Group>
+          <Group title="Dislikes" hint="Ranks a place lower — never hides it. Don't write 'not …' — this list is the 'not'.">
+            <Wrap>{foodDislikes.map((c) => <Chip key={c.id} label={prefLabel(c)} tone="dislike" onRemove={() => remove(c)} />)}</Wrap>
+            <SuggestInput placeholder="e.g. fried food, seafood, pubs, spicy food" kinds={FOOD_KINDS} onPick={(s) => add('dislike', s.label, s.key)} onFree={(v) => add('dislike', v)} onFocus={() => openBrowse('food', 'dislike')} onBrowse={() => openBrowse('food', 'dislike')} />
+            {picker('food', 'dislike')}
+            {noticeFor('food', 'dislike')}
+          </Group>
+          <LearnedList items={learnedFood} />
+        </View>
+      ) : (
+        <View style={{ gap: spacing.md }}>
+          <Group title="Loves doing" hint={'Tap a pill to make it a favourite or set a limit — "walks, up to 30 min" means short ones yes, long ones no.'}>
+            <Wrap>{actLikes.map(likeChip)}</Wrap>
+            {detailFor && isActivity(detailFor) ? detailBox : null}
+            <SuggestInput placeholder="e.g. playgrounds, museums, historical things, swimming" kinds={ACTIVITY_KINDS} onPick={(s) => add('like', s.label, s.key)} onFree={(v) => add('like', v)} onFocus={() => openBrowse('activities', 'like')} onBrowse={() => openBrowse('activities', 'like')} />
+            {picker('activities', 'like')}
+            {noticeFor('activities', 'like')}
+          </Group>
+          <Group title="Would rather not" hint="Ranks these lower for outings this person is on. Anything already in Loves doing isn't offered here.">
+            <Wrap>{actDislikes.map((c) => <Chip key={c.id} label={prefLabel(c)} tone="dislike" onRemove={() => remove(c)} />)}</Wrap>
+            <SuggestInput placeholder="e.g. art galleries, shopping" kinds={ACTIVITY_KINDS} onPick={(s) => add('dislike', s.label, s.key)} onFree={(v) => add('dislike', v)} onFocus={() => openBrowse('activities', 'dislike')} onBrowse={() => openBrowse('activities', 'dislike')} />
+            {picker('activities', 'dislike')}
+            {noticeFor('activities', 'dislike')}
+          </Group>
+          <LearnedList items={learnedAct} />
+        </View>
       )}
+
+      <AboutGroup member={member} relationships={relationships} refresh={refresh} />
+
+      <Row style={{ justifyContent: 'flex-end' }}>
+        {confirmRemove ? (
+          <>
+            <Text style={type.small}>Remove {member.name} and everything they like?</Text>
+            <Button label="Yes, remove" kind="danger" onPress={async () => { await api.deleteMember(member.id); onRemoved(); await refresh(); }} />
+            <Button label="Keep" kind="ghost" onPress={() => setConfirmRemove(false)} />
+          </>
+        ) : <Button label="Remove person" kind="ghost" onPress={() => setConfirmRemove(true)} />}
+      </Row>
     </Card>
+  );
+}
+
+/** Name, birthday and relationship — below the tastes, saved as they are changed. */
+function AboutGroup({ member, relationships, refresh }: { member: Member; relationships: string[]; refresh: () => Promise<void> }) {
+  const [name, setName] = useState(member.name);
+  const [birth, setBirth] = useState(member.birthDate ?? '');
+  const [saved, setSaved] = useState<string | null>(null);
+  useEffect(() => { setName(member.name); setBirth(member.birthDate ?? ''); }, [member.id, member.name, member.birthDate]);
+
+  const flash = (what: string) => { setSaved(what); setTimeout(() => setSaved(null), 1500); };
+  const saveName = async () => {
+    const t = name.trim();
+    if (!t || t === member.name) { setName(member.name); return; }
+    await api.updateMember(member.id, { name: t }); await refresh(); flash('Name saved');
+  };
+  const saveBirth = async () => {
+    const t = birth.trim();
+    if (t === (member.birthDate ?? '')) return;
+    if (t && !DATE.test(t)) { setBirth(member.birthDate ?? ''); return; }
+    await api.updateMember(member.id, { birthDate: t || null }); await refresh(); flash(t ? 'Birthday saved' : 'Birthday cleared');
+  };
+  const ageText = member.age != null ? `${member.age}${member.birthDate ? '' : ' (approx.)'}${member.isMinor ? ' · under 13' : ''}` : null;
+
+  return (
+    <Group title="About" hint="Saves as you go.">
+      <Row>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={type.tiny}>Name</Text>
+          <TextInput value={name} onChangeText={setName} onBlur={saveName} onSubmitEditing={saveName} returnKeyType="done" style={styles.input} />
+        </View>
+        <View style={{ width: 170, gap: 4 }}>
+          <Text style={type.tiny}>Birthday{ageText ? ` · ${ageText}` : ''}</Text>
+          <TextInput value={birth} onChangeText={setBirth} onBlur={saveBirth} onSubmitEditing={saveBirth} returnKeyType="done" placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={styles.input} />
+        </View>
+      </Row>
+      <Text style={type.tiny}>Relationship to the household</Text>
+      <Wrap>{relationships.map((r) => <Chip key={r} label={RELATIONSHIP_LABEL[r] ?? r} selected={member.relationship === r} onPress={async () => { await api.updateMember(member.id, { relationship: r }); await refresh(); flash('Relationship saved'); }} />)}</Wrap>
+      {saved ? <Text style={[type.tiny, { color: colors.like }]}>{saved}</Text> : null}
+    </Group>
   );
 }
 
@@ -345,7 +421,12 @@ function LearnedList({ items }: { items: Learned[] }) {
 
 const styles = StyleSheet.create({
   page: { padding: spacing.lg, gap: spacing.md, width: '100%', maxWidth: 1100, alignSelf: 'center' },
-  grid: { gap: spacing.md, justifyContent: 'space-between' },
+  sidebar: { width: 300, gap: spacing.sm },
+  personRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
+  },
+  personRowSelected: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   input: {
     minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink,

@@ -267,6 +267,35 @@ router.post('/members/:id/constraints', async (req, res, next) => {
     if (!concept && kind !== 'allergen') concept = resolveConcept(value, { kinds: kindsFor(kind) });
     const stored = concept ? concept.label : value.trim();
 
+    // A like and a dislike of the same thing cancel out, so we never store
+    // both. "Long walks" on the dislike side of a liked walk is a limit, not
+    // a dislike: keep short walks, cap them.
+    if (kind === 'like' || kind === 'dislike') {
+      const other = kind === 'like' ? 'dislike' : 'like';
+      const scale = value.trim().match(/^(long|lengthy|big|all[- ]day)\s+(.+)$/i);
+      const scaleConcept = scale ? resolveConcept(scale[2], { kinds: kindsFor(kind) }) : null;
+      const wantKey = (scaleConcept ?? concept)?.key ?? null;
+      const wantValue = (scaleConcept ? scale[2] : stored).toLowerCase();
+      const { rows: others } = await query('select * from member_constraints where member_id = $1 and kind = $2', [req.params.id, other]);
+      // Older rows may hold free text with no concept; resolve them the same way ranking does.
+      const keyOf = (row) => row.concept_key ?? resolveConcept(row.value, { kinds: kindsFor(other) })?.key ?? null;
+      const clash = others.find((row) => row.value === wantValue || (wantKey && keyOf(row) === wantKey));
+      if (clash && kind === 'dislike' && scaleConcept) {
+        const minutes = clash.max_minutes ?? 30;
+        const { rows: updated } = await query('update member_constraints set max_minutes = $2 where id = $1 returning *', [clash.id, minutes]);
+        return res.status(200).json({
+          constraint: updated[0], resolved: null, suggestions: [], limited: true,
+          hint: `Short ones are fine, long ones aren't — so "${clash.value}" in Loves doing is now capped at ${minutes} min rather than adding a dislike. Tap it to change the limit.`,
+        });
+      }
+      if (clash) {
+        return res.status(409).json({
+          error: 'conflicts_with_' + other, constraint: clash,
+          message: `"${clash.value}" is already in ${other === 'like' ? (clash.concept_kind === 'experience' ? 'Loves doing' : 'Likes') : (clash.concept_kind === 'experience' ? 'Would rather not' : 'Dislikes')}. Remove it there first${other === 'like' ? ', or tap it to set a limit' : ''}.`,
+        });
+      }
+    }
+
     const { rows } = await query(
       `insert into member_constraints (member_id, kind, value, concept_key, concept_kind, max_minutes, favourite)
        values ($1, $2, $3, $4, $5, $6, $7)
