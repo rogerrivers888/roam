@@ -50,7 +50,8 @@ export async function upsertHouseholdPlace(client, householdId, p) {
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      on conflict (household_id, venue_ref) do update set
        label = case when excluded.label = excluded.venue_ref and household_places.label <> household_places.venue_ref then household_places.label else coalesce(excluded.label, household_places.label) end,
-       kind = coalesce(excluded.kind, household_places.kind), category = coalesce(excluded.category, household_places.category),
+       -- The kind follows the category once one is known: a place first saved without one must not stay "other" after a visit says it is a restaurant.
+       kind = case when excluded.category is not null then excluded.kind else coalesce(excluded.kind, household_places.kind) end, category = coalesce(excluded.category, household_places.category),
        lat = coalesce(excluded.lat, household_places.lat), lng = coalesce(excluded.lng, household_places.lng),
        country = coalesce(excluded.country, household_places.country), country_code = coalesce(excluded.country_code, household_places.country_code),
        locality = coalesce(excluded.locality, household_places.locality), venue = coalesce(excluded.venue, household_places.venue),
@@ -138,7 +139,7 @@ atlas.get('/places', async (req, res, next) => {
       params,
     );
     let places = rows.map((r) => ({
-      venueRef: r.venue_ref, name: r.known_label ?? r.label, unnamed: (r.known_label ?? r.label) === r.venue_ref, kind: r.kind, category: r.category, lat: r.lat, lng: r.lng,
+      venueRef: r.venue_ref, name: r.known_label ?? r.label, unnamed: (r.known_label ?? r.label) === r.venue_ref, kind: r.category ? kindOfCategory(r.category) : r.kind, category: r.category, lat: r.lat, lng: r.lng,
       country: r.country, countryCode: r.country_code, locality: r.locality, venue: r.venue, note: r.note,
       visits: r.visits, lastOn: r.last_on, takes: r.takes ?? [], ledger: r.ledger, onTrips: (r.on_trips ?? []).filter(Boolean),
       status: r.visits > 0 ? 'been' : r.ledger === 'special' ? 'special' : 'saved',
