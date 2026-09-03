@@ -303,8 +303,11 @@ router.post('/start', async (req, res, next) => {
 
     // Merge with what was already known.
     const merged = { ...(state.intent || {}), ...Object.fromEntries(Object.entries(intent).filter(([, v]) => v !== null && !(Array.isArray(v) && v.length === 0))) };
-    merged.wants = [...new Set([...(state.intent?.wants || []), ...intent.wants])];
-    merged.avoids = [...new Set([...(state.intent?.avoids || []), ...intent.avoids])];
+    // Empty arrays are dropped by the merge above; restore them so later code
+    // can rely on their shape.
+    merged.wants = [...new Set([...(state.intent?.wants || []), ...(intent.wants || [])])];
+    merged.avoids = [...new Set([...(state.intent?.avoids || []), ...(intent.avoids || [])])];
+    merged.attending = intent.attending?.length ? intent.attending : (state.intent?.attending || []);
     state.intent = merged;
 
     const origin = resolvePlace(merged.origin);
