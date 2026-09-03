@@ -128,11 +128,18 @@ async function visitPayload(id) {
 // /api/places
 // ---------------------------------------------------------------------------
 
-/** GET /api/places/geocode?q=London — for pickers (home, trip location, "near"). */
+/**
+ * GET /api/places/geocode?q=London&near=lat,lng&country=IT — for pickers (home,
+ * trip location, "near", where we're staying). With `near`, matches inside that
+ * area come first and the search never leaves `country`.
+ */
 places.get('/geocode', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const results = await geocode(String(req.query.q || ''), { limit: Number(req.query.limit) || 6, near: await homeOf(household) });
+    const m = /^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/.exec(String(req.query.near || ''));
+    const near = m ? { lat: Number(m[1]), lng: Number(m[3]) } : await homeOf(household);
+    const countryCode = /^[A-Za-z]{2}$/.test(String(req.query.country || '')) ? String(req.query.country).toUpperCase() : null;
+    const results = await geocode(String(req.query.q || ''), { limit: Number(req.query.limit) || 6, near, countryCode, within: Boolean(m) });
     await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'osm-nominatim', 'places.geocode']);
     res.json({ results, attribution: '© OpenStreetMap contributors' });
   } catch (err) {

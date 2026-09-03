@@ -8,6 +8,9 @@ import planRoutes from './routes/plan.js';
 import conceptRoutes from './routes/concepts.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 import { atlas as atlasRoutes } from './routes/atlas.js';
+import { fetchPhoto } from './sources/google.js';
+import { enabledSources } from './sources/index.js';
+import { routingEnabled } from './sources/routing.js';
 
 const app = express();
 
@@ -33,6 +36,34 @@ app.use('/api/concepts', conceptRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/atlas', atlasRoutes);
+
+/** Which sources are live — the Settings screen shows this. */
+app.get('/api/sources', (_req, res) => {
+  res.json({
+    enabled: enabledSources().map((s) => ({ key: s.key, label: s.label, attribution: s.attribution?.text ?? null })),
+    routing: routingEnabled() ? 'google-routes' : 'estimated',
+    available: [
+      { key: 'google', label: 'Google Places + Routes', env: 'GOOGLE_MAPS_API_KEY' },
+      { key: 'tripadvisor', label: 'Tripadvisor', env: 'TRIPADVISOR_API_KEY' },
+      { key: 'ticketmaster', label: 'Ticketmaster events', env: 'TICKETMASTER_API_KEY' },
+    ].map((a) => ({ ...a, on: enabledSources().some((s) => s.key === a.key) })),
+  });
+});
+
+/** Google photos are fetched here so the key never reaches the browser; nothing is stored. */
+app.get('/api/photos/google', async (req, res) => {
+  try {
+    const name = String(req.query.name || '');
+    if (!/^places\/[^/]+\/photos\/[^/]+$/.test(name)) return res.status(400).end();
+    const photo = await fetchPhoto(name, Math.min(1200, Number(req.query.w) || 480));
+    if (!photo) return res.status(404).end();
+    res.setHeader('content-type', photo.contentType);
+    res.setHeader('cache-control', 'private, max-age=3600');
+    res.send(photo.body);
+  } catch (err) {
+    res.status(502).json({ error: 'photo_unavailable', message: err.message });
+  }
+});
 
 app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
 

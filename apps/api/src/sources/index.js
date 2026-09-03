@@ -7,16 +7,21 @@
 
 import { fixturesSource } from './fixtures.js';
 import { osmSource } from './osm.js';
+import { googleSource } from './google.js';
+import { tripadvisorSource } from './tripadvisor.js';
+import { ticketmasterSource } from './ticketmaster.js';
 
-const REGISTRY = [fixturesSource, osmSource];
+// Licensed sources register here and switch on when their key exists;
+// ROAM_SOURCES still narrows the set (Epic 2 C10: no code change to enable/disable).
+const REGISTRY = [fixturesSource, osmSource, googleSource, tripadvisorSource, ticketmasterSource];
 
 /** Sources are enabled by config, not by code change (Epic 2 C8). */
 export function enabledSources() {
-  const configured = (process.env.ROAM_SOURCES || 'fixtures,osm')
+  const configured = (process.env.ROAM_SOURCES || 'fixtures,osm,google,tripadvisor,ticketmaster')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  return REGISTRY.filter((s) => configured.includes(s.key));
+  return REGISTRY.filter((s) => configured.includes(s.key) && (typeof s.enabled !== 'function' || s.enabled()));
 }
 
 const normaliseName = (name) =>
@@ -89,6 +94,20 @@ export function resolveVenues(rawRecords) {
       continue;
     }
 
+    // Per-field precedence (Technical Constraints §5): a licensed source that
+    // carries ratings, photos, hours or family flags wins those fields; the
+    // open source keeps what it uniquely knows (dietary tags, cuisines).
+    for (const field of ['rating', 'ratingCount', 'photos', 'openingHours', 'goodForChildren', 'menuForChildren', 'reservable', 'priceLevel', 'summary', 'website', 'mapsUrl', 'externalUrl', 'justification']) {
+      if (record[field] != null && (candidate[field] == null || (record.source === 'google' && candidate.source !== 'google'))) {
+        candidate[field] = record[field];
+        candidate.provenance[field] = { source: record.source, expiresAt: record.source === 'osm' ? null : 'session' };
+      }
+    }
+    if (!candidate.dietaryOptions?.length && record.dietaryOptions?.length) candidate.dietaryOptions = record.dietaryOptions;
+    if (record.cuisines?.length) candidate.cuisines = [...new Set([...(candidate.cuisines || []), ...record.cuisines])];
+    if (record.experiences?.length) candidate.experiences = [...new Set([...(candidate.experiences || []), ...record.experiences])];
+    candidate.attributionText = [...new Set([candidate.attributionText || candidate.attribution?.text || candidate.attributionLabel, record.attribution].filter(Boolean))].join(' · ');
+
     // Disagreements are retained rather than discarded — they are signal
     // (Epic 2 C2, Technical Constraints §5).
     for (const field of ['name', 'category', 'rating', 'priceLevel']) {
@@ -114,6 +133,7 @@ export function resolveVenues(rawRecords) {
 // Venues seen recently, by ref, so a detail view after a search is instant and
 // does not re-query the provider. Only sources whose terms permit retention
 // (fixtures, OSM) are remembered; a licensed source must opt out here.
+// Google/Tripadvisor/Ticketmaster display content may not be held — even in memory across sessions.
 const RETAINABLE = new Set(['fixtures', 'osm']);
 const recent = new Map();
 const RECENT_MAX = 2000;

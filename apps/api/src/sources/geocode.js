@@ -63,13 +63,17 @@ function shortLabel(row, locality) {
   return `${name}, ${locality}`;
 }
 
-async function searchOnce(q, { limit, near }) {
+async function searchOnce(q, { limit, near, countryCode, bounded = false }) {
   const params = new URLSearchParams({ q, format: 'jsonv2', addressdetails: '1', limit: String(limit), 'accept-language': 'en' });
   if (near?.lat != null) {
-    // Bias toward the household's area without excluding the rest of the world.
-    const d = 0.5;
+    // Bias toward an area (home, or the city a trip is in). `bounded` turns the
+    // bias into a hard limit: a hotel name typed for a trip in Rome must not
+    // come back as the same chain's London hotels.
+    const d = bounded ? 0.35 : 0.5;
     params.set('viewbox', `${near.lng - d},${near.lat + d},${near.lng + d},${near.lat - d}`);
+    if (bounded) params.set('bounded', '1');
   }
+  if (countryCode) params.set('countrycodes', String(countryCode).toLowerCase());
   const rows = await politeFetch(`${BASE}/search?${params}`);
   return rows.map(shape);
 }
@@ -87,9 +91,12 @@ const POSTCODE = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
  * then the town. When a fallback wins, the label keeps what the user typed so
  * "home" still reads as their address, and `matchedBy` says how precise it is.
  */
-export async function geocode(text, { limit = 5, near = null } = {}) {
+export async function geocode(text, { limit = 5, near = null, countryCode = null, within = false } = {}) {
   const q = String(text || '').trim();
   if (!q) return [];
+  // `within`: look inside the area around `near` first (a trip's city), then
+  // anywhere in `countryCode` if that finds nothing. Never outside the country.
+  const passes = within && near?.lat != null ? [{ bounded: true }, { bounded: false }] : [{ bounded: false }];
 
   const attempts = [{ q, matchedBy: 'address' }];
   const parts = q.split(',').map((p) => p.trim()).filter(Boolean);
@@ -107,7 +114,11 @@ export async function geocode(text, { limit = 5, near = null } = {}) {
     const key = attempt.q.toLowerCase();
     if (tried.has(key)) continue;
     tried.add(key);
-    const rows = await searchOnce(attempt.q, { limit, near });
+    let rows = [];
+    for (const pass of passes) {
+      rows = await searchOnce(attempt.q, { limit, near, countryCode, bounded: pass.bounded });
+      if (rows.length) break;
+    }
     if (rows.length) {
       if (attempt.matchedBy === 'address') return rows.map((r) => ({ ...r, matchedBy: 'address' }));
       // Approximate: keep the user's wording as the label, say how it was matched.
@@ -126,8 +137,8 @@ export async function geocode(text, { limit = 5, near = null } = {}) {
 }
 
 /** Coordinates → country and locality, for grouping trips by where they happened. */
-export async function reverseGeocode(lat, lng) {
-  const params = new URLSearchParams({ lat: String(lat), lon: String(lng), format: 'jsonv2', addressdetails: '1', zoom: '10', 'accept-language': 'en' });
+export async function reverseGeocode(lat, lng, { zoom = 10 } = {}) {
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lng), format: 'jsonv2', addressdetails: '1', zoom: String(zoom), 'accept-language': 'en' });
   const row = await politeFetch(`${BASE}/reverse?${params}`);
   if (!row || row.error) return null;
   return shape(row);

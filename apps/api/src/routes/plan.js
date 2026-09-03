@@ -19,6 +19,7 @@ import { applyConstraints } from '../domain/ranking.js';
 import { composeOptions } from '../domain/options.js';
 import { paceOf, travelLimitFor, maxReachMinutes } from '../domain/pace.js';
 import { dayAsTrip, slotFor } from '../domain/days.js';
+import { routingEnabled, travelMatrixMinutes, routeBetween } from '../sources/routing.js';
 import { wallToUtc, wallClock, DEFAULT_TZ } from '../domain/time.js';
 import { INTENSITY_TARGETS } from '../domain/budget.js';
 import { currentHousehold, loadMembers, toAttendees, loadLearnedPreferences } from './household.js';
@@ -263,6 +264,7 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
     query: '',
     includeEvents: true,
     outingStart: trip.depart_at,
+    outingEnd: trip.return_at,
   });
   await query(
     `insert into provider_calls (household_id, session_id, provider, purpose) values ($1, $2, $3, $4)`,
@@ -272,7 +274,17 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
   // Places the household has marked special may be further than the usual limit.
   const { rows: specials } = await query(`select source || ':' || source_place_id as ref from place_ledger where household_id = $1 and status = 'special'`, [household.id]);
   const specialRefs = new Set(specials.map((r) => r.ref));
-  const inReach = deriveCatchment({ origin: originPoint, maxTravelMinutes, mode: trip.travel_mode, venues })
+  let reached = deriveCatchment({ origin: originPoint, maxTravelMinutes: maxTravelMinutes * 1.5, mode: trip.travel_mode, venues });
+  // Real durations from the base when Google Routes is on; the estimate stays as the fallback.
+  if (routingEnabled() && reached.length) {
+    try {
+      const real = await travelMatrixMinutes({ origin: originPoint, destinations: reached.slice(0, 200), mode: trip.travel_mode, departAt: trip.depart_at });
+      if (real) reached = reached.map((v, i) => (real[i] ? { ...v, travelMinutes: real[i].minutes, travelEstimated: false } : { ...v, travelEstimated: true }));
+      await query('insert into provider_calls (household_id, session_id, provider, purpose) values ($1, $2, $3, $4)', [household.id, sessionId, 'google-routes', 'plan.matrix']);
+    } catch { /* keep estimates */ }
+  }
+  const inReach = reached
+    .filter((v) => v.travelMinutes <= maxTravelMinutes || v.travelEstimated === false)
     .map((v) => ({ ...v, special: specialRefs.has(`${v.source}:${v.sourcePlaceId}`) }))
     // A restaurant 40 minutes away is out; a castle 40 minutes away is fine.
     .filter((v) => v.travelMinutes <= travelLimitFor(pace, v, { special }));
@@ -494,7 +506,14 @@ router.post('/start', async (req, res, next) => {
     }
     state.dayId = trip.day.id;
     state.anchor = merged.anchor && anchorPlace ? { ...merged.anchor, place: anchorPlace } : null;
-    state.journey = { from: trip.origin_label, to: trip.base_label, minutes: estimateTravelMinutes({ lat: trip.origin_lat, lng: trip.origin_lng }, { lat: trip.base_lat, lng: trip.base_lng }, trip.travel_mode), mode: trip.travel_mode };
+    state.journey = { from: trip.origin_label, to: trip.base_label, minutes: estimateTravelMinutes({ lat: trip.origin_lat, lng: trip.origin_lng }, { lat: trip.base_lat, lng: trip.base_lng }, trip.travel_mode), mode: trip.travel_mode, estimated: true };
+    if (routingEnabled() && (trip.origin_lat !== trip.base_lat || trip.origin_lng !== trip.base_lng)) {
+      try {
+        const r = await routeBetween({ from: { lat: trip.origin_lat, lng: trip.origin_lng }, to: { lat: trip.base_lat, lng: trip.base_lng }, mode: trip.travel_mode, departAt: new Date(new Date(dayTrip.depart_at).getTime() - 3 * 3600_000).toISOString() });
+        if (r) state.journey = { ...state.journey, minutes: r.minutes, estimated: false, meters: r.meters };
+        await query('insert into provider_calls (household_id, session_id, provider, purpose) values ($1, $2, $3, $4)', [household.id, session.id, 'google-routes', 'plan.journey']);
+      } catch { /* estimate stands */ }
+    }
     state.pool = pool.candidates;
     state.excludedByAllergen = pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons }));
     // Must-haves come from the time left once a fixed commitment is placed:
