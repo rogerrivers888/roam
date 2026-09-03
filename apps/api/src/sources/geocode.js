@@ -44,7 +44,8 @@ export function localityOf(a, displayName = '') {
   const inLondon = String(a.country_code || '').toLowerCase() === 'gb'
     && (/greater london/i.test(displayName) || /^greater london$/i.test(raw) || /^(city of london|city of westminster|london borough of )/i.test(raw) || /^london borough of /i.test(a.city_district || ''));
   if (inLondon) return 'London';
-  return raw.replace(/^Greater\s+/i, '');
+  // "Royal Borough of Windsor and Maidenhead", "City of Edinburgh": the council's name is not what people call the place.
+  return raw.replace(/^Greater\s+/i, '').replace(/^(Royal |London |Metropolitan )?Borough of /i, '').replace(/^City of /i, '');
 }
 
 function shape(row) {
@@ -76,6 +77,8 @@ function shape(row) {
 }
 
 function shortLabel(row, locality) {
+  // The city itself, asked for by name: "London", not "Greater London, London".
+  if (locality && row.name && localityOf({ city: row.name, country_code: row.address?.country_code }, row.display_name) === locality) return locality;
   const name = row.name || row.display_name?.split(',')[0] || '';
   if (!locality || name.toLowerCase() === locality.toLowerCase()) return name;
   return `${name}, ${locality}`;

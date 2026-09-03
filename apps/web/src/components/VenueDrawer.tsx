@@ -17,7 +17,7 @@ import { SOURCE_LABEL, priceMarks, typeLine } from './StopCard';
 
 type Tab = 'overview' | 'reviews' | 'hours' | 'photos';
 
-export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, added, shortlisted }: {
+export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, added, shortlisted, ours, onVenue }: {
   item: BrowseItem | null;
   baseLabel?: string | null;
   onClose: () => void;
@@ -25,6 +25,10 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   onShortlist?: (item: BrowseItem) => Promise<void>;
   added?: boolean;
   shortlisted?: boolean;
+  /** The household's own side of the place (Places tab): status, history, notes — shown above the source's tabs. */
+  ours?: React.ReactNode;
+  /** The source's record once fetched (the atlas uses it to learn a name it only held as an identifier). */
+  onVenue?: (venue: Venue) => void;
 }) {
   const { width, height, framed, origin } = useViewport();
   const wide = width >= 900;
@@ -39,12 +43,14 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
     setTab('overview'); setVenue(undefined); setError(null); setSaved(false);
     if (!item) return;
     let live = true;
-    api.place(item.venueRef).then((d) => { if (live) { setVenue(d.venue); if (d.sourceError) setError(d.sourceError); } }).catch((e) => { if (live) { setVenue(null); setError(e.message); } });
+    api.place(item.venueRef).then((d) => { if (live) { setVenue(d.venue); if (d.venue) onVenue?.(d.venue); if (d.sourceError) setError(d.sourceError); } }).catch((e) => { if (live) { setVenue(null); setError(e.message); } });
     return () => { live = false; };
   }, [item?.venueRef]);
 
   if (!item) return null;
   const v = venue ?? undefined;
+  // A place the atlas holds only by identifier takes its name from the source when the drawer opens.
+  const title = item.name === item.venueRef && v?.name ? v.name : item.name;
   const photos = (v?.photos?.length ? v.photos : item.photos) ?? [];
   const reviews = [...(v?.reviews ?? [])].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
   const hours = (v?.openingHours ?? item.openingHours ?? '').split(' · ').filter(Boolean);
@@ -71,10 +77,18 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
           <ScrollView contentContainerStyle={{ gap: spacing.md, padding: spacing.lg }}>
             <Row style={{ alignItems: 'flex-start' }}>
               <View style={{ flex: 1, gap: 2 }}>
-                <Text style={type.title}>{item.name}</Text>
+                <Text style={type.title}>{title}</Text>
                 <Text style={type.small}>{typeLine(item)}{price ? ` · ${price}` : ''}{item.chain ? ` · chain${item.brand ? ` (${item.brand})` : ''}` : ''}</Text>
                 {rating != null ? <Text style={type.body}><Text style={{ fontWeight: '700' }}>★ {rating.toFixed(1)}</Text>{ratingCount ? ` from ${ratingCount.toLocaleString()} reviews` : ''} · {SOURCE_LABEL[item.ratingSource ?? source] ?? sourceName}</Text> : <Text style={type.tiny}>No rating from {sourceName}.</Text>}
-                <Text style={type.small}>{item.distanceKm != null ? `${item.distanceKm} km from ${baseLabel ?? 'base'}` : ''}{item.travelFromBaseMinutes != null ? ` · about ${item.travelFromBaseMinutes} min` : ''}{item.category !== 'event' ? ` · allow ${minutes(item.dwellMinutes)}` : ''}{item.startsAt ? ` · ${clock(item.startsAt)}` : ''}</Text>
+                {(() => {
+                  const bits = [
+                    item.distanceKm != null ? `${item.distanceKm} km from ${baseLabel ?? 'base'}` : null,
+                    item.travelFromBaseMinutes != null ? `about ${item.travelFromBaseMinutes} min` : null,
+                    item.category !== 'event' && item.dwellMinutes > 0 ? `allow ${minutes(item.dwellMinutes)}` : null,
+                    item.startsAt ? clock(item.startsAt) : null,
+                  ].filter(Boolean);
+                  return bits.length ? <Text style={type.small}>{bits.join(' · ')}</Text> : null;
+                })()}
               </View>
               <Pressable onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel="Close"><Text style={{ fontSize: 20 }}>✕</Text></Pressable>
             </Row>
@@ -93,6 +107,8 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
               {mapsUrl ? <Button label="Open in Google Maps" kind="ghost" onPress={() => Linking.openURL(mapsUrl)} /> : null}
               {externalUrl && !mapsUrl ? <Button label={item.category === 'event' ? 'Tickets' : `On ${sourceName}`} kind="ghost" onPress={() => Linking.openURL(externalUrl)} /> : null}
             </Wrap>
+
+            {ours}
 
             <Segmented value={tab} options={tabs} onChange={setTab} />
             {venue === undefined ? <Text style={type.tiny}>Fetching from {sourceName}…</Text> : null}

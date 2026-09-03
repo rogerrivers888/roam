@@ -49,7 +49,7 @@ export async function upsertHouseholdPlace(client, householdId, p) {
     `insert into household_places (household_id, venue_ref, label, kind, category, lat, lng, country, country_code, locality, venue, note)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      on conflict (household_id, venue_ref) do update set
-       label = coalesce(excluded.label, household_places.label),
+       label = case when excluded.label = excluded.venue_ref and household_places.label <> household_places.venue_ref then household_places.label else coalesce(excluded.label, household_places.label) end,
        kind = coalesce(excluded.kind, household_places.kind), category = coalesce(excluded.category, household_places.category),
        lat = coalesce(excluded.lat, household_places.lat), lng = coalesce(excluded.lng, household_places.lng),
        country = coalesce(excluded.country, household_places.country), country_code = coalesce(excluded.country_code, household_places.country_code),
@@ -119,6 +119,12 @@ atlas.get('/places', async (req, res, next) => {
     if (q) { params.push(`%${String(q).toLowerCase()}%`); where.push(`(lower(hp.label) like $${params.length} or lower(coalesce(hp.note,'')) like $${params.length})`); }
     const { rows } = await query(
       `select hp.*,
+              -- A label that is only the identifier (a save without context) is replaced at read time by the household's own name for the place.
+              case when hp.label = hp.venue_ref then coalesce(
+                (select v.venue_label from visits v where v.household_id = hp.household_id and v.venue_ref = hp.venue_ref and v.venue_label <> hp.venue_ref order by v.created_at desc limit 1),
+                (select s.venue_label from trip_shortlist s join trips t on t.id = s.trip_id where t.household_id = hp.household_id and s.venue_ref = hp.venue_ref and s.venue_label <> hp.venue_ref order by s.added_at desc limit 1),
+                (select st.venue_name from trip_stops st join trips t on t.id = st.trip_id where t.household_id = hp.household_id and st.venue_ref = hp.venue_ref and st.venue_name <> hp.venue_ref order by st.created_at desc limit 1),
+                hp.venue ->> 'name') end as known_label,
               (select count(*)::int from visits v where v.household_id = hp.household_id and v.venue_ref = hp.venue_ref) as visits,
               (select max(v.visited_on) from visits v where v.household_id = hp.household_id and v.venue_ref = hp.venue_ref) as last_on,
               (select json_agg(json_build_object('member', m.name, 'take', r.take, 'comment', r.comment, 'on', v.visited_on) order by v.visited_on desc)
@@ -132,7 +138,7 @@ atlas.get('/places', async (req, res, next) => {
       params,
     );
     let places = rows.map((r) => ({
-      venueRef: r.venue_ref, name: r.label, kind: r.kind, category: r.category, lat: r.lat, lng: r.lng,
+      venueRef: r.venue_ref, name: r.known_label ?? r.label, unnamed: (r.known_label ?? r.label) === r.venue_ref, kind: r.kind, category: r.category, lat: r.lat, lng: r.lng,
       country: r.country, countryCode: r.country_code, locality: r.locality, venue: r.venue, note: r.note,
       visits: r.visits, lastOn: r.last_on, takes: r.takes ?? [], ledger: r.ledger, onTrips: (r.on_trips ?? []).filter(Boolean),
       status: r.visits > 0 ? 'been' : r.ledger === 'special' ? 'special' : 'saved',
@@ -145,6 +151,17 @@ atlas.get('/places', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+
+/** PATCH /api/atlas/places { venueRef, label } — name a place that was only ever held by its identifier. */
+atlas.patch('/places', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const { venueRef, label } = req.body || {};
+    if (!venueRef || !String(label || '').trim()) return res.status(400).json({ error: 'label_required' });
+    await query('update household_places set label = $3 where household_id = $1 and venue_ref = $2 and label = venue_ref', [household.id, venueRef, String(label).trim()]);
+    res.json({ venueRef, label: String(label).trim() });
+  } catch (err) { next(err); }
+});
 
 /** POST /api/atlas/cities { placeText | place } — create a city on purpose. */
 atlas.post('/cities', async (req, res, next) => {
