@@ -8,7 +8,7 @@ import { computeBudget, INTENSITY_TARGETS } from '../domain/budget.js';
 import { TRAVEL_MODES } from '../domain/travel.js';
 import { dayAsTrip, datesBetween, slotFor } from '../domain/days.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
-import { optInFrom } from '../sources/index.js';
+import { optInFrom, enabledSources } from '../sources/index.js';
 import { searchCached } from '../sources/cache.js';
 import { kmBetween } from '../domain/travel.js';
 import { currentHousehold } from './household.js';
@@ -378,15 +378,20 @@ router.get('/:id/shortlist/search', async (req, res, next) => {
     const radiusKm = Math.min(25, Number(req.query.radiusKm) || 3);
     const categories = req.query.categories ? String(req.query.categories).split(',').filter(Boolean) : [];
     // The search form's picker wins; otherwise the trip's saved sources; otherwise the default set.
-    const sources = req.query.sources != null ? optInFrom(req.query.sources) : (Array.isArray(trip.sources) ? trip.sources : []);
+    // Find asks the place sources only: event listings and the local scout add nothing to a place
+    // search, and the scout alone can run past the proxy's ninety-second cut-off.
+    const asked = req.query.sources != null ? optInFrom(req.query.sources) : (Array.isArray(trip.sources) ? trip.sources : []);
+    const sources = asked.length ? asked : enabledSources().filter((src) => !src.events && src.key !== 'scout').map((src) => src.key);
     const q = String(req.query.q || '').trim();
     const { rows: existing } = await query('select venue_ref from trip_shortlist where trip_id = $1', [trip.id]);
     const have = new Set(existing.map((r) => r.venue_ref));
     const withFlags = (list) => list.map((v) => ({ ...v, onShortlist: have.has(v.venueRef) }));
-    const { venues, degraded, sourcesQueried, units, cached, fetchedAt, fetched } = await searchCached(
+    // A clear answer before the proxy's own cut-off: better "took too long" than a blank failure.
+    const deadline = new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('The sources took too long to answer. Try again, or fetch from fewer sources.'), { status: 504, code: 'sources_timeout' })), 75_000));
+    const { venues, degraded, sourcesQueried, units, cached, fetchedAt, fetched } = await Promise.race([searchCached(
       { center, radiusKm, categories, query: q, includeEvents: false, sources, locality: trip.locality ?? null },
       { refresh: req.query.refresh === '1' },
-    );
+    ), deadline]);
     if (fetched) await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search', units]);
     const results = venues.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, distanceKm: Number(kmBetween(center, v).toFixed(2)) }))
       .filter((v) => v.distanceKm <= radiusKm).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 120);
