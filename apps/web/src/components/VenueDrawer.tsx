@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useViewport } from '../hooks/useViewport';
 import { API_URL, api, BrowseItem, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
@@ -25,8 +26,10 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   added?: boolean;
   shortlisted?: boolean;
 }) {
-  const { width } = useWindowDimensions();
+  const { width, height, framed, origin } = useViewport();
   const wide = width >= 900;
+  // Inside the shell's phone frame the Modal still portals to the whole window, so the sheet is pinned to the frame's size.
+  const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height, borderRadius: radius.lg, overflow: 'hidden' as const } : null;
   const [tab, setTab] = useState<Tab>('overview');
   const [venue, setVenue] = useState<Venue | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +67,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
     <Modal visible transparent animationType={wide ? 'fade' : 'slide'} onRequestClose={onClose}>
       <View style={styles.backdropWrap}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-        <View style={[styles.panel, wide ? styles.panelSide : styles.panelSheet]}>
+        <View style={[styles.panel, wide ? styles.panelSide : styles.panelSheet, frameBox]}>
           <ScrollView contentContainerStyle={{ gap: spacing.md, padding: spacing.lg }}>
             <Row style={{ alignItems: 'flex-start' }}>
               <View style={{ flex: 1, gap: 2 }}>

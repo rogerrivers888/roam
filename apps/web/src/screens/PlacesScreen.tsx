@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useViewport } from '../hooks/useViewport';
 import { api, AtlasCity, AtlasCountry, AtlasPlace, HouseholdResponse, Place, Take, Venue, Visit, VisitTake } from '../api';
 import { MapView, MapPin } from '../components/MapView';
 import { VenuePhoto } from '../components/VenuePhoto';
@@ -17,7 +18,7 @@ const uuid = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID
 
 export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; onPlanTrip?: (p: TripPrefill) => void }) {
   const [tab, setTab] = useState<'atlas' | 'find' | 'been'>('atlas');
-  const { width } = useWindowDimensions();
+  const { width } = useViewport();
   const wide = width >= 1000;
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">

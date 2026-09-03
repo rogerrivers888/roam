@@ -18,6 +18,16 @@ Read `docs/requirements.md` (governing) and `docs/technical-constraints.md` befo
 - Voice is interpreted against a closed set that is visible on screen, and every voice action has a tap equivalent that produces the same state change.
 - Options are composed from one retrieved pool; adding an option must not add a provider call.
 
+## Web and mobile are one layout system (owner, 3 Sep 2026)
+
+The owner reviews every screen in both views on the deployed site: the shell (`apps/web/App.tsx`) carries a Web / Mobile toggle on any window 900px or wider, and "Mobile" draws the whole app inside a 390px phone frame. New screens and components must follow the structure that makes that work:
+
+- **Never read the window directly.** Use `useViewport()` from `apps/web/src/hooks/useViewport.tsx` for width and height, not `useWindowDimensions`, `Dimensions` or `window.innerWidth`. The frame tells screens they are 390px wide through that hook; anything reading the window ignores the toggle and shows the desktop layout inside the phone.
+- **Every screen has a phone layout and a wide layout**, decided from that width (breakpoints in use: 680 for the date picker, 900 for the shell, household and drawer, 1000 for Places and Trips). Design both before calling a screen done, and check both with the toggle on the Railway deployment, not only on a desktop window.
+- **Anything that portals out of the tree (a `Modal`) must pin itself to the frame.** Read `framed` and `origin` from `useViewport()` and position the sheet at that origin with the frame's size, as `VenueDrawer` does; otherwise it covers the whole browser window.
+- **Keep one tree shape across layouts.** A screen that returns two different trees for wide and narrow loses its state when the owner flips the toggle. Branch on style and on which children render, not on the whole return.
+- **Content must fit 390px.** Rows wrap, chips shrink (`Chip` already wraps long labels), and nothing is allowed to overflow the frame horizontally.
+
 ## Running
 
 See `README.md`. Postgres is on `localhost:5434` locally because 5432/5433 are used by other projects on the owner's machine.

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useViewport } from '../hooks/useViewport';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { api, Constraint, HouseholdResponse, Learned, Member, Suggestion } from '../api';
@@ -29,7 +30,7 @@ type Notice = { section: Section; kind: Constraint['kind']; hint: string | null;
  * stored as it is made.
  */
 export function HouseholdScreen({ data, refresh }: { data: HouseholdResponse | null; refresh: () => Promise<void> }) {
-  const { width } = useWindowDimensions();
+  const { width } = useViewport();
   const sideBySide = width >= 900;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);

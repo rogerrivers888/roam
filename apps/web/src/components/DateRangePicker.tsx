@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useViewport } from '../hooks/useViewport';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button } from './ui';
 
@@ -44,7 +45,7 @@ export function DateRangePicker({ start, end, onApply, single = false }: {
   /** One date rather than a range (a day out). */
   single?: boolean;
 }) {
-  const { width } = useWindowDimensions();
+  const { width } = useViewport();
   const sideBySide = width >= 680;
   const [open, setOpen] = useState(false);
   const [selStart, setSelStart] = useState<Date | null>(fromIso(start));

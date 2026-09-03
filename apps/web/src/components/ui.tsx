@@ -44,7 +44,7 @@ export function Chip({
   const body = (
     <View style={[styles.chip, { backgroundColor: t.bg, borderColor: selected ? colors.ink : t.border }]}>
       {icon ? <Text style={[styles.chipText, { color: t.fg }]}>{icon} </Text> : null}
-      <Text style={[styles.chipText, { color: t.fg }]}>{label}</Text>
+      <Text style={[styles.chipText, { color: t.fg, flexShrink: 1 }]}>{label}</Text>
       {onRemove ? (
         <Pressable onPress={onRemove} hitSlop={10} accessibilityLabel={`Remove ${label}`}>
           <Text style={[styles.chipText, { color: t.fg, marginLeft: 6 }]}>✕</Text>
@@ -54,7 +54,7 @@ export function Chip({
   );
   if (!onPress) return body;
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected }}>
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected }} style={{ maxWidth: '100%' }}>
       {body}
     </Pressable>
   );
@@ -190,6 +190,7 @@ export const styles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
+    maxWidth: '100%',
     paddingHorizontal: 12,
     minHeight: 34,
     borderRadius: radius.pill,

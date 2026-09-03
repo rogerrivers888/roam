@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useViewport } from '../hooks/useViewport';
 import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, TripDay, TripDetail, TripSummary, Venue, DayStop } from '../api';
 import { colors, memberColors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap, clock, minutes } from '../components/ui';
@@ -30,7 +31,7 @@ export type TripPrefill = { placeText?: string; place?: Place; countryCode?: str
 export function TripsScreen({ household, refreshHousehold, prefill, onPrefillConsumed }: {
   household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; prefill?: TripPrefill | null; onPrefillConsumed?: () => void;
 }) {
-  const { width } = useWindowDimensions();
+  const { width } = useViewport();
   const wide = width >= 1000;
   const [country, setCountry] = useState('');
   const [kind, setKind] = useState<'' | 'trip' | 'outing'>('');

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
+  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+import { useViewport } from '../hooks/useViewport';
 import { api, ApiError, HouseholdResponse, PlanAction, PlanResponse } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Stepper, Wrap, minutes, clock } from '../components/ui';
@@ -40,7 +41,7 @@ const MISSING_LABEL: Record<string, string> = {
 };
 
 export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResponse | null; onOpenTrip?: (tripId: string) => void }) {
-  const { width } = useWindowDimensions();
+  const { width } = useViewport();
   const cardWidth = Math.min(width, 760) - spacing.lg * 2;
 
   const [sessionId, setSessionId] = useState<string | null>(null);
