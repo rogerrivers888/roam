@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import { api, HouseholdResponse, Place, Take, Venue, Visit, VisitTake } from '../api';
+import { api, AtlasCountry, AtlasPlace, HouseholdResponse, Place, Take, Venue, Visit, VisitTake } from '../api';
+import { MapView, MapPin } from '../components/MapView';
+import type { TripPrefill } from './TripsScreen';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap } from '../components/ui';
 import { FaceRow } from '../components/Faces';
@@ -11,8 +13,8 @@ const CATEGORY_ICON: Record<string, string> = { restaurant: '🍽', cafe: '☕',
 const today = () => new Date().toISOString().slice(0, 10);
 const uuid = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
-export function PlacesScreen({ household, refreshHousehold }: { household: HouseholdResponse | null; refreshHousehold: () => Promise<void> }) {
-  const [tab, setTab] = useState<'find' | 'been'>('find');
+export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; onPlanTrip?: (p: TripPrefill) => void }) {
+  const [tab, setTab] = useState<'atlas' | 'find' | 'been'>('atlas');
   const { width } = useWindowDimensions();
   const wide = width >= 1000;
   return (
@@ -20,12 +22,152 @@ export function PlacesScreen({ household, refreshHousehold }: { household: House
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={type.title}>Places</Text>
-          <Text style={type.small}>Find what's near, remember where you've been, and say what everyone thought.</Text>
+          <Text style={type.small}>Your atlas: every country and city you've been to, the places you loved, the ones to try — and the start of the next trip there.</Text>
         </View>
       </View>
-      <Segmented value={tab} options={[{ value: 'find', label: 'Find places' }, { value: 'been', label: "Where we've been" }]} onChange={setTab} />
-      {tab === 'find' ? <FindPanel household={household} wide={wide} refreshHousehold={refreshHousehold} /> : <BeenPanel household={household} wide={wide} refreshHousehold={refreshHousehold} />}
+      <Segmented value={tab} options={[{ value: 'atlas', label: 'Our atlas' }, { value: 'find', label: 'Find places' }, { value: 'been', label: 'Visits' }]} onChange={setTab} />
+      {tab === 'atlas' ? <AtlasPanel household={household} wide={wide} refreshHousehold={refreshHousehold} onPlanTrip={onPlanTrip} /> : null}
+      {tab === 'find' ? <FindPanel household={household} wide={wide} refreshHousehold={refreshHousehold} /> : null}
+      {tab === 'been' ? <BeenPanel household={household} wide={wide} refreshHousehold={refreshHousehold} /> : null}
     </ScrollView>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Atlas: countries → cities → our places
+// ---------------------------------------------------------------------------
+
+function atlasToVenue(p: AtlasPlace): Venue {
+  const [source, ...rest] = p.venueRef.split(':');
+  const v = (p.venue ?? {}) as Partial<Venue>;
+  return {
+    venueRef: p.venueRef, source, sourcePlaceId: rest.join(':'), name: p.name, category: p.category ?? v.category ?? 'attraction',
+    cuisines: v.cuisines ?? [], experiences: v.experiences ?? [], allergens: [], dietaryOptions: v.dietaryOptions,
+    priceLevel: null, rating: null, goodForChildren: null, lat: p.lat ?? 0, lng: p.lng ?? 0, dishes: [],
+    website: v.website ?? null, openingHours: v.openingHours ?? null, address: (v.address as any)?.line1 ?? null, attribution: '© OpenStreetMap contributors',
+    household: { visits: p.visits, lastOn: p.lastOn ?? undefined, loved: p.loved, notForMe: p.notForMe, ledger: p.ledger ?? undefined },
+  };
+}
+
+function AtlasPanel({ household, wide, refreshHousehold, onPlanTrip }: { household: HouseholdResponse | null; wide: boolean; refreshHousehold: () => Promise<void>; onPlanTrip?: (p: TripPrefill) => void }) {
+  const [data, setData] = useState<{ countries: AtlasCountry[]; unplaced: number } | null>(null);
+  const [country, setCountry] = useState<AtlasCountry | null>(null);
+  const [city, setCity] = useState<string | null>(null);
+  const [places, setPlaces] = useState<AtlasPlace[]>([]);
+  const [status, setStatus] = useState<'' | 'been' | 'saved' | 'special'>('');
+  const [kind, setKind] = useState<'' | 'food' | 'activity'>('');
+  const [open, setOpen] = useState<Venue | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadAtlas = useCallback(async () => { try { setData(await api.atlas()); } catch (e: any) { setError(e.message); } }, []);
+  useEffect(() => { loadAtlas(); }, [loadAtlas]);
+  useEffect(() => {
+    if (!country || !city) { setPlaces([]); return; }
+    api.atlasPlaces({ country: country.code, city, status: status || undefined, kind: kind || undefined }).then((r) => setPlaces(r.places)).catch((e) => setError(e.message));
+  }, [country?.code, city, status, kind]);
+
+  const refreshAll = async () => { await loadAtlas(); if (country && city) setPlaces((await api.atlasPlaces({ country: country.code, city, status: status || undefined, kind: kind || undefined })).places); await refreshHousehold(); };
+
+  const pins: MapPin[] = places.filter((p) => p.lat != null && p.lng != null).map((p) => ({ id: p.venueRef, lat: p.lat!, lng: p.lng!, label: p.name, tone: p.special ? 'special' : p.status === 'been' ? 'been' : 'shortlist', onPress: () => setOpen(atlasToVenue(p)) }));
+
+  if (!data) return <Card><Text style={type.small}>{error ?? 'Loading your atlas…'}</Text></Card>;
+
+  if (!country) {
+    return (
+      <View style={{ gap: spacing.md }}>
+        {data.countries.length === 0 ? <Card><Text style={type.body}>Your atlas is empty so far.</Text><Text style={type.small}>It fills itself: every place you visit, save, mark special or shortlist on a trip lands here under its country and city. Start with "Find places", or create a trip.</Text></Card> : null}
+        <View style={[styles.grid, wide && { flexDirection: 'row', flexWrap: 'wrap' }]}>
+          {data.countries.map((c) => (
+            <Pressable key={c.code} onPress={() => { setCountry(c); setCity(c.cities.length === 1 ? c.cities[0].name : null); }} style={wide ? { width: '49%' } : undefined}>
+              <Card style={{ gap: 4 }}>
+                <Text style={type.h2}>{c.name}</Text>
+                <Text style={type.small}>{c.places} place{c.places === 1 ? '' : 's'} · {c.been} been · {c.cities.length} {c.cities.length === 1 ? 'city' : 'cities'}</Text>
+                <Wrap>{c.cities.slice(0, 6).map((ci) => <Chip key={ci.name} label={`${ci.name} (${ci.places})`} />)}</Wrap>
+              </Card>
+            </Pressable>
+          ))}
+        </View>
+        {data.unplaced ? <Text style={type.tiny}>{data.unplaced} place{data.unplaced === 1 ? '' : 's'} still being placed on the map.</Text> : null}
+      </View>
+    );
+  }
+
+  if (!city) {
+    return (
+      <View style={{ gap: spacing.md }}>
+        <Button label={`← All countries`} kind="ghost" onPress={() => setCountry(null)} style={{ alignSelf: 'flex-start' }} />
+        <Text style={type.h2}>{country.name}</Text>
+        {country.cities.map((ci) => (
+          <Pressable key={ci.name} onPress={() => setCity(ci.name)}>
+            <Card style={{ gap: 4 }}>
+              <Text style={type.h3}>{ci.name}</Text>
+              <Text style={type.small}>{ci.places} places · {ci.been} been · {ci.special} special · {ci.trips} trip{ci.trips === 1 ? '' : 's'}</Text>
+            </Card>
+          </Pressable>
+        ))}
+      </View>
+    );
+  }
+
+  const been = places.filter((p) => p.status === 'been');
+  const toTry = places.filter((p) => p.status !== 'been');
+
+  return (
+    <View style={{ gap: spacing.md }}>
+      <Row>
+        <Button label={`← ${country.name}`} kind="ghost" onPress={() => setCity(null)} />
+        <View style={{ flex: 1 }} />
+        <Button label={`Plan a trip to ${city}`} onPress={() => onPlanTrip?.({ placeText: `${city}, ${country.name}`, countryCode: country.code })} />
+      </Row>
+      <Text style={type.title}>{city}</Text>
+      <Row>
+        <Segmented value={status} options={[{ value: '', label: 'All' }, { value: 'been', label: 'Been' }, { value: 'saved', label: 'To try' }, { value: 'special', label: '★ Special' }]} onChange={setStatus} />
+      </Row>
+      <Segmented value={kind} options={[{ value: '', label: 'Everything' }, { value: 'activity', label: 'Things to do' }, { value: 'food', label: 'Food & drink' }]} onChange={setKind} />
+      <View style={[styles.split, wide && { flexDirection: 'row', alignItems: 'flex-start' }]}>
+        <View style={[{ flex: 1, gap: spacing.md }, wide && { minWidth: 0 }]}>
+          {open ? <PlaceDetail venue={open} household={household} onClose={() => setOpen(null)} onChanged={refreshAll} /> : null}
+          {status === '' ? (
+            <>
+              {been.length ? <Text style={type.h2}>Been ({been.length})</Text> : null}
+              {been.map((p) => <AtlasRow key={p.venueRef} place={p} onPress={() => setOpen(atlasToVenue(p))} />)}
+              {toTry.length ? <Text style={type.h2}>To try ({toTry.length})</Text> : null}
+              {toTry.map((p) => <AtlasRow key={p.venueRef} place={p} onPress={() => setOpen(atlasToVenue(p))} />)}
+            </>
+          ) : places.map((p) => <AtlasRow key={p.venueRef} place={p} onPress={() => setOpen(atlasToVenue(p))} />)}
+          {places.length === 0 ? <Card><Text style={type.small}>Nothing here with that filter.</Text></Card> : null}
+        </View>
+        <View style={wide ? { width: 420 } : undefined}>
+          <Card style={{ padding: spacing.sm }}>
+            <MapView pins={pins} height={wide ? 520 : 300} />
+            <Text style={type.tiny}>green = been · purple = to try · gold = special. Tap a pin.</Text>
+          </Card>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function AtlasRow({ place, onPress }: { place: AtlasPlace; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button">
+      <Card style={{ gap: 4 }}>
+        <Row>
+          <Text style={{ fontSize: 20 }}>{CATEGORY_ICON[place.category ?? ''] ?? '📍'}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={type.h3}>{place.special ? '★ ' : ''}{place.name}</Text>
+            <Text style={type.small}>{[place.category, ...((place.venue?.experiences as string[]) ?? []), ...((place.venue?.cuisines as string[]) ?? [])].filter(Boolean).join(' · ')}</Text>
+          </View>
+        </Row>
+        <Wrap>
+          {place.visits ? <Chip label={`Been ${place.visits}×${place.lastOn ? ` · last ${place.lastOn}` : ''}`} tone="accent" /> : <Chip label="To try" tone="want" />}
+          {place.takes.slice(0, 4).map((t, i) => <Chip key={i} label={`${t.member}: ${t.take === 'loved' ? '♥' : t.take === 'fine' ? '–' : '✕'}${t.comment ? ` ${t.comment}` : ''}`} tone={t.take === 'loved' ? 'like' : t.take === 'not_for_me' ? 'dislike' : 'neutral'} />)}
+          {place.onTrips.length ? <Chip label={`On: ${place.onTrips.join(', ')}`} /> : null}
+        </Wrap>
+        {place.note ? <Text style={type.small}>“{place.note}”</Text> : null}
+      </Card>
+    </Pressable>
   );
 }
 
@@ -355,6 +497,7 @@ const styles = StyleSheet.create({
   page: { padding: spacing.lg, gap: spacing.md, width: '100%', maxWidth: 1100, alignSelf: 'center' },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   split: { gap: spacing.md },
+  grid: { gap: spacing.md, justifyContent: 'space-between' },
   input: {
     minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink,

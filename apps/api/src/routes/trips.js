@@ -1,116 +1,160 @@
+// Trips: a day out or a fortnight abroad — same shape, different number of days
+// (docs/trip-planner-design.md). Trip → days → stops in slots; a per-trip
+// shortlist of researched places; a base to come back to.
+
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
 import { computeBudget, INTENSITY_TARGETS } from '../domain/budget.js';
 import { TRAVEL_MODES } from '../domain/travel.js';
+import { dayAsTrip, datesBetween, slotFor } from '../domain/days.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
-import { currentHousehold, loadMembers } from './household.js';
+import { searchAllSources } from '../sources/index.js';
+import { kmBetween } from '../domain/travel.js';
+import { currentHousehold } from './household.js';
 import { visitPayload } from './places.js';
+import { upsertHouseholdPlace } from './atlas.js';
 
 const router = Router();
+const SLOTS = ['morning', 'afternoon', 'evening'];
+const KINDS = ['food', 'activity', 'other'];
 
 async function loadTrip(tripId) {
   const { rows } = await query('select * from trips where id = $1', [tripId]);
-  if (!rows[0]) {
-    const err = new Error('Trip not found');
-    err.status = 404;
-    err.code = 'trip_not_found';
-    throw err;
-  }
+  if (!rows[0]) { const err = new Error('Trip not found'); err.status = 404; err.code = 'trip_not_found'; throw err; }
   return rows[0];
 }
 
-export function publicTrip(trip) {
+export function publicTrip(t) {
   return {
-    id: trip.id,
-    title: trip.title,
-    notes: trip.notes,
-    origin: { label: trip.origin_label, lat: trip.origin_lat, lng: trip.origin_lng },
-    destination: trip.destination_label ? { label: trip.destination_label, lat: trip.destination_lat, lng: trip.destination_lng } : null,
-    departAt: trip.depart_at,
-    returnAt: trip.return_at,
-    travelMode: trip.travel_mode,
-    intensity: trip.intensity,
-    country: trip.country,
-    countryCode: trip.country_code,
-    locality: trip.locality,
+    id: t.id,
+    kind: t.kind,
+    title: t.title,
+    notes: t.notes,
+    place: t.place_label ? { label: t.place_label } : null,
+    startDate: t.start_date,
+    endDate: t.end_date,
+    dayStart: t.day_start?.slice(0, 5),
+    dayEnd: t.day_end?.slice(0, 5),
+    base: t.base_lat != null ? { label: t.base_label, lat: t.base_lat, lng: t.base_lng, kind: t.base_kind, checkIn: t.base_check_in, checkOut: t.base_check_out } : null,
+    hasCar: t.has_car,
+    origin: { label: t.origin_label, lat: t.origin_lat, lng: t.origin_lng },
+    destination: t.destination_label ? { label: t.destination_label, lat: t.destination_lat, lng: t.destination_lng } : null,
+    departAt: t.depart_at,
+    returnAt: t.return_at,
+    travelMode: t.travel_mode,
+    intensity: t.intensity,
+    country: t.country,
+    countryCode: t.country_code,
+    locality: t.locality,
   };
+}
+
+async function ensureDays(client, trip) {
+  if (!trip.start_date || !trip.end_date) return;
+  for (const date of datesBetween(trip.start_date, trip.end_date)) {
+    await client.query('insert into trip_days (trip_id, date) values ($1, $2) on conflict do nothing', [trip.id, date]);
+  }
+  // Days outside the new range lose their stops (cascade) — deliberate: the dates changed.
+  await client.query('delete from trip_days where trip_id = $1 and (date < $2 or date > $3)', [trip.id, trip.start_date, trip.end_date]);
+}
+
+async function placeTrip(client, tripId, point) {
+  try {
+    const r = await reverseGeocode(point.lat, point.lng);
+    if (r) await client.query('update trips set country = $2, country_code = $3, locality = $4 where id = $1', [tripId, r.country, r.countryCode, r.locality]);
+  } catch { /* unknown is acceptable */ }
 }
 
 export async function tripPayload(tripId) {
   const trip = await loadTrip(tripId);
   const household = await currentHousehold();
-  const [{ rows: stops }, { rows: attendees }, { rows: visitRows }] = await Promise.all([
+  const [{ rows: days }, { rows: stops }, { rows: attendees }, { rows: visitRows }, { rows: shortlist }] = await Promise.all([
+    query('select * from trip_days where trip_id = $1 order by date', [tripId]),
     query('select * from trip_stops where trip_id = $1 order by position', [tripId]),
     query(`select m.id, m.name, m.is_minor, m.avatar_url from trip_attendees ta join members m on m.id = ta.member_id where ta.trip_id = $1 order by m.is_minor, m.name`, [tripId]),
-    query('select id, stop_id, venue_ref from visits where trip_id = $1', [tripId]),
+    query('select id, stop_id from visits where trip_id = $1', [tripId]),
+    query('select * from trip_shortlist where trip_id = $1 order by must_do desc, added_at', [tripId]),
   ]);
   const visitsByStop = new Map();
-  for (const v of visitRows) visitsByStop.set(v.stop_id ?? v.venue_ref, await visitPayload(v.id));
+  for (const v of visitRows) if (v.stop_id) visitsByStop.set(v.stop_id, await visitPayload(v.id));
+  const scheduledRefs = new Set(stops.map((s) => s.venue_ref));
+
+  const dayPayloads = days.map((d) => {
+    const virtual = dayAsTrip(trip, d);
+    const dayStops = stops.filter((s) => s.day_id === d.id);
+    const slotOrder = (s) => SLOTS.indexOf(s.slot || 'morning');
+    dayStops.sort((a, b) => slotOrder(a) - slotOrder(b) || a.position - b.position);
+    const budget = computeBudget({ trip: virtual, stops: dayStops.map((s, i) => ({ ...s, position: i + 1 })), household });
+    return {
+      id: d.id,
+      date: d.date,
+      intensity: virtual.intensity,
+      travelMode: virtual.travel_mode,
+      startTime: virtual.depart_at,
+      endTime: virtual.return_at,
+      notes: d.notes,
+      slots: SLOTS.map((slot) => ({
+        slot,
+        stops: dayStops.filter((s) => (s.slot || 'morning') === slot).map((s) => ({
+          id: s.id, position: s.position, venueRef: s.venue_ref, name: s.venue_name, lat: s.lat, lng: s.lng,
+          dwellMinutes: s.dwell_minutes, startTime: s.start_time?.slice(0, 5) ?? null, visit: visitsByStop.get(s.id) ?? null,
+        })),
+      })),
+      budget,
+    };
+  });
 
   return {
     trip: publicTrip(trip),
     attendees: attendees.map((a) => ({ id: a.id, name: a.name, isMinor: a.is_minor, avatarUrl: a.avatar_url })),
-    stops: stops.map((s) => ({
-      id: s.id,
-      position: s.position,
-      venueRef: s.venue_ref,
-      name: s.venue_name,
-      lat: s.lat,
-      lng: s.lng,
-      dwellMinutes: s.dwell_minutes,
-      visit: visitsByStop.get(s.id) ?? visitsByStop.get(s.venue_ref) ?? null,
+    days: dayPayloads,
+    shortlist: shortlist.map((s) => ({
+      id: s.id, venueRef: s.venue_ref, name: s.venue_label, kind: s.kind, category: s.category, lat: s.lat, lng: s.lng,
+      venue: s.venue, note: s.note, mustDo: s.must_do, preferredDayId: s.preferred_day_id, scheduled: scheduledRefs.has(s.venue_ref),
     })),
-    // Recomputed on every read: the time budget is derived, never stored.
+    // Legacy single-window view for outings (the Plan screen and older clients).
+    stops: stops.map((s) => ({ id: s.id, position: s.position, venueRef: s.venue_ref, name: s.venue_name, lat: s.lat, lng: s.lng, dwellMinutes: s.dwell_minutes, visit: visitsByStop.get(s.id) ?? null })),
     budget: computeBudget({ trip, stops, household }),
   };
 }
 
-/** Where a trip "is", for grouping: the destination if there is one, else the origin. */
-async function placeTrip(client, tripId, point) {
-  try {
-    const r = await reverseGeocode(point.lat, point.lng);
-    if (r) await client.query('update trips set country = $2, country_code = $3, locality = $4 where id = $1', [tripId, r.country, r.countryCode, r.locality]);
-  } catch { /* leave unknown; can be filled later */ }
-}
+// ---------------------------------------------------------------------------
+// List / create / update
+// ---------------------------------------------------------------------------
 
-/** GET /api/trips?country=GB&when=upcoming|past&q= */
+/** GET /api/trips?country=GB&when=upcoming|past&kind=trip|outing&q= */
 router.get('/', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { country, when, q } = req.query;
+    const { country, when, q, kind } = req.query;
+    const { rows: unplaced } = await query('select id, base_lat, base_lng, origin_lat, origin_lng, destination_lat, destination_lng from trips where household_id = $1 and country_code is null limit 3', [household.id]);
+    for (const t of unplaced) await placeTrip({ query }, t.id, { lat: t.base_lat ?? t.destination_lat ?? t.origin_lat, lng: t.base_lng ?? t.destination_lng ?? t.origin_lng });
+
     const params = [household.id];
     const where = ['t.household_id = $1'];
     if (country) { params.push(String(country).toUpperCase()); where.push(`t.country_code = $${params.length}`); }
-    if (when === 'upcoming') where.push('t.return_at >= now()');
-    if (when === 'past') where.push('t.return_at < now()');
-    if (q) { params.push(`%${String(q).toLowerCase()}%`); where.push(`(lower(coalesce(t.title,'')) like $${params.length} or lower(t.origin_label) like $${params.length} or lower(coalesce(t.destination_label,'')) like $${params.length} or lower(coalesce(t.locality,'')) like $${params.length})`); }
-
-    // Trips created before places were recorded get their country filled in, a few at a time.
-    const { rows: unplaced } = await query('select id, origin_lat, origin_lng, destination_lat, destination_lng from trips where household_id = $1 and country_code is null limit 3', [household.id]);
-    for (const t of unplaced) {
-      await placeTrip({ query }, t.id, { lat: t.destination_lat ?? t.origin_lat, lng: t.destination_lng ?? t.origin_lng });
-    }
+    if (kind) { params.push(String(kind)); where.push(`t.kind = $${params.length}`); }
+    if (when === 'upcoming') where.push('coalesce(t.end_date, t.return_at::date) >= current_date');
+    if (when === 'past') where.push('coalesce(t.end_date, t.return_at::date) < current_date');
+    if (q) { params.push(`%${String(q).toLowerCase()}%`); where.push(`(lower(coalesce(t.title,'')) like $${params.length} or lower(coalesce(t.place_label,'')) like $${params.length} or lower(coalesce(t.base_label,'')) like $${params.length} or lower(coalesce(t.locality,'')) like $${params.length})`); }
 
     const { rows } = await query(
       `select t.*,
+              (select count(*)::int from trip_days d where d.trip_id = t.id) as day_count,
               (select count(*)::int from trip_stops s where s.trip_id = t.id) as stop_count,
+              (select count(*)::int from trip_shortlist s where s.trip_id = t.id) as shortlist_count,
               (select count(*)::int from visits v where v.trip_id = t.id) as visit_count,
               (select count(*)::int from ratings r join visits v on v.id = r.visit_id where v.trip_id = t.id) as rating_count,
               (select json_agg(m.name order by m.name) from trip_attendees ta join members m on m.id = ta.member_id where ta.trip_id = t.id) as attendees
-         from trips t
-        where ${where.join(' and ')}
-        order by t.depart_at desc`,
+         from trips t where ${where.join(' and ')}
+        order by coalesce(t.start_date, t.depart_at::date) desc`,
       params,
     );
-    const { rows: facets } = await query(
-      `select country_code, country, count(*)::int as trips from trips where household_id = $1 and country_code is not null group by country_code, country order by trips desc`,
-      [household.id],
-    );
+    const { rows: facets } = await query(`select country_code, country, count(*)::int as trips from trips where household_id = $1 and country_code is not null group by country_code, country order by trips desc`, [household.id]);
     res.json({
       trips: rows.map((t) => ({
-        ...publicTrip(t),
-        stopCount: t.stop_count, visitCount: t.visit_count, ratingCount: t.rating_count, attendees: t.attendees ?? [],
-        isPast: new Date(t.return_at) < new Date(),
+        ...publicTrip(t), dayCount: t.day_count, stopCount: t.stop_count, shortlistCount: t.shortlist_count, visitCount: t.visit_count, ratingCount: t.rating_count,
+        attendees: t.attendees ?? [], isPast: new Date(t.end_date ?? t.return_at) < new Date(new Date().toDateString()),
       })),
       countries: facets.map((f) => ({ code: f.country_code, name: f.country, trips: f.trips })),
     });
@@ -121,48 +165,88 @@ router.get('/', async (req, res, next) => {
 
 /**
  * POST /api/trips
- * { title?, origin?: {label,lat,lng} | originText?, destination?: {...} | destinationText?,
- *   departAt, returnAt, travelMode?, intensity?, attendingMemberIds?, notes? }
- * Origin defaults to home. Text is geocoded.
+ * Trip:   { kind:'trip', title, place|placeText, startDate, endDate, base|baseText, baseKind, hasCar, travelMode?, intensity?, dayStart?, dayEnd?, attendingMemberIds?, notes? }
+ * Outing: { kind:'outing', origin|originText, destination|destinationText, departAt, returnAt, travelMode, intensity, attendingMemberIds }
  */
 router.post('/', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const b = req.body || {};
     const home = household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null;
+    const kind = b.kind === 'trip' ? 'trip' : 'outing';
+    const travelMode = b.travelMode ?? (b.hasCar === false ? 'transit' : 'driving');
+    const intensity = b.intensity ?? household.default_intensity;
+    if (!TRAVEL_MODES.includes(travelMode)) return res.status(400).json({ error: 'invalid_mode' });
+    if (!INTENSITY_TARGETS[intensity]) return res.status(400).json({ error: 'invalid_intensity' });
+    const ids = async (client) => (Array.isArray(b.attendingMemberIds) && b.attendingMemberIds.length ? b.attendingMemberIds : (await client.query('select id from members where household_id = $1', [household.id])).rows.map((r) => r.id));
 
+    if (kind === 'trip') {
+      if (!b.startDate || !b.endDate || b.endDate < b.startDate) return res.status(400).json({ error: 'dates_required', message: 'Start and end dates are needed, end on or after start.' });
+      let place = b.place?.lat != null ? b.place : null;
+      if (!place && b.placeText) [place] = await geocode(b.placeText, { limit: 1 });
+      let base = b.base?.lat != null ? b.base : null;
+      if (!base && b.baseText) [base] = await geocode(b.baseText, { limit: 1, near: place });
+      if (!base && (b.baseKind === 'home' || (!place && home))) base = home;
+      if (!base && place) base = { ...place, label: `${place.label} (centre)` };
+      if (!base) return res.status(400).json({ error: 'place_required', message: 'Say where the trip is — a city or region — or where you are staying.' });
+
+      const trip = await withTransaction(async (client) => {
+        const { rows } = await client.query(
+          `insert into trips (household_id, kind, title, notes, place_label, start_date, end_date,
+                              base_label, base_lat, base_lng, base_kind, base_check_in, base_check_out, has_car, day_start, day_end,
+                              origin_label, origin_lat, origin_lng, depart_at, return_at, travel_mode, intensity)
+           values ($1,'trip',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$7,$8,$9,($5::date + $14::time), ($6::date + $15::time),$16,$17) returning *`,
+          [household.id, b.title?.trim() || null, b.notes?.trim() || null, place?.label ?? b.placeText ?? base.label, b.startDate, b.endDate,
+           base.label, base.lat, base.lng, b.baseKind ?? (base === home ? 'home' : 'hotel'), b.checkIn ?? null, b.checkOut ?? null, b.hasCar !== false,
+           b.dayStart ?? '09:30', b.dayEnd ?? '21:00', travelMode, intensity],
+        );
+        const created = rows[0];
+        for (const memberId of await ids(client)) await client.query('insert into trip_attendees (trip_id, member_id) values ($1, $2) on conflict do nothing', [created.id, memberId]);
+        await ensureDays(client, created);
+        await placeTrip(client, created.id, place ?? base);
+        // Start from everything the household already knows in this city (atlas).
+        if (b.seedFromAtlas !== false) {
+          const { rows: placed } = await client.query('select country_code, locality from trips where id = $1', [created.id]);
+          const loc = placed[0];
+          if (loc?.country_code) {
+            await client.query(
+              `insert into trip_shortlist (trip_id, venue_ref, venue_label, kind, category, lat, lng, venue, note)
+               select $1, hp.venue_ref, hp.label, coalesce(hp.kind, 'other'), hp.category, hp.lat, hp.lng, hp.venue, hp.note
+                 from household_places hp
+                where hp.household_id = $2 and hp.country_code = $3 and coalesce(hp.locality, '') = coalesce($4, '')
+                  and not exists (select 1 from place_ledger l where l.household_id = $2 and l.source || ':' || l.source_place_id = hp.venue_ref and l.status = 'dismissed' and l.created_at > hp.last_seen)
+               on conflict (trip_id, venue_ref) do nothing`,
+              [created.id, household.id, loc.country_code, loc.locality],
+            );
+          }
+        }
+        return created;
+      });
+      return res.status(201).json(await tripPayload(trip.id));
+    }
+
+    // Outing (one day, base = origin, optional destination)
     let origin = b.origin?.lat != null ? b.origin : null;
     if (!origin && b.originText) [origin] = await geocode(b.originText, { limit: 1, near: home });
     if (!origin) origin = home;
     if (!origin) return res.status(400).json({ error: 'origin_required', message: 'Give a starting point, or set a home address in Settings.' });
-
     let destination = b.destination?.lat != null ? b.destination : null;
     if (!destination && b.destinationText) [destination] = await geocode(b.destinationText, { limit: 1, near: home });
-
     if (!b.departAt || !b.returnAt) return res.status(400).json({ error: 'window_required' });
-    if (new Date(b.returnAt) <= new Date(b.departAt)) return res.status(400).json({ error: 'invalid_window', message: 'return time must be after departure time' });
-    const travelMode = b.travelMode ?? 'driving';
-    const intensity = b.intensity ?? household.default_intensity;
-    if (!TRAVEL_MODES.includes(travelMode)) return res.status(400).json({ error: 'invalid_mode' });
-    if (!INTENSITY_TARGETS[intensity]) return res.status(400).json({ error: 'invalid_intensity' });
+    if (new Date(b.returnAt) <= new Date(b.departAt)) return res.status(400).json({ error: 'invalid_window' });
 
     const trip = await withTransaction(async (client) => {
       const { rows } = await client.query(
-        `insert into trips (household_id, title, notes, origin_label, origin_lat, origin_lng,
-                            destination_label, destination_lat, destination_lng,
-                            depart_at, return_at, travel_mode, intensity)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *`,
+        `insert into trips (household_id, kind, title, notes, origin_label, origin_lat, origin_lng, destination_label, destination_lat, destination_lng,
+                            depart_at, return_at, travel_mode, intensity, start_date, end_date, base_label, base_lat, base_lng, base_kind, has_car, day_start, day_end)
+         values ($1,'outing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$10::date,$11::date,$4,$5,$6,'home',$14,$10::time,$11::time) returning *`,
         [household.id, b.title?.trim() || null, b.notes?.trim() || null, origin.label, origin.lat, origin.lng,
-         destination?.label ?? null, destination?.lat ?? null, destination?.lng ?? null,
-         b.departAt, b.returnAt, travelMode, intensity],
+         destination?.label ?? null, destination?.lat ?? null, destination?.lng ?? null, b.departAt, b.returnAt, travelMode, intensity, b.hasCar !== false],
       );
       const created = rows[0];
-      const ids = Array.isArray(b.attendingMemberIds) && b.attendingMemberIds.length
-        ? b.attendingMemberIds
-        : (await client.query('select id from members where household_id = $1', [household.id])).rows.map((r) => r.id);
-      for (const memberId of ids) {
-        await client.query('insert into trip_attendees (trip_id, member_id) values ($1, $2) on conflict do nothing', [created.id, memberId]);
-      }
+      for (const memberId of await ids(client)) await client.query('insert into trip_attendees (trip_id, member_id) values ($1, $2) on conflict do nothing', [created.id, memberId]);
+      await ensureDays(client, created);
+      await client.query('update trip_days set intensity = $2, travel_mode = $3 where trip_id = $1', [created.id, intensity, travelMode]);
       await placeTrip(client, created.id, destination ?? origin);
       return created;
     });
@@ -172,39 +256,40 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-router.get('/:id', async (req, res, next) => {
-  try {
-    res.json(await tripPayload(req.params.id));
-  } catch (err) {
-    next(err);
-  }
-});
+router.get('/:id', async (req, res, next) => { try { res.json(await tripPayload(req.params.id)); } catch (err) { next(err); } });
 
 router.patch('/:id', async (req, res, next) => {
   try {
-    const { departAt, returnAt, travelMode, intensity, title, notes } = req.body || {};
-    if (travelMode && !TRAVEL_MODES.includes(travelMode)) return res.status(400).json({ error: 'invalid_mode' });
-    if (intensity && !INTENSITY_TARGETS[intensity]) return res.status(400).json({ error: 'invalid_intensity' });
-    await query(
-      `update trips set depart_at = coalesce($2, depart_at), return_at = coalesce($3, return_at), travel_mode = coalesce($4, travel_mode),
-                        intensity = coalesce($5, intensity), title = coalesce($6, title), notes = coalesce($7, notes)
-        where id = $1`,
-      [req.params.id, departAt ?? null, returnAt ?? null, travelMode ?? null, intensity ?? null, title ?? null, notes ?? null],
-    );
-    res.json(await tripPayload(req.params.id));
+    const trip = await loadTrip(req.params.id);
+    const b = req.body || {};
+    if (b.travelMode && !TRAVEL_MODES.includes(b.travelMode)) return res.status(400).json({ error: 'invalid_mode' });
+    if (b.intensity && !INTENSITY_TARGETS[b.intensity]) return res.status(400).json({ error: 'invalid_intensity' });
+    let base = b.base?.lat != null ? b.base : null;
+    if (!base && b.baseText) [base] = await geocode(b.baseText, { limit: 1, near: { lat: trip.base_lat ?? trip.origin_lat, lng: trip.base_lng ?? trip.origin_lng } });
+    await withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `update trips set
+           title = coalesce($2, title), notes = coalesce($3, notes), start_date = coalesce($4, start_date), end_date = coalesce($5, end_date),
+           has_car = coalesce($6, has_car), travel_mode = coalesce($7, travel_mode), intensity = coalesce($8, intensity),
+           day_start = coalesce($9::time, day_start), day_end = coalesce($10::time, day_end),
+           base_label = coalesce($11, base_label), base_lat = coalesce($12, base_lat), base_lng = coalesce($13, base_lng), base_kind = coalesce($14, base_kind),
+           base_check_in = coalesce($15, base_check_in), base_check_out = coalesce($16, base_check_out),
+           depart_at = coalesce($17, depart_at), return_at = coalesce($18, return_at)
+         where id = $1 returning *`,
+        [trip.id, b.title ?? null, b.notes ?? null, b.startDate ?? null, b.endDate ?? null, b.hasCar ?? null, b.travelMode ?? null, b.intensity ?? null,
+         b.dayStart ?? null, b.dayEnd ?? null, base?.label ?? null, base?.lat ?? null, base?.lng ?? null, b.baseKind ?? null, b.checkIn ?? null, b.checkOut ?? null,
+         b.departAt ?? null, b.returnAt ?? null],
+      );
+      await ensureDays(client, rows[0]);
+    });
+    res.json(await tripPayload(trip.id));
   } catch (err) {
     next(err);
   }
 });
 
 router.delete('/:id', async (req, res, next) => {
-  try {
-    const { rowCount } = await query('delete from trips where id = $1', [req.params.id]);
-    if (!rowCount) return res.status(404).json({ error: 'trip_not_found' });
-    res.status(204).end();
-  } catch (err) {
-    next(err);
-  }
+  try { const { rowCount } = await query('delete from trips where id = $1', [req.params.id]); if (!rowCount) return res.status(404).json({ error: 'trip_not_found' }); res.status(204).end(); } catch (err) { next(err); }
 });
 
 router.put('/:id/attendees', async (req, res, next) => {
@@ -215,82 +300,163 @@ router.put('/:id/attendees', async (req, res, next) => {
       for (const memberId of memberIds) await client.query('insert into trip_attendees (trip_id, member_id) values ($1, $2)', [req.params.id, memberId]);
     });
     res.json(await tripPayload(req.params.id));
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-/** Add a stop; the response carries the recalculated budget (Epic 4 C3/C4). */
-router.post('/:id/stops', async (req, res, next) => {
+// ---------------------------------------------------------------------------
+// Days
+// ---------------------------------------------------------------------------
+
+router.patch('/:id/days/:dayId', async (req, res, next) => {
+  try {
+    const { intensity, travelMode, startTime, endTime, notes } = req.body || {};
+    if (intensity && !INTENSITY_TARGETS[intensity]) return res.status(400).json({ error: 'invalid_intensity' });
+    if (travelMode && !TRAVEL_MODES.includes(travelMode)) return res.status(400).json({ error: 'invalid_mode' });
+    const { rowCount } = await query(
+      `update trip_days set intensity = coalesce($3, intensity), travel_mode = coalesce($4, travel_mode), start_time = coalesce($5::time, start_time), end_time = coalesce($6::time, end_time), notes = coalesce($7, notes)
+        where id = $2 and trip_id = $1`,
+      [req.params.id, req.params.dayId, intensity ?? null, travelMode ?? null, startTime ?? null, endTime ?? null, notes ?? null],
+    );
+    if (!rowCount) return res.status(404).json({ error: 'day_not_found' });
+    res.json(await tripPayload(req.params.id));
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Shortlist
+// ---------------------------------------------------------------------------
+
+const kindOfCategory = (c) => (['restaurant', 'cafe', 'pub', 'bar'].includes(c) ? 'food' : ['attraction', 'event'].includes(c) ? 'activity' : 'other');
+
+/** GET /api/trips/:id/shortlist/search?q=&categories=food|things&radiusKm=&near=lat,lng — near the base by default. */
+router.get('/:id/shortlist/search', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const trip = await loadTrip(req.params.id);
-    const { venueRef, name, lat, lng, dwellMinutes } = req.body || {};
-    if (!venueRef || !name) return res.status(400).json({ error: 'venue_required' });
-    const { rows: existing } = await query('select coalesce(max(position), 0) as max from trip_stops where trip_id = $1', [trip.id]);
-    await query(
-      `insert into trip_stops (trip_id, position, venue_ref, venue_name, lat, lng, dwell_minutes) values ($1, $2, $3, $4, $5, $6, $7)`,
-      [trip.id, Number(existing[0].max) + 1, venueRef, name, lat ?? null, lng ?? null, dwellMinutes ?? household.default_visit_minutes],
-    );
-    res.status(201).json(await tripPayload(trip.id));
-  } catch (err) {
-    next(err);
-  }
+    let center = { lat: trip.base_lat ?? trip.origin_lat, lng: trip.base_lng ?? trip.origin_lng, label: trip.base_label ?? trip.origin_label };
+    if (req.query.near) {
+      const m = /^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/.exec(String(req.query.near));
+      if (m) center = { lat: Number(m[1]), lng: Number(m[3]), label: 'chosen point' };
+      else { const [hit] = await geocode(String(req.query.near), { limit: 1, near: center }); if (hit) center = hit; }
+    }
+    const radiusKm = Math.min(25, Number(req.query.radiusKm) || 3);
+    const categories = req.query.categories ? String(req.query.categories).split(',').filter(Boolean) : [];
+    const { venues, degraded, sourcesQueried } = await searchAllSources({ center, radiusKm, categories, query: String(req.query.q || '').trim(), includeEvents: false });
+    await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search']);
+    const { rows: existing } = await query('select venue_ref from trip_shortlist where trip_id = $1', [trip.id]);
+    const have = new Set(existing.map((r) => r.venue_ref));
+    const results = venues.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, distanceKm: Number(kmBetween(center, v).toFixed(2)), onShortlist: have.has(`${v.source}:${v.sourcePlaceId}`) }))
+      .filter((v) => v.distanceKm <= radiusKm).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 120);
+    res.json({ near: center, radiusKm, results, degradedSources: degraded });
+  } catch (err) { next(err); }
 });
 
+router.post('/:id/shortlist', async (req, res, next) => {
+  try {
+    const trip = await loadTrip(req.params.id);
+    const b = req.body || {};
+    if (!b.venueRef || !b.venueLabel) return res.status(400).json({ error: 'venue_required' });
+    const kind = KINDS.includes(b.kind) ? b.kind : kindOfCategory(b.category);
+    const snapshot = b.venue && ['osm', 'fixtures'].includes(String(b.venueRef).split(':')[0]) ? b.venue : null;
+    await query(
+      `insert into trip_shortlist (trip_id, venue_ref, venue_label, kind, category, lat, lng, venue, note, must_do, preferred_day_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       on conflict (trip_id, venue_ref) do update set note = coalesce(excluded.note, trip_shortlist.note), must_do = excluded.must_do, preferred_day_id = coalesce(excluded.preferred_day_id, trip_shortlist.preferred_day_id)`,
+      [trip.id, b.venueRef, b.venueLabel, kind, b.category ?? null, b.lat ?? null, b.lng ?? null, snapshot ? JSON.stringify(snapshot) : null, b.note?.trim() || null, Boolean(b.mustDo), b.preferredDayId ?? null],
+    );
+    const household = await currentHousehold();
+    await upsertHouseholdPlace({ query }, household.id, { venueRef: b.venueRef, label: b.venueLabel, kind, category: b.category, lat: b.lat, lng: b.lng, venue: b.venue, note: b.note, country: trip.country, countryCode: trip.country_code, locality: trip.locality });
+    res.status(201).json(await tripPayload(trip.id));
+  } catch (err) { next(err); }
+});
+
+router.patch('/:id/shortlist/:itemId', async (req, res, next) => {
+  try {
+    const { note, mustDo, preferredDayId, kind } = req.body || {};
+    await query(`update trip_shortlist set note = coalesce($3, note), must_do = coalesce($4, must_do), preferred_day_id = $5, kind = coalesce($6, kind) where id = $2 and trip_id = $1`,
+      [req.params.id, req.params.itemId, note ?? null, mustDo ?? null, preferredDayId ?? null, KINDS.includes(kind) ? kind : null]);
+    res.json(await tripPayload(req.params.id));
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id/shortlist/:itemId', async (req, res, next) => {
+  try { await query('delete from trip_shortlist where id = $2 and trip_id = $1', [req.params.id, req.params.itemId]); res.json(await tripPayload(req.params.id)); } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// Stops (on a day, in a slot)
+// ---------------------------------------------------------------------------
+
+/** POST /api/trips/:id/days/:dayId/stops { venueRef, name, lat, lng, dwellMinutes?, slot?, startTime?, shortlistId? } */
+router.post('/:id/days/:dayId/stops', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const trip = await loadTrip(req.params.id);
+    const { rows: days } = await query('select * from trip_days where id = $1 and trip_id = $2', [req.params.dayId, trip.id]);
+    if (!days[0]) return res.status(404).json({ error: 'day_not_found' });
+    const b = req.body || {};
+    let stop = b;
+    if (b.shortlistId) {
+      const { rows } = await query('select * from trip_shortlist where id = $1 and trip_id = $2', [b.shortlistId, trip.id]);
+      if (!rows[0]) return res.status(404).json({ error: 'shortlist_item_not_found' });
+      stop = { venueRef: rows[0].venue_ref, name: rows[0].venue_label, lat: rows[0].lat, lng: rows[0].lng, category: rows[0].category, ...b };
+    }
+    if (!stop.venueRef || !stop.name) return res.status(400).json({ error: 'venue_required' });
+    const slot = SLOTS.includes(b.slot) ? b.slot : b.startTime ? slotFor(`${days[0].date}T${b.startTime}:00`) : 'morning';
+    const { rows: mx } = await query('select coalesce(max(position), 0) as max from trip_stops where day_id = $1', [days[0].id]);
+    const dwell = b.dwellMinutes ?? (['restaurant', 'pub'].includes(stop.category) ? household.default_visit_minutes : ['cafe', 'bar'].includes(stop.category) ? 45 : 120);
+    await query(
+      `insert into trip_stops (trip_id, day_id, slot, start_time, position, venue_ref, venue_name, lat, lng, dwell_minutes) values ($1,$2,$3,$4::time,$5,$6,$7,$8,$9,$10)`,
+      [trip.id, days[0].id, slot, b.startTime ?? null, Number(mx[0].max) + 1, stop.venueRef, stop.name, stop.lat ?? null, stop.lng ?? null, dwell],
+    );
+    res.status(201).json(await tripPayload(trip.id));
+  } catch (err) { next(err); }
+});
+
+/** Move or retime a stop: { dayId?, slot?, startTime?, dwellMinutes?, position? } */
 router.patch('/:id/stops/:stopId', async (req, res, next) => {
   try {
-    const { dwellMinutes } = req.body || {};
-    const { rowCount } = await query('update trip_stops set dwell_minutes = coalesce($3, dwell_minutes) where id = $2 and trip_id = $1', [req.params.id, req.params.stopId, dwellMinutes ?? null]);
+    const { dayId, slot, startTime, dwellMinutes, position } = req.body || {};
+    if (slot && !SLOTS.includes(slot)) return res.status(400).json({ error: 'invalid_slot' });
+    const { rowCount } = await query(
+      `update trip_stops set day_id = coalesce($3, day_id), slot = coalesce($4, slot), start_time = coalesce($5::time, start_time), dwell_minutes = coalesce($6, dwell_minutes), position = coalesce($7, position)
+        where id = $2 and trip_id = $1`,
+      [req.params.id, req.params.stopId, dayId ?? null, slot ?? null, startTime ?? null, dwellMinutes ?? null, position ?? null],
+    );
     if (!rowCount) return res.status(404).json({ error: 'stop_not_found' });
     res.json(await tripPayload(req.params.id));
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
 router.delete('/:id/stops/:stopId', async (req, res, next) => {
   try {
-    await withTransaction(async (client) => {
-      const { rowCount } = await client.query('delete from trip_stops where id = $1 and trip_id = $2', [req.params.stopId, req.params.id]);
-      if (!rowCount) { const err = new Error('Stop not found'); err.status = 404; err.code = 'stop_not_found'; throw err; }
-      await closePositionGaps(client, req.params.id);
-    });
+    const { rowCount } = await query('delete from trip_stops where id = $1 and trip_id = $2', [req.params.stopId, req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: 'stop_not_found' });
     res.json(await tripPayload(req.params.id));
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-router.post('/:id/stops/reorder', async (req, res, next) => {
+/** Reorder within a day: { stopIds } */
+router.post('/:id/days/:dayId/reorder', async (req, res, next) => {
   try {
     const { stopIds = [] } = req.body || {};
     await withTransaction(async (client) => {
-      await client.query('update trip_stops set position = position + 1000 where trip_id = $1', [req.params.id]);
-      for (let i = 0; i < stopIds.length; i += 1) await client.query('update trip_stops set position = $3 where id = $2 and trip_id = $1', [req.params.id, stopIds[i], i + 1]);
-      await closePositionGaps(client, req.params.id);
+      for (let i = 0; i < stopIds.length; i += 1) await client.query('update trip_stops set position = $3 where id = $2 and day_id = $1', [req.params.dayId, stopIds[i], i + 1]);
     });
     res.json(await tripPayload(req.params.id));
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
-/**
- * POST /api/trips/:id/stops/:stopId/visit — "we went": the stop becomes a visit
- * (Epic 7 C1), carrying the trip's attendees, and can be rated right away.
- * Body: { visitedOn?, note?, takes?: [{memberId, subject, take, comment}], venue? }
- */
+/** "We went" on a stop (Epic 7 C1). Body: { visitedOn?, note?, venue? } */
 router.post('/:id/stops/:stopId/visit', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const trip = await loadTrip(req.params.id);
-    const { rows: stops } = await query('select * from trip_stops where id = $1 and trip_id = $2', [req.params.stopId, trip.id]);
+    const { rows: stops } = await query('select s.*, d.date as day_date from trip_stops s left join trip_days d on d.id = s.day_id where s.id = $1 and s.trip_id = $2', [req.params.stopId, trip.id]);
     if (!stops[0]) return res.status(404).json({ error: 'stop_not_found' });
     const stop = stops[0];
     const { rows: existing } = await query('select id from visits where stop_id = $1', [stop.id]);
     if (existing[0]) return res.json({ visit: await visitPayload(existing[0].id), deduplicated: true });
-
     const b = req.body || {};
     const { rows: attendees } = await query('select member_id from trip_attendees where trip_id = $1', [trip.id]);
     const visitId = await withTransaction(async (client) => {
@@ -298,29 +464,17 @@ router.post('/:id/stops/:stopId/visit', async (req, res, next) => {
         `insert into visits (household_id, trip_id, stop_id, venue_ref, venue_label, category, lat, lng, visited_on, note, country, country_code, locality)
          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`,
         [household.id, trip.id, stop.id, stop.venue_ref, stop.venue_name, b.venue?.category ?? null, stop.lat, stop.lng,
-         b.visitedOn || trip.depart_at.toISOString().slice(0, 10), b.note?.trim() || null, trip.country, trip.country_code, trip.locality],
+         b.visitedOn || stop.day_date || trip.start_date, b.note?.trim() || null, trip.country, trip.country_code, trip.locality],
       );
       const id = rows[0].id;
       for (const a of attendees) await client.query('insert into visit_attendees (visit_id, member_id) values ($1, $2) on conflict do nothing', [id, a.member_id]);
       const [source, ...rest] = stop.venue_ref.split(':');
       await client.query('insert into place_ledger (household_id, source, source_place_id, status) values ($1, $2, $3, $4)', [household.id, source, rest.join(':'), 'visited']);
+      await upsertHouseholdPlace(client, household.id, { venueRef: stop.venue_ref, label: stop.venue_name, category: b.venue?.category, lat: stop.lat, lng: stop.lng, venue: b.venue, country: trip.country, countryCode: trip.country_code, locality: trip.locality });
       return id;
     });
-    if (b.takes?.length) {
-      // Reuse the takes writer through the visits API semantics.
-      const { default: _unused } = { default: null }; void _unused;
-      await query('select 1');
-    }
     res.status(201).json({ visit: await visitPayload(visitId), tripId: trip.id });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
-
-async function closePositionGaps(client, tripId) {
-  const { rows } = await client.query('select id from trip_stops where trip_id = $1 order by position', [tripId]);
-  await client.query('update trip_stops set position = position + 1000 where trip_id = $1', [tripId]);
-  for (let i = 0; i < rows.length; i += 1) await client.query('update trip_stops set position = $2 where id = $1', [rows[i].id, i + 1]);
-}
 
 export default router;

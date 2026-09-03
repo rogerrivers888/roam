@@ -18,6 +18,7 @@ import { deriveCatchment, reachRadiusKm, TRAVEL_MODES } from '../domain/travel.j
 import { applyConstraints } from '../domain/ranking.js';
 import { composeOptions } from '../domain/options.js';
 import { paceOf, travelLimitFor, maxReachMinutes } from '../domain/pace.js';
+import { dayAsTrip, slotFor } from '../domain/days.js';
 import { INTENSITY_TARGETS } from '../domain/budget.js';
 import { currentHousehold, loadMembers, toAttendees, loadLearnedPreferences } from './household.js';
 
@@ -265,10 +266,38 @@ function publicTrip(trip) {
   };
 }
 
+/** The trip a session plans: the real trip, or one day of it seen as a trip. */
+async function sessionTrip(session) {
+  const { rows } = await query('select * from trips where id = $1', [session.trip_id]);
+  const real = rows[0];
+  if (session.state.dayId) {
+    const { rows: d } = await query('select * from trip_days where id = $1', [session.state.dayId]);
+    if (d[0]) return { trip: dayAsTrip(real, d[0]), real, day: d[0] };
+  }
+  return { trip: real, real, day: null };
+}
+
+/** Window / pace / mode changes land on the day when the session is a day. */
+async function applyTripChanges(session, { durationMinutes, intensity, travelMode }) {
+  if (session.state.dayId) {
+    if (durationMinutes != null) {
+      const { trip } = await sessionTrip(session);
+      const start = new Date(trip.depart_at);
+      const end = new Date(start.getTime() + Number(durationMinutes) * 60_000);
+      await query('update trip_days set end_time = $2::time where id = $1', [session.state.dayId, end.toTimeString().slice(0, 5)]);
+    }
+    if (intensity) await query('update trip_days set intensity = $2 where id = $1', [session.state.dayId, intensity]);
+    if (travelMode) await query('update trip_days set travel_mode = $2 where id = $1', [session.state.dayId, travelMode]);
+    return;
+  }
+  if (durationMinutes != null) await query(`update trips set return_at = depart_at + ($2::int * interval '1 minute') where id = $1`, [session.trip_id, Number(durationMinutes)]);
+  if (intensity) await query('update trips set intensity = $2 where id = $1', [session.trip_id, intensity]);
+  if (travelMode) await query('update trips set travel_mode = $2 where id = $1', [session.trip_id, travelMode]);
+}
+
 async function recompose(session, household) {
   const { state } = session;
-  const { rows } = await query('select * from trips where id = $1', [session.trip_id]);
-  const trip = rows[0];
+  const { trip } = await sessionTrip(session);
   const composed = composeOptions({
     trip,
     household,
@@ -287,6 +316,7 @@ async function respond(res, { session, household, reply, extra = {} }) {
   const spend = await spendSummary({ householdId: household.id, sessionId: session.id });
   res.json({
     sessionId: session.id,
+    dayId: session.state.dayId ?? null,
     trip: publicTrip(trip),
     reply,
     options,
@@ -469,14 +499,7 @@ router.post('/refine', async (req, res, next) => {
     if (tc.min_activities != null) state.minActivities = tc.min_activities;
     if (tc.min_food_stops != null) state.minFood = tc.min_food_stops;
     if (tc.duration_minutes != null || tc.intensity || tc.travel_mode) {
-      await query(
-        `update trips set
-           return_at   = case when $2::int is null then return_at else depart_at + ($2::int * interval '1 minute') end,
-           intensity   = coalesce($3, intensity),
-           travel_mode = coalesce($4, travel_mode)
-         where id = $1`,
-        [session.trip_id, tc.duration_minutes ?? null, tc.intensity ?? null, tc.travel_mode ?? null],
-      );
+      await applyTripChanges(session, { durationMinutes: tc.duration_minutes, intensity: tc.intensity, travelMode: tc.travel_mode });
     }
 
     state.suggestedPreferences = refinement.suggested_preferences;
@@ -527,12 +550,11 @@ router.post('/act', async (req, res, next) => {
       case 'set':
         if (action.minActivities != null) state.minActivities = Number(action.minActivities);
         if (action.minFood != null) state.minFood = Number(action.minFood);
-        if (action.intensity && INTENSITY_TARGETS[action.intensity]) {
-          await query('update trips set intensity = $2 where id = $1', [session.trip_id, action.intensity]);
-        }
-        if (action.durationMinutes != null) {
-          await query(`update trips set return_at = depart_at + ($2::int * interval '1 minute') where id = $1`, [session.trip_id, Number(action.durationMinutes)]);
-        }
+        await applyTripChanges(session, {
+          intensity: action.intensity && INTENSITY_TARGETS[action.intensity] ? action.intensity : null,
+          durationMinutes: action.durationMinutes != null ? Number(action.durationMinutes) : null,
+          travelMode: action.travelMode && TRAVEL_MODES.includes(action.travelMode) ? action.travelMode : null,
+        });
         break;
       default:
         return res.status(400).json({ error: 'unknown_action' });
@@ -556,12 +578,19 @@ router.post('/commit', async (req, res, next) => {
     const option = options.find((o) => o.id === optionId);
     if (!option) return res.status(404).json({ error: 'option_not_found' });
 
-    await query('delete from trip_stops where trip_id = $1', [session.trip_id]);
+    const dayId = session.state.dayId ?? null;
+    if (dayId) {
+      // Replace the day's plan, keeping any stop already turned into a visit.
+      await query('delete from trip_stops where day_id = $1 and not exists (select 1 from visits v where v.stop_id = trip_stops.id)', [dayId]);
+    } else {
+      await query('delete from trip_stops where trip_id = $1 and not exists (select 1 from visits v where v.stop_id = trip_stops.id)', [session.trip_id]);
+    }
     for (const stop of option.stops) {
       await query(
-        `insert into trip_stops (trip_id, position, venue_ref, venue_name, lat, lng, dwell_minutes)
-         values ($1,$2,$3,$4,$5,$6,$7)`,
-        [session.trip_id, stop.position, stop.venueRef, stop.name, stop.lat, stop.lng, stop.dwellMinutes],
+        `insert into trip_stops (trip_id, day_id, slot, start_time, position, venue_ref, venue_name, lat, lng, dwell_minutes)
+         values ($1,$2,$3,$4::time,$5,$6,$7,$8,$9,$10)`,
+        [session.trip_id, dayId, stop.arriveAt ? slotFor(stop.arriveAt) : 'morning', stop.arriveAt ? new Date(stop.arriveAt).toTimeString().slice(0, 5) : null,
+         stop.position, stop.venueRef, stop.name, stop.lat, stop.lng, stop.dwellMinutes],
       );
       await query(
         `insert into place_ledger (household_id, source, source_place_id, status)
@@ -573,6 +602,76 @@ router.post('/commit', async (req, res, next) => {
     session.state.committed = true;
     await saveSession(session.id, session.state, null);
     res.json({ tripId: session.trip_id, optionId, stops: option.stops.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/plan/day { tripId, dayId, minActivities?, minFood? }
+ * Options for one day of a trip, composed from the trip's shortlist plus what
+ * is near the base — no model call; react afterwards by voice (/refine) or tap (/act).
+ */
+router.post('/day', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const { tripId, dayId, minActivities, minFood } = req.body || {};
+    const { rows: trips } = await query('select * from trips where id = $1 and household_id = $2', [tripId, household.id]);
+    const { rows: days } = await query('select * from trip_days where id = $1 and trip_id = $2', [dayId, tripId]);
+    if (!trips[0] || !days[0]) return res.status(404).json({ error: 'trip_or_day_not_found' });
+    const real = trips[0];
+    const trip = dayAsTrip(real, days[0]);
+
+    const members = await loadMembers(household.id);
+    const { rows: att } = await query('select member_id from trip_attendees where trip_id = $1', [tripId]);
+    const attendingIds = new Set(att.map((a) => a.member_id));
+    const attendees = toAttendees(members.filter((m) => attendingIds.size === 0 || attendingIds.has(m.id)));
+
+    const { rows } = await query('insert into plan_sessions (household_id, trip_id, state) values ($1, $2, $3) returning *', [household.id, tripId, JSON.stringify({ transcript: [], dayId })]);
+    const session = rows[0];
+    const state = session.state;
+
+    // Pool: the shortlist (boosted; must-dos more so) plus places near the base.
+    const pool = await retrievePool({ household, trip, attendees, intent: { wants: [], special: false }, sessionId: session.id });
+    const { rows: shortlist } = await query('select * from trip_shortlist where trip_id = $1', [tripId]);
+    const byRef = new Map(pool.candidates.map((c) => [`${c.source}:${c.sourcePlaceId}`, c]));
+    const extra = [];
+    for (const item of shortlist) {
+      const ref = item.venue_ref;
+      let cand = byRef.get(ref);
+      if (!cand) {
+        const [source, ...rest] = ref.split(':');
+        const v = item.venue || {};
+        const venue = { source, sourcePlaceId: rest.join(':'), name: item.venue_label, category: item.category ?? v.category ?? 'attraction', cuisines: v.cuisines ?? [], experiences: v.experiences ?? [], dietaryOptions: v.dietaryOptions, allergens: [], rating: null, priceLevel: null, lat: item.lat, lng: item.lng, dishes: [], justification: null, matchedDish: null, key: ref };
+        const [withTravel] = deriveCatchment({ origin: { lat: trip.origin_lat, lng: trip.origin_lng }, maxTravelMinutes: 10_000, mode: trip.travel_mode, venues: [venue] });
+        const { candidates, excluded } = applyConstraints({ venues: [withTravel], attendees, learned: await loadLearnedPreferences(household.id) });
+        if (excluded.length) { pool.excluded.push(excluded[0]); continue; }
+        cand = candidates[0];
+        extra.push(cand);
+      }
+      cand.score += item.must_do ? 30 : 15;
+      cand.reasons = [...(cand.reasons || []), { kind: 'want', text: item.must_do ? 'Must do — on your shortlist' : 'On your shortlist' }];
+      cand.shortlisted = true;
+      cand.mustDo = item.must_do;
+    }
+    const candidates = [...pool.candidates, ...extra].sort((a, b) => b.score - a.score);
+
+    const defaults = { relaxed: [1, 0], balanced: [1, 1], packed: [2, 1] }[trip.intensity] ?? [1, 1];
+    Object.assign(state, {
+      pool: candidates,
+      excludedByAllergen: pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons })),
+      minActivities: minActivities ?? defaults[0],
+      minFood: minFood ?? defaults[1],
+      pinned: shortlist.filter((i) => i.must_do).map((i) => i.venue_ref).filter((r) => candidates.some((c) => c.key === r)),
+      excluded: [],
+      chosenOptionId: null,
+      suggestedPreferences: [],
+      attending: attendees.map((a) => ({ id: a.id, name: a.name })),
+      attendeePrefs: attendees,
+    });
+    await saveSession(session.id, state, tripId);
+    session.state = state;
+    await respond(res, { session, household, reply: null, extra: { dayId, date: days[0].date, attending: state.attending, reach: { maxTravelMinutes: pool.maxTravelMinutes, estimated: true }, degradedSources: pool.degraded } });
   } catch (err) {
     next(err);
   }

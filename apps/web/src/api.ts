@@ -133,7 +133,17 @@ export type TripOption = {
   counts: { activities: number; food: number }; shortfall: { activities: number; food: number };
 };
 
+export type TripKind = 'outing' | 'trip';
+export type DayStop = { id: string; position: number; venueRef: string; name: string; lat: number | null; lng: number | null; dwellMinutes: number; startTime: string | null; visit: Visit | null };
+export type TripDay = { id: string; date: string; intensity: 'relaxed' | 'balanced' | 'packed'; travelMode: 'walking' | 'cycling' | 'driving' | 'transit'; startTime: string; endTime: string; notes: string | null; slots: { slot: 'morning' | 'afternoon' | 'evening'; stops: DayStop[] }[]; budget: Budget };
+export type ShortlistItem = { id: string; venueRef: string; name: string; kind: 'food' | 'activity' | 'other'; category: string | null; lat: number | null; lng: number | null; venue: Partial<Venue> | null; note: string | null; mustDo: boolean; preferredDayId: string | null; scheduled: boolean };
+export type AtlasCity = { name: string; places: number; been: number; special: number; trips: number; lastSeen: string };
+export type AtlasCountry = { code: string; name: string; places: number; been: number; cities: AtlasCity[] };
+export type AtlasPlace = { venueRef: string; name: string; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number };
+
 export type Trip = {
+  kind?: TripKind; place?: { label: string } | null; startDate?: string | null; endDate?: string | null; dayStart?: string; dayEnd?: string;
+  base?: (Place & { kind?: string | null; checkIn?: string | null; checkOut?: string | null }) | null; hasCar?: boolean;
   id: string; title: string | null; notes?: string | null;
   origin: Place; destination: Place | null;
   departAt: string; returnAt: string;
@@ -141,18 +151,18 @@ export type Trip = {
   country?: string | null; countryCode?: string | null; locality?: string | null;
 };
 
-export type TripSummary = Trip & { stopCount: number; visitCount: number; ratingCount: number; attendees: string[]; isPast: boolean };
+export type TripSummary = Trip & { dayCount: number; stopCount: number; shortlistCount: number; visitCount: number; ratingCount: number; attendees: string[]; isPast: boolean };
 
 export type TripStop = { id: string; position: number; venueRef: string; name: string; lat: number | null; lng: number | null; dwellMinutes: number; visit: Visit | null };
 
-export type TripDetail = { trip: Trip; attendees: { id: string; name: string; isMinor: boolean; avatarUrl?: string | null }[]; stops: TripStop[]; budget: Budget };
+export type TripDetail = { trip: Trip; attendees: { id: string; name: string; isMinor: boolean; avatarUrl?: string | null }[]; days: TripDay[]; shortlist: ShortlistItem[]; stops: TripStop[]; budget: Budget };
 
 export type SuggestedPreference = { member: string | null; kind: 'like' | 'dislike'; value: string };
 
 export type Spend = { session_calls: number; session_cost_usd: number; month_calls: number; month_cost_usd: number; sessionBound: number; householdMonthlyBound: number };
 
 export type PlanResponse = {
-  sessionId: string; reply: string | null; intent?: Record<string, any>; missing?: string[]; trip?: Trip;
+  sessionId: string; dayId?: string | null; date?: string; reply: string | null; intent?: Record<string, any>; missing?: string[]; trip?: Trip;
   options: TripOption[];
   selection?: { pinned: string[]; excluded: string[]; chosenOptionId: string | null };
   constraints?: { minActivities: number; minFood: number };
@@ -165,7 +175,7 @@ export type PlanResponse = {
 export type PlanAction =
   | { type: 'like' | 'unlike' | 'dislike' | 'restore'; stopId: string }
   | { type: 'choose'; optionId: string | null }
-  | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number };
+  | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number; travelMode?: Trip['travelMode'] };
 
 // ---------------------------------------------------------------------------
 // Calls
@@ -213,8 +223,24 @@ export const api = {
   deleteVisit: (id: string) => del<void>(`/api/visits/${id}`),
 
   // trips
-  trips: (p: { country?: string; when?: 'upcoming' | 'past'; q?: string } = {}) =>
+  trips: (p: { country?: string; when?: 'upcoming' | 'past'; q?: string; kind?: TripKind } = {}) =>
     request<{ trips: TripSummary[]; countries: { code: string; name: string; trips: number }[] }>(`/api/trips${qs(p)}`),
+  // atlas
+  atlas: () => request<{ countries: AtlasCountry[]; unplaced: number }>('/api/atlas'),
+  atlasPlaces: (p: { country?: string; city?: string; kind?: string; status?: string; q?: string } = {}) => request<{ places: AtlasPlace[] }>(`/api/atlas/places${qs(p)}`),
+  // trips v2
+  createMultiDayTrip: (body: { title?: string; notes?: string; place?: Place; placeText?: string; startDate: string; endDate: string; base?: Place; baseText?: string; baseKind?: string; checkIn?: string; checkOut?: string; hasCar?: boolean; travelMode?: Trip['travelMode']; intensity?: Trip['intensity']; dayStart?: string; dayEnd?: string; attendingMemberIds?: string[]; seedFromAtlas?: boolean }) =>
+    post<TripDetail>('/api/trips', { kind: 'trip', ...body }),
+  updateTripV2: (id: string, body: Partial<{ title: string; notes: string; startDate: string; endDate: string; hasCar: boolean; travelMode: Trip['travelMode']; intensity: Trip['intensity']; dayStart: string; dayEnd: string; base: Place; baseText: string; baseKind: string; checkIn: string; checkOut: string }>) => patch<TripDetail>(`/api/trips/${id}`, body),
+  updateDay: (tripId: string, dayId: string, body: Partial<{ intensity: Trip['intensity']; travelMode: Trip['travelMode']; startTime: string; endTime: string; notes: string }>) => patch<TripDetail>(`/api/trips/${tripId}/days/${dayId}`, body),
+  shortlistSearch: (tripId: string, p: { q?: string; categories?: string; radiusKm?: number; near?: string }) =>
+    request<{ near: Place; radiusKm: number; results: (Venue & { onShortlist: boolean })[]; degradedSources: { source: string; error: string }[] }>(`/api/trips/${tripId}/shortlist/search${qs(p)}`),
+  addToShortlist: (tripId: string, body: { venueRef: string; venueLabel: string; kind?: string; category?: string | null; lat?: number | null; lng?: number | null; venue?: Partial<Venue>; note?: string; mustDo?: boolean; preferredDayId?: string | null }) => post<TripDetail>(`/api/trips/${tripId}/shortlist`, body),
+  updateShortlist: (tripId: string, itemId: string, body: { note?: string; mustDo?: boolean; preferredDayId?: string | null; kind?: string }) => patch<TripDetail>(`/api/trips/${tripId}/shortlist/${itemId}`, body),
+  removeFromShortlist: (tripId: string, itemId: string) => del<TripDetail>(`/api/trips/${tripId}/shortlist/${itemId}`),
+  addDayStop: (tripId: string, dayId: string, body: { venueRef?: string; name?: string; lat?: number | null; lng?: number | null; category?: string | null; dwellMinutes?: number; slot?: 'morning' | 'afternoon' | 'evening'; startTime?: string; shortlistId?: string }) => post<TripDetail>(`/api/trips/${tripId}/days/${dayId}/stops`, body),
+  updateStop: (tripId: string, stopId: string, body: { dayId?: string; slot?: 'morning' | 'afternoon' | 'evening'; startTime?: string; dwellMinutes?: number; position?: number }) => patch<TripDetail>(`/api/trips/${tripId}/stops/${stopId}`, body),
+  planDay: (tripId: string, dayId: string, body: { minActivities?: number; minFood?: number } = {}) => post<PlanResponse>('/api/plan/day', { tripId, dayId, ...body }),
   trip: (id: string) => request<TripDetail>(`/api/trips/${id}`),
   createTrip: (body: { title?: string; notes?: string; origin?: Place; originText?: string; destination?: Place; destinationText?: string; departAt: string; returnAt: string; travelMode?: Trip['travelMode']; intensity?: Trip['intensity']; attendingMemberIds?: string[] }) =>
     post<TripDetail>('/api/trips', body),

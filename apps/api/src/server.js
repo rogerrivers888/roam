@@ -7,6 +7,7 @@ import tripRoutes from './routes/trips.js';
 import planRoutes from './routes/plan.js';
 import conceptRoutes from './routes/concepts.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
+import { atlas as atlasRoutes } from './routes/atlas.js';
 
 const app = express();
 
@@ -31,6 +32,7 @@ app.use('/api/plan', planRoutes);
 app.use('/api/concepts', conceptRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/visits', visitRoutes);
+app.use('/api/atlas', atlasRoutes);
 
 app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
 

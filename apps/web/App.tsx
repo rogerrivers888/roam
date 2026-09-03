@@ -5,7 +5,7 @@ import { api, API_URL, HouseholdResponse } from './src/api';
 import { colors, spacing, TARGET, type } from './src/theme';
 import { PlanScreen } from './src/screens/PlanScreen';
 import { PlacesScreen } from './src/screens/PlacesScreen';
-import { TripsScreen } from './src/screens/TripsScreen';
+import { TripsScreen, TripPrefill } from './src/screens/TripsScreen';
 import { HouseholdScreen } from './src/screens/HouseholdScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 
@@ -28,6 +28,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('plan');
   const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking');
   const [household, setHousehold] = useState<HouseholdResponse | null>(null);
+  const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(null);
 
   const refreshHousehold = useCallback(async () => {
     try { setHousehold(await api.household()); } catch { setHousehold(null); }
@@ -41,8 +42,8 @@ export default function App() {
   const screen = (
     <>
       {tab === 'plan' ? <PlanScreen household={household} /> : null}
-      {tab === 'places' ? <PlacesScreen household={household} refreshHousehold={refreshHousehold} /> : null}
-      {tab === 'trips' ? <TripsScreen household={household} refreshHousehold={refreshHousehold} /> : null}
+      {tab === 'places' ? <PlacesScreen household={household} refreshHousehold={refreshHousehold} onPlanTrip={(p) => { setTripPrefill(p); setTab('trips'); }} /> : null}
+      {tab === 'trips' ? <TripsScreen household={household} refreshHousehold={refreshHousehold} prefill={tripPrefill} onPrefillConsumed={() => setTripPrefill(null)} /> : null}
       {tab === 'household' ? <HouseholdScreen data={household} refresh={refreshHousehold} /> : null}
       {tab === 'settings' ? <SettingsScreen data={household} refresh={refreshHousehold} /> : null}
     </>

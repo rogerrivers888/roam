@@ -80,13 +80,39 @@ function simulate(trip, sequence) {
   return timed;
 }
 
+// Meals belong at mealtimes: a restaurant at 09:40 is not a plan. Cafés and
+// bars float; restaurants and pubs are pulled toward lunch, then dinner.
+const MEAL_WINDOWS = [[11.75, 14], [18, 20.5]];
+const isMeal = (s) => ['restaurant', 'pub'].includes(s.category);
+const hourOf = (iso) => { const d = new Date(iso); return d.getHours() + d.getMinutes() / 60; };
+function mealPenalty(arriveIso, windowIndex) {
+  const h = hourOf(arriveIso);
+  const [a, b] = MEAL_WINDOWS[Math.min(windowIndex, MEAL_WINDOWS.length - 1)];
+  if (h >= a && h <= b) return 0;
+  return h < a ? (a - h) * 60 : (h - b) * 60; // minutes outside the window
+}
+
 /**
- * Order stops: nearest-neighbour for places, with each timed event inserted
- * where it causes the least waiting. Null if no feasible order exists.
+ * Order stops: nearest-neighbour for places, meals slotted where they land
+ * closest to a mealtime, then each timed event inserted where it causes the
+ * least waiting. Null if no feasible order exists.
  */
 function schedule(trip, stops) {
   const origin = { lat: trip.origin_lat, lng: trip.origin_lng };
-  let sequence = nearestNeighbour(origin, trip.travel_mode, stops.filter((s) => !isEvent(s)));
+  let sequence = nearestNeighbour(origin, trip.travel_mode, stops.filter((s) => !isEvent(s) && !isMeal(s)));
+  const meals = stops.filter((s) => !isEvent(s) && isMeal(s));
+  meals.forEach((meal, mi) => {
+    let best = null;
+    for (let i = 0; i <= sequence.length; i += 1) {
+      const attempt = [...sequence.slice(0, i), meal, ...sequence.slice(i)];
+      const timed = simulate(trip, attempt);
+      if (!timed) continue;
+      const placed = timed[i];
+      const penalty = mealPenalty(placed.arriveAt, mi) + timed.reduce((sum, s) => sum + s.travelFromPrevMinutes, 0) * 0.25;
+      if (!best || penalty < best.penalty) best = { attempt, penalty };
+    }
+    sequence = best ? best.attempt : [...sequence, meal];
+  });
   const events = stops.filter(isEvent).sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt));
 
   for (const event of events) {
@@ -193,10 +219,12 @@ export function composeOptions({
     return { timed, budget: computeBudget({ trip, stops: toRows(timed), household }) };
   };
   const fitsWindow = (stops) => {
+    if (!mealCapOk(stops)) return false;
     const { budget } = evaluate(stops);
     return !!budget && budget.remainingMinutes >= 0;
   };
   const fitsTarget = (stops) => {
+    if (!mealCapOk(stops)) return false;
     const { budget } = evaluate(stops);
     return !!budget && budget.remainingMinutes >= 0 && budget.fillRatio <= target + 0.1;
   };
@@ -205,6 +233,11 @@ export function composeOptions({
     { pred: isActivity, need: minActivities },
     { pred: isFood, need: minFood },
   ];
+  // No second sit-down meal unless the day actually reaches dinner time.
+  const dayStartH = hourOf(trip.depart_at);
+  const dayEndH = hourOf(trip.return_at);
+  const mealSlots = MEAL_WINDOWS.filter(([a, b]) => dayEndH >= a + 0.75 && dayStartH <= b).length;
+  const mealCapOk = (stops) => stops.filter(isMeal).length <= Math.max(1, mealSlots);
   const shortfallOf = (stops) => quotas.reduce((s, q) => s + Math.max(0, q.need - stops.filter(q.pred).length), 0);
 
   const options = [];
