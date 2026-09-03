@@ -1,139 +1,154 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Roam · Find — three options</title>
-<style>
-  :root{--bg:#F7F6F2;--surface:#fff;--muted:#F0EEE8;--ink:#1D1B16;--ink2:#6B675E;--ink3:#A8A399;--line:#E4E0D6;--red:#EC3013;--redSoft:#FDE3DE;--headBg:#201E1D;--headInk:#fff;--headSub:#A8A399;
-    --do:#6D28D9;--doSoft:#EDE4FF;--eat:#EA580C;--eatSoft:#FFE8D9;--on:#0F766E;--onSoft:#D5EEEB;--budget:#15803D;--budgetSoft:#D9F0DE;--you:#B45309;--youSoft:#FDEBCF;--gold:#B0771E;--like:#2E7D32;--likeSoft:#E3F2E4}
-  *{box-sizing:border-box}
-  body{margin:0;background:#E9E6DF;font:14px/1.45 -apple-system,Inter,Segoe UI,Helvetica,Arial,sans-serif;color:var(--ink);padding:32px}
-  h1{font-size:26px;margin:0 0 4px}
-  .lede{color:var(--ink2);max-width:960px;margin:0 0 24px}
-  section{margin:0 0 48px}
-  h2{font-size:20px;margin:0 0 4px}
-  .sub{color:var(--ink2);margin:0 0 16px;max-width:960px}
-  .row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
-  .notes{width:300px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13px}
-  .notes h4{margin:0 0 6px;font-size:13px}.notes ul{margin:0 0 10px;padding-left:18px}.notes li{margin:0 0 4px}
-  .cap{font-size:12px;color:var(--ink2);text-align:center;margin:8px 0 0;max-width:390px}
-  a{color:var(--red)}
-  .ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
-  .ic.s{width:13px;height:13px}.ic.l{width:20px;height:20px}.ic.xl{width:24px;height:24px}
-  .phone{width:390px;height:844px;background:var(--bg);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column}
-  .desk{width:1180px;height:760px;background:var(--bg);border-radius:14px;border:1px solid #cfc9bd;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.14);display:flex;flex-direction:column}
-  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700;background:var(--headBg);color:var(--headInk)}
-  .screen{flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative}
-  .tabbar{height:64px;border-top:1px solid var(--line);background:var(--surface);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--ink3)}
-  .tabbar div{display:flex;flex-direction:column;align-items:center;gap:3px}.tabbar .on{color:var(--red);font-weight:700}
-  /* dark trip header */
-  .head{background:var(--headBg);color:var(--headInk);padding:6px 16px 12px;display:flex;flex-direction:column;gap:8px}
-  .head .back{font-size:12px;color:var(--headSub);display:flex;align-items:center;gap:4px}
-  .head .title{font-size:20px;font-weight:800;letter-spacing:-.3px}
-  .head .sub{font-size:12px;color:var(--headSub);margin:0}
-  .tabs{display:flex;gap:6px;padding:0 16px;margin-top:-18px}
-  .tabs div{flex:1;text-align:center;padding:10px 6px;border-radius:12px;background:var(--surface);border:1px solid var(--line);font-weight:700;font-size:13px;color:var(--ink2);box-shadow:0 2px 6px rgba(0,0,0,.08)}
-  .tabs .on{background:var(--red);border-color:var(--red);color:#fff}
-  .body{flex:1;overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
-  .hdr{display:flex;justify-content:space-between;align-items:center;gap:8px}
-  .h3{font-weight:700;font-size:16px}.small{font-size:13px;color:var(--ink2)}.tiny{font-size:11px;color:var(--ink3)}
-  .iconbtn{width:38px;height:38px;border-radius:12px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--ink);flex:none}
-  .iconbtn.red{background:var(--red);border-color:var(--red);color:#fff}
-  /* category tiles */
-  .cats{display:flex;gap:8px}
-  .cat{flex:1;border-radius:14px;padding:10px 10px 8px;display:flex;flex-direction:column;gap:6px;color:var(--ink);border:2px solid transparent}
-  .cat .n{font-size:20px;font-weight:800;line-height:1}.cat .l{font-size:11px;font-weight:700}
-  .cat.do{background:var(--doSoft);color:var(--do)}.cat.eat{background:var(--eatSoft);color:var(--eat)}.cat.on{background:var(--onSoft);color:var(--on)}
-  .cat.sel{border-color:currentColor}
-  /* control bar */
-  .bar{display:flex;gap:6px}
-  .pill{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-size:12px;font-weight:700;white-space:nowrap}
-  .pill.sort{color:var(--ink)}.pill.kind{background:var(--doSoft);border-color:transparent;color:var(--do)}.pill.kind.eat{background:var(--eatSoft);color:var(--eat)}
-  .pill.budget{background:var(--budgetSoft);border-color:transparent;color:var(--budget)}.pill.you{background:var(--youSoft);border-color:transparent;color:var(--you)}
-  .pill.dist{color:var(--ink2)}
-  /* result cards */
-  .cardlist{display:flex;flex-direction:column;gap:10px}
-  .pc{background:var(--surface);border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);display:flex}
-  .pc .ph{width:104px;flex:none;background:linear-gradient(135deg,#d9d3c4,#b8b09c)}
-  .pc .ph.do{background:linear-gradient(135deg,#c7b6ee,#8b6fd6)}.pc .ph.eat{background:linear-gradient(135deg,#f3c5a6,#e07a45)}.pc .ph.on{background:linear-gradient(135deg,#9fd3cd,#2d8f86)}
-  .pc .t{flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
-  .pc .name{font-weight:800;font-size:15px;display:flex;align-items:center;gap:6px}
-  .pc .meta{font-size:12px;color:var(--ink2)}
-  .pc .why{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;padding:2px 8px;border-radius:999px;background:var(--youSoft);color:var(--you);font-size:11px;font-weight:700}
-  .pc .why.like{background:var(--likeSoft);color:var(--like)}
-  .pc .act{display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:10px 10px 10px 0}
-  .save{width:36px;height:36px;border-radius:50%;background:var(--redSoft);color:var(--red);display:flex;align-items:center;justify-content:center}
-  .save.on{background:var(--red);color:#fff}
-  .star{display:inline-flex;align-items:center;gap:3px;font-weight:800;color:var(--ink)}
-  .star svg{fill:var(--gold);stroke:var(--gold)}
-  /* sheets */
-  .scrim{position:absolute;inset:0;background:rgba(29,27,22,.5);z-index:6}
-  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:22px 22px 0 0;padding:10px 16px 18px;z-index:7;display:flex;flex-direction:column;gap:12px;box-shadow:0 -8px 30px rgba(0,0,0,.25)}
-  .handle{width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto}
-  .grp{display:flex;flex-direction:column;gap:6px}
-  .grp .lab{font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--ink3)}
-  .opts{display:flex;flex-wrap:wrap;gap:6px}
-  .opt{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:12px;background:var(--muted);font-size:13px;font-weight:600}
-  .opt.on{background:var(--do);color:#fff}
-  .opt.eaton{background:var(--eat);color:#fff}
-  .btn{display:flex;align-items:center;justify-content:center;gap:6px;height:44px;border-radius:14px;background:var(--red);color:#fff;font-weight:800;font-size:14px}
-  .btn.ghost{background:transparent;color:var(--ink2);height:36px}
-  /* budget slider (same as the Plan mock-up) */
-  .range{position:relative;height:56px;margin:6px 8px 0}
-  .range .bars{position:absolute;left:0;right:0;bottom:22px;height:30px;display:flex;align-items:flex-end;gap:2px}
-  .range .bars i{flex:1;background:var(--line);border-radius:2px 2px 0 0}
-  .range .bars i.in{background:var(--budget);opacity:.55}
-  .range .track{position:absolute;left:0;right:0;bottom:16px;height:4px;background:var(--line);border-radius:2px}
-  .range .fill{position:absolute;bottom:16px;height:4px;background:var(--budget);border-radius:2px}
-  .range .knob{position:absolute;bottom:6px;width:24px;height:24px;border-radius:50%;background:#fff;border:2px solid var(--budget);box-shadow:0 1px 3px rgba(0,0,0,.2);transform:translateX(-50%)}
-  .range .lbl{position:absolute;bottom:-4px;font-size:11px;color:var(--ink2);transform:translateX(-50%);font-weight:600}
-  .seg3{display:flex;background:var(--muted);border-radius:12px;padding:3px}
-  .seg3 div{flex:1;text-align:center;padding:8px 4px;border-radius:10px;font-size:12px;font-weight:700;color:var(--ink2)}
-  .seg3 .on{background:var(--budget);color:#fff}
-  /* search expanded */
-  .searchbar{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px;border-radius:14px;background:var(--surface);border:2px solid var(--red);font-size:14px}
-  .searchbar b{font-weight:500;color:var(--ink)}.searchbar .cur{width:2px;height:18px;background:var(--red)}
-  /* sections (option 2) */
-  .sec{display:flex;justify-content:space-between;align-items:baseline}
-  .sec .t{font-size:16px;font-weight:800}.sec .m{font-size:12px;color:var(--red);font-weight:700}
-  .caro{display:flex;gap:10px;overflow:hidden}
-  .tile{width:150px;flex:none;border-radius:16px;overflow:hidden;background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.06)}
-  .tile .ph{height:90px}.tile .ph.do{background:linear-gradient(135deg,#c7b6ee,#8b6fd6)}.tile .ph.eat{background:linear-gradient(135deg,#f3c5a6,#e07a45)}.tile .ph.on{background:linear-gradient(135deg,#9fd3cd,#2d8f86)}
-  .tile .t{padding:8px 10px;display:flex;flex-direction:column;gap:3px}
-  .tile .name{font-weight:800;font-size:13px}.tile .meta{font-size:11px;color:var(--ink2)}
-  .tile .why{font-size:10px;font-weight:700;color:var(--you);background:var(--youSoft);border-radius:999px;padding:2px 7px;align-self:flex-start}
-  .stripe{height:6px;border-radius:3px}
-  /* map (option 3) */
-  .map{position:relative;background:#EEF0EA;overflow:hidden}
-  .map svg.bg{display:block;width:100%;height:100%}
-  .pin{position:absolute;width:30px;height:30px;border-radius:50% 50% 50% 0;transform:translate(-50%,-100%) rotate(-45deg);transform-origin:bottom left;color:#fff;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.3)}
-  .pin span{transform:rotate(45deg);display:flex}
-  .pin.do{background:var(--do)}.pin.eat{background:var(--eat)}.pin.on{background:var(--on)}.pin.home{background:var(--gold)}
-  .pin.big{width:40px;height:40px;z-index:2;box-shadow:0 0 0 5px rgba(236,48,19,.25),0 2px 6px rgba(0,0,0,.3);background:var(--red)}
-  .float{position:absolute;left:12px;right:12px;display:flex;gap:6px;z-index:3}
-  .carousel{position:absolute;left:0;right:0;bottom:12px;display:flex;gap:10px;padding:0 16px;overflow:hidden;z-index:3}
-  .mcard{min-width:250px;background:var(--surface);border-radius:16px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:4px}
-  /* desktop */
-  .topbar{height:56px;background:var(--headBg);color:#fff;display:flex;align-items:center;gap:18px;padding:0 20px}
-  .topbar .brand{font-weight:900;font-size:18px;letter-spacing:-.5px}
-  .topbar .nav{display:flex;gap:16px;font-size:13px;color:var(--headSub)}.topbar .nav b{color:#fff}
-  .topbar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
-  .topbar .src{display:flex;align-items:center;gap:6px;font-size:12px;padding:6px 10px;border-radius:999px;background:#2E2B29;color:#fff}
-  .dbody{flex:1;display:flex;gap:18px;padding:18px 20px;overflow:hidden}
-  .dleft{width:300px;display:flex;flex-direction:column;gap:12px}
-  .dmain{flex:1;display:flex;flex-direction:column;gap:12px;min-width:0}
-  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-  .gc{background:var(--surface);border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-  .gc .ph{height:110px}.gc .ph.do{background:linear-gradient(135deg,#c7b6ee,#8b6fd6)}.gc .ph.eat{background:linear-gradient(135deg,#f3c5a6,#e07a45)}.gc .ph.on{background:linear-gradient(135deg,#9fd3cd,#2d8f86)}
-  .gc .t{padding:10px 12px;display:flex;flex-direction:column;gap:4px}
-  .gc .name{font-weight:800;font-size:14px;display:flex;justify-content:space-between;align-items:center}
-  .panel{background:var(--surface);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-  table.cmp{border-collapse:collapse;width:100%;max-width:1100px;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:13px}
-  table.cmp th,table.cmp td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-  table.cmp th{background:var(--muted)}
-</style>
-</head>
-<body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Roam · Find — style guide v1, light and dark</title><style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Caveat:wght@700&display=swap');
+:root{--ground:#FFFFFF;--ink:#201E1D;--muted:#6B6663;--rule:#E5EFEA;--panel:#EFF8F3;--mint:#B6E3CF;--leaf:#2E8A63;--leafDeep:#2F6A52;--red:#EC3013;
+  --primary:#201E1D;--primaryFg:#FFFFFF;--icon:#2E8A63;--well:transparent;--head:#B6E3CF;--headInk:#201E1D;--headSub:#2F6A52;--tabbar:#FFFFFF;--tile1:#B6E3CF;--tile2:#EFF8F3;--sel:#201E1D;--selFg:#FFFFFF;--handle:#201E1D;--range:#2E8A63;--scrim:rgba(32,30,29,.45)}
+[data-theme="dark"]{--ground:#17171A;--ink:#F3F2F2;--muted:#8F8D93;--rule:#2B2B30;--panel:#1E1E23;--mint:#B6E3CF;--leaf:#B6E3CF;--leafDeep:#8F8D93;--red:#EC3013;
+  --primary:#B6E3CF;--primaryFg:#17171A;--icon:#F3F2F2;--well:#24242A;--head:#17171A;--headInk:#F3F2F2;--headSub:#8F8D93;--tabbar:#101013;--tile1:#2E2E35;--tile2:#3A3A42;--sel:#B6E3CF;--selFg:#17171A;--handle:#F3F2F2;--range:#B6E3CF;--scrim:rgba(0,0,0,.55)}
+*{box-sizing:border-box}
+body{margin:0;background:#E9E6DF;font:15px/1.45 Archivo,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#201E1D;padding:32px}
+h1{font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+.lede{color:#6B6663;max-width:960px;margin:0 0 24px}
+section{margin:0 0 48px}
+h2{font-size:20px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+.sub{color:#6B6663;margin:0 0 16px;max-width:960px}
+.row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+.notes{width:300px;background:#fff;border:1px solid #E5EFEA;border-radius:4px;padding:14px 16px;font-size:13px}
+.notes h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em}.notes ul{margin:0 0 10px;padding-left:18px}.notes li{margin:0 0 4px}
+.cap{font-size:12px;color:#6B6663;text-align:center;margin:8px 0 0;max-width:390px}
+.modelab{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6B6663;margin:0 0 10px}
+a{color:#2E8A63}
+.ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
+.ic.s{width:13px;height:13px}.ic.l{width:20px;height:20px}
+/* phone */
+.phone{width:390px;height:844px;background:var(--ground);color:var(--ink);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;font-family:Archivo,sans-serif}
+.status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700;background:var(--head);color:var(--headInk)}
+.screen{flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.tabbar{height:64px;border-top:1px solid var(--rule);background:var(--tabbar);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--muted)}
+.tabbar div{display:flex;flex-direction:column;align-items:center;gap:3px}.tabbar .on{color:var(--ink);font-weight:700}
+.head{background:var(--head);color:var(--headInk);padding:4px 16px 26px;display:flex;flex-direction:column;gap:6px}
+.head .top{display:flex;justify-content:space-between;align-items:center}
+.head .back{font-size:12px;color:var(--headSub);display:flex;align-items:center;gap:4px;font-weight:600}
+.wordmark{font:700 24px/1 Caveat,cursive;display:inline-flex;align-items:center;gap:3px;color:var(--headInk)}
+.wordmark .pin{display:inline-flex;width:18px;height:22px}
+.wordmark .pin svg{display:block;width:18px;height:22px}
+.head .title{font-size:24px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.head .sub{font-size:12px;color:var(--headSub);margin:0;font-weight:600}
+.tabs{display:flex;gap:6px;padding:0 16px;margin-top:-18px}
+.tabs div{flex:1;text-align:center;padding:10px 6px;border-radius:4px;background:var(--ground);border:1px solid var(--rule);font-weight:700;font-size:13px;color:var(--muted)}
+.tabs .on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.body{flex:1;overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.hdr{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.h3{font-weight:800;font-size:17px;letter-spacing:-.02em}.small{font-size:13px;color:var(--muted)}.tiny{font-size:12px;color:var(--muted)}
+.lab{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.iconbtn{width:38px;height:38px;border-radius:4px;background:var(--ground);border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;color:var(--ink);flex:none}
+[data-theme="dark"] .iconbtn{border-color:#F3F2F2}
+/* category tiles: mint tiles, deep-leaf text; the chosen one is ink */
+.cats{display:flex;gap:8px}
+.cat{flex:1;border-radius:4px;padding:10px 10px 8px;display:flex;flex-direction:column;gap:6px;background:var(--tile2);color:var(--ink)}
+.cat svg{color:var(--icon)}
+.cat .n{font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1}.cat .l{font-size:12px;font-weight:600;color:var(--muted)}
+.cat.sel{background:var(--sel);color:var(--selFg)}.cat.sel .l{color:var(--selFg);opacity:.8}.cat.sel svg{color:var(--selFg)}
+/* control bar: pills, outline in rule, selected ink */
+.bar{display:flex;gap:6px}
+.pill{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 12px;border-radius:999px;background:var(--ground);border:1px solid var(--rule);font-size:12px;font-weight:600;white-space:nowrap;color:var(--ink)}
+.pill svg{color:var(--icon)}
+.pill.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}.pill.on svg{color:var(--selFg)}
+[data-theme="dark"] .pill{background:var(--panel)}
+[data-theme="dark"] .pill.on{background:var(--sel);color:var(--selFg)}
+/* result cards: white on a rule; photo tiles mint / mint tint */
+.cardlist{display:flex;flex-direction:column}
+.pc{display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--rule)}
+.pc:first-child{border-top:0;padding-top:4px}
+.pc .ph{width:92px;height:92px;border-radius:4px;flex:none;background:var(--tile1);position:relative}
+.pc .ph.b{background:var(--tile2)}
+.pc .heart{position:absolute;right:-6px;top:-6px;width:22px;height:22px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;color:#fff;border:2px solid var(--ground)}
+.pc .heart svg{fill:#fff;stroke:#fff;width:11px;height:11px}
+.pc .t{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pc .name{font-weight:800;font-size:15px;letter-spacing:-.01em}
+.pc .meta{font-size:13px;color:var(--muted)}
+.pc .meta svg{color:var(--icon)}
+.why{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;padding:2px 9px;border-radius:999px;border:1px solid var(--rule);font-size:12px;font-weight:600;color:var(--ink);margin-top:2px}
+.why svg{color:var(--icon)}
+[data-theme="dark"] .why{background:var(--panel)}
+.pc .act{display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-end}
+.save{width:36px;height:36px;border-radius:50%;border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;color:var(--ink);background:var(--ground)}
+[data-theme="dark"] .save{border-color:#F3F2F2}
+.save.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+/* sheets */
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:6}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--rule);padding:12px 16px 18px;z-index:7;display:flex;flex-direction:column;gap:12px;color:var(--ink)}
+.handle{width:40px;height:4px;border-radius:2px;background:var(--rule);margin:0 auto}
+.grp{display:flex;flex-direction:column;gap:6px}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opt{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid var(--rule);background:var(--ground);font-size:13px;font-weight:600;color:var(--ink)}
+[data-theme="dark"] .opt{background:var(--well)}
+.opt.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.btn{display:flex;align-items:center;justify-content:center;gap:6px;height:44px;border-radius:4px;background:var(--primary);color:var(--primaryFg);font-weight:700;font-size:14px}
+.btn.sec{background:transparent;color:var(--ink);border:1px solid var(--ink)}
+[data-theme="dark"] .btn.sec{border-color:#F3F2F2}
+.btn.ghost{background:transparent;color:var(--muted);height:36px}
+.seg3{display:flex;background:var(--ground);border:1px solid var(--rule);border-radius:4px;padding:3px;gap:3px}
+[data-theme="dark"] .seg3{background:var(--well)}
+.seg3 div{flex:1;text-align:center;padding:8px 4px;border-radius:4px;font-size:12px;font-weight:700;color:var(--muted)}
+.seg3 .on{background:var(--sel);color:var(--selFg)}
+/* slider (same as the Plan screen) */
+.range{position:relative;height:56px;margin:6px 8px 0}
+.range .bars{position:absolute;left:0;right:0;bottom:22px;height:30px;display:flex;align-items:flex-end;gap:2px}
+.range .bars i{flex:1;background:var(--rule);border-radius:2px 2px 0 0}
+.range .bars i.in{background:var(--range);opacity:.5}
+.range .track{position:absolute;left:0;right:0;bottom:16px;height:2px;background:var(--rule)}
+.range .fill{position:absolute;bottom:16px;height:2px;background:var(--range)}
+.range .knob{position:absolute;bottom:5px;width:24px;height:24px;border-radius:50%;background:var(--ground);border:2px solid var(--handle);transform:translateX(-50%)}
+.range .lbl{position:absolute;bottom:-4px;font-size:12px;color:var(--muted);transform:translateX(-50%);font-weight:600}
+/* search */
+.searchbar{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px;border-radius:4px;background:var(--ground);border:1px solid var(--ink);outline:2px solid var(--leaf);outline-offset:2px;font-size:15px;color:var(--ink)}
+[data-theme="dark"] .searchbar{border-color:#F3F2F2}
+.searchbar .cur{width:2px;height:18px;background:var(--ink)}
+/* strands */
+.sec{display:flex;justify-content:space-between;align-items:baseline}
+.sec .t{font-size:17px;font-weight:800;letter-spacing:-.02em;display:flex;gap:6px;align-items:center}.sec .t svg{color:var(--icon)}.sec .m{font-size:12px;color:var(--leaf);font-weight:700}
+[data-theme="dark"] .sec .m{color:var(--mint)}
+.caro{display:flex;gap:10px;overflow:hidden}
+.tile{width:150px;flex:none;border-radius:4px;overflow:hidden;border:1px solid var(--rule);background:var(--ground)}
+[data-theme="dark"] .tile{background:var(--panel)}
+.tile .ph{height:84px;background:var(--tile1)}.tile .ph.b{background:var(--tile2)}
+.tile .t{padding:8px 10px;display:flex;flex-direction:column;gap:3px}
+.tile .name{font-weight:800;font-size:13px}.tile .meta{font-size:12px;color:var(--muted)}
+/* map */
+.map{position:relative;background:var(--panel);overflow:hidden}
+[data-theme="dark"] .map{background:#1E1E23}
+.map svg.bg{display:block;width:100%;height:100%}
+.map svg.bg path{stroke:var(--rule)}
+.pin{position:absolute;width:30px;height:30px;border-radius:50% 50% 50% 0;transform:translate(-50%,-100%) rotate(-45deg);transform-origin:bottom left;background:var(--ink);color:var(--ground);display:flex;align-items:center;justify-content:center;border:2px solid var(--ground)}
+.pin span{transform:rotate(45deg);display:flex}
+.pin.home{background:var(--ground);color:var(--ink);border-color:var(--ink)}
+.pin.big{width:40px;height:40px;z-index:2;outline:3px solid var(--leaf);outline-offset:2px}
+.float{position:absolute;left:12px;right:12px;display:flex;gap:6px;z-index:3}
+.carousel{position:absolute;left:0;right:0;bottom:12px;display:flex;gap:10px;padding:0 16px;overflow:hidden;z-index:3}
+.mcard{min-width:250px;background:var(--ground);border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+[data-theme="dark"] .mcard{background:var(--panel)}
+.mcard.sel{border-color:var(--ink)}
+/* desktop */
+.desk{width:1180px;height:760px;background:var(--ground);color:var(--ink);border-radius:8px;border:1px solid #cfc9bd;overflow:hidden;position:relative;display:flex;flex-direction:column;font-family:Archivo,sans-serif}
+.topbar{height:56px;background:var(--head);color:var(--headInk);display:flex;align-items:center;gap:22px;padding:0 20px}
+.topbar .nav{display:flex;gap:16px;font-size:13px;color:var(--headSub);font-weight:600}.topbar .nav b{color:var(--headInk)}
+.topbar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.topbar .src{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:7px 12px;border-radius:999px;border:1px solid var(--headInk);color:var(--headInk)}
+.dbody{flex:1;display:flex;gap:18px;padding:18px 20px;overflow:hidden}
+.dleft{width:300px;display:flex;flex-direction:column;gap:12px}
+.dmain{flex:1;display:flex;flex-direction:column;gap:12px;min-width:0}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.gc{border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--ground)}
+[data-theme="dark"] .gc{background:var(--panel)}
+.gc .ph{height:110px;background:var(--tile1)}.gc .ph.b{background:var(--tile2)}
+.gc .t{padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.gc .name{font-weight:800;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+.gc .meta{font-size:12px;color:var(--muted)}
+.panel{background:var(--panel);border-radius:4px;padding:14px;display:flex;flex-direction:column;gap:10px}
+table.cmp{border-collapse:collapse;width:100%;max-width:1100px;background:#fff;border:1px solid #E5EFEA;border-radius:4px;overflow:hidden;font-size:13px}
+table.cmp th,table.cmp td{padding:8px 12px;border-bottom:1px solid #E5EFEA;text-align:left;vertical-align:top}
+table.cmp th{background:#EFF8F3;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+</style></head><body>
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
 <symbol id="i-arrow-down" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-down" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v14" /> <path d="m19 12-7 7-7-7" /></symbol>
 <symbol id="i-arrow-left" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-left" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m12 19-7-7 7-7" /> <path d="M19 12H5" /></symbol>
@@ -168,6 +183,7 @@
 <symbol id="i-footprints" viewBox="0 0 24 24"><svg class="lucide lucide-footprints" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z" /> <path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z" /> <path d="M16 17h4" /> <path d="M4 13h4" /></symbol>
 <symbol id="i-globe" viewBox="0 0 24 24"><svg class="lucide lucide-globe" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /> <path d="M2 12h20" /></symbol>
 <symbol id="i-grip-vertical" viewBox="0 0 24 24"><svg class="lucide lucide-grip-vertical" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="9" cy="12" r="1" /> <circle cx="9" cy="5" r="1" /> <circle cx="9" cy="19" r="1" /> <circle cx="15" cy="12" r="1" /> <circle cx="15" cy="5" r="1" /> <circle cx="15" cy="19" r="1" /></symbol>
+<symbol id="i-heart" viewBox="0 0 24 24"><svg class="lucide lucide-heart" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" /></symbol>
 <symbol id="i-house" viewBox="0 0 24 24"><svg class="lucide lucide-house" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /> <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
 <symbol id="i-ice-cream-cone" viewBox="0 0 24 24"><svg class="lucide lucide-ice-cream-cone" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m7 11 4.08 10.35a1 1 0 0 0 1.84 0L17 11" /> <path d="M17 7A5 5 0 0 0 7 7" /> <path d="M17 7a2 2 0 0 1 0 4H7a2 2 0 0 1 0-4" /></symbol>
 <symbol id="i-image" viewBox="0 0 24 24"><svg class="lucide lucide-image" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="18" height="18" x="3" y="3" rx="2" ry="2" /> <circle cx="9" cy="9" r="2" /> <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></symbol>
@@ -208,306 +224,90 @@
 <symbol id="i-x" viewBox="0 0 24 24"><svg class="lucide lucide-x" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /></symbol>
 </svg>
 
+<h1>Find, to the style guide</h1>
+<p class="lede">The same three directions, redrawn to the Roam colour and style guidelines v1 (September 2026): white ground with one mint header field in light mode, charcoal in dark; ink buttons in light, mint in dark; icons one colour per mode; red for the heart only; no gradients, no per-row colour; Archivo throughout, Caveat for the wordmark only; 4px corners, pills for chips. Every screen is shown in both modes. Sibling pages: <a href="/mockups/shortlist-settle.html">Shortlist → Trip</a> · <a href="/mockups/trips-options.html">Trips tab</a>.</p>
 
-<h1>Find — three ways to make it breathe</h1>
-<p class="lede">The Find tab as it should look: colour that says which kind of thing you are looking at, one control bar instead of rows of pills, the search behind a magnifier that opens when tapped, a budget you drag rather than read, a kind picker that opens big, and a "For you" strand that learns from what the family rates. No sentences of explanation anywhere. Sources are a desktop-only control in the top bar. Sibling pages: <a href="/mockups/shortlist-settle.html">Shortlist → Trip</a> · <a href="/mockups/trips-options.html">Trips tab</a>.</p>
+<section><h2>Option 1 · Tiles and one bar</h2><p class="sub">Three tiles pick the kind of thing; the chosen one is ink. One bar: For you, kind, budget, distance. Cards on white with mint picture tiles; the red heart marks a place the family loves.</p>
+<div class="row" style="gap:32px">
+<div><div class="row" style="gap:16px"><div><div class="modelab">Light · Mint</div><div class="phone" data-theme="light"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="hdr"><div><div class="h3">Near the Savoy</div><div class="tiny">120 places · 3 km</div></div><div style="display:flex;gap:6px"><div class="iconbtn"><svg class="ic"><use href="#i-search"/></svg></div><div class="iconbtn"><svg class="ic"><use href="#i-sliders-horizontal"/></svg></div></div></div><div class="cats"><div class="cat sel"><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">56</div><div class="l">Things to do</div></div><div class="cat "><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">64</div><div class="l">Places to eat</div></div><div class="cat "><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">12</div><div class="l">What's on</div></div></div><div class="bar"><div class="pill on"><svg class="ic s"><use href="#i-sparkles"/></svg>For you</div><div class="pill"><svg class="ic s"><use href="#i-landmark"/></svg>Any kind<svg class="ic s"><use href="#i-chevron-down"/></svg></div><div class="pill"><svg class="ic s"><use href="#i-pound-sterling"/></svg>Medium</div><div class="pill">3 km</div></div><div class="cardlist"><div class="pc"><div class="ph "></div><div class="t"><div class="name">Somerset House</div><div class="meta">Courtyard, galleries · free · 1 h 15</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.6 · 3 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Phoenix loves fountains</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph b"><div class="heart"><svg class="ic s"><use href="#i-heart"/></svg></div></div><div class="t"><div class="name">Sir John Soane's Museum</div><div class="meta">Museum · free · 1 h</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.7 · 9 min walk</div><div class="why"><svg class="ic s"><use href="#i-heart"/></svg>You loved it, 2024</div></div><div class="act"><div class="save on"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph "></div><div class="t"><div class="name">London Transport Museum</div><div class="meta">Museum · ££ · 1 h 30</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.5 · 4 min walk</div><div class="why"><svg class="ic s"><use href="#i-baby"/></svg>Made for Phoenix's age</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph b"></div><div class="t"><div class="name">Covent Garden Market</div><div class="meta">Market · free · 45 min</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.5 · 2 min walk</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div></div></div><div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div></div></div></div><div><div class="modelab">Dark · Night mint</div><div class="phone" data-theme="dark"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="hdr"><div><div class="h3">Near the Savoy</div><div class="tiny">120 places · 3 km</div></div><div style="display:flex;gap:6px"><div class="iconbtn"><svg class="ic"><use href="#i-search"/></svg></div><div class="iconbtn"><svg class="ic"><use href="#i-sliders-horizontal"/></svg></div></div></div><div class="cats"><div class="cat sel"><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">56</div><div class="l">Things to do</div></div><div class="cat "><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">64</div><div class="l">Places to eat</div></div><div class="cat "><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">12</div><div class="l">What's on</div></div></div><div class="bar"><div class="pill on"><svg class="ic s"><use href="#i-sparkles"/></svg>For you</div><div class="pill"><svg class="ic s"><use href="#i-landmark"/></svg>Any kind<svg class="ic s"><use href="#i-chevron-down"/></svg></div><div class="pill"><svg class="ic s"><use href="#i-pound-sterling"/></svg>Medium</div><div class="pill">3 km</div></div><div class="cardlist"><div class="pc"><div class="ph "></div><div class="t"><div class="name">Somerset House</div><div class="meta">Courtyard, galleries · free · 1 h 15</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.6 · 3 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Phoenix loves fountains</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph b"><div class="heart"><svg class="ic s"><use href="#i-heart"/></svg></div></div><div class="t"><div class="name">Sir John Soane's Museum</div><div class="meta">Museum · free · 1 h</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.7 · 9 min walk</div><div class="why"><svg class="ic s"><use href="#i-heart"/></svg>You loved it, 2024</div></div><div class="act"><div class="save on"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph "></div><div class="t"><div class="name">London Transport Museum</div><div class="meta">Museum · ££ · 1 h 30</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.5 · 4 min walk</div><div class="why"><svg class="ic s"><use href="#i-baby"/></svg>Made for Phoenix's age</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph b"></div><div class="t"><div class="name">Covent Garden Market</div><div class="meta">Market · free · 45 min</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.5 · 2 min walk</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div></div></div><div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div></div></div></div></div><p class="cap" style="max-width:800px">Find. Chosen tile and chosen pill are ink (mint in dark). The bookmark shortlists; the heart is a favourite.</p></div>
+<div><div class="row" style="gap:16px"><div><div class="modelab">Light · Mint</div><div class="phone" data-theme="light"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="searchbar"><svg class="ic"><use href="#i-search"/></svg>gelat<span class="cur"></span><span style="margin-left:auto;font-size:12px;font-weight:700">Cancel</span></div><div class="cats"><div class="cat "><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">2</div><div class="l">Things to do</div></div><div class="cat sel"><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">5</div><div class="l">Places to eat</div></div><div class="cat "><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">0</div><div class="l">What's on</div></div></div><div class="cardlist"><div class="pc"><div class="ph "></div><div class="t"><div class="name">Gelupo</div><div class="meta">Gelato · £ · 20 min</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.6 · 8 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Gina: pistachio</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph b"></div><div class="t"><div class="name">Amorino Covent Garden</div><div class="meta">Gelato · £ · 15 min</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.4 · 3 min walk</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph "></div><div class="t"><div class="name">Badiani</div><div class="meta">Gelato · £ · 15 min</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.5 · 6 min walk</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div></div></div><div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div></div></div></div><div><div class="modelab">Dark · Night mint</div><div class="phone" data-theme="dark"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="searchbar"><svg class="ic"><use href="#i-search"/></svg>gelat<span class="cur"></span><span style="margin-left:auto;font-size:12px;font-weight:700">Cancel</span></div><div class="cats"><div class="cat "><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">2</div><div class="l">Things to do</div></div><div class="cat sel"><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">5</div><div class="l">Places to eat</div></div><div class="cat "><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">0</div><div class="l">What's on</div></div></div><div class="cardlist"><div class="pc"><div class="ph "></div><div class="t"><div class="name">Gelupo</div><div class="meta">Gelato · £ · 20 min</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.6 · 8 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Gina: pistachio</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph b"></div><div class="t"><div class="name">Amorino Covent Garden</div><div class="meta">Gelato · £ · 15 min</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.4 · 3 min walk</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph "></div><div class="t"><div class="name">Badiani</div><div class="meta">Gelato · £ · 15 min</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.5 · 6 min walk</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div></div></div><div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div></div></div></div></div><p class="cap" style="max-width:800px">The magnifier tapped: the field takes the focus ring, the tiles recount.</p></div>
+<div><div class="row" style="gap:16px"><div><div class="modelab">Light · Mint</div><div class="phone" data-theme="light"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="cats"><div class="cat sel"><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">56</div><div class="l">Things to do</div></div><div class="cat "><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">64</div><div class="l">Places to eat</div></div><div class="cat "><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">12</div><div class="l">What's on</div></div></div></div><div class="scrim"></div><div class="sheet"><div class="handle"></div><div class="hdr"><div class="h3">What kind of thing?</div><div class="tiny">56 near the Savoy</div></div>
+<div class="grp"><div class="lab">Culture</div><div class="opts"><div class="opt on">Museum · 6</div><div class="opt on">Gallery · 8</div><div class="opt">Theatre · 19</div><div class="opt">Cinema · 6</div><div class="opt">History · 2</div><div class="opt">Church · 4</div></div></div>
+<div class="grp"><div class="lab">Outdoors</div><div class="opts"><div class="opt">Park · 7</div><div class="opt">Garden · 3</div><div class="opt">River walk · 2</div><div class="opt">Viewpoint · 1</div></div></div>
+<div class="grp"><div class="lab">For the kids</div><div class="opts"><div class="opt">Playground · 3</div><div class="opt">Escape room · 1</div><div class="opt">Aquarium · 1</div><div class="opt">Boat trip · 2</div></div></div>
+<div class="grp"><div class="lab">Shopping</div><div class="opts"><div class="opt">Market · 4</div><div class="opt">Bookshop · 3</div><div class="opt">Toys · 1</div></div></div>
+<div class="btn">Show 14 places</div></div></div></div></div><div><div class="modelab">Dark · Night mint</div><div class="phone" data-theme="dark"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="cats"><div class="cat sel"><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">56</div><div class="l">Things to do</div></div><div class="cat "><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">64</div><div class="l">Places to eat</div></div><div class="cat "><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">12</div><div class="l">What's on</div></div></div></div><div class="scrim"></div><div class="sheet"><div class="handle"></div><div class="hdr"><div class="h3">What kind of thing?</div><div class="tiny">56 near the Savoy</div></div>
+<div class="grp"><div class="lab">Culture</div><div class="opts"><div class="opt on">Museum · 6</div><div class="opt on">Gallery · 8</div><div class="opt">Theatre · 19</div><div class="opt">Cinema · 6</div><div class="opt">History · 2</div><div class="opt">Church · 4</div></div></div>
+<div class="grp"><div class="lab">Outdoors</div><div class="opts"><div class="opt">Park · 7</div><div class="opt">Garden · 3</div><div class="opt">River walk · 2</div><div class="opt">Viewpoint · 1</div></div></div>
+<div class="grp"><div class="lab">For the kids</div><div class="opts"><div class="opt">Playground · 3</div><div class="opt">Escape room · 1</div><div class="opt">Aquarium · 1</div><div class="opt">Boat trip · 2</div></div></div>
+<div class="grp"><div class="lab">Shopping</div><div class="opts"><div class="opt">Market · 4</div><div class="opt">Bookshop · 3</div><div class="opt">Toys · 1</div></div></div>
+<div class="btn">Show 14 places</div></div></div></div></div></div><p class="cap" style="max-width:800px">Kind opened as a grouped sheet on the panel ground.</p></div>
+<div><div class="row" style="gap:16px"><div><div class="modelab">Light · Mint</div><div class="phone" data-theme="light"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="cats"><div class="cat "><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">56</div><div class="l">Things to do</div></div><div class="cat sel"><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">64</div><div class="l">Places to eat</div></div><div class="cat "><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">12</div><div class="l">What's on</div></div></div></div><div class="scrim"></div><div class="sheet"><div class="handle"></div><div class="hdr"><div class="h3">Budget for the day</div><div class="tiny">for 3 · food and tickets</div></div>
+<div class="seg3"><div>Easy</div><div class="on">Medium</div><div>Splash out</div></div>
+<div class="range"><div class="bars"><i style="height:20%"></i><i style="height:40%"></i><i style="height:70%" class="in"></i><i style="height:100%" class="in"></i><i style="height:85%" class="in"></i><i style="height:55%" class="in"></i><i style="height:30%"></i><i style="height:15%"></i><i style="height:10%"></i></div><div class="track"></div><div class="fill" style="left:22%;width:44%"></div><div class="knob" style="left:22%"></div><div class="knob" style="left:66%"></div><div class="lbl" style="left:22%">£60</div><div class="lbl" style="left:66%">£140</div></div>
+<div class="small" style="text-align:center;margin-top:10px"><b style="color:var(--ink)">£60 – £140</b> · 38 of 64 places fit</div><div class="btn">Show 38 places</div></div></div></div></div><div><div class="modelab">Dark · Night mint</div><div class="phone" data-theme="dark"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="cats"><div class="cat "><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">56</div><div class="l">Things to do</div></div><div class="cat sel"><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">64</div><div class="l">Places to eat</div></div><div class="cat "><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">12</div><div class="l">What's on</div></div></div></div><div class="scrim"></div><div class="sheet"><div class="handle"></div><div class="hdr"><div class="h3">Budget for the day</div><div class="tiny">for 3 · food and tickets</div></div>
+<div class="seg3"><div>Easy</div><div class="on">Medium</div><div>Splash out</div></div>
+<div class="range"><div class="bars"><i style="height:20%"></i><i style="height:40%"></i><i style="height:70%" class="in"></i><i style="height:100%" class="in"></i><i style="height:85%" class="in"></i><i style="height:55%" class="in"></i><i style="height:30%"></i><i style="height:15%"></i><i style="height:10%"></i></div><div class="track"></div><div class="fill" style="left:22%;width:44%"></div><div class="knob" style="left:22%"></div><div class="knob" style="left:66%"></div><div class="lbl" style="left:22%">£60</div><div class="lbl" style="left:66%">£140</div></div>
+<div class="small" style="text-align:center;margin-top:10px"><b style="color:var(--ink)">£60 – £140</b> · 38 of 64 places fit</div><div class="btn">Show 38 places</div></div></div></div></div></div><p class="cap" style="max-width:800px">Budget: Easy, Medium, Splash out over the Plan screen's slider. Range in leaf, handles in ink; mint and off-white in dark.</p></div>
+</div></section>
 
-<!-- ============================================================ OPTION 1 -->
-<section>
-<h2>Option 1 · Colour tiles and one bar</h2>
-<p class="sub">Three colour tiles pick the kind of thing. One bar underneath holds everything else: sort, kind, budget, distance, each in its own colour. Cards carry a photo, one line of facts and, when there is one, the reason it is for you.</p>
-<div class="row">
+<section><h2>Option 2 · Strands</h2><p class="sub">No sort control. For you first, then Top rated, Free, Been before. Filters in one sheet.</p>
+<div class="row" style="gap:32px">
+<div><div class="row" style="gap:16px"><div><div class="modelab">Light · Mint</div><div class="phone" data-theme="light"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="hdr"><div class="bar"><div class="pill on">All</div><div class="pill">Things to do</div><div class="pill">To eat</div><div class="pill">What's on</div></div><div class="iconbtn"><svg class="ic"><use href="#i-search"/></svg></div></div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-sparkles"/></svg>For you</div><div class="m">See all 18</div></div><div class="caro"><div class="tile"><div class="ph "></div><div class="t"><div class="name">Somerset House</div><div class="meta">free · 3 min walk</div><div class=why>Phoenix loves fountains</div></div></div><div class="tile"><div class="ph b"></div><div class="t"><div class="name">Dishoom</div><div class="meta">££ · 4 min walk</div><div class=why>Gina: veggie mains</div></div></div><div class="tile"><div class="ph "></div><div class="t"><div class="name">Punch & Judy</div><div class="meta">12:00 · free</div><div class=why>Under 10s</div></div></div></div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-star"/></svg>Top rated near here</div><div class="m">See all</div></div><div class="caro"><div class="tile"><div class="ph b"></div><div class="t"><div class="name">Soane's Museum</div><div class="meta">4.7 · free</div></div></div><div class="tile"><div class="ph "></div><div class="t"><div class="name">The Barbary</div><div class="meta">4.7 · ££</div></div></div><div class="tile"><div class="ph b"></div><div class="t"><div class="name">Courtauld</div><div class="meta">4.6 · £</div></div></div></div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-pound-sterling"/></svg>Free</div><div class="m">See all 31</div></div><div class="caro"><div class="tile"><div class="ph "></div><div class="t"><div class="name">Covent Garden Market</div><div class="meta">2 min walk</div></div></div><div class="tile"><div class="ph b"></div><div class="t"><div class="name">National Gallery</div><div class="meta">10 min walk</div></div></div><div class="tile"><div class="ph "></div><div class="t"><div class="name">St James's Park</div><div class="meta">15 min walk</div></div></div></div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-check"/></svg>Been before</div><div class="m">See all 4</div></div></div><div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div></div></div></div><div><div class="modelab">Dark · Night mint</div><div class="phone" data-theme="dark"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="hdr"><div class="bar"><div class="pill on">All</div><div class="pill">Things to do</div><div class="pill">To eat</div><div class="pill">What's on</div></div><div class="iconbtn"><svg class="ic"><use href="#i-search"/></svg></div></div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-sparkles"/></svg>For you</div><div class="m">See all 18</div></div><div class="caro"><div class="tile"><div class="ph "></div><div class="t"><div class="name">Somerset House</div><div class="meta">free · 3 min walk</div><div class=why>Phoenix loves fountains</div></div></div><div class="tile"><div class="ph b"></div><div class="t"><div class="name">Dishoom</div><div class="meta">££ · 4 min walk</div><div class=why>Gina: veggie mains</div></div></div><div class="tile"><div class="ph "></div><div class="t"><div class="name">Punch & Judy</div><div class="meta">12:00 · free</div><div class=why>Under 10s</div></div></div></div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-star"/></svg>Top rated near here</div><div class="m">See all</div></div><div class="caro"><div class="tile"><div class="ph b"></div><div class="t"><div class="name">Soane's Museum</div><div class="meta">4.7 · free</div></div></div><div class="tile"><div class="ph "></div><div class="t"><div class="name">The Barbary</div><div class="meta">4.7 · ££</div></div></div><div class="tile"><div class="ph b"></div><div class="t"><div class="name">Courtauld</div><div class="meta">4.6 · £</div></div></div></div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-pound-sterling"/></svg>Free</div><div class="m">See all 31</div></div><div class="caro"><div class="tile"><div class="ph "></div><div class="t"><div class="name">Covent Garden Market</div><div class="meta">2 min walk</div></div></div><div class="tile"><div class="ph b"></div><div class="t"><div class="name">National Gallery</div><div class="meta">10 min walk</div></div></div><div class="tile"><div class="ph "></div><div class="t"><div class="name">St James's Park</div><div class="meta">15 min walk</div></div></div></div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-check"/></svg>Been before</div><div class="m">See all 4</div></div></div><div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div></div></div></div></div><p class="cap" style="max-width:800px">Strands. Section icons in leaf, links in leaf; nothing else coloured.</p></div>
+<div><div class="row" style="gap:16px"><div><div class="modelab">Light · Mint</div><div class="phone" data-theme="light"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="hdr"><div><div class="h3">For you</div><div class="tiny">18 places · ranked for Roger, Gina and Phoenix</div></div><div class="iconbtn"><svg class="ic"><use href="#i-sliders-horizontal"/></svg></div></div><div class="cardlist"><div class="pc"><div class="ph "></div><div class="t"><div class="name">Somerset House</div><div class="meta">Courtyard, galleries · free · 1 h 15</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.6 · 3 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Phoenix loves fountains</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph b"><div class="heart"><svg class="ic s"><use href="#i-heart"/></svg></div></div><div class="t"><div class="name">Dishoom Covent Garden</div><div class="meta">Indian · ££ · 1 h</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.6 · 4 min walk</div><div class="why"><svg class="ic s"><use href="#i-heart"/></svg>Gina: veggie mains · you loved Dishoom Kensington</div></div><div class="act"><div class="save on"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph "></div><div class="t"><div class="name">Punch & Judy, the piazza</div><div class="meta">Street show · 12:00 · free</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> — · on the piazza</div><div class="why"><svg class="ic s"><use href="#i-baby"/></svg>Under 10s</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph b"></div><div class="t"><div class="name">Gelupo</div><div class="meta">Gelato · £ · 20 min</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.6 · 8 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Gina: pistachio</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div></div></div><div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div></div></div></div><div><div class="modelab">Dark · Night mint</div><div class="phone" data-theme="dark"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="hdr"><div><div class="h3">For you</div><div class="tiny">18 places · ranked for Roger, Gina and Phoenix</div></div><div class="iconbtn"><svg class="ic"><use href="#i-sliders-horizontal"/></svg></div></div><div class="cardlist"><div class="pc"><div class="ph "></div><div class="t"><div class="name">Somerset House</div><div class="meta">Courtyard, galleries · free · 1 h 15</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.6 · 3 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Phoenix loves fountains</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph b"><div class="heart"><svg class="ic s"><use href="#i-heart"/></svg></div></div><div class="t"><div class="name">Dishoom Covent Garden</div><div class="meta">Indian · ££ · 1 h</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.6 · 4 min walk</div><div class="why"><svg class="ic s"><use href="#i-heart"/></svg>Gina: veggie mains · you loved Dishoom Kensington</div></div><div class="act"><div class="save on"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph "></div><div class="t"><div class="name">Punch & Judy, the piazza</div><div class="meta">Street show · 12:00 · free</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> — · on the piazza</div><div class="why"><svg class="ic s"><use href="#i-baby"/></svg>Under 10s</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div><div class="pc"><div class="ph b"></div><div class="t"><div class="name">Gelupo</div><div class="meta">Gelato · £ · 20 min</div><div class="meta"><svg class="ic s"><use href="#i-star"/></svg> 4.6 · 8 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Gina: pistachio</div></div><div class="act"><div class="save "><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div></div></div><div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div></div></div></div></div><p class="cap" style="max-width:800px">A strand opened. The reason on each card, in the family's words.</p></div>
+<div><div class="row" style="gap:16px"><div><div class="modelab">Light · Mint</div><div class="phone" data-theme="light"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="sec"><div class="t"><svg class="ic"><use href="#i-sparkles"/></svg>For you</div></div></div><div class="scrim"></div><div class="sheet"><div class="handle"></div><div class="h3">Filters</div>
+<div class="grp"><div class="lab">Budget for the day</div><div class="seg3"><div>Easy</div><div class="on">Medium</div><div>Splash out</div></div></div>
+<div class="grp"><div class="lab">Kind</div><div class="opts"><div class="opt on">Museum</div><div class="opt on">Gallery</div><div class="opt">Park</div><div class="opt">Theatre</div><div class="opt">Market</div><div class="opt">More…</div></div></div>
+<div class="grp"><div class="lab">Food</div><div class="opts"><div class="opt on">Italian</div><div class="opt">Indian</div><div class="opt">British</div><div class="opt">Vegetarian</div><div class="opt">More…</div></div></div>
+<div class="grp"><div class="lab">How far</div><div class="seg3"><div>1 km</div><div class="on">3 km</div><div>10 km</div></div></div>
+<div class="btn">Show 42 places</div><div class="btn ghost">Refresh from the sources</div></div></div></div></div><div><div class="modelab">Dark · Night mint</div><div class="phone" data-theme="dark"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="body"><div class="sec"><div class="t"><svg class="ic"><use href="#i-sparkles"/></svg>For you</div></div></div><div class="scrim"></div><div class="sheet"><div class="handle"></div><div class="h3">Filters</div>
+<div class="grp"><div class="lab">Budget for the day</div><div class="seg3"><div>Easy</div><div class="on">Medium</div><div>Splash out</div></div></div>
+<div class="grp"><div class="lab">Kind</div><div class="opts"><div class="opt on">Museum</div><div class="opt on">Gallery</div><div class="opt">Park</div><div class="opt">Theatre</div><div class="opt">Market</div><div class="opt">More…</div></div></div>
+<div class="grp"><div class="lab">Food</div><div class="opts"><div class="opt on">Italian</div><div class="opt">Indian</div><div class="opt">British</div><div class="opt">Vegetarian</div><div class="opt">More…</div></div></div>
+<div class="grp"><div class="lab">How far</div><div class="seg3"><div>1 km</div><div class="on">3 km</div><div>10 km</div></div></div>
+<div class="btn">Show 42 places</div><div class="btn ghost">Refresh from the sources</div></div></div></div></div></div><p class="cap" style="max-width:800px">The one filter sheet.</p></div>
+</div></section>
 
-<div>
-<div class="phone">
-  <div class="status"><span>9:41</span><span>●●●</span></div>
-  <div class="screen">
-    <div class="head"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p><div style="height:14px"></div></div>
-    <div class="tabs"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div>
-    <div class="body">
-      <div class="hdr"><div><div class="h3">Near the Savoy</div><div class="tiny">120 places · 3 km</div></div><div style="display:flex;gap:6px"><div class="iconbtn"><svg class="ic"><use href="#i-search"/></svg></div><div class="iconbtn"><svg class="ic"><use href="#i-sliders-horizontal"/></svg></div></div></div>
-      <div class="cats">
-        <div class="cat do sel"><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">56</div><div class="l">Things to do</div></div>
-        <div class="cat eat"><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">64</div><div class="l">Places to eat</div></div>
-        <div class="cat on"><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">12</div><div class="l">What's on</div></div>
-      </div>
-      <div class="bar"><div class="pill you"><svg class="ic s"><use href="#i-sparkles"/></svg>For you</div><div class="pill kind"><svg class="ic s"><use href="#i-landmark"/></svg>Any kind<svg class="ic s"><use href="#i-chevron-down"/></svg></div><div class="pill budget"><svg class="ic s"><use href="#i-pound-sterling"/></svg>Medium</div><div class="pill dist">3 km</div></div>
-      <div class="cardlist">
-        <div class="pc"><div class="ph do"></div><div class="t"><div class="name">Somerset House</div><div class="meta">Courtyard, galleries · free · 1 h 15</div><div class="meta"><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.6</span> · 3 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Phoenix loves fountains</div></div><div class="act"><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div>
-        <div class="pc"><div class="ph do"></div><div class="t"><div class="name">Sir John Soane's Museum</div><div class="meta">Museum · free · 1 h</div><div class="meta"><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.7</span> · 9 min walk</div><div class="why like"><svg class="ic s"><use href="#i-check"/></svg>You loved it, 2024</div></div><div class="act"><div class="save on"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div>
-        <div class="pc"><div class="ph do"></div><div class="t"><div class="name">London Transport Museum</div><div class="meta">Museum · ££ · 1 h 30</div><div class="meta"><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.5</span> · 4 min walk</div><div class="why"><svg class="ic s"><use href="#i-baby"/></svg>Made for Phoenix's age</div></div><div class="act"><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div>
-        <div class="pc"><div class="ph do"></div><div class="t"><div class="name">Covent Garden Market</div><div class="meta">Market · free · 45 min</div><div class="meta"><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.5</span> · 2 min walk</div></div><div class="act"><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div>
-      </div>
-    </div>
-    <div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
-  </div>
-</div>
-<p class="cap">Find. Purple is things to do, orange places to eat, teal what's on. The bar: For you (sort), kind, budget, distance. A bookmark shortlists.</p>
-</div>
+<section><h2>Option 3 · Map first</h2><p class="sub">Pins in ink, home outlined, the chosen pin ringed in leaf. Controls float; cards beneath.</p>
+<div class="row" style="gap:32px"><div><div class="row" style="gap:16px"><div><div class="modelab">Light · Mint</div><div class="phone" data-theme="light"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="map" style="flex:1;margin-top:12px"><svg class="bg" viewBox="0 0 390 560"><g stroke-width="8" fill="none"><path d="M0 150 C120 130 200 210 390 170"/><path d="M60 0 L110 560"/><path d="M230 0 C 250 250 330 360 300 560"/><path d="M0 400 L390 420"/></g></svg>
+<div class="float" style="top:10px"><div class="pill on">All</div><div class="pill">Do</div><div class="pill">Eat</div><div class="pill">On</div><div class="iconbtn" style="margin-left:auto"><svg class="ic"><use href="#i-search"/></svg></div><div class="iconbtn"><svg class="ic"><use href="#i-list"/></svg></div></div>
+<div class="float" style="top:56px"><div class="pill on"><svg class="ic s"><use href="#i-sparkles"/></svg>For you</div><div class="pill"><svg class="ic s"><use href="#i-pound-sterling"/></svg>Medium</div><div class="pill">Any kind<svg class="ic s"><use href="#i-chevron-down"/></svg></div></div>
+<div class="pin home" style="left:190px;top:330px"><span><svg class="ic s"><use href="#i-house"/></svg></span></div><div class="pin " style="left:120px;top:240px"><span><svg class="ic s"><use href="#i-landmark"/></svg></span></div><div class="pin big" style="left:230px;top:210px"><span><svg class="ic s"><use href="#i-landmark"/></svg></span></div><div class="pin " style="left:150px;top:300px"><span><svg class="ic s"><use href="#i-utensils"/></svg></span></div><div class="pin " style="left:270px;top:300px"><span><svg class="ic s"><use href="#i-utensils"/></svg></span></div><div class="pin " style="left:90px;top:360px"><span><svg class="ic s"><use href="#i-ticket"/></svg></span></div><div class="pin " style="left:320px;top:250px"><span><svg class="ic s"><use href="#i-landmark"/></svg></span></div><div class="pin " style="left:330px;top:380px"><span><svg class="ic s"><use href="#i-utensils"/></svg></span></div>
+<div class="carousel"><div class="mcard sel"><div class="hdr"><div class="name" style="font-weight:800">Somerset House</div><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div><div class="meta">Courtyard, galleries · free · 3 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Phoenix loves fountains</div></div><div class="mcard"><div class="hdr"><div class="name" style="font-weight:800">Courtauld Gallery</div><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div><div class="meta">Gallery · £ · 2 min walk</div></div></div></div><div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div></div></div></div><div><div class="modelab">Dark · Night mint</div><div class="phone" data-theme="dark"><div class="status"><span>9:41</span><span>●●●</span></div><div class="screen"><div class="head"><div class="top"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div></div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London</p></div><div class="tabs"><div class="on">Find</div><div class="">Shortlist · 3</div><div class="">The day</div></div><div class="map" style="flex:1;margin-top:12px"><svg class="bg" viewBox="0 0 390 560"><g stroke-width="8" fill="none"><path d="M0 150 C120 130 200 210 390 170"/><path d="M60 0 L110 560"/><path d="M230 0 C 250 250 330 360 300 560"/><path d="M0 400 L390 420"/></g></svg>
+<div class="float" style="top:10px"><div class="pill on">All</div><div class="pill">Do</div><div class="pill">Eat</div><div class="pill">On</div><div class="iconbtn" style="margin-left:auto"><svg class="ic"><use href="#i-search"/></svg></div><div class="iconbtn"><svg class="ic"><use href="#i-list"/></svg></div></div>
+<div class="float" style="top:56px"><div class="pill on"><svg class="ic s"><use href="#i-sparkles"/></svg>For you</div><div class="pill"><svg class="ic s"><use href="#i-pound-sterling"/></svg>Medium</div><div class="pill">Any kind<svg class="ic s"><use href="#i-chevron-down"/></svg></div></div>
+<div class="pin home" style="left:190px;top:330px"><span><svg class="ic s"><use href="#i-house"/></svg></span></div><div class="pin " style="left:120px;top:240px"><span><svg class="ic s"><use href="#i-landmark"/></svg></span></div><div class="pin big" style="left:230px;top:210px"><span><svg class="ic s"><use href="#i-landmark"/></svg></span></div><div class="pin " style="left:150px;top:300px"><span><svg class="ic s"><use href="#i-utensils"/></svg></span></div><div class="pin " style="left:270px;top:300px"><span><svg class="ic s"><use href="#i-utensils"/></svg></span></div><div class="pin " style="left:90px;top:360px"><span><svg class="ic s"><use href="#i-ticket"/></svg></span></div><div class="pin " style="left:320px;top:250px"><span><svg class="ic s"><use href="#i-landmark"/></svg></span></div><div class="pin " style="left:330px;top:380px"><span><svg class="ic s"><use href="#i-utensils"/></svg></span></div>
+<div class="carousel"><div class="mcard sel"><div class="hdr"><div class="name" style="font-weight:800">Somerset House</div><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div><div class="meta">Courtyard, galleries · free · 3 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Phoenix loves fountains</div></div><div class="mcard"><div class="hdr"><div class="name" style="font-weight:800">Courtauld Gallery</div><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div><div class="meta">Gallery · £ · 2 min walk</div></div></div></div><div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div></div></div></div></div><p class="cap" style="max-width:800px">Map first. One pin colour, as the guide asks; the icon says the kind.</p></div></div></section>
 
-<div>
-<div class="phone">
-  <div class="status"><span>9:41</span><span>●●●</span></div>
-  <div class="screen">
-    <div class="head"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p><div style="height:14px"></div></div>
-    <div class="tabs"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div>
-    <div class="body">
-      <div class="searchbar"><svg class="ic"><use href="#i-search"/></svg><b>gelat</b><span class="cur"></span><span style="margin-left:auto;font-size:12px;font-weight:700;color:var(--red)">Cancel</span></div>
-      <div class="cats"><div class="cat do"><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">2</div><div class="l">Things to do</div></div><div class="cat eat sel"><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">5</div><div class="l">Places to eat</div></div><div class="cat on"><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">0</div><div class="l">What's on</div></div></div>
-      <div class="cardlist">
-        <div class="pc"><div class="ph eat"></div><div class="t"><div class="name">Gelupo</div><div class="meta">Gelato · £ · 20 min</div><div class="meta"><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.6</span> · 8 min walk</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Gina: pistachio</div></div><div class="act"><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div>
-        <div class="pc"><div class="ph eat"></div><div class="t"><div class="name">Amorino Covent Garden</div><div class="meta">Gelato · £ · 15 min</div><div class="meta"><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.4</span> · 3 min walk</div></div><div class="act"><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div>
-        <div class="pc"><div class="ph eat"></div><div class="t"><div class="name">Badiani</div><div class="meta">Gelato · £ · 15 min</div><div class="meta"><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.5</span> · 6 min walk</div></div><div class="act"><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div>
-      </div>
-    </div>
-    <div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
-  </div>
-</div>
-<p class="cap">The magnifier tapped. The bar becomes the search field; the tiles recount as you type. Cancel puts it back.</p>
-</div>
+<section><h2>Desktop · Option 1</h2><p class="sub">Sources are one outlined control in the header, desktop only.</p>
+<div class="row" style="flex-direction:column;gap:24px"><div><div class="modelab">Light · Mint</div><div class="desk" data-theme="light"><div class="topbar"><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div><div class="nav">Plan · Places · <b>Trips</b> · Household · Settings</div><div class="right"><div class="src"><svg class="ic s"><use href="#i-globe"/></svg>Sources: Google + OSM<svg class="ic s"><use href="#i-chevron-down"/></svg></div><div class="src"><svg class="ic s"><use href="#i-search"/></svg></div></div></div>
+<div class="dbody"><div class="dleft"><div class="panel"><div class="h3">Paddington the Musical</div><div class="small">Sat 5 Sep · London · Roger, Gina, Phoenix</div><div class="tabs" style="margin:6px 0 0;padding:0"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div></div>
+<div class="panel"><div class="cats" style="flex-direction:column"><div class="cat sel" style="flex-direction:row;align-items:center"><svg class="ic l"><use href="#i-landmark"/></svg><div class="l" style="flex:1;font-size:13px">Things to do</div><div class="n" style="font-size:16px">56</div></div><div class="cat" style="flex-direction:row;align-items:center"><svg class="ic l"><use href="#i-utensils"/></svg><div class="l" style="flex:1;font-size:13px">Places to eat</div><div class="n" style="font-size:16px">64</div></div><div class="cat" style="flex-direction:row;align-items:center"><svg class="ic l"><use href="#i-ticket"/></svg><div class="l" style="flex:1;font-size:13px">What's on</div><div class="n" style="font-size:16px">12</div></div></div></div>
+<div class="panel"><div class="grp"><div class="lab">Budget for the day</div><div class="seg3"><div>Easy</div><div class="on">Medium</div><div>Splash out</div></div></div><div class="grp"><div class="lab">Kind</div><div class="opts"><div class="opt on">Museum</div><div class="opt on">Gallery</div><div class="opt">Theatre</div><div class="opt">Park</div><div class="opt">Market</div><div class="opt">Playground</div><div class="opt">More…</div></div></div><div class="grp"><div class="lab">How far</div><div class="seg3"><div>1 km</div><div class="on">3 km</div><div>10 km</div></div></div></div></div>
+<div class="dmain"><div class="hdr"><div class="bar"><div class="pill on"><svg class="ic s"><use href="#i-sparkles"/></svg>For you</div><div class="pill">Top rated</div><div class="pill">Most reviewed</div><div class="pill">Nearest</div></div><div class="tiny">14 of 56 · near the Savoy</div></div>
+<div class="grid"><div class="gc"><div class="ph "></div><div class="t"><div class="name">Somerset House<span class="save " style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">free · 1 h 15 · 3 min walk</div><div class=why>Phoenix loves fountains</div></div></div><div class="gc"><div class="ph b"></div><div class="t"><div class="name">Soane's Museum<span class="save on" style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">free · 1 h · 9 min walk</div><div class=why>You loved it, 2024</div></div></div><div class="gc"><div class="ph "></div><div class="t"><div class="name">Transport Museum<span class="save " style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">££ · 1 h 30 · 4 min walk</div><div class=why>Made for Phoenix's age</div></div></div><div class="gc"><div class="ph b"></div><div class="t"><div class="name">Courtauld Gallery<span class="save " style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">£ · 1 h 15 · 2 min walk</div></div></div><div class="gc"><div class="ph "></div><div class="t"><div class="name">National Gallery<span class="save " style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">free · 2 h · 10 min walk</div></div></div><div class="gc"><div class="ph b"></div><div class="t"><div class="name">Photographers' Gallery<span class="save " style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">£ · 1 h · 12 min walk</div></div></div></div></div></div></div></div><div><div class="modelab">Dark · Night mint</div><div class="desk" data-theme="dark"><div class="topbar"><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 16 20"><path d="M8 1.5a6 6 0 0 0-6 6c0 4.5 6 11 6 11s6-6.5 6-11a6 6 0 0 0-6-6z" fill="currentColor"/><path d="M8 11.2l-2.3-2.3a1.4 1.4 0 0 1 2-2l.3.3.3-.3a1.4 1.4 0 0 1 2 2z" fill="#EC3013"/></svg></span></div><div class="nav">Plan · Places · <b>Trips</b> · Household · Settings</div><div class="right"><div class="src"><svg class="ic s"><use href="#i-globe"/></svg>Sources: Google + OSM<svg class="ic s"><use href="#i-chevron-down"/></svg></div><div class="src"><svg class="ic s"><use href="#i-search"/></svg></div></div></div>
+<div class="dbody"><div class="dleft"><div class="panel"><div class="h3">Paddington the Musical</div><div class="small">Sat 5 Sep · London · Roger, Gina, Phoenix</div><div class="tabs" style="margin:6px 0 0;padding:0"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div></div>
+<div class="panel"><div class="cats" style="flex-direction:column"><div class="cat sel" style="flex-direction:row;align-items:center"><svg class="ic l"><use href="#i-landmark"/></svg><div class="l" style="flex:1;font-size:13px">Things to do</div><div class="n" style="font-size:16px">56</div></div><div class="cat" style="flex-direction:row;align-items:center"><svg class="ic l"><use href="#i-utensils"/></svg><div class="l" style="flex:1;font-size:13px">Places to eat</div><div class="n" style="font-size:16px">64</div></div><div class="cat" style="flex-direction:row;align-items:center"><svg class="ic l"><use href="#i-ticket"/></svg><div class="l" style="flex:1;font-size:13px">What's on</div><div class="n" style="font-size:16px">12</div></div></div></div>
+<div class="panel"><div class="grp"><div class="lab">Budget for the day</div><div class="seg3"><div>Easy</div><div class="on">Medium</div><div>Splash out</div></div></div><div class="grp"><div class="lab">Kind</div><div class="opts"><div class="opt on">Museum</div><div class="opt on">Gallery</div><div class="opt">Theatre</div><div class="opt">Park</div><div class="opt">Market</div><div class="opt">Playground</div><div class="opt">More…</div></div></div><div class="grp"><div class="lab">How far</div><div class="seg3"><div>1 km</div><div class="on">3 km</div><div>10 km</div></div></div></div></div>
+<div class="dmain"><div class="hdr"><div class="bar"><div class="pill on"><svg class="ic s"><use href="#i-sparkles"/></svg>For you</div><div class="pill">Top rated</div><div class="pill">Most reviewed</div><div class="pill">Nearest</div></div><div class="tiny">14 of 56 · near the Savoy</div></div>
+<div class="grid"><div class="gc"><div class="ph "></div><div class="t"><div class="name">Somerset House<span class="save " style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">free · 1 h 15 · 3 min walk</div><div class=why>Phoenix loves fountains</div></div></div><div class="gc"><div class="ph b"></div><div class="t"><div class="name">Soane's Museum<span class="save on" style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">free · 1 h · 9 min walk</div><div class=why>You loved it, 2024</div></div></div><div class="gc"><div class="ph "></div><div class="t"><div class="name">Transport Museum<span class="save " style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">££ · 1 h 30 · 4 min walk</div><div class=why>Made for Phoenix's age</div></div></div><div class="gc"><div class="ph b"></div><div class="t"><div class="name">Courtauld Gallery<span class="save " style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">£ · 1 h 15 · 2 min walk</div></div></div><div class="gc"><div class="ph "></div><div class="t"><div class="name">National Gallery<span class="save " style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">free · 2 h · 10 min walk</div></div></div><div class="gc"><div class="ph b"></div><div class="t"><div class="name">Photographers' Gallery<span class="save " style="width:30px;height:30px"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">£ · 1 h · 12 min walk</div></div></div></div></div></div></div></div></div></section>
 
-<div>
-<div class="phone">
-  <div class="status"><span>9:41</span><span>●●●</span></div>
-  <div class="screen">
-    <div class="head"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p><div style="height:14px"></div></div>
-    <div class="tabs"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div>
-    <div class="body"><div class="cats"><div class="cat do sel"><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">56</div><div class="l">Things to do</div></div><div class="cat eat"><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">64</div><div class="l">Places to eat</div></div><div class="cat on"><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">12</div><div class="l">What's on</div></div></div></div>
-    <div class="scrim"></div>
-    <div class="sheet">
-      <div class="handle"></div>
-      <div class="hdr"><div class="h3" style="color:var(--do)">What kind of thing?</div><div class="tiny">56 near the Savoy</div></div>
-      <div class="grp"><div class="lab">CULTURE</div><div class="opts"><div class="opt on">Museum · 6</div><div class="opt on">Gallery · 8</div><div class="opt">Theatre · 19</div><div class="opt">Cinema · 6</div><div class="opt">History · 2</div><div class="opt">Church · 4</div></div></div>
-      <div class="grp"><div class="lab">OUTDOORS</div><div class="opts"><div class="opt">Park · 7</div><div class="opt">Garden · 3</div><div class="opt">River walk · 2</div><div class="opt">Viewpoint · 1</div></div></div>
-      <div class="grp"><div class="lab">FOR THE KIDS</div><div class="opts"><div class="opt">Playground · 3</div><div class="opt">Escape room · 1</div><div class="opt">Aquarium · 1</div><div class="opt">Boat trip · 2</div></div></div>
-      <div class="grp"><div class="lab">SHOPPING</div><div class="opts"><div class="opt">Market · 4</div><div class="opt">Bookshop · 3</div><div class="opt">Toys · 1</div></div></div>
-      <div class="btn">Show 14 places</div>
-    </div>
-  </div>
-</div>
-<p class="cap">Kind, opened. A sheet with groups and counts, several at once. On Places to eat the groups are cuisines, styles and dietary.</p>
-</div>
-
-<div>
-<div class="phone">
-  <div class="status"><span>9:41</span><span>●●●</span></div>
-  <div class="screen">
-    <div class="head"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p><div style="height:14px"></div></div>
-    <div class="tabs"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div>
-    <div class="body"><div class="cats"><div class="cat do"><svg class="ic l"><use href="#i-landmark"/></svg><div class="n">56</div><div class="l">Things to do</div></div><div class="cat eat sel"><svg class="ic l"><use href="#i-utensils"/></svg><div class="n">64</div><div class="l">Places to eat</div></div><div class="cat on"><svg class="ic l"><use href="#i-ticket"/></svg><div class="n">12</div><div class="l">What's on</div></div></div></div>
-    <div class="scrim"></div>
-    <div class="sheet">
-      <div class="handle"></div>
-      <div class="hdr"><div class="h3" style="color:var(--budget)">Budget for the day</div><div class="tiny">for 3 · food and tickets</div></div>
-      <div class="seg3"><div>Easy</div><div class="on">Medium</div><div>Splash out</div></div>
-      <div class="range">
-        <div class="bars"><i style="height:20%"></i><i style="height:40%"></i><i style="height:70%" class="in"></i><i style="height:100%" class="in"></i><i style="height:85%" class="in"></i><i style="height:55%" class="in"></i><i style="height:30%"></i><i style="height:15%"></i><i style="height:10%"></i></div>
-        <div class="track"></div><div class="fill" style="left:22%;width:44%"></div>
-        <div class="knob" style="left:22%"></div><div class="knob" style="left:66%"></div>
-        <div class="lbl" style="left:22%">£60</div><div class="lbl" style="left:66%">£140</div>
-      </div>
-      <div class="small" style="text-align:center;margin-top:10px"><b>£60 – £140</b> · 38 of 64 places fit</div>
-      <div class="btn" style="background:var(--budget)">Show 38 places</div>
-    </div>
-  </div>
-</div>
-<p class="cap">Budget, opened. Easy, Medium, Splash out set the range; drag the ends to be exact. The same slider as the Plan screen. Free places always fit.</p>
-</div>
-
-<div class="notes">
-  <h4>What goes</h4>
-  <ul><li>The second search box, the Refresh button and the fetched-at line. Refresh lives under the sliders icon.</li><li>Every explanatory sentence.</li><li>Rows of grey pills. The kind picker and the budget open as sheets.</li><li>Sources on the phone. On desktop they sit in the top bar.</li></ul>
-  <h4>For you</h4>
-  <ul><li>The default order. It ranks by the household's likes, favourites, allergens and dislikes, then by who is coming and their ages, then by past visits and takes. Each card shows the one reason that mattered.</li><li>It learns: every "We went" and every take moves the ranking. The old planner had this; it comes back here.</li></ul>
-</div>
-</div>
-</section>
-
-<!-- ============================================================ OPTION 2 -->
-<section>
-<h2>Option 2 · Strands, like a streaming home</h2>
-<p class="sub">No sort control at all. Find is a page of strands: For you, Top rated near here, Free, Been before, each a swipeable row of tiles. Filters are one sheet behind the sliders icon. Tapping a strand's title opens it as a full list.</p>
-<div class="row">
-
-<div>
-<div class="phone">
-  <div class="status"><span>9:41</span><span>●●●</span></div>
-  <div class="screen">
-    <div class="head"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p><div style="height:14px"></div></div>
-    <div class="tabs"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div>
-    <div class="body">
-      <div class="hdr"><div class="bar"><div class="pill" style="background:var(--ink);color:#fff;border-color:var(--ink)">All</div><div class="pill" style="color:var(--do)">Things to do</div><div class="pill" style="color:var(--eat)">To eat</div><div class="pill" style="color:var(--on)">What's on</div></div><div class="iconbtn"><svg class="ic"><use href="#i-search"/></svg></div></div>
-      <div class="sec"><div class="t"><span style="color:var(--you)">✦</span> For you</div><div class="m">See all 18</div></div>
-      <div class="caro">
-        <div class="tile"><div class="ph do"></div><div class="t"><div class="name">Somerset House</div><div class="meta">free · 3 min walk</div><div class="why">Phoenix loves fountains</div></div></div>
-        <div class="tile"><div class="ph eat"></div><div class="t"><div class="name">Dishoom</div><div class="meta">££ · 4 min walk</div><div class="why">Gina: veggie mains</div></div></div>
-        <div class="tile"><div class="ph on"></div><div class="t"><div class="name">Punch & Judy</div><div class="meta">12:00 · free</div><div class="why">Under 10s</div></div></div>
-      </div>
-      <div class="sec"><div class="t">Top rated near here</div><div class="m">See all</div></div>
-      <div class="caro">
-        <div class="tile"><div class="ph do"></div><div class="t"><div class="name">Soane's Museum</div><div class="meta"><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.7</span> · free</div></div></div>
-        <div class="tile"><div class="ph eat"></div><div class="t"><div class="name">The Barbary</div><div class="meta"><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.7</span> · ££</div></div></div>
-        <div class="tile"><div class="ph do"></div><div class="t"><div class="name">Courtauld</div><div class="meta"><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.6</span> · £</div></div></div>
-      </div>
-      <div class="sec"><div class="t"><span style="color:var(--budget)">£0</span> Free</div><div class="m">See all 31</div></div>
-      <div class="caro">
-        <div class="tile"><div class="ph do"></div><div class="t"><div class="name">Covent Garden Market</div><div class="meta">2 min walk</div></div></div>
-        <div class="tile"><div class="ph do"></div><div class="t"><div class="name">National Gallery</div><div class="meta">10 min walk</div></div></div>
-        <div class="tile"><div class="ph do"></div><div class="t"><div class="name">St James's Park</div><div class="meta">15 min walk</div></div></div>
-      </div>
-      <div class="sec"><div class="t"><span style="color:var(--like)">✓</span> Been before</div><div class="m">See all 4</div></div>
-    </div>
-    <div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
-  </div>
-</div>
-<p class="cap">Find as strands. For you first, then the ways of looking that matter. One row of category pills on top, the magnifier at the end.</p>
-</div>
-
-<div>
-<div class="phone">
-  <div class="status"><span>9:41</span><span>●●●</span></div>
-  <div class="screen">
-    <div class="head"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p><div style="height:14px"></div></div>
-    <div class="tabs"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div>
-    <div class="body">
-      <div class="hdr"><div><div class="h3"><span style="color:var(--you)">✦</span> For you</div><div class="tiny">18 places · ranked for Roger, Gina and Phoenix</div></div><div class="iconbtn"><svg class="ic"><use href="#i-sliders-horizontal"/></svg></div></div>
-      <div class="cardlist">
-        <div class="pc"><div class="ph do"></div><div class="t"><div class="name">Somerset House</div><div class="meta">Courtyard, galleries · free · 1 h 15</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Phoenix loves fountains</div></div><div class="act"><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.6</span></div></div>
-        <div class="pc"><div class="ph eat"></div><div class="t"><div class="name">Dishoom Covent Garden</div><div class="meta">Indian · ££ · 1 h</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Gina: veggie mains · you loved Dishoom Kensington</div></div><div class="act"><div class="save on"><svg class="ic"><use href="#i-bookmark"/></svg></div><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.6</span></div></div>
-        <div class="pc"><div class="ph on"></div><div class="t"><div class="name">Punch & Judy, the piazza</div><div class="meta">Street show · 12:00 · free</div><div class="why"><svg class="ic s"><use href="#i-baby"/></svg>Under 10s</div></div><div class="act"><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div></div>
-        <div class="pc"><div class="ph eat"></div><div class="t"><div class="name">Gelupo</div><div class="meta">Gelato · £ · 20 min</div><div class="why"><svg class="ic s"><use href="#i-sparkles"/></svg>Gina: pistachio</div></div><div class="act"><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div><span class="star"><svg class="ic s"><use href="#i-star"/></svg>4.6</span></div></div>
-      </div>
-    </div>
-    <div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
-  </div>
-</div>
-<p class="cap">A strand opened as a list. Every card says why it is here, in the family's own words.</p>
-</div>
-
-<div>
-<div class="phone">
-  <div class="status"><span>9:41</span><span>●●●</span></div>
-  <div class="screen">
-    <div class="head"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London · Roger, Gina, Phoenix</p><div style="height:14px"></div></div>
-    <div class="tabs"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div>
-    <div class="body"><div class="sec"><div class="t">For you</div></div></div>
-    <div class="scrim"></div>
-    <div class="sheet">
-      <div class="handle"></div>
-      <div class="h3">Filters</div>
-      <div class="grp"><div class="lab" style="color:var(--budget)">BUDGET FOR THE DAY</div><div class="seg3"><div>Easy</div><div class="on">Medium</div><div>Splash out</div></div></div>
-      <div class="grp"><div class="lab" style="color:var(--do)">KIND</div><div class="opts"><div class="opt on">Museum</div><div class="opt on">Gallery</div><div class="opt">Park</div><div class="opt">Theatre</div><div class="opt">Market</div><div class="opt">More…</div></div></div>
-      <div class="grp"><div class="lab" style="color:var(--eat)">FOOD</div><div class="opts"><div class="opt eaton">Italian</div><div class="opt">Indian</div><div class="opt">British</div><div class="opt">Vegetarian</div><div class="opt">More…</div></div></div>
-      <div class="grp"><div class="lab">HOW FAR</div><div class="seg3"><div>1 km</div><div class="on" style="background:var(--ink)">3 km</div><div>10 km</div></div></div>
-      <div class="btn">Show 42 places</div>
-      <div class="btn ghost">Refresh from the sources</div>
-    </div>
-  </div>
-</div>
-<p class="cap">The one filter sheet: budget, kind, food, distance. Refresh is the last line here, not a button on the page.</p>
-</div>
-
-<div class="notes">
-  <h4>Why this shape</h4>
-  <ul><li>Sorting is what the strands are. Nobody has to pick "Most reviewed" from a segmented control.</li><li>For you is always first and always visible, so the taste model earns its keep every time.</li><li>Fewer controls on the page: category pills, a magnifier, a sliders icon.</li></ul>
-  <h4>Trade-off</h4>
-  <ul><li>Horizontal rows show three at a time; a long scan means opening a strand.</li><li>What's on needs an event source switched on for its strand to have anything in it.</li></ul>
-</div>
-</div>
-</section>
-
-<!-- ============================================================ OPTION 3 -->
-<section>
-<h2>Option 3 · Map first, cards beneath</h2>
-<p class="sub">The map is the page. Coloured pins for the three kinds; the controls float over the top; the results are a carousel along the bottom that follows the map. List is a toggle.</p>
-<div class="row">
-
-<div>
-<div class="phone">
-  <div class="status"><span>9:41</span><span>●●●</span></div>
-  <div class="screen">
-    <div class="head"><div class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</div><div class="title">Paddington the Musical</div><p class="sub">Sat 5 Sep · London</p><div style="height:14px"></div></div>
-    <div class="tabs"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div>
-    <div class="map" style="flex:1;margin-top:12px">
-      <svg class="bg" viewBox="0 0 390 560"><g stroke="#DDE0D6" stroke-width="8" fill="none"><path d="M0 150 C120 130 200 210 390 170"/><path d="M60 0 L110 560"/><path d="M230 0 C 250 250 330 360 300 560"/><path d="M0 400 L390 420"/></g></svg>
-      <div class="float" style="top:10px"><div class="pill" style="background:var(--ink);color:#fff;border-color:var(--ink)">All</div><div class="pill" style="color:var(--do)">Do</div><div class="pill" style="color:var(--eat)">Eat</div><div class="pill" style="color:var(--on)">On</div><div class="iconbtn" style="margin-left:auto"><svg class="ic"><use href="#i-search"/></svg></div><div class="iconbtn"><svg class="ic"><use href="#i-list"/></svg></div></div>
-      <div class="float" style="top:56px"><div class="pill you"><svg class="ic s"><use href="#i-sparkles"/></svg>For you</div><div class="pill budget"><svg class="ic s"><use href="#i-pound-sterling"/></svg>Medium</div><div class="pill kind">Any kind<svg class="ic s"><use href="#i-chevron-down"/></svg></div></div>
-      <div class="pin home" style="left:190px;top:330px"><span><svg class="ic s" style="stroke:#fff"><use href="#i-house"/></svg></span></div>
-      <div class="pin do" style="left:120px;top:240px"><span><svg class="ic s"><use href="#i-landmark"/></svg></span></div>
-      <div class="pin do big" style="left:230px;top:210px"><span><svg class="ic"><use href="#i-landmark"/></svg></span></div>
-      <div class="pin eat" style="left:150px;top:300px"><span><svg class="ic s"><use href="#i-utensils"/></svg></span></div>
-      <div class="pin eat" style="left:270px;top:300px"><span><svg class="ic s"><use href="#i-utensils"/></svg></span></div>
-      <div class="pin on" style="left:90px;top:360px"><span><svg class="ic s"><use href="#i-ticket"/></svg></span></div>
-      <div class="pin do" style="left:320px;top:250px"><span><svg class="ic s"><use href="#i-landmark"/></svg></span></div>
-      <div class="pin eat" style="left:330px;top:380px"><span><svg class="ic s"><use href="#i-utensils"/></svg></span></div>
-      <div class="carousel">
-        <div class="mcard" style="border:2px solid var(--red)"><div class="hdr"><div class="name" style="font-weight:800">Somerset House</div><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div><div class="meta">Courtyard, galleries · free · 3 min walk</div><div class="why" style="align-self:flex-start;display:inline-flex;gap:4px;padding:2px 8px;border-radius:999px;background:var(--youSoft);color:var(--you);font-size:11px;font-weight:700"><svg class="ic s"><use href="#i-sparkles"/></svg>Phoenix loves fountains</div></div>
-        <div class="mcard"><div class="hdr"><div class="name" style="font-weight:800">Courtauld Gallery</div><div class="save"><svg class="ic"><use href="#i-bookmark"/></svg></div></div><div class="meta">Gallery · £ · 2 min walk</div></div>
-      </div>
-    </div>
-    <div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-map-pin"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
-  </div>
-</div>
-<p class="cap">Map first. Pins coloured by kind, the chosen one in red, its card first in the carousel. Swiping the cards moves the map.</p>
-</div>
-
-<div class="notes">
-  <h4>Why this shape</h4>
-  <ul><li>"Is it near the theatre?" is answered before anything else, which is the question that decides a day out.</li><li>Almost nothing on the page: one row of kinds, one row of filters, cards.</li></ul>
-  <h4>Trade-off</h4>
-  <ul><li>Two at a time; slow to scan sixty places. The list toggle is doing real work.</li><li>Most new building of the three.</li></ul>
-</div>
-</div>
-</section>
-
-<!-- ============================================================ DESKTOP -->
-<section>
-<h2>On the desktop (Option 1)</h2>
-<p class="sub">The same page wide: filters down the left, cards in a grid, sources as one control in the top bar.</p>
-<div class="desk">
-  <div class="topbar"><div class="brand">Roam</div><div class="nav">Plan · Places · <b>Trips</b> · Household · Settings</div><div class="right"><div class="src"><svg class="ic s"><use href="#i-globe"/></svg>Sources: Google + OSM<svg class="ic s"><use href="#i-chevron-down"/></svg></div><div class="src"><svg class="ic s"><use href="#i-search"/></svg></div></div></div>
-  <div class="dbody">
-    <div class="dleft">
-      <div class="panel"><div class="h3">Paddington the Musical</div><div class="small">Sat 5 Sep · London · Roger, Gina, Phoenix</div><div class="tabs" style="margin:6px 0 0;padding:0"><div class="on">Find</div><div>Shortlist · 3</div><div>The day</div></div></div>
-      <div class="panel">
-        <div class="cats" style="flex-direction:column"><div class="cat do sel" style="flex-direction:row;align-items:center"><svg class="ic l"><use href="#i-landmark"/></svg><div class="l" style="flex:1;font-size:13px">Things to do</div><div class="n" style="font-size:16px">56</div></div><div class="cat eat" style="flex-direction:row;align-items:center"><svg class="ic l"><use href="#i-utensils"/></svg><div class="l" style="flex:1;font-size:13px">Places to eat</div><div class="n" style="font-size:16px">64</div></div><div class="cat on" style="flex-direction:row;align-items:center"><svg class="ic l"><use href="#i-ticket"/></svg><div class="l" style="flex:1;font-size:13px">What's on</div><div class="n" style="font-size:16px">12</div></div></div>
-      </div>
-      <div class="panel">
-        <div class="grp"><div class="lab" style="color:var(--budget)">BUDGET FOR THE DAY</div><div class="seg3"><div>Easy</div><div class="on">Medium</div><div>Splash out</div></div></div>
-        <div class="grp"><div class="lab" style="color:var(--do)">KIND</div><div class="opts"><div class="opt on">Museum</div><div class="opt on">Gallery</div><div class="opt">Theatre</div><div class="opt">Park</div><div class="opt">Market</div><div class="opt">Playground</div><div class="opt">More…</div></div></div>
-        <div class="grp"><div class="lab">HOW FAR</div><div class="seg3"><div>1 km</div><div class="on" style="background:var(--ink)">3 km</div><div>10 km</div></div></div>
-      </div>
-    </div>
-    <div class="dmain">
-      <div class="hdr"><div class="bar"><div class="pill you"><svg class="ic s"><use href="#i-sparkles"/></svg>For you</div><div class="pill sort">Top rated</div><div class="pill sort">Most reviewed</div><div class="pill sort">Nearest</div></div><div class="tiny">14 of 56 · near the Savoy</div></div>
-      <div class="grid">
-        <div class="gc"><div class="ph do"></div><div class="t"><div class="name">Somerset House<span class="save"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">free · 1 h 15 · 3 min walk</div><div class="why" style="display:inline-flex;gap:4px;padding:2px 8px;border-radius:999px;background:var(--youSoft);color:var(--you);font-size:11px;font-weight:700;align-self:flex-start">Phoenix loves fountains</div></div></div>
-        <div class="gc"><div class="ph do"></div><div class="t"><div class="name">Soane's Museum<span class="save on"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">free · 1 h · 9 min walk</div><div class="why" style="display:inline-flex;gap:4px;padding:2px 8px;border-radius:999px;background:var(--likeSoft);color:var(--like);font-size:11px;font-weight:700;align-self:flex-start">You loved it, 2024</div></div></div>
-        <div class="gc"><div class="ph do"></div><div class="t"><div class="name">Transport Museum<span class="save"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">££ · 1 h 30 · 4 min walk</div><div class="why" style="display:inline-flex;gap:4px;padding:2px 8px;border-radius:999px;background:var(--youSoft);color:var(--you);font-size:11px;font-weight:700;align-self:flex-start">Made for Phoenix's age</div></div></div>
-        <div class="gc"><div class="ph do"></div><div class="t"><div class="name">Courtauld Gallery<span class="save"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">£ · 1 h 15 · 2 min walk</div></div></div>
-        <div class="gc"><div class="ph do"></div><div class="t"><div class="name">National Gallery<span class="save"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">free · 2 h · 10 min walk</div></div></div>
-        <div class="gc"><div class="ph do"></div><div class="t"><div class="name">Photographers' Gallery<span class="save"><svg class="ic s"><use href="#i-bookmark"/></svg></span></div><div class="meta">£ · 1 h · 12 min walk</div></div></div>
-      </div>
-    </div>
-  </div>
-</div>
-</section>
-
-<section>
-<h2>Side by side</h2>
-<table class="cmp">
-<tr><th></th><th>Option 1 · Tiles and one bar</th><th>Option 2 · Strands</th><th>Option 3 · Map first</th></tr>
-<tr><td>Kind of thing</td><td>Three colour tiles with counts</td><td>Pills across the top</td><td>Pills floating on the map</td></tr>
-<tr><td>Sort</td><td>One pill: For you, Top rated, Most reviewed, Nearest</td><td>None. The strands are the sorts</td><td>For you pill</td></tr>
-<tr><td>Kind and budget</td><td>Sheets from the bar</td><td>One filter sheet</td><td>Sheets from the floating pills</td></tr>
-<tr><td>Search</td><td>Magnifier, bar becomes the field</td><td>Magnifier</td><td>Magnifier</td></tr>
-<tr><td>For you</td><td>Default sort, reason on the card</td><td>First strand, always visible</td><td>Default, reason on the card</td></tr>
-<tr><td>Sources</td><td colspan="3">Desktop top bar only</td></tr>
-<tr><td>Scans sixty places</td><td>Well</td><td>Needs a strand opened</td><td>Needs the list toggle</td></tr>
-<tr><td>Build</td><td>Smallest, reuses the pool</td><td>Medium</td><td>Largest</td></tr>
-</table>
-<p class="sub" style="margin-top:14px"><b>Recommendation.</b> Option 1. It keeps the three lists you said worked, cuts everything else to one bar and two sheets, and gives the page colour that means something. The For you strand from Option 2 can sit above Option 1's list later without changing anything else.</p>
-</section>
-
-</body>
-</html>
+<section><h2>Side by side</h2>
+<table class="cmp"><tr><th></th><th>Option 1 · Tiles and one bar</th><th>Option 2 · Strands</th><th>Option 3 · Map first</th></tr>
+<tr><td>Kind of thing</td><td>Three tiles with counts</td><td>Pills across the top</td><td>Pills on the map</td></tr>
+<tr><td>Sort</td><td>One pill: For you, Top rated, Most reviewed, Nearest</td><td>None; the strands are the sorts</td><td>For you pill</td></tr>
+<tr><td>Kind and budget</td><td>Sheets from the bar</td><td>One filter sheet</td><td>Sheets from the pills</td></tr>
+<tr><td>Search</td><td colspan="3">Magnifier; the bar becomes the field</td></tr>
+<tr><td>For you</td><td>Default order, reason on the card</td><td>First strand, always visible</td><td>Default, reason on the card</td></tr>
+<tr><td>Sources</td><td colspan="3">Desktop header only</td></tr>
+<tr><td>Build</td><td>Smallest</td><td>Medium</td><td>Largest</td></tr></table>
+<p class="sub" style="margin-top:14px"><b>Recommendation.</b> Option 1, with Option 2's For you strand above its list later.</p></section>
+</body></html>
