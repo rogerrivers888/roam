@@ -349,7 +349,7 @@ const web=document.getElementById('web');const ws=Object.assign(base(),{open:{GB
 web.innerHTML=`<div class="nav"><div class="brand">Roam</div><div class="i">${ic('sparkles')}Plan</div><div class="i on">${ic('map-pin')}Places</div><div class="i">${ic('calendar')}Trips</div><div class="i">${ic('users')}Household</div><div class="i">${ic('settings')}Settings</div></div><div class="col c1" id="wa"></div><div class="col c2" id="wc" style="flex-direction:row;gap:16px"></div>`;
 document.getElementById('wa').innerHTML=atlasScreen(ws).replace('data-a="city" data-c="London"','data-a="city" data-c="London" style="background:var(--accentSoft)"');
 const wc=document.getElementById('wc');const listHtml=cityScreen(Object.assign({},ws,{view:'list'}));
-wc.innerHTML=`<div style="width:400px;display:flex;flex-direction:column;gap:10px;min-width:0">${listHtml.replace(/<div class="viewtog">[\s\S]*?<\/div><\/div>/,'<div class="viewtog" style="margin-left:auto"><div class="on">'+ic('map','s')+' Map on</div></div></div>')}</div><div class="bigmap" style="min-height:0">${PLACES.map(p=>`<div class="pin ${p.sp?'g':p.st==='been'?'b':'w'}" style="left:${p.x}px;top:${p.y*1.5+40}px"></div>`).join('')}</div>`;
+wc.innerHTML=`<div style="width:400px;display:flex;flex-direction:column;gap:10px;min-width:0">${listHtml.replace(/<div class="viewtog">[\s\S]*?<\/div><\/div>/,'<div class="viewtog" style="margin-left:auto"><div class="on">'+ic('map','s')+' Map on</div></div></div>')}</div><div class="bigmap" style="min-height:0">${PLACES.map(p=>`<div class="pin ${p.sp?'g':p.st==='been'?'b':'w'}" style="left:${p.x*0.85}px;top:${p.y*1.5+40}px"></div>`).join('')}</div>`;
 </script>
 </body>
 </html>
