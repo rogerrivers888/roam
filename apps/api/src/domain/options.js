@@ -324,45 +324,15 @@ export function composeOptions({
     seen.add(signature);
 
     const stops = timed.map((s, i) => ({
-      id: s.key,
+      ...richFields(s, base),
       position: i + 1,
-      venueRef: `${s.source}:${s.sourcePlaceId}`,
-      name: s.name,
-      category: s.category,
-      lat: s.lat,
-      lng: s.lng,
       dwellMinutes: s.dwellMinutes,
       dwellCappedBy: s.dwellCappedBy ?? null,
       waitMinutes: s.waitMinutes,
       travelFromPrevMinutes: s.travelFromPrevMinutes,
       arriveAt: s.arriveAt,
       leaveAt: s.leaveAt,
-      reasons: s.reasons ?? [],
-      justification: s.justification ?? null,
-      startsAt: s.startsAt ?? null,
-      endsAt: s.endsAt ?? null,
       pinned: pinned.includes(s.key),
-      fixed: Boolean(s.fixed),
-      // What kind of place, how it is rated and by whom, what it costs, how far
-      // it is — so a card can say more than a name and a reason.
-      source: s.source,
-      cuisines: s.cuisines ?? [],
-      experiences: s.experiences ?? [],
-      rating: s.rating ?? null,
-      ratingCount: s.ratingCount ?? null,
-      ratingSource: s.rating != null ? (s.provenance?.rating?.source ?? s.source) : null,
-      priceLevel: s.priceLevel ?? null,
-      chain: Boolean(s.chain),
-      brand: s.brand ?? null,
-      goodForChildren: s.goodForChildren ?? null,
-      menuForChildren: s.menuForChildren ?? null,
-      address: s.address ?? null,
-      website: s.website ?? null,
-      summary: s.summary ?? null,
-      openingHours: s.openingHours ?? null,
-      distanceKm: s.lat != null && base.lat != null ? Number(kmBetween(base, s).toFixed(1)) : null,
-      travelFromBaseMinutes: typeof s.travelMinutes === 'number' ? Math.round(s.travelMinutes) : null,
-      attribution: s.attributionText ?? s.attribution ?? null,
     }));
 
     options.push({
@@ -390,6 +360,58 @@ export function composeOptions({
     }
   }
 
+  // Everything found, for browsing: the three plans are a starting point, not
+  // the whole pool. Same chain/price choice as the plans; ticketed things and
+  // low-ranked places are shown here (with their reasons) even though no plan
+  // picks them by itself — the household can add any of them.
+  const browse = pool
+    .filter((c) => !excludedSet.has(c.key) && !c.fixed && eventInsideWindow(c, trip))
+    .filter((c) => c.shortlisted || pinnedSet.has(c.key) || ((includeChains || !c.chain) && priceOk(c, pricePoint)))
+    .sort((a, b) => (isEvent(a) && isEvent(b) ? new Date(a.startsAt) - new Date(b.startsAt) : (b.score ?? 0) - (a.score ?? 0)))
+    .slice(0, 120)
+    .map((c) => ({ ...richFields(c, base), dwellMinutes: dwellFor(c, household, attendees).minutes, pinned: pinnedSet.has(c.key), score: c.score ?? null }));
+
   const hiddenChains = pool.filter((c) => c.chain && !c.fixed && !c.shortlisted && !pinnedSet.has(c.key) && !excludedSet.has(c.key) && !includeChains).length;
-  return { options, poolSize: usable.length, target, hiddenChains, pricePoint, includeChains };
+  return { options, browse, poolSize: usable.length, target, hiddenChains, pricePoint, includeChains };
+}
+
+/** The facts a card needs, in one shape for plan stops and for browsing. */
+function richFields(s, base) {
+  return {
+    id: s.key,
+    venueRef: `${s.source}:${s.sourcePlaceId}`,
+    name: s.name,
+    category: s.category,
+    lat: s.lat,
+    lng: s.lng,
+    reasons: s.reasons ?? [],
+    justification: s.justification ?? null,
+    startsAt: s.startsAt ?? null,
+    endsAt: s.endsAt ?? null,
+    fixed: Boolean(s.fixed),
+    ticketed: Boolean(s.ticketed),
+    venueName: s.venueName ?? null,
+    externalUrl: s.externalUrl ?? null,
+    shortlisted: Boolean(s.shortlisted),
+    // What kind of place, how it is rated and by whom, what it costs, how far
+    // it is — so a card can say more than a name and a reason.
+    source: s.source,
+    cuisines: s.cuisines ?? [],
+    experiences: s.experiences ?? [],
+    rating: s.rating ?? null,
+    ratingCount: s.ratingCount ?? null,
+    ratingSource: s.rating != null ? (s.provenance?.rating?.source ?? s.source) : null,
+    priceLevel: s.priceLevel ?? null,
+    chain: Boolean(s.chain),
+    brand: s.brand ?? null,
+    goodForChildren: s.goodForChildren ?? null,
+    menuForChildren: s.menuForChildren ?? null,
+    address: s.address ?? null,
+    website: s.website ?? null,
+    summary: s.summary ?? null,
+    openingHours: s.openingHours ?? null,
+    distanceKm: s.lat != null && base?.lat != null ? Number(kmBetween(base, s).toFixed(1)) : null,
+    travelFromBaseMinutes: typeof s.travelMinutes === 'number' ? Math.round(s.travelMinutes) : null,
+    attribution: s.attributionText ?? s.attribution ?? null,
+  };
 }

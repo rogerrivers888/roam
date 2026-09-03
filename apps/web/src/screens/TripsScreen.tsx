@@ -9,6 +9,7 @@ import { PlacePicker } from '../components/PlacePicker';
 import { DateRangePicker, monthSpanLabel } from '../components/DateRangePicker';
 import { StopCard } from '../components/StopCard';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
+import { BrowsePool } from '../components/BrowsePool';
 import { MapView, MapPin } from '../components/MapView';
 import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
@@ -390,7 +391,16 @@ function Overview({ d, onGo, pins }: { d: TripDetail; onGo: (s: Section, dayId?:
 
 function DayPlanner({ trip, day, household, onChanged }: { trip: TripDetail; day: TripDay; household: HouseholdResponse; onChanged: () => Promise<void> }) {
   const [planning, setPlanning] = useState(false);
+  const [resumed, setResumed] = useState<PlanResponse | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  // A day already being planned comes back exactly as it was left: options,
+  // kept places, chain and price choices — leaving the tab loses nothing.
+  useEffect(() => {
+    let live = true;
+    setResumed(undefined); setPlanning(false);
+    api.planLatestForDay(trip.trip.id, day.id).then((p) => { if (!live) return; if (p.sessionId) { setResumed(p); setPlanning(true); } else setResumed(null); }).catch(() => { if (live) setResumed(null); });
+    return () => { live = false; };
+  }, [trip.trip.id, day.id]);
   const unscheduled = trip.shortlist.filter((s) => !s.scheduled);
   const allStops = day.slots.flatMap((s) => s.stops);
   const call = async (fn: () => Promise<any>) => { setError(null); try { await fn(); await onChanged(); } catch (e: any) { setError(e.message); } };
@@ -412,12 +422,13 @@ function DayPlanner({ trip, day, household, onChanged }: { trip: TripDetail; day
         <Segmented value={day.travelMode} options={[{ value: 'walking', label: 'Walk' }, { value: 'transit', label: 'Transit' }, { value: 'driving', label: 'Drive' }, { value: 'cycling', label: 'Cycle' }]} onChange={(v) => call(() => api.updateDay(trip.trip.id, day.id, { travelMode: v }))} />
         <TimeBar budget={day.budget} stops={allStops.map((s) => ({ id: s.id, name: s.name, dwellMinutes: s.dwellMinutes }))} departAt={day.startTime} returnAt={day.endTime} />
         <Row>
-          <Button label={planning ? 'Hide planner' : allStops.length ? 'Re-plan this day with Roam' : 'Plan this day with Roam'} onPress={() => setPlanning((p) => !p)} />
+          <Button label={planning ? 'Hide planner' : resumed ? 'Back to the options' : allStops.length ? 'Re-plan this day with Roam' : 'Plan this day with Roam'} onPress={() => setPlanning((p) => !p)} />
+          {planning && resumed ? <Button label="Start again" kind="ghost" onPress={() => { setResumed(null); setPlanning(true); }} /> : null}
         </Row>
         {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       </Card>
 
-      {planning ? <DayPlanPanel trip={trip} day={day} onCommitted={async () => { setPlanning(false); await onChanged(); }} /> : null}
+      {planning && resumed !== undefined ? <DayPlanPanel key={resumed ? resumed.sessionId : 'fresh'} trip={trip} day={day} initial={resumed ?? null} onCommitted={async () => { setPlanning(false); await onChanged(); }} onShortlisted={onChanged} /> : null}
 
       {day.slots.map((slot) => (
         <Card key={slot.slot} style={{ gap: spacing.sm }}>
@@ -488,11 +499,11 @@ function StopRow({ stop, leg, trip, day, household, onChanged }: { stop: DayStop
 }
 
 /** Options for the day from shortlist ∪ nearby; react by tap or voice; commit. */
-function DayPlanPanel({ trip, day, onCommitted }: { trip: TripDetail; day: TripDay; onCommitted: () => Promise<void> }) {
-  const [plan, setPlan] = useState<PlanResponse | null>(null);
+function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip: TripDetail; day: TripDay; initial: PlanResponse | null; onCommitted: () => Promise<void>; onShortlisted: () => Promise<void> }) {
+  const [plan, setPlan] = useState<PlanResponse | null>(initial);
   const [busy, setBusy] = useState<false | 'thinking' | 'updating'>(false);
   const [error, setError] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<string | null>(initial?.options[0]?.id ?? null);
   const [input, setInput] = useState('');
   const [reply, setReply] = useState<string | null>(null);
 
@@ -500,7 +511,8 @@ function DayPlanPanel({ trip, day, onCommitted }: { trip: TripDetail; day: TripD
     setBusy('thinking'); setError(null);
     try { const p = await api.planDay(trip.trip.id, day.id); setPlan(p); setViewing(p.options[0]?.id ?? null); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }, [trip.trip.id, day.id]);
-  useEffect(() => { start(); }, [start]);
+  useEffect(() => { if (!initial) start(); }, [start, initial]);
+  const baseLabel = trip.trip.base?.label ?? trip.trip.origin.label;
 
   const say = async (text: string, viaVoice = false) => {
     if (!plan || !text.trim()) return;
@@ -514,7 +526,8 @@ function DayPlanPanel({ trip, day, onCommitted }: { trip: TripDetail; day: TripD
   return (
     <Card style={{ borderColor: colors.accent, gap: spacing.md }}>
       <Text style={type.h3}>Roam's options for {fmtDate(day.date)}</Text>
-      <Text style={type.tiny}>Composed from your shortlist (★ must-dos are kept) plus what's near where you're staying. Say or tap what you think.</Text>
+      <Text style={type.tiny}>Composed from your shortlist (★ must-dos are kept) plus what's near where you're staying. Say or tap what you think.{plan?.resumed ? ' Picked up where you left off.' : ''}</Text>
+      <Text style={type.tiny}>♡ Keep puts a place into every plan for this day · ☆ Shortlist saves it to this trip for any day · ✕ sets it aside.</Text>
       {busy === 'thinking' ? <StatusLine>Working it out…</StatusLine> : null}
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       {reply ? <View style={styles.bubble}><Text style={type.body}>{reply}</Text></View> : null}
@@ -556,6 +569,17 @@ function DayPlanPanel({ trip, day, onCommitted }: { trip: TripDetail; day: TripD
             </View>
           ))}
           {plan.selection?.excluded?.length ? <Text style={type.tiny}>Not today: {plan.selection.excluded.length} place{plan.selection.excluded.length === 1 ? '' : 's'} set aside.</Text> : null}
+          <BrowsePool
+            items={plan.browse ?? []}
+            eventsSource={plan.eventsSource}
+            baseLabel={baseLabel}
+            pinned={new Set(plan.selection?.pinned ?? [])}
+            busy={!!busy}
+            onAdd={(b) => act({ type: 'like', stopId: b.id })}
+            onRemove={(b) => act({ type: 'unlike', stopId: b.id })}
+            onDislike={(b) => act({ type: 'dislike', stopId: b.id })}
+            onShortlist={async (b) => { await api.addToShortlist(trip.trip.id, { venueRef: b.venueRef, venueLabel: b.name, category: b.category, lat: b.lat, lng: b.lng, venue: { name: b.name, category: b.category, cuisines: b.cuisines, experiences: b.experiences, rating: b.rating, priceLevel: b.priceLevel, lat: b.lat, lng: b.lng } as any }); await onShortlisted(); }}
+          />
         </>
       ) : null}
     </Card>

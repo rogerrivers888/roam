@@ -140,6 +140,8 @@ export type OptionStop = {
   distanceKm?: number | null; travelFromBaseMinutes?: number | null; attribution?: string | null;
 };
 
+export type BrowseItem = Omit<OptionStop, 'position' | 'travelFromPrevMinutes' | 'pinned'> & { pinned: boolean; ticketed?: boolean; venueName?: string | null; externalUrl?: string | null; shortlisted?: boolean; score?: number | null };
+
 export type TripOption = {
   id: string; title: string; basis: string; stops: OptionStop[]; budget: Budget;
   counts: { activities: number; food: number }; shortfall: { activities: number; food: number };
@@ -184,6 +186,7 @@ export type PlanResponse = {
   suggestedPreferences?: SuggestedPreference[]; spend?: Spend;
   attending?: { id: string; name: string }[]; reach?: { maxTravelMinutes: number; estimated: boolean };
   applied?: any; ambiguous?: string | null; transcript?: { role: 'user' | 'assistant'; text: string }[];
+  browse?: BrowseItem[]; eventsSource?: string | null; resumed?: boolean;
 };
 
 export type PlanAction =
@@ -279,4 +282,5 @@ export const api = {
   planAct: (sessionId: string, action: PlanAction) => post<PlanResponse>('/api/plan/act', { sessionId, action }),
   planCommit: (sessionId: string, optionId: string) => post<{ tripId: string; optionId: string; stops: number }>('/api/plan/commit', { sessionId, optionId }),
   planGet: (sessionId: string) => request<PlanResponse>(`/api/plan/${sessionId}`),
+  planLatestForDay: (tripId: string, dayId: string) => request<PlanResponse & { sessionId: string | null }>(`/api/plan/day/latest${qs({ tripId, dayId })}`),
 };

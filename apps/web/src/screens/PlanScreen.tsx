@@ -9,6 +9,7 @@ import { TimeBar } from '../components/TimeBar';
 import { FaceRow } from '../components/Faces';
 import { StopCard } from '../components/StopCard';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
+import { BrowsePool } from '../components/BrowsePool';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { getSpeakPref } from './SettingsScreen';
 
@@ -28,9 +29,9 @@ const SUGGESTIONS_REFINE = [
   'Go with the first plan',
 ];
 
-const CATEGORY_ICON: Record<string, string> = {
-  restaurant: '🍽', cafe: '☕', pub: '🍺', bar: '🍸', attraction: '🏛', event: '🎟',
-};
+// The Plan tab unmounts when another tab is shown; the session it was in is
+// remembered here so coming back shows the same conversation and options.
+let remembered: { sessionId: string; turns: Turn[]; viewing: string | null } | null = null;
 
 const MISSING_LABEL: Record<string, string> = {
   origin: 'where from', origin_unknown: "where from (couldn't place it)", duration: 'how long', destination_unknown: "where to (couldn't place it)",
@@ -51,6 +52,14 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
   const [differences, setDifferences] = useState(false);
   const [committed, setCommitted] = useState<string | null>(null);
   const pagerRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (!remembered) return;
+    const r = remembered;
+    setSessionId(r.sessionId); setTurns(r.turns); setViewing(r.viewing);
+    api.planGet(r.sessionId).then((p) => setPlan(p)).catch(() => { remembered = null; });
+  }, []);
+  useEffect(() => { remembered = sessionId ? { sessionId, turns, viewing } : null; }, [sessionId, turns, viewing]);
 
   const hasOptions = !!plan?.trip && (plan?.options?.length ?? 0) > 0;
 
@@ -115,6 +124,7 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
   }, [sessionId, turns]);
 
   const reset = () => {
+    remembered = null;
     setSessionId(null); setPlan(null); setTurns([]); setViewing(null); setCommitted(null); setError(null);
   };
 
@@ -308,6 +318,17 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
               <View key={o.id} style={[styles.dot, viewing === o.id && styles.dotOn]} />
             ))}
           </Row>
+
+          <BrowsePool
+            items={plan!.browse ?? []}
+            eventsSource={plan!.eventsSource}
+            baseLabel={plan!.journey?.to ?? plan!.trip!.destination?.label ?? plan!.trip!.origin.label}
+            pinned={new Set(plan!.selection?.pinned ?? [])}
+            busy={busy === 'updating'}
+            onAdd={(b) => act({ type: 'like', stopId: b.id })}
+            onRemove={(b) => act({ type: 'unlike', stopId: b.id })}
+            onDislike={(b) => act({ type: 'dislike', stopId: b.id })}
+          />
 
           {plan!.selection?.excluded?.length ? (
             <Card>

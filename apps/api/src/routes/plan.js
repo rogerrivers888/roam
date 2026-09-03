@@ -11,7 +11,7 @@ import { Router } from 'express';
 import { z } from 'zod/v4';
 import { query } from '../db.js';
 import { parseStructured, spendSummary, SpendBoundError } from '../claude.js';
-import { searchAllSources } from '../sources/index.js';
+import { searchAllSources, enabledSources } from '../sources/index.js';
 import { resolvePlace, KNOWN_PLACES } from '../sources/fixtures.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, TRAVEL_MODES } from '../domain/travel.js';
@@ -406,7 +406,7 @@ async function recompose(session, household) {
 }
 
 async function respond(res, { session, household, reply, extra = {} }) {
-  const { trip, options, poolSize, target, hiddenChains } = await recompose(session, household);
+  const { trip, options, browse, poolSize, target, hiddenChains } = await recompose(session, household);
   const spend = await spendSummary({ householdId: household.id, sessionId: session.id });
   res.json({
     sessionId: session.id,
@@ -417,6 +417,10 @@ async function respond(res, { session, household, reply, extra = {} }) {
     trip: publicTrip(trip),
     reply,
     options,
+    // Everything found nearby, for browsing and adding; and whether any source
+    // of timed events is on at all, so "nothing on" can be told from "not looked".
+    browse,
+    eventsSource: enabledSources().find((s) => s.key === 'ticketmaster')?.key ?? null,
     selection: {
       pinned: session.state.pinned,
       excluded: session.state.excluded,
@@ -877,6 +881,25 @@ router.post('/day', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+/**
+ * GET /api/plan/day/latest?tripId=&dayId= — the day's most recent planning
+ * session, so leaving the tab and coming back shows the same options.
+ */
+router.get('/day/latest', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const { tripId, dayId } = req.query;
+    if (!tripId || !dayId) return res.status(400).json({ error: 'trip_and_day_required' });
+    const { rows } = await query(
+      `select * from plan_sessions where household_id = $1 and trip_id = $2 and state->>'dayId' = $3 and expires_at > now() order by updated_at desc limit 1`,
+      [household.id, tripId, dayId],
+    );
+    const session = rows[0];
+    if (!session || !session.state?.pool) return res.json({ sessionId: null, options: [] });
+    await respond(res, { session, household, reply: null, extra: { dayId, date: session.state.date ?? null, transcript: session.state.transcript ?? [], attending: session.state.attending ?? [], resumed: true } });
+  } catch (err) { next(err); }
 });
 
 router.get('/:sessionId', async (req, res, next) => {
