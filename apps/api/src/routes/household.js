@@ -4,8 +4,10 @@ import { ALLERGENS, matchConcepts, resolveConcept, conceptByKey, isNegated } fro
 
 const NEGATION_PREFIX = /^(not|no|never|without|anything but|nothing)\s+/i;
 import { geocode } from '../sources/geocode.js';
-import { spendSummary } from '../claude.js';
-import { localScoutSource, SCOUT_MONTHLY_RUNS } from '../sources/localscout.js';
+import { LINES } from '../sources/pricing.js';
+import { usageBetween, allowanceUsage } from '../sources/usage.js';
+import { enabledSources } from '../sources/index.js';
+import { routingEnabled } from '../sources/routing.js';
 import { paceOf, DEFAULT_PACE } from '../domain/pace.js';
 import { isValidTimezone } from '../domain/time.js';
 
@@ -360,35 +362,60 @@ router.get('/learned', async (_req, res, next) => {
   }
 });
 
-/** Cost per household per period — the instrumentation §14 asks for. */
-router.get('/spend', async (_req, res, next) => {
+/**
+ * Cost per household per period — the instrumentation §14 asks for, as
+ * Settings › Usage shows it: a period (this month, last month, all time, or
+ * from/to dates), a total, one line per provider with calls, billable units,
+ * estimated cost and how much of its free allowance or Roam cap has gone, and
+ * the activity in that period. Figures are Roam's own counts at list prices;
+ * each line links to the provider console where the real bill is.
+ */
+router.get('/spend', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const summary = await spendSummary({ householdId: household.id, sessionId: '00000000-0000-0000-0000-000000000000' });
-    const { rows } = await query(
-      `select provider, count(*)::int as calls, coalesce(sum(estimated_cost_usd), 0)::float as cost_usd
-         from provider_calls where household_id = $1 and created_at >= date_trunc('month', now())
-        group by provider order by calls desc`,
-      [household.id],
-    );
-    // An activity feed: every call this month with what it was for and what it
-    // cost, newest first — so a scout search shows its price beside it.
+    const { allowances, windows: w } = await allowanceUsage(household.id);
+    const key = ['month', 'last-month', 'all', 'custom'].includes(String(req.query.period)) ? String(req.query.period) : 'month';
+    const day = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? new Date(`${v}T00:00:00Z`) : null);
+    let from; let to;
+    if (key === 'last-month') { from = w.last_month_start; to = w.month_start; }
+    else if (key === 'all') { from = new Date(0); to = w.next_month_start; }
+    else if (key === 'custom' && day(req.query.from)) { from = day(req.query.from); to = new Date((day(req.query.to) ?? from).getTime() + 86_400_000); }
+    else { from = w.month_start; to = w.next_month_start; }
+
+    const { lines: stats, total } = await usageBetween(household.id, from, to);
+    const live = new Set(enabledSources({ includeOptIn: true }).map((s) => s.key));
+    const isOn = (line) => (line.key === 'claude' ? Boolean(process.env.ANTHROPIC_API_KEY) : line.key === 'google-routes' ? routingEnabled() : live.has(line.source));
+    let paidTotal = 0;
+    const lines = LINES.map((line) => {
+      const s = stats[line.key] ?? { calls: 0, units: 0, costUsd: 0, estimated: false };
+      const a = allowances[line.key] ?? null;
+      // What this period cost beyond the free allowance: Claude by tokens; a
+      // metered provider only once its allowance window is past the limit.
+      let paidUsd = 0;
+      if (line.key === 'claude' || line.key === 'scout') paidUsd = s.costUsd;
+      else if (line.allowance?.beyondUsd && a) paidUsd = Math.min(s.units, Math.max(0, a.used - a.limit)) * line.allowance.beyondUsd;
+      paidTotal += paidUsd;
+      return {
+        key: line.key, label: line.label, source: line.source, on: isOn(line),
+        unit: line.unit, unitPlural: line.unitPlural, what: line.what, hardStop: line.hardStop ?? null, console: line.console ?? null,
+        calls: s.calls, units: Math.round(s.units), costUsd: s.costUsd, paidUsd, estimated: s.estimated,
+        allowance: line.allowance ? { ...line.allowance, ...a } : null,
+        cap: line.cap ? { ...line.cap, ...a } : null,
+      };
+    }).filter((l) => l.on || l.calls > 0 || (l.allowance?.used ?? 0) > 0);
+
     const { rows: recent } = await query(
-      `select id, created_at as at, provider, purpose, coalesce(estimated_cost_usd, 0)::float as cost_usd
-         from provider_calls where household_id = $1 and created_at >= date_trunc('month', now())
-        order by created_at desc limit 40`,
-      [household.id],
-    );
-    const { rows: [scout] } = await query(
-      `select count(*)::int as runs, coalesce(sum(estimated_cost_usd), 0)::float as cost_usd
-         from provider_calls where household_id = $1 and purpose = 'scout.events' and created_at >= date_trunc('month', now())`,
-      [household.id],
+      `select id, created_at as at, provider, purpose, coalesce(estimated_cost_usd, 0)::float as cost_usd, units
+         from provider_calls where household_id = $1 and created_at >= $2 and created_at < $3
+        order by created_at desc limit 80`,
+      [household.id, from, to],
     );
     res.json({
-      month: { calls: summary.month_calls, costUsd: summary.month_cost_usd, bound: summary.householdMonthlyBound },
-      byProvider: rows,
+      period: { key, from, to, label: key === 'month' ? 'This month' : key === 'last-month' ? 'Last month' : key === 'all' ? 'All time' : 'Custom' },
+      totals: { calls: total.calls, costUsd: total.costUsd, paidUsd: paidTotal },
+      lines,
       recent,
-      scout: { runs: scout.runs, costUsd: scout.cost_usd, cap: SCOUT_MONTHLY_RUNS, on: localScoutSource.enabled() },
+      generatedAt: w.now,
     });
   } catch (err) {
     next(err);

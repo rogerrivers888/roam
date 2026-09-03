@@ -1,3 +1,4 @@
+import { bump } from './meter.js';
 // PredictHQ Events API: aggregated, ranked events worldwide — concerts, sport,
 // performing arts, festivals, expos and, unusually, *community* events (fairs,
 // markets, parades). 14-day trial then a Free plan; a paid plan is the
@@ -24,7 +25,7 @@ export const predicthqSource = {
   enabled: () => Boolean(KEY()),
 
   /** Events active inside the outing window, near a point. Only asked for when includeEvents is set. */
-  async search({ center, radiusKm = 10, includeEvents = false, outingStart = null, outingEnd = null, query = '' } = {}) {
+  async search({ center, radiusKm = 10, includeEvents = false, outingStart = null, outingEnd = null, query = '', meter = null } = {}) {
     if (!KEY() || !includeEvents || !center || center.lat == null) return [];
     const start = outingStart ? new Date(outingStart) : new Date();
     const end = outingEnd ? new Date(outingEnd) : new Date(start.getTime() + 36 * 3600_000);
@@ -34,6 +35,7 @@ export const predicthqSource = {
       category: CATEGORIES.join(','), state: 'active', limit: '50', sort: 'start',
       ...(query?.trim() ? { q: query.trim() } : {}),
     });
+    bump(meter, 'predicthq');
     const res = await fetch(`${BASE}/events/?${params}`, { headers: { authorization: `Bearer ${KEY()}`, accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
     if (!res.ok) throw new Error(`PredictHQ ${res.status}: ${(await res.text().catch(() => '')).slice(0, 160)}`);
     const data = await res.json();

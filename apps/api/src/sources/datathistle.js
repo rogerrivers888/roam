@@ -1,9 +1,11 @@
+import { bump } from './meter.js';
 // Data Thistle (The List) — UK live events data: half a million future
 // performances "from arena shows to village fairs", refreshed daily from
 // 10,000+ venues. This is the structured version of the local paper's what's-on
-// page: the fête, the library storytime, the farmers' market. Paid (from £50 a
-// month), so switching it on is the owner's decision (CLAUDE.md). Bearer key;
-// monthly request quota reported in response headers. Content is not stored.
+// page: the fête, the library storytime, the farmers' market. Free tier of
+// 1,000 requests a month per account (each search here is one request), paid
+// plans above that, so switching it on is the owner's decision (CLAUDE.md).
+// Bearer token that expires after 30 days. Content is not stored.
 
 const KEY = () => process.env.DATATHISTLE_API_KEY?.trim();
 const BASE = 'https://api.datathistle.com/v1';
@@ -27,7 +29,7 @@ export const datathistleSource = {
   enabled: () => Boolean(KEY()),
 
   /** Performances near a point inside the outing window. One record per event-at-venue. Only asked for when includeEvents is set. */
-  async search({ center, radiusKm = 10, includeEvents = false, outingStart = null, outingEnd = null, query = '' } = {}) {
+  async search({ center, radiusKm = 10, includeEvents = false, outingStart = null, outingEnd = null, query = '', meter = null } = {}) {
     if (!KEY() || !includeEvents || !center || center.lat == null) return [];
     const start = outingStart ? new Date(outingStart) : new Date();
     const end = outingEnd ? new Date(outingEnd) : new Date(start.getTime() + 36 * 3600_000);
@@ -38,6 +40,7 @@ export const datathistleSource = {
       min_date: new Date(from).toISOString(), max_date: end.toISOString(), limit: '20', order: 'ts',
       ...(query?.trim() ? { name: query.trim() } : {}),
     });
+    bump(meter, 'datathistle');
     const res = await fetch(`${BASE}/events?${params}`, { headers: { authorization: `Bearer ${KEY()}`, accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
     if (!res.ok) throw new Error(`Data Thistle ${res.status}: ${(await res.text().catch(() => '')).slice(0, 160)}`);
     const body = await res.json();

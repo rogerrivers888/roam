@@ -362,9 +362,8 @@ router.get('/:id/shortlist/search', async (req, res, next) => {
     const categories = req.query.categories ? String(req.query.categories).split(',').filter(Boolean) : [];
     // The search form's picker wins; otherwise the trip's saved sources; otherwise the default set.
     const sources = req.query.sources != null ? optInFrom(req.query.sources) : (Array.isArray(trip.sources) ? trip.sources : []);
-    const { venues, degraded, sourcesQueried } = await searchAllSources({ center, radiusKm, categories, query: String(req.query.q || '').trim(), includeEvents: false, sources, locality: trip.locality ?? null });
-    await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search']);
-    if (sourcesQueried.includes('tripadvisor')) await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'tripadvisor', 'trip.shortlist.search']);
+    const { venues, degraded, sourcesQueried, units } = await searchAllSources({ center, radiusKm, categories, query: String(req.query.q || '').trim(), includeEvents: false, sources, locality: trip.locality ?? null });
+    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search', units]);
     const { rows: existing } = await query('select venue_ref from trip_shortlist where trip_id = $1', [trip.id]);
     const have = new Set(existing.map((r) => r.venue_ref));
     const results = venues.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, distanceKm: Number(kmBetween(center, v).toFixed(2)), onShortlist: have.has(`${v.source}:${v.sourcePlaceId}`) }))

@@ -162,11 +162,10 @@ places.get('/search', async (req, res, next) => {
     const q = String(req.query.q || '').trim();
     const sources = optInFrom(req.query.sources);
 
-    const { venues, degraded, sourcesQueried } = await searchAllSources({
+    const { venues, degraded, sourcesQueried, units } = await searchAllSources({
       center: { lat: near.lat, lng: near.lng }, radiusKm, categories, query: q, includeEvents: false, sources,
     });
-    await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, sourcesQueried.join('+') || 'none', 'places.search']);
-    if (sourcesQueried.includes('tripadvisor')) await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'tripadvisor', 'places.search']);
+    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'places.search', units]);
 
     const inRange = venues
       .map((v) => ({ ...v, distanceKm: Number(kmBetween(near, v).toFixed(2)) }))
@@ -205,7 +204,10 @@ places.get('/detail', async (req, res, next) => {
     let venue = recallVenue(ref);
     let sourceError = null;
     if (!venue && src?.get) {
-      try { venue = await src.get(id); } catch (err) { sourceError = String(err?.message || err); }
+      const meter = {};
+      try { venue = await src.get(id, { meter }); } catch (err) { sourceError = String(err?.message || err); }
+      // A detail fetch is a provider call too (Google: one Place Details request; Tripadvisor: two billable entities).
+      if (Object.keys(meter).length) await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, source, 'places.detail', meter]);
     }
     const { rows } = await query('select id from visits where household_id = $1 and venue_ref = $2 order by visited_on desc', [household.id, ref]);
     const history = await Promise.all(rows.map((r) => visitPayload(r.id)));

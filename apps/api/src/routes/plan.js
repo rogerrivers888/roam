@@ -291,7 +291,7 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
   // The pool is what's around the base within a comfortable hop, not the whole
   // reach: a day in central London is a 2–3 km affair; a driving day a bit more.
   const hopRadiusKm = Math.min(reachRadiusKm(trip.travel_mode, maxTravelMinutes), trip.travel_mode === 'driving' ? 10 : trip.travel_mode === 'cycling' ? 5 : 3);
-  const { venues, degraded, sourcesQueried } = await searchAllSources({
+  const { venues, degraded, sourcesQueried, units } = await searchAllSources({
     center: originPoint,
     radiusKm: hopRadiusKm,
     categories: [],
@@ -309,8 +309,8 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
     sessionId,
   });
   await query(
-    `insert into provider_calls (household_id, session_id, provider, purpose) values ($1, $2, $3, $4)`,
-    [household.id, sessionId, sourcesQueried.join('+') || 'none', 'plan.retrieve'],
+    `insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)`,
+    [household.id, sessionId, sourcesQueried.join('+') || 'none', 'plan.retrieve', units],
   );
 
   // Places the household has marked special may be further than the usual limit.
@@ -320,9 +320,10 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
   // Real durations from the base when Google Routes is on; the estimate stays as the fallback.
   if (routingEnabled() && reached.length) {
     try {
-      const real = await travelMatrixMinutes({ origin: originPoint, destinations: reached.slice(0, 200), mode: trip.travel_mode, departAt: trip.depart_at });
+      const meter = {};
+      const real = await travelMatrixMinutes({ origin: originPoint, destinations: reached.slice(0, 200), mode: trip.travel_mode, departAt: trip.depart_at, meter });
       if (real) reached = reached.map((v, i) => (real[i] ? { ...v, travelMinutes: real[i].minutes, travelEstimated: false } : { ...v, travelEstimated: true }));
-      await query('insert into provider_calls (household_id, session_id, provider, purpose) values ($1, $2, $3, $4)', [household.id, sessionId, 'google-routes', 'plan.matrix']);
+      await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, sessionId, 'google-routes', 'plan.matrix', meter]);
     } catch { /* keep estimates */ }
   }
   const inReach = reached
@@ -593,9 +594,10 @@ router.post('/start', async (req, res, next) => {
     state.journey = { from: trip.origin_label, to: trip.base_label, minutes: estimateTravelMinutes({ lat: trip.origin_lat, lng: trip.origin_lng }, { lat: trip.base_lat, lng: trip.base_lng }, trip.travel_mode), mode: trip.travel_mode, estimated: true };
     if (routingEnabled() && (trip.origin_lat !== trip.base_lat || trip.origin_lng !== trip.base_lng)) {
       try {
-        const r = await routeBetween({ from: { lat: trip.origin_lat, lng: trip.origin_lng }, to: { lat: trip.base_lat, lng: trip.base_lng }, mode: trip.travel_mode, departAt: new Date(new Date(dayTrip.depart_at).getTime() - 3 * 3600_000).toISOString() });
+        const meter = {};
+        const r = await routeBetween({ from: { lat: trip.origin_lat, lng: trip.origin_lng }, to: { lat: trip.base_lat, lng: trip.base_lng }, mode: trip.travel_mode, departAt: new Date(new Date(dayTrip.depart_at).getTime() - 3 * 3600_000).toISOString(), meter });
         if (r) state.journey = { ...state.journey, minutes: r.minutes, estimated: false, meters: r.meters };
-        await query('insert into provider_calls (household_id, session_id, provider, purpose) values ($1, $2, $3, $4)', [household.id, session.id, 'google-routes', 'plan.journey']);
+        await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, session.id, 'google-routes', 'plan.journey', meter]);
       } catch { /* estimate stands */ }
     }
     state.pool = pool.candidates;

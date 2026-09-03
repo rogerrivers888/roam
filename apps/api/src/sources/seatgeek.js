@@ -1,3 +1,4 @@
+import { bump } from './meter.js';
 // SeatGeek Platform API (free client id, immediate). US-strongest, with
 // partial coverage of London, Toronto, Vancouver and Mexico City. A second
 // opinion on ticketed events; events are timed venues like Ticketmaster's.
@@ -20,7 +21,7 @@ export const seatgeekSource = {
   enabled: () => Boolean(KEY()),
 
   /** Events near a point inside an outing window. Only asked for when includeEvents is set. */
-  async search({ center, radiusKm = 10, includeEvents = false, outingStart = null, outingEnd = null, query = '' } = {}) {
+  async search({ center, radiusKm = 10, includeEvents = false, outingStart = null, outingEnd = null, query = '', meter = null } = {}) {
     if (!KEY() || !includeEvents || !center || center.lat == null) return [];
     const start = outingStart ? new Date(outingStart) : new Date();
     const end = outingEnd ? new Date(outingEnd) : new Date(start.getTime() + 36 * 3600_000);
@@ -30,6 +31,7 @@ export const seatgeekSource = {
       'datetime_utc.gte': iso(new Date(start.getTime() - 6 * 3600_000)), 'datetime_utc.lte': iso(end),
       per_page: '50', sort: 'datetime_utc.asc', ...(query?.trim() ? { q: query.trim() } : {}),
     });
+    bump(meter, 'seatgeek');
     const res = await fetch(`${BASE}/events?${params}`, { signal: AbortSignal.timeout(15_000) });
     if (!res.ok) throw new Error(`SeatGeek ${res.status}`);
     const data = await res.json();

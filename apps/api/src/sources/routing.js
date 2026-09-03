@@ -1,3 +1,4 @@
+import { bump } from './meter.js';
 // Real travel times via the Google Routes API, with the distance-based
 // estimate as the fallback when there is no key (domain/travel.js).
 //
@@ -28,12 +29,13 @@ const wp = (p) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } }
 const secondsToMinutes = (s) => Math.round(Number(String(s || '0s').replace('s', '')) / 60);
 
 /** Minutes from one origin to many destinations, in the given mode, at departAt. Null entries where no route. */
-export async function travelMatrixMinutes({ origin, destinations, mode = 'driving', departAt = null }) {
+export async function travelMatrixMinutes({ origin, destinations, mode = 'driving', departAt = null, meter = null }) {
   if (!KEY() || !destinations.length) return null;
   const out = new Array(destinations.length).fill(null);
   // The matrix allows up to 625 elements; keep batches small so one failure is cheap.
   for (let i = 0; i < destinations.length; i += 100) {
     const batch = destinations.slice(i, i + 100);
+    bump(meter, 'google-routes', batch.length); // billed per origin×destination element
     const body = {
       origins: [{ waypoint: wp(origin) }],
       destinations: batch.map((d) => ({ waypoint: wp(d) })),
@@ -50,8 +52,9 @@ export async function travelMatrixMinutes({ origin, destinations, mode = 'drivin
 }
 
 /** One journey: minutes, distance and the encoded polyline (for search-along-route). */
-export async function routeBetween({ from, to, mode = 'driving', departAt = null }) {
+export async function routeBetween({ from, to, mode = 'driving', departAt = null, meter = null }) {
   if (!KEY()) return null;
+  bump(meter, 'google-routes');
   const body = {
     origin: wp(from), destination: wp(to), travelMode: MODE[mode] || 'DRIVE',
     ...(mode === 'driving' ? { routingPreference: 'TRAFFIC_AWARE' } : {}),

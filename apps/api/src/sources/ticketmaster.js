@@ -1,3 +1,4 @@
+import { bump } from './meter.js';
 // Ticketmaster Discovery API v2 (Technical Constraints §8): free key, immediate,
 // 230,000+ events, US-strongest with the UK, Ireland and Europe covered.
 // Events are timed venues: they carry startsAt/endsAt and are scheduled with
@@ -18,7 +19,7 @@ export const ticketmasterSource = {
   enabled: () => Boolean(KEY()),
 
   /** Events near a point inside an outing window. Only asked for when includeEvents is set. */
-  async search({ center, radiusKm = 10, includeEvents = false, outingStart = null, outingEnd = null, query = '' } = {}) {
+  async search({ center, radiusKm = 10, includeEvents = false, outingStart = null, outingEnd = null, query = '', meter = null } = {}) {
     if (!KEY() || !includeEvents || !center || center.lat == null) return [];
     const start = outingStart ? new Date(outingStart) : new Date();
     const end = outingEnd ? new Date(outingEnd) : new Date(start.getTime() + 36 * 3600_000);
@@ -28,6 +29,7 @@ export const ticketmasterSource = {
       startDateTime: iso(new Date(start.getTime() - 6 * 3600_000)), endDateTime: iso(end), size: '50', sort: 'date,asc',
       ...(query?.trim() ? { keyword: query.trim() } : {}),
     });
+    bump(meter, 'ticketmaster');
     const res = await fetch(`${BASE}/events.json?${params}`, { signal: AbortSignal.timeout(15_000) });
     if (!res.ok) throw new Error(`Ticketmaster ${res.status}`);
     const data = await res.json();

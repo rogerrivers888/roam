@@ -1,3 +1,4 @@
+import { bump } from './meter.js';
 // OpenStreetMap places via the Overpass API.
 //
 // Real restaurants, cafés, pubs, museums, parks and playgrounds anywhere in the
@@ -124,7 +125,8 @@ function toVenue(el) {
   };
 }
 
-async function overpass(body) {
+async function overpass(body, meter = null) {
+  bump(meter, 'osm');
   let lastErr;
   for (const url of ENDPOINTS) {
     try {
@@ -155,7 +157,7 @@ export const osmSource = {
    * @param categories ['food','things'] groups; empty = both
    * @param query      optional name filter (case-insensitive)
    */
-  async search({ center, radiusKm = 3, categories = [], query = '', limit = 900 } = {}) {
+  async search({ center, radiusKm = 3, categories = [], query = '', limit = 900, meter = null } = {}) {
     if (!center || center.lat == null) return [];
     const groups = new Set();
     for (const c of categories || []) {
@@ -174,7 +176,7 @@ export const osmSource = {
       // Always try at least once: a 600 m search must not be skipped for being small.
       do {
         try {
-          data = await overpass(buildQuery({ center, radiusM: r * 1000, categories: [group], query: query?.trim(), limit: Math.ceil(limit / want.length) }));
+          data = await overpass(buildQuery({ center, radiusM: r * 1000, categories: [group], query: query?.trim(), limit: Math.ceil(limit / want.length) }), meter);
         } catch (err) { lastErr = err; r /= 2; }
       } while (!data && r >= 0.75);
       if (!data) throw lastErr ?? new Error('Overpass unavailable');

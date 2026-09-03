@@ -1,3 +1,4 @@
+import { bump } from './meter.js';
 // Local fixture source.
 //
 // Every venue below is INVENTED. No licensed provider is called and no
@@ -185,7 +186,8 @@ export const fixturesSource = {
   retention: { placeId: 'indefinite', displayFields: 'indefinite' },
   attribution: { text: 'Local fixture data — not a licensed source', requiresAuthorCredit: false },
 
-  async search({ categories, query, includeEvents, outingStart } = {}) {
+  async search({ categories, query, includeEvents, outingStart , meter = null } = {}) {
+    bump(meter, 'fixtures');
     const results = [];
 
     for (const venue of VENUES) {

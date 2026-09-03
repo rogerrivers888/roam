@@ -49,7 +49,7 @@ router.post('/', async (req, res, next) => {
       : new Set(members.map((m) => m.id));
     const attendees = toAttendees(members.filter((m) => attendingIds.has(m.id)));
 
-    const { venues, degraded, sourcesQueried } = await searchAllSources({
+    const { venues, degraded, sourcesQueried, units } = await searchAllSources({
       center: origin,
       radiusKm: reachRadiusKm(mode, maxTravelMinutes),
       categories,
@@ -58,7 +58,8 @@ router.post('/', async (req, res, next) => {
       outingStart,
       sources,
     });
-    if (sourcesQueried.includes('tripadvisor')) await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'tripadvisor', 'discover']);
+    // Every browse is attributed, whichever sources ran (Technical Constraints §14); it used to log Tripadvisor only.
+    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'discover', units]);
 
     const pace = paceOf(household);
     let inCatchment = deriveCatchment({ origin, maxTravelMinutes, mode, venues }).filter((v) => v.travelMinutes <= Math.max(maxTravelMinutes, travelLimitFor(pace, v)));

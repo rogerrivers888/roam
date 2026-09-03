@@ -1,3 +1,4 @@
+import { bump } from './meter.js';
 // Tripadvisor Terra Content API, Discover plan (Technical Constraints §3.3).
 // Billing is per *entity*, not per call: every location ID returned by a
 // search/nearby/details response counts once; a reviews or photos call counts
@@ -31,7 +32,7 @@ export const TRIPADVISOR_ATTRIBUTION = 'Reviews and photos © Tripadvisor';
 const NEARBY_PAGE = Math.min(20, Math.max(1, Number(process.env.ROAM_TRIPADVISOR_PAGE) || 10));
 const REVIEWS_PER_VENUE = 3;
 
-async function get(path, params = {}) {
+async function get(path, params = {}, meter = null) {
   const key = KEY();
   if (!key) throw new Error('TRIPADVISOR_API_KEY not set');
   const qs = new URLSearchParams();
@@ -45,7 +46,10 @@ async function get(path, params = {}) {
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`Tripadvisor ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
-  return res.json();
+  const json = await res.json();
+  // Terra bills per location ID returned: a page counts its rows, a detail or reviews call counts one.
+  bump(meter, 'tripadvisor', Array.isArray(json?.data) ? json.data.length : 1);
+  return json;
 }
 
 const pickTranslation = (list = [], lang = 'en') =>
@@ -156,7 +160,7 @@ export const tripadvisorSource = {
    * cut to the wanted kinds by URL type and to the radius by distance. This is
    * the "just Tripadvisor" testing view; it is not a good browse on its own.
    */
-  async search({ center, radiusKm = 3, categories = [], query = '', limit = 30, sources = [] } = {}) {
+  async search({ center, radiusKm = 3, categories = [], query = '', limit = 30, sources = [], meter = null } = {}) {
     if (!KEY() || !center || center.lat == null) return [];
     // With other sources in the mix the page is a waste; `enrich` does the work.
     if (Array.isArray(sources) && sources.length > 1) return [];
@@ -164,7 +168,7 @@ export const tripadvisorSource = {
     const wantsThings = !categories.length || categories.some((c) => ['attraction', 'event', 'things'].includes(c));
     const kinds = new Set([...(wantsFood ? ['restaurant'] : []), ...(wantsThings ? ['attraction'] : [])]);
     const size = Math.min(NEARBY_PAGE, Math.max(1, limit));
-    const data = await get('/catalog/locations/nearby', { ...boxAround(center, Math.min(radiusKm, 25)), size });
+    const data = await get('/catalog/locations/nearby', { ...boxAround(center, Math.min(radiusKm, 25)), size }, meter);
     const terms = tokens(query);
     const out = [];
     for (const item of data.data || []) {
@@ -184,7 +188,7 @@ export const tripadvisorSource = {
    * entity but never reaches the screen. Unrated venues (OpenStreetMap-only)
    * go first, then the nearest, up to ENRICH_LIMIT lookups.
    */
-  async enrich(venues, { center, locality = null } = {}) {
+  async enrich(venues, { center, locality = null, meter = null } = {}) {
     if (!KEY() || !ENRICH_LIMIT) return [];
     const candidates = venues
       .filter((v) => v.source !== 'tripadvisor' && v.name && Number.isFinite(v.lat))
@@ -197,7 +201,7 @@ export const tripadvisorSource = {
       const params = { query: v.name.slice(0, 200), size: ENRICH_SIZE };
       if (locality) params.geo_name = locality;
       let data;
-      try { data = await get('/catalog/locations/search', params); } catch (err) { if (/429/.test(err.message)) { await sleep(1200); continue; } throw err; }
+      try { data = await get('/catalog/locations/search', params, meter); } catch (err) { if (/429/.test(err.message)) { await sleep(1200); continue; } throw err; }
       for (const item of data.data || []) {
         const loc = item.location ?? item;
         const hit = toVenue(loc, v.category);
@@ -214,12 +218,12 @@ export const tripadvisorSource = {
   },
 
   /** Full detail plus up to 3 reviews (Discover). Two billable entities per view. */
-  async get(id) {
+  async get(id, { meter = null } = {}) {
     if (!KEY()) return null;
-    const details = await get(`/locations/${id}`);
+    const details = await get(`/locations/${id}`, {}, meter);
     const v = toVenue(details);
     try {
-      const rev = await get(`/locations/${id}/reviews`, { size: REVIEWS_PER_VENUE, sort_by: 'MOST_RECENT', language: 'en' });
+      const rev = await get(`/locations/${id}/reviews`, { size: REVIEWS_PER_VENUE, sort_by: 'MOST_RECENT', language: 'en' }, meter);
       v.reviews = (rev.data || []).slice(0, REVIEWS_PER_VENUE).map((r) => ({
         text: pickTranslation(r.text) ?? '',
         title: pickTranslation(r.title) ?? null,

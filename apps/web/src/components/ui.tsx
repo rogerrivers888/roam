@@ -154,6 +154,21 @@ export function StatusLine({ children, tone = 'neutral' }: { children: React.Rea
   return <Text style={[type.small, { color }]}>{children}</Text>;
 }
 
+/**
+ * How much of an allowance has gone. Colour is meaning (theme): calm until
+ * 70%, amber to 90%, then the overrun red — the same scale a day's time bar uses.
+ */
+export function Meter({ used, limit, label }: { used: number; limit: number; label?: string }) {
+  const ratio = limit > 0 ? Math.min(1, used / limit) : 0;
+  const fill = ratio >= 0.9 ? colors.overrun : ratio >= 0.7 ? colors.dislike : colors.accent;
+  return (
+    <View style={{ gap: 4 }} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: limit, now: Math.min(used, limit) }} accessibilityLabel={label}>
+      <View style={styles.meterTrack}><View style={[styles.meterFill, { width: `${Math.round(ratio * 100)}%`, backgroundColor: fill }]} /></View>
+      {label ? <Text style={type.tiny}>{label}</Text> : null}
+    </View>
+  );
+}
+
 export const Row = ({ children, style }: { children: React.ReactNode; style?: ViewStyle }) => (
   <View style={[styles.row, style]}>{children}</View>
 );
@@ -206,6 +221,8 @@ export const styles = StyleSheet.create({
   },
   stepBtnText: { fontSize: 20, color: colors.ink, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  meterTrack: { height: 6, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted, overflow: 'hidden' },
+  meterFill: { height: 6, borderRadius: radius.pill },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
 });
 

@@ -183,7 +183,9 @@ export const recallVenue = (ref) => recent.get(ref) ?? null;
 export async function searchAllSources(params) {
   const only = optInFrom(params.sources);
   const sources = enabledSources({ only });
-  const settled = await Promise.allSettled(sources.map((s) => s.search({ ...params, sources: sources.map((x) => x.key) })));
+  // What each provider billed for during this search (see meter.js).
+  const meter = params.meter && typeof params.meter === 'object' ? params.meter : {};
+  const settled = await Promise.allSettled(sources.map((s) => s.search({ ...params, meter, sources: sources.map((x) => x.key) })));
 
   const raw = [];
   const degraded = [];
@@ -200,12 +202,12 @@ export async function searchAllSources(params) {
   for (const s of sources) {
     if (typeof s.enrich !== 'function' || sources.length < 2) continue;
     try {
-      raw.push(...(await s.enrich(raw, params)));
+      raw.push(...(await s.enrich(raw, { ...params, meter })));
     } catch (err) {
       degraded.push({ source: s.key, error: String(err?.message || err) });
     }
   }
 
   rememberVenues(raw);
-  return { venues: resolveVenues(raw), degraded, sourcesQueried: sources.map((s) => s.key) };
+  return { venues: resolveVenues(raw), degraded, sourcesQueried: sources.map((s) => s.key), units: meter };
 }

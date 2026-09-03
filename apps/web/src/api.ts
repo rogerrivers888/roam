@@ -202,7 +202,27 @@ export type PlanAction =
   | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number; travelMode?: Trip['travelMode']; includeChains?: boolean; pricePoint?: PricePoint };
 
 export type SourceCost = { perSearchUsd: number; note: string };
-export type SourcesStatus = { cost?: Record<string, SourceCost>; enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; defaults?: string[]; available: { key: string; label: string; env: string; on: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number } } };
+export type SourcesStatus = { cost?: Record<string, SourceCost>; enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; defaults?: string[]; available: { key: string; label: string; env: string; on: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number; locationsAllTime?: number; locationsFree?: number } } };
+
+// Settings › Usage: what the household's calls have used and cost, by provider.
+export type SpendPeriod = 'month' | 'last-month' | 'all' | 'custom';
+export type SpendAllowance = {
+  kind: 'monthly' | 'lifetime' | 'daily'; limit: number; used: number; estimated: boolean; resetsAt: string | null;
+  beyondUsd?: number | null; basis?: string; label?: string; env?: string;
+};
+export type SpendLine = {
+  key: string; label: string; source: string; on: boolean; unit: string; unitPlural: string; what: string; hardStop: string | null;
+  console: { label: string; url: string } | null;
+  calls: number; units: number; costUsd: number; paidUsd: number; estimated: boolean;
+  allowance: SpendAllowance | null; cap: SpendAllowance | null;
+};
+export type SpendResponse = {
+  period: { key: SpendPeriod; from: string; to: string; label: string };
+  totals: { calls: number; costUsd: number; paidUsd: number };
+  lines: SpendLine[];
+  recent: { id: string; at: string; provider: string; purpose: string | null; cost_usd: number; units: Record<string, number> | null }[];
+  generatedAt: string;
+};
 
 // ---------------------------------------------------------------------------
 // Calls
@@ -226,6 +246,7 @@ export const api = {
   deleteConstraint: (id: string) => del<void>(`/api/household/constraints/${id}`),
   learned: () => request<{ learned: Learned[]; threshold: number }>('/api/household/learned'),
   exportUrl: () => `${API_URL}/api/household/export`,
+  spend: (p: { period: SpendPeriod; from?: string; to?: string }) => request<SpendResponse>(`/api/household/spend${qs(p)}`),
   deleteHousehold: (confirmName: string) => del<{ deleted: boolean }>('/api/household', { confirmName }),
 
   // vocabulary

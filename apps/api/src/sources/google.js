@@ -1,3 +1,4 @@
+import { bump } from './meter.js';
 // Google Places API (New) — the primary licensed source (Technical Constraints §3.1).
 //
 // What it adds over OpenStreetMap: ratings and review counts, up to 5 reviews,
@@ -117,9 +118,10 @@ function toVenue(place, justification = null) {
   };
 }
 
-async function call(path, { method = 'POST', body, fieldMask }) {
+async function call(path, { method = 'POST', body, fieldMask, meter }) {
   const key = KEY();
   if (!key) throw new Error('GOOGLE_MAPS_API_KEY not set');
+  bump(meter, 'google'); // one billable request, whatever it returns
   const res = await fetch(`${PLACES}${path}`, {
     method,
     headers: { 'content-type': 'application/json', 'X-Goog-Api-Key': key, ...(fieldMask ? { 'X-Goog-FieldMask': fieldMask } : {}) },
@@ -144,7 +146,7 @@ export const googleSource = {
    * Nearby by type groups, or Text Search when there is a query (dish, activity,
    * name) so the justification comes back with each match.
    */
-  async search({ center, radiusKm = 3, categories = [], query = '', limit = 60 } = {}) {
+  async search({ center, radiusKm = 3, categories = [], query = '', limit = 60, meter = null } = {}) {
     if (!KEY() || !center || center.lat == null) return [];
     const groups = new Set();
     for (const c of categories || []) {
@@ -157,7 +159,7 @@ export const googleSource = {
 
     if (query?.trim()) {
       const data = await call('/places:searchText', {
-        fieldMask: TEXT_SEARCH_FIELDS,
+        fieldMask: TEXT_SEARCH_FIELDS, meter,
         body: { textQuery: query.trim(), pageSize: 20, locationBias: { circle: { center: { latitude: center.lat, longitude: center.lng }, radius } } },
       });
       (data.places || []).forEach((p, i) => {
@@ -171,7 +173,7 @@ export const googleSource = {
     // Nearby: one call per group, 20 each (the API maximum per call).
     for (const group of groups) {
       const data = await call('/places:searchNearby', {
-        fieldMask: SEARCH_FIELDS,
+        fieldMask: SEARCH_FIELDS, meter,
         body: {
           includedTypes: group === 'food' ? FOOD_TYPES : THING_TYPES,
           maxResultCount: 20,
@@ -188,9 +190,9 @@ export const googleSource = {
   },
 
   /** Full detail including up to 5 reviews (Pro/Enterprise fields). */
-  async get(id) {
+  async get(id, { meter = null } = {}) {
     if (!KEY()) return null;
-    const p = await call(`/places/${id}`, { method: 'GET', fieldMask: DETAIL_FIELDS });
+    const p = await call(`/places/${id}`, { method: 'GET', fieldMask: DETAIL_FIELDS, meter });
     const v = toVenue(p);
     v.reviews = (p.reviews || []).slice(0, 5).map((r) => ({
       text: r.text?.text ?? r.originalText?.text ?? '', rating: r.rating ?? null, author: r.authorAttribution?.displayName ?? null,
@@ -200,10 +202,10 @@ export const googleSource = {
   },
 
   /** Search along an encoded polyline; results ranked by detour (Technical Constraints §3.1). */
-  async searchAlongRoute({ encodedPolyline, query, limit = 20 }) {
+  async searchAlongRoute({ encodedPolyline, query, limit = 20, meter = null }) {
     if (!KEY() || !encodedPolyline) return [];
     const data = await call('/places:searchText', {
-      fieldMask: `${TEXT_SEARCH_FIELDS},routingSummaries`,
+      fieldMask: `${TEXT_SEARCH_FIELDS},routingSummaries`, meter,
       body: { textQuery: query || 'places to stop', pageSize: Math.min(limit, 20), searchAlongRouteParameters: { polyline: { encodedPolyline } } },
     });
     return (data.places || []).map((p, i) => ({

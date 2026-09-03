@@ -1,4 +1,6 @@
 import express from 'express';
+import { perSearchCost } from './sources/pricing.js';
+import { usageBetween, windows } from './sources/usage.js';
 import cors from 'cors';
 import { pool, query } from './db.js';
 import householdRoutes from './routes/household.js';
@@ -48,35 +50,19 @@ app.get('/api/sources', async (_req, res, next) => {
   // Opt-in sources (Tripadvisor) are live but only run when a search names them; report how often that has happened.
   const live = enabledSources({ includeOptIn: true });
   const household = await currentHousehold();
-  const { rows } = await query(
-    `select count(*)::int as all_time, count(*) filter (where created_at >= date_trunc('month', now()))::int as this_month
-       from provider_calls where household_id = $1 and provider = 'tripadvisor'`,
-    [household.id],
-  );
+  const w = await windows();
+  const [all, month] = await Promise.all([usageBetween(household.id), usageBetween(household.id, w.month_start, w.next_month_start)]);
+  const ta = { all: all.lines.tripadvisor, month: month.lines.tripadvisor };
   // What one search costs on each source, so the picker can say it before the
   // search runs. The scout's figure is measured from this month's runs.
-  const { rows: [scoutRow] } = await query(
-    `select coalesce(avg(estimated_cost_usd), 0)::float as avg_usd, count(*)::int as runs
-       from provider_calls where household_id = $1 and purpose = 'scout.events' and created_at >= date_trunc('month', now())`,
-    [household.id],
-  );
-  const cost = {
-    fixtures: { perSearchUsd: 0, note: 'Sample data, free.' },
-    osm: { perSearchUsd: 0, note: 'OpenStreetMap, free open data.' },
-    google: { perSearchUsd: 0, note: 'Google gives 5,000 free searches a month per kind; beyond that about $0.03 a search. The quota is capped in Cloud Console.' },
-    tripadvisor: { perSearchUsd: 0.15, note: 'Billed per location returned: 1,000 free for life (about 50 searches), then about $0.15 a search.' },
-    ticketmaster: { perSearchUsd: 0, note: 'Free.' },
-    seatgeek: { perSearchUsd: 0, note: 'Free.' },
-    predicthq: { perSearchUsd: 0, note: 'Free plan.' },
-    datathistle: { perSearchUsd: 0, note: '1,000 requests a month free; one search is one request.' },
-    scout: { perSearchUsd: scoutRow.runs ? Number(scoutRow.avg_usd.toFixed(2)) : 0.65, note: `Claude reads local what's-on pages: about $${(scoutRow.runs ? scoutRow.avg_usd : 0.65).toFixed(2)} a search (${scoutRow.runs ? 'measured this month' : 'estimate'}), capped at ${SCOUT_MONTHLY_RUNS} a month; the same place and day within 6 hours is free.` },
-  };
+  const scout = month.lines.scout;
+  const cost = perSearchCost({ scoutAvgUsd: scout?.calls ? scout.costUsd / scout.calls : null });
   res.json({
     cost,
     enabled: live.map((s) => ({ key: s.key, label: s.label, attribution: s.attribution?.text ?? null, optIn: Boolean(s.optIn) })),
     routing: routingEnabled() ? 'google-routes' : 'estimated',
     defaults: defaultSourceKeys(),
-    usage: { tripadvisor: { searchesAllTime: rows[0]?.all_time ?? 0, searchesThisMonth: rows[0]?.this_month ?? 0 } },
+    usage: { tripadvisor: { searchesAllTime: ta.all?.calls ?? 0, searchesThisMonth: ta.month?.calls ?? 0, locationsAllTime: Math.round(ta.all?.units ?? 0), locationsFree: 1000 } },
     available: [
       { key: 'google', label: 'Google Places + Routes', env: 'GOOGLE_MAPS_API_KEY' },
       { key: 'tripadvisor', label: 'Tripadvisor', env: 'TRIPADVISOR_API_KEY' },
@@ -98,7 +84,7 @@ app.get('/api/photos/google', async (req, res) => {
     const name = String(req.query.name || '');
     if (!/^places\/[^/]+\/photos\/[^/]+$/.test(name)) return res.status(400).end();
     const household = await currentHousehold();
-    await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'google-places', 'photo']);
+    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, 'google-places', 'photo', { 'google-photos': 1 }]);
     const photo = await fetchPhoto(name, Math.min(1200, Number(req.query.w) || 480));
     if (!photo) return res.status(404).end();
     res.setHeader('content-type', photo.contentType);
