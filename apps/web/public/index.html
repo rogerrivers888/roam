@@ -11,7 +11,11 @@
     <meta name="apple-mobile-web-app-title" content="Roam" />
     <meta name="theme-color" content="#1F5F5B" />
     <link rel="manifest" href="/manifest.json" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- Chrome tab / bookmarks: .ico for older UAs, .svg for modern; 180px for the iOS home screen (docs/brand) -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <style>
       html, body, #root { height: 100%; }
       body { margin: 0; overflow: hidden; background: #F7F6F2; -webkit-text-size-adjust: 100%; }

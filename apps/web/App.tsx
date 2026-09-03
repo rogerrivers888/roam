@@ -8,6 +8,7 @@ import { PlacesScreen } from './src/screens/PlacesScreen';
 import { TripsScreen, TripPrefill } from './src/screens/TripsScreen';
 import { HouseholdScreen } from './src/screens/HouseholdScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { Brand, BRAND_GROUND } from './src/components/Brand';
 
 type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings';
 const TABS: { key: Tab; label: string; icon: string }[] = [
@@ -69,7 +70,7 @@ export default function App() {
         <StatusBar style="dark" />
         <View style={styles.desktop}>
           <View style={styles.sidebar}>
-            <Text style={styles.brand}>Roam</Text>
+            <Brand height={88} />
             <Text style={[type.tiny, { marginBottom: spacing.lg }]}>Remember every place you love</Text>
             {TABS.map((t) => (
               <Pressable key={t.key} onPress={() => setTab(t.key)} style={[styles.navItem, tab === t.key && styles.navItemActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }}>
@@ -93,6 +94,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.root}>
       <StatusBar style="dark" />
+      <View style={styles.header}><Brand height={44} /></View>
       {health !== 'ok' ? (
         <View style={[styles.banner, health === 'down' && styles.bannerDown]}>
           <Text style={type.small}>{health === 'checking' ? `Reaching API at ${API_URL}…` : `Can't reach the API at ${API_URL}. Is it running?`}</Text>
@@ -115,7 +117,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   desktop: { flex: 1, flexDirection: 'row' },
   sidebar: { width: 220, padding: spacing.lg, borderRightWidth: 1, borderRightColor: colors.line, backgroundColor: colors.surface, gap: 4 },
-  brand: { fontSize: 26, fontWeight: '800', color: colors.accent, letterSpacing: -0.5 },
+  header: { alignItems: 'center', backgroundColor: BRAND_GROUND, borderBottomWidth: 1, borderBottomColor: colors.line },
   navItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET, paddingHorizontal: spacing.sm, borderRadius: 10 },
   navItemActive: { backgroundColor: colors.accentSoft },
   navIcon: { width: 22, fontSize: 16, color: colors.inkMuted, textAlign: 'center' },
