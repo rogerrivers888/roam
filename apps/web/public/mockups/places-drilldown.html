@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roam · Places — the drill-down (countries → cities → inside a city)</title>
+<style>
+  :root{--bg:#F7F6F2;--surface:#fff;--muted:#F0EEE8;--ink:#1D1B16;--ink2:#6B675E;--ink3:#A8A399;--line:#E4E0D6;--accent:#1F5F5B;--accentSoft:#DCEBE9;--want:#4A4A8A;--wantSoft:#E6E6F5;--over:#C0392B;--overSoft:#F8E1DE;--like:#2E7D32;--likeSoft:#E3F1E4;--gold:#B0771E;--goldSoft:#F6EBD5;--brand:#ec3013}
+  *{box-sizing:border-box}
+  body{margin:0;background:#E9E6DF;font:14px/1.45 -apple-system,Inter,Segoe UI,Helvetica,Arial,sans-serif;color:var(--ink);padding:32px}
+  h1{font-size:26px;margin:0 0 4px}
+  .lede{color:var(--ink2);max-width:900px;margin:0 0 28px}
+  section{margin:0 0 56px}
+  h2{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 16px;max-width:900px}
+  .row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+  .notes{width:320px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13px}
+  .notes h4{margin:0 0 6px;font-size:13px}
+  .notes ul{margin:0 0 10px;padding-left:18px}
+  .notes li{margin:0 0 4px}
+  .notes .rec{background:var(--accentSoft);color:var(--accent);border-radius:8px;padding:8px 10px;font-weight:600}
+  .cap{font-size:12px;color:var(--ink2);text-align:center;margin:8px 0 0;max-width:390px}
+  table.t{border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;max-width:1000px;font-size:13px}
+  table.t th,table.t td{padding:9px 12px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+  table.t th{background:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.3px;color:var(--ink2)}
+  table.t tr:first-child th{border-top:0}
+  table.t td b{font-weight:600}
+  .ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
+  .ic.s{width:13px;height:13px;vertical-align:-2px}
+  .ic.l{width:20px;height:20px}
+  .ic.fill{fill:currentColor}
+  /* phone */
+  .phone{width:390px;height:844px;background:var(--bg);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;flex:none}
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700}
+  .screen{flex:1;overflow:hidden;padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+  .tabbar{height:64px;border-top:1px solid var(--line);background:var(--surface);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--ink3)}
+  .tabbar div{text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px}.tabbar .on{color:var(--accent);font-weight:700}
+  .title{font-size:22px;font-weight:700;letter-spacing:-.3px}
+  .hdr{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:0 14px;border-radius:10px;font-weight:700;font-size:13px;background:var(--accent);color:#fff;white-space:nowrap}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+  .btn.sec{background:var(--accentSoft);color:var(--accent)}
+  .btn.sm{min-height:30px;padding:0 10px;font-size:12px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .h3{font-weight:600;font-size:15px}
+  .small{font-size:13px;color:var(--ink2)}
+  .tiny{font-size:11px;color:var(--ink3)}
+  .kicker{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--ink3);margin:6px 0 0}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:11px;font-weight:600;margin:2px 4px 0 0;white-space:nowrap}
+  .chip.want{background:var(--wantSoft);color:var(--want);border-color:transparent}
+  .chip.like{background:var(--likeSoft);color:var(--like);border-color:transparent}
+  .chip.gold{background:var(--goldSoft);color:var(--gold);border-color:transparent}
+  .chip.acc{background:var(--accentSoft);color:var(--accent);border-color:transparent}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .chip.ghost{color:var(--ink2)}
+  .seg{display:flex;background:var(--muted);border-radius:10px;padding:3px}
+  .seg div{flex:1;text-align:center;padding:7px 2px;border-radius:8px;font-size:12px;white-space:nowrap;font-weight:600;color:var(--ink2);display:flex;align-items:center;justify-content:center;gap:4px}
+  .seg .on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  /* expandable rows */
+  .list{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .r{display:flex;align-items:center;gap:10px;padding:11px 12px;border-top:1px solid var(--line);cursor:pointer;min-height:48px}
+  .r:first-child{border-top:0}
+  .r .t{flex:1;min-width:0}
+  .r .name{font-weight:600;font-size:15px;line-height:1.2}
+  .r .meta{font-size:12px;color:var(--ink2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .r .meta b{color:var(--ink);font-weight:600}
+  .r .chev{color:var(--ink3);transition:transform .15s}
+  .r.open .chev{transform:rotate(90deg)}
+  .r.sub{padding-left:38px;background:#FBFAF7}
+  .r.sub .name{font-size:14px}
+  .r.head{background:var(--muted)}
+  .r.head .name{font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink2);font-weight:700}
+  .kids{display:none}.kids.open{display:block}
+  .cnt{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;margin-left:2px}
+  .cnt.been{background:var(--likeSoft);color:var(--like)}
+  .cnt.try{background:var(--wantSoft);color:var(--want)}
+  .cnt.sp{background:var(--goldSoft);color:var(--gold)}
+  .cnt.trip{background:var(--accentSoft);color:var(--accent)}
+  .cnt.past{background:var(--muted);color:var(--ink2)}
+  /* inside a destination */
+  .pr{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+  .pr:first-child{border-top:0}
+  .pr .ci{width:28px;height:28px;border-radius:8px;background:var(--muted);display:flex;align-items:center;justify-content:center;color:var(--ink2);flex:none}
+  .pr .t{flex:1;min-width:0}
+  .pr .name{font-weight:600;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pr .meta{font-size:11px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vd{display:inline-flex;gap:3px;flex:none}
+  .vd i{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-style:normal;font-size:10px;font-weight:700;color:#fff}
+  .vd .l{background:var(--like)}.vd .f{background:var(--ink3)}.vd .n{background:var(--over)}
+  .tr{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+  .tr:first-child{border-top:0}
+  .tr .d{width:58px;flex:none;font-size:11px;font-weight:700;color:var(--accent);line-height:1.2}
+  .tr.past .d{color:var(--ink3)}
+  .tr .t{flex:1;min-width:0}
+  .tr .name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tr .meta{font-size:11px;color:var(--ink2)}
+  .map{height:120px;border-radius:10px;background:linear-gradient(135deg,#E6EBE3,#D5DED7);position:relative;overflow:hidden}
+  .map .pin{position:absolute;width:18px;height:18px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .map .pin.b{background:var(--like)}.map .pin.w{background:var(--want)}.map .pin.g{background:var(--gold)}
+  .map .roads{position:absolute;inset:0;background:repeating-linear-gradient(115deg,transparent 0 38px,rgba(255,255,255,.55) 38px 40px),repeating-linear-gradient(25deg,transparent 0 54px,rgba(255,255,255,.5) 54px 56px)}
+  .recent{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:var(--surface);border:1px dashed var(--line);font-size:12px}
+  .recent .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .foot{font-size:12px;color:var(--ink2);padding:4px 2px}
+  /* web frame */
+  .web{width:1240px;height:640px;background:var(--bg);border:8px solid #2A2823;border-radius:14px;overflow:hidden;display:flex;box-shadow:0 20px 40px rgba(0,0,0,.18)}
+  .web .nav{width:150px;background:var(--surface);border-right:1px solid var(--line);padding:16px 10px;display:flex;flex-direction:column;gap:2px}
+  .web .nav .brand{font-family:"Caveat","Bradley Hand",cursive;font-weight:700;font-size:26px;color:var(--brand);margin:0 0 12px 6px}
+  .web .nav div.i{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink2)}
+  .web .nav div.i.on{background:var(--accentSoft);color:var(--accent)}
+  .web .col{padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .web .c1{width:300px;border-right:1px solid var(--line)}
+  .web .c2{width:340px;border-right:1px solid var(--line)}
+  .web .c3{flex:1}
+  .web .map{height:100%;flex:1}
+  .diff{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:1000px}
+  .diff .card h4{margin:0 0 6px;font-size:14px}
+  .diff .card p{margin:0 0 6px;font-size:13px;color:var(--ink2)}
+  .warn{background:var(--overSoft);border:1px solid #EFC7C1;border-radius:12px;padding:12px 14px;max-width:900px;font-size:13px}
+  .warn b{color:var(--over)}
+  @media (max-width:900px){body{padding:16px}.web{display:none}.notes{width:100%}.diff{grid-template-columns:1fr}}
+
+  .dd{position:relative}
+  .menu{position:absolute;left:0;top:34px;z-index:5;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:200px;padding:6px;font-size:13px}
+  .menu div{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;cursor:pointer}
+  .menu div:hover{background:var(--muted)}
+  .menu div.on{background:var(--accentSoft);color:var(--accent);font-weight:700}
+  .menu span{color:var(--ink3);font-weight:600}
+  .bigmap{flex:1;border-radius:12px;background:linear-gradient(135deg,#E6EBE3,#D5DED7);position:relative;overflow:hidden;min-height:300px}
+  .bigmap .pin{position:absolute;width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:pointer}
+  .bigmap .pin.b{background:var(--like)}.bigmap .pin.w{background:var(--want)}.bigmap .pin.g{background:var(--gold)}
+  .bigmap .pin.sel{width:28px;height:28px;outline:3px solid var(--accent);outline-offset:1px;z-index:2}
+  .bigmap .lbl{position:absolute;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:3px 8px;font-size:11px;font-weight:700;white-space:nowrap;z-index:3;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+  .pincard{position:absolute;left:10px;right:10px;bottom:10px;z-index:4}
+  .scroll{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;min-height:0}
+  .scroll::-webkit-scrollbar{width:0}
+  .viewtog{display:inline-flex;background:var(--muted);border-radius:10px;padding:3px}
+  .viewtog div{padding:5px 9px;border-radius:8px;color:var(--ink2);display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;cursor:pointer}
+  .viewtog .on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .r,.seg div,.chip,.btn{cursor:pointer}
+  .cnt.n{background:var(--muted);color:var(--ink2)}
+  .story{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+  .story>div{width:390px}
+  .step{font-size:12px;font-weight:700;color:var(--accent);margin:0 0 6px;text-transform:uppercase;letter-spacing:.4px}
+  .web .col.c1{width:330px}
+  .web .col.c2{flex:1;border-right:0}
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+<symbol id="i-arrow-down" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-down" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v14" /> <path d="m19 12-7 7-7-7" /></symbol>
+<symbol id="i-arrow-left" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-left" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m12 19-7-7 7-7" /> <path d="M19 12H5" /></symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-right" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /></symbol>
+<symbol id="i-baby" viewBox="0 0 24 24"><svg class="lucide lucide-baby" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9 12h.01" /> <path d="M15 12h.01" /> <path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5" /> <path d="M19 6.3a9 9 0 0 1 1.8 3.9 2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5s-.9 2.5-2 2.5c-.8 0-1.5-.4-1.5-1" /></symbol>
+<symbol id="i-badge-check" viewBox="0 0 24 24"><svg class="lucide lucide-badge-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" /> <path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="i-ban" viewBox="0 0 24 24"><svg class="lucide lucide-ban" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m4.9 4.9 14.2 14.2" /></symbol>
+<symbol id="i-bed" viewBox="0 0 24 24"><svg class="lucide lucide-bed" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2 4v16" /> <path d="M2 8h18a2 2 0 0 1 2 2v10" /> <path d="M2 17h20" /> <path d="M6 8v9" /></symbol>
+<symbol id="i-bookmark" viewBox="0 0 24 24"><svg class="lucide lucide-bookmark" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" /></symbol>
+<symbol id="i-building-2" viewBox="0 0 24 24"><svg class="lucide lucide-building-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" /> <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" /> <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" /> <path d="M10 6h4" /> <path d="M10 10h4" /> <path d="M10 14h4" /> <path d="M10 18h4" /></symbol>
+<symbol id="i-bus-front" viewBox="0 0 24 24"><svg class="lucide lucide-bus-front" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 6 2 7" /> <path d="M10 6h4" /> <path d="m22 7-2-1" /> <rect width="16" height="16" x="4" y="3" rx="2" /> <path d="M4 11h16" /> <path d="M8 15h.01" /> <path d="M16 15h.01" /> <path d="M6 19v2" /> <path d="M18 21v-2" /></symbol>
+<symbol id="i-bus" viewBox="0 0 24 24"><svg class="lucide lucide-bus" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 6v6" /> <path d="M15 6v6" /> <path d="M2 12h19.6" /> <path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3" /> <circle cx="7" cy="18" r="2" /> <path d="M9 18h5" /> <circle cx="16" cy="18" r="2" /></symbol>
+<symbol id="i-calendar-check" viewBox="0 0 24 24"><svg class="lucide lucide-calendar-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 2v4" /> <path d="M16 2v4" /> <rect width="18" height="18" x="3" y="4" rx="2" /> <path d="M3 10h18" /> <path d="m9 16 2 2 4-4" /></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24"><svg class="lucide lucide-calendar" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 2v4" /> <path d="M16 2v4" /> <rect width="18" height="18" x="3" y="4" rx="2" /> <path d="M3 10h18" /></symbol>
+<symbol id="i-car-taxi-front" viewBox="0 0 24 24"><svg class="lucide lucide-car-taxi-front" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10 2h4" /> <path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8" /> <path d="M7 14h.01" /> <path d="M17 14h.01" /> <rect width="18" height="8" x="3" y="10" rx="2" /> <path d="M5 18v2" /> <path d="M19 18v2" /></symbol>
+<symbol id="i-car" viewBox="0 0 24 24"><svg class="lucide lucide-car" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" /> <circle cx="7" cy="17" r="2" /> <path d="M9 17h6" /> <circle cx="17" cy="17" r="2" /></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><svg class="lucide lucide-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 6 9 17l-5-5" /></symbol>
+<symbol id="i-chevron-down" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-down" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m6 9 6 6 6-6" /></symbol>
+<symbol id="i-chevron-left" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-left" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m15 18-6-6 6-6" /></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-right" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /></symbol>
+<symbol id="i-chevron-up" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-up" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 15-6-6-6 6" /></symbol>
+<symbol id="i-circle-check" viewBox="0 0 24 24"><svg class="lucide lucide-circle-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="i-circle-dot" viewBox="0 0 24 24"><svg class="lucide lucide-circle-dot" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <circle cx="12" cy="12" r="1" /></symbol>
+<symbol id="i-circle-x" viewBox="0 0 24 24"><svg class="lucide lucide-circle-x" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m15 9-6 6" /> <path d="m9 9 6 6" /></symbol>
+<symbol id="i-clock-3" viewBox="0 0 24 24"><svg class="lucide lucide-clock-3" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <polyline points="12 6 12 12 16.5 12" /></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><svg class="lucide lucide-clock" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <polyline points="12 6 12 12 16 14" /></symbol>
+<symbol id="i-coffee" viewBox="0 0 24 24"><svg class="lucide lucide-coffee" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10 2v2" /> <path d="M14 2v2" /> <path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" /> <path d="M6 2v2" /></symbol>
+<symbol id="i-compass" viewBox="0 0 24 24"><svg class="lucide lucide-compass" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" /> <circle cx="12" cy="12" r="10" /></symbol>
+<symbol id="i-door-open" viewBox="0 0 24 24"><svg class="lucide lucide-door-open" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M13 4h3a2 2 0 0 1 2 2v14" /> <path d="M2 20h3" /> <path d="M13 20h9" /> <path d="M10 12v.01" /> <path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z" /></symbol>
+<symbol id="i-ellipsis" viewBox="0 0 24 24"><svg class="lucide lucide-ellipsis" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="1" /> <circle cx="19" cy="12" r="1" /> <circle cx="5" cy="12" r="1" /></symbol>
+<symbol id="i-external-link" viewBox="0 0 24 24"><svg class="lucide lucide-external-link" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 3h6v6" /> <path d="M10 14 21 3" /> <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></symbol>
+<symbol id="i-footprints" viewBox="0 0 24 24"><svg class="lucide lucide-footprints" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z" /> <path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z" /> <path d="M16 17h4" /> <path d="M4 13h4" /></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><svg class="lucide lucide-globe" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /> <path d="M2 12h20" /></symbol>
+<symbol id="i-grip-vertical" viewBox="0 0 24 24"><svg class="lucide lucide-grip-vertical" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="9" cy="12" r="1" /> <circle cx="9" cy="5" r="1" /> <circle cx="9" cy="19" r="1" /> <circle cx="15" cy="12" r="1" /> <circle cx="15" cy="5" r="1" /> <circle cx="15" cy="19" r="1" /></symbol>
+<symbol id="i-house" viewBox="0 0 24 24"><svg class="lucide lucide-house" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /> <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
+<symbol id="i-ice-cream-cone" viewBox="0 0 24 24"><svg class="lucide lucide-ice-cream-cone" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m7 11 4.08 10.35a1 1 0 0 0 1.84 0L17 11" /> <path d="M17 7A5 5 0 0 0 7 7" /> <path d="M17 7a2 2 0 0 1 0 4H7a2 2 0 0 1 0-4" /></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><svg class="lucide lucide-image" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="18" height="18" x="3" y="3" rx="2" ry="2" /> <circle cx="9" cy="9" r="2" /> <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><svg class="lucide lucide-info" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M12 16v-4" /> <path d="M12 8h.01" /></symbol>
+<symbol id="i-landmark" viewBox="0 0 24 24"><svg class="lucide lucide-landmark" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <line x1="3" x2="21" y1="22" y2="22" /> <line x1="6" x2="6" y1="18" y2="11" /> <line x1="10" x2="10" y1="18" y2="11" /> <line x1="14" x2="14" y1="18" y2="11" /> <line x1="18" x2="18" y1="18" y2="11" /> <polygon points="12 2 20 7 4 7" /></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><svg class="lucide lucide-list" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 12h.01" /> <path d="M3 18h.01" /> <path d="M3 6h.01" /> <path d="M8 12h13" /> <path d="M8 18h13" /> <path d="M8 6h13" /></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><svg class="lucide lucide-lock" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="18" height="11" x="3" y="11" rx="2" ry="2" /> <path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
+<symbol id="i-map-pin" viewBox="0 0 24 24"><svg class="lucide lucide-map-pin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /> <circle cx="12" cy="10" r="3" /></symbol>
+<symbol id="i-map-pinned" viewBox="0 0 24 24"><svg class="lucide lucide-map-pinned" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 8c0 3.613-3.869 7.429-5.393 8.795a1 1 0 0 1-1.214 0C9.87 15.429 6 11.613 6 8a6 6 0 0 1 12 0" /> <circle cx="12" cy="8" r="2" /> <path d="M8.714 14h-3.71a1 1 0 0 0-.948.683l-2.004 6A1 1 0 0 0 3 22h18a1 1 0 0 0 .948-1.316l-2-6a1 1 0 0 0-.949-.684h-3.712" /></symbol>
+<symbol id="i-map" viewBox="0 0 24 24"><svg class="lucide lucide-map" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z" /> <path d="M15 5.764v15" /> <path d="M9 3.236v15" /></symbol>
+<symbol id="i-message-square" viewBox="0 0 24 24"><svg class="lucide lucide-message-square" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><svg class="lucide lucide-mic" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /> <path d="M19 10v2a7 7 0 0 1-14 0v-2" /> <line x1="12" x2="12" y1="19" y2="22" /></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><svg class="lucide lucide-minus" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /></symbol>
+<symbol id="i-music" viewBox="0 0 24 24"><svg class="lucide lucide-music" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9 18V5l12-2v13" /> <circle cx="6" cy="18" r="3" /> <circle cx="18" cy="16" r="3" /></symbol>
+<symbol id="i-navigation" viewBox="0 0 24 24"><svg class="lucide lucide-navigation" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <polygon points="3 11 22 2 13 21 11 13 3 11" /></symbol>
+<symbol id="i-palette" viewBox="0 0 24 24"><svg class="lucide lucide-palette" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /> <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /> <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /> <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /> <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" /></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24"><svg class="lucide lucide-pencil" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" /></symbol>
+<symbol id="i-phone-call" viewBox="0 0 24 24"><svg class="lucide lucide-phone-call" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /> <path d="M14.05 2a9 9 0 0 1 8 7.94" /> <path d="M14.05 6A5 5 0 0 1 18 10" /></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24"><svg class="lucide lucide-phone" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><svg class="lucide lucide-plus" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /></symbol>
+<symbol id="i-pound-sterling" viewBox="0 0 24 24"><svg class="lucide lucide-pound-sterling" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 7c0-5.333-8-5.333-8 0" /> <path d="M10 7v14" /> <path d="M6 21h12" /> <path d="M6 13h10" /></symbol>
+<symbol id="i-route" viewBox="0 0 24 24"><svg class="lucide lucide-route" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="6" cy="19" r="3" /> <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /> <circle cx="18" cy="5" r="3" /></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><svg class="lucide lucide-search" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="11" cy="11" r="8" /> <path d="m21 21-4.3-4.3" /></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><svg class="lucide lucide-settings" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /> <circle cx="12" cy="12" r="3" /></symbol>
+<symbol id="i-shopping-bag" viewBox="0 0 24 24"><svg class="lucide lucide-shopping-bag" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /> <path d="M3 6h18" /> <path d="M16 10a4 4 0 0 1-8 0" /></symbol>
+<symbol id="i-sliders-horizontal" viewBox="0 0 24 24"><svg class="lucide lucide-sliders-horizontal" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <line x1="21" x2="14" y1="4" y2="4" /> <line x1="10" x2="3" y1="4" y2="4" /> <line x1="21" x2="12" y1="12" y2="12" /> <line x1="8" x2="3" y1="12" y2="12" /> <line x1="21" x2="16" y1="20" y2="20" /> <line x1="12" x2="3" y1="20" y2="20" /> <line x1="14" x2="14" y1="2" y2="6" /> <line x1="8" x2="8" y1="10" y2="14" /> <line x1="16" x2="16" y1="18" y2="22" /></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24"><svg class="lucide lucide-sparkles" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /> <path d="M20 3v4" /> <path d="M22 5h-4" /> <path d="M4 17v2" /> <path d="M5 18H3" /></symbol>
+<symbol id="i-star" viewBox="0 0 24 24"><svg class="lucide lucide-star" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" /></symbol>
+<symbol id="i-tent-tree" viewBox="0 0 24 24"><svg class="lucide lucide-tent-tree" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="4" cy="4" r="2" /> <path d="m14 5 3-3 3 3" /> <path d="m14 10 3-3 3 3" /> <path d="M17 14V2" /> <path d="M17 14H7l-5 8h20Z" /> <path d="M8 14v8" /> <path d="m9 14 5 8" /></symbol>
+<symbol id="i-ticket-check" viewBox="0 0 24 24"><svg class="lucide lucide-ticket-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /> <path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="i-ticket" viewBox="0 0 24 24"><svg class="lucide lucide-ticket" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /> <path d="M13 5v2" /> <path d="M13 17v2" /> <path d="M13 11v2" /></symbol>
+<symbol id="i-train-front" viewBox="0 0 24 24"><svg class="lucide lucide-train-front" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 3.1V7a4 4 0 0 0 8 0V3.1" /> <path d="m9 15-1-1" /> <path d="m15 15 1-1" /> <path d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z" /> <path d="m8 19-2 3" /> <path d="m16 19 2 3" /></symbol>
+<symbol id="i-trash-2" viewBox="0 0 24 24"><svg class="lucide lucide-trash-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 6h18" /> <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /> <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /> <line x1="10" x2="10" y1="11" y2="17" /> <line x1="14" x2="14" y1="11" y2="17" /></symbol>
+<symbol id="i-user-round" viewBox="0 0 24 24"><svg class="lucide lucide-user-round" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="8" r="5" /> <path d="M20 21a8 8 0 0 0-16 0" /></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><svg class="lucide lucide-users" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /> <circle cx="9" cy="7" r="4" /> <path d="M22 21v-2a4 4 0 0 0-3-3.87" /> <path d="M16 3.13a4 4 0 0 1 0 7.75" /></symbol>
+<symbol id="i-utensils" viewBox="0 0 24 24"><svg class="lucide lucide-utensils" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" /> <path d="M7 2v20" /> <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" /></symbol>
+<symbol id="i-wand-sparkles" viewBox="0 0 24 24"><svg class="lucide lucide-wand-sparkles" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" /> <path d="m14 7 3 3" /> <path d="M5 6v4" /> <path d="M19 14v4" /> <path d="M10 2v2" /> <path d="M7 8H3" /> <path d="M21 16h-4" /> <path d="M11 3H9" /></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><svg class="lucide lucide-x" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /></symbol>
+<symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
+<symbol id="i-trees" viewBox="0 0 24 24"><path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"/><path d="M7 16v6"/><path d="M13 19v3"/><path d="M12 19h8.3a1 1 0 0 0 .7-1.7L18 14h.3a1 1 0 0 0 .7-1.7L16 9h.2a1 1 0 0 0 .8-1.7L13 3l-1.4 1.5"/></symbol>
+<symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+</svg>
+<h1>Places — the drill-down</h1>
+<p class="lede">Your choice on 3 Sep 2026: Option A's rows for the atlas (countries, then cities), and inside a city the list of everything you've put there — things to do and food and drink at the top, a Been / To try / Special filter and a type-of-thing filter as dropdowns, no trips block, and list or map, not both. The phone on the left is live: tap through it. The storyboard beside it is the same screen frozen at each step.</p>
+
+<section>
+  <h2>Try it</h2>
+  <p class="sub">Countries fold and unfold; a city opens; the segments, the two dropdowns and List / Map all work. The three real London rows (Circolo Popolare, National Gallery, St James's Park) are joined by eleven made-up ones so the filters have something to do.</p>
+  <div class="row">
+    <div>
+      <div class="phone" id="live"></div>
+      <p class="cap">Everything here is a tap; nothing is typed.</p>
+    </div>
+    <div class="notes">
+      <h4>The rules on this screen</h4>
+      <ul>
+        <li><b>Countries → cities → the city.</b> One country in the atlas: the country row is skipped and the cities are the first screen.</li>
+        <li><b>No trips inside a city.</b> Trips live in Trips. "Plan a trip here" stays as the one link across, top right.</li>
+        <li><b>Top row: Everything · Things to do · Food &amp; drink.</b> Each shows its count for the city.</li>
+        <li><b>Two dropdowns under it.</b> <i>Status</i>: Any, Been, To try, Special. <i>Type</i>: the kinds of thing in the segment you're on — museums, parks &amp; playgrounds, theatre &amp; shows, pubs &amp; bars, clubs &amp; live music… or cuisines under Food &amp; drink. Both show counts and update each other.</li>
+        <li><b>Pubs.</b> "Pubs &amp; bars" is a type under Things to do; a pub that serves food is also under Food &amp; drink as "Pub food". So The Churchill Arms shows in both, once each. Clubs and live music are a type of their own, for the older ones.</li>
+        <li><b>List or Map.</b> A toggle at the right of the segment row. Map fills the screen; tap a pin for the place; the same filters apply to the pins. No map under the list.</li>
+        <li>Add a place sits with the title. Search by name, for a place you already know.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Storyboard</h2>
+  <p class="sub">The same screen at each step, left to right.</p>
+  <div class="story" id="story"></div>
+</section>
+
+<section>
+  <h2>Web</h2>
+  <p class="sub">The atlas column on the left is the same rows; the city takes the rest. There is room for the list and the map side by side, so on a wide window the toggle becomes "map on / off" rather than one or the other — say if you'd rather keep it strictly one or the other there too.</p>
+  <div class="web" id="web"></div>
+</section>
+
+<script>
+const PLACES=[
+ {n:'Circolo Popolare',k:'eat',t:'Italian',a:'Fitzrovia',st:'been',sp:true,v:['l','l','f'],vis:1,d:'3 Sep',x:150,y:150,real:true},
+ {n:'National Gallery',k:'do',t:'Museums',a:'Trafalgar Square',st:'try',x:190,y:210,real:true},
+ {n:"St James's Park",k:'do',t:'Parks & playgrounds',a:'Westminster',st:'try',x:176,y:250,real:true},
+ {n:'Dishoom Covent Garden',k:'eat',t:'Indian',a:'Covent Garden',st:'been',v:['l','l','l'],vis:2,d:'Jun 2026',x:215,y:180},
+ {n:'The Churchill Arms',k:'do',t:'Pubs & bars',t2:'Pub food',a:'Kensington',st:'been',v:['l','f','f'],vis:1,d:'May 2026',x:60,y:220},
+ {n:'Science Museum',k:'do',t:'Museums',a:'South Kensington',st:'been',sp:true,v:['f','l','l'],vis:3,d:'Feb 2026',x:80,y:260},
+ {n:'Natural History Museum',k:'do',t:'Museums',a:'South Kensington',st:'been',v:['l','l','l'],vis:2,d:'Feb 2026',x:88,y:280},
+ {n:'Sky Garden',k:'do',t:'Viewpoints',a:'City of London',st:'try',x:290,y:170},
+ {n:'Flat Iron Soho',k:'eat',t:'Steak',a:'Soho',st:'been',v:['l','n','l'],vis:1,d:'Jan 2026',x:170,y:120},
+ {n:'Bao Soho',k:'eat',t:'Taiwanese',a:'Soho',st:'try',x:178,y:132},
+ {n:'Lyric Theatre',k:'do',t:'Theatre & shows',a:'Soho',st:'try',x:184,y:160},
+ {n:"Ronnie Scott's",k:'do',t:'Clubs & live music',a:'Soho',st:'try',sp:true,x:192,y:145},
+ {n:"Regent's Park playground",k:'do',t:'Parks & playgrounds',a:"Regent's Park",st:'been',v:['f','f','l'],vis:4,d:'Aug 2026',x:140,y:60},
+ {n:'Hamleys',k:'do',t:'Shops',a:'Regent Street',st:'been',v:['n','f','l'],vis:1,d:'Dec 2025',x:160,y:170},
+];
+const ICON={eat:'utensils',do:'landmark'};
+const TICON={'Museums':'landmark','Parks & playgrounds':'trees','Pubs & bars':'coffee','Clubs & live music':'music','Theatre & shows':'ticket','Viewpoints':'compass','Shops':'shopping-bag'};
+const ATLAS=[{code:'GB',name:'United Kingdom',cities:[{n:'London',p:14,b:8,t:6,s:3},{n:'Bath',p:0}]},{code:'IT',name:'Italy',cities:[{n:'Rome',p:0}]}];
+const ic=(n,c)=>`<svg class="ic ${c||''}"><use href="#i-${n}"/></svg>`;
+const tabbar=`<div class="tabbar"><div>${ic('sparkles','l')}Plan</div><div class="on">${ic('map-pin','l')}Places</div><div>${ic('calendar','l')}Trips</div><div>${ic('users','l')}Household</div><div>${ic('settings','l')}Settings</div></div>`;
+const status=`<div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>`;
+const chev=`<svg class="ic" style="color:var(--ink3)"><use href="#i-chevron-right"/></svg>`;
+const vd=v=>v?`<div class="vd">${v.map(x=>`<i class="${x}">${x==='l'?ic('heart','s fill'):x==='n'?'✕':'–'}</i>`).join('')}</div>`:'';
+function inKind(p,k){return k==='all'||p.k===k||(k==='eat'&&p.t2);}
+function typeOf(p,k){return k==='eat'&&p.k!=='eat'?p.t2:p.t;}
+function filtered(s){return PLACES.filter(p=>inKind(p,s.kind)&&(s.status==='any'||(s.status==='special'?p.sp:p.st===s.status))&&(!s.type||typeOf(p,s.kind)===s.type));}
+function cityRow(c,st){const m=c.p?`${c.p} places <span class="cnt been">${c.b} been</span><span class="cnt try">${c.t} to try</span><span class="cnt sp">${ic('star','s fill')}${c.s}</span>`:'No places yet';return `<div class="r ${st?'sub':''}" data-a="city" data-c="${c.n}"><div class="t"><div class="name">${c.n}</div><div class="meta">${m}</div></div>${chev}</div>`;}
+function atlasScreen(s){
+  const hdr=`<div class="hdr"><div class="title">Places</div><div class="btn sec sm">${ic('plus','s')}Add</div></div><div class="small" style="margin-top:-6px">Where you've been and what you liked.</div>`;
+  let list;
+  if(s.single){list=`<div class="list">${ATLAS[0].cities.map(c=>cityRow(c,false)).join('')}</div><div class="foot">One country in the atlas, so the cities are the first screen.</div>`;}
+  else list=`<div class="list">${ATLAS.map(c=>{const o=s.open[c.code];const tot=c.cities.reduce((a,x)=>a+(x.p||0),0);return `<div class="r ${o?'open':''}" data-a="fold" data-c="${c.code}"><svg class="ic chev"><use href="#i-chevron-right"/></svg><div class="t"><div class="name">${c.name}</div><div class="meta">${c.cities.length} ${c.cities.length===1?'city':'cities'} · ${tot?tot+' places':'no places yet'}</div></div></div><div class="kids ${o?'open':''}">${c.cities.map(x=>cityRow(x,true)).join('')}</div>`;}).join('')}</div>`;
+  return hdr+list;
+}
+function typesFor(s){const m=new Map();PLACES.filter(p=>inKind(p,s.kind)&&(s.status==='any'||(s.status==='special'?p.sp:p.st===s.status))).forEach(p=>{const t=typeOf(p,s.kind);m.set(t,(m.get(t)||0)+1);});return [...m.entries()].sort((a,b)=>b[1]-a[1]);}
+function cityScreen(s){
+  const all=PLACES.filter(p=>inKind(p,s.kind)&&(!s.type||typeOf(p,s.kind)===s.type));
+  const cnt=k=>PLACES.filter(p=>inKind(p,k)).length;
+  const nb=all.filter(p=>p.st==='been').length,nt=all.filter(p=>p.st==='try').length,ns=all.filter(p=>p.sp).length;
+  const rows=filtered(s);
+  const statusLbl={any:'Any status',been:`Been`,try:`To try`,special:`Special`}[s.status];
+  const typeLbl=s.type||(s.kind==='eat'?'Any cuisine':s.kind==='do'?'Any kind':'Any type');
+  const hdr=`<div class="hdr"><div class="btn ghost sm" data-a="back">${ic('arrow-left','s')}${s.single?'Places':'United Kingdom'}</div><div class="btn sm">${ic('sparkles','s')}Plan a trip here</div></div>
+  <div class="hdr"><div><div class="title">London</div><div class="tiny">United Kingdom · 14 places · 8 been · 6 to try</div></div><div class="btn ghost sm">${ic('plus','s')}Add a place</div></div>
+  <div class="seg">${[['all','Everything'],['do','Things to do'],['eat','Food & drink']].map(([k,l])=>`<div class="${s.kind===k?'on':''}" data-a="kind" data-k="${k}">${l} <span class="tiny">${cnt(k)}</span></div>`).join('')}</div>
+  <div style="display:flex;gap:8px"><div class="dd"><span class="chip ${s.status!=='any'?'on':'ghost'}" data-a="dd" data-d="status">${statusLbl} ${ic('chevron-down','s')}</span>${s.dd==='status'?`<div class="menu">${[['any','Any status',all.length],['been','Been',nb],['try','To try',nt],['special','Special',ns]].map(([k,l,n])=>`<div class="${s.status===k?'on':''}" data-a="status" data-s="${k}">${l}<span>${n}</span></div>`).join('')}</div>`:''}</div>
+  <div class="dd"><span class="chip ${s.type?'on':'ghost'}" data-a="dd" data-d="type">${typeLbl} ${ic('chevron-down','s')}</span>${s.dd==='type'?`<div class="menu">${[[null,s.kind==='eat'?'Any cuisine':'Any type',null],...typesFor(s).map(([t,n])=>[t,t,n])].map(([k,l,n])=>`<div class="${(s.type||null)===k?'on':''}" data-a="type" data-t="${k===null?'':k}">${l}<span>${n===null?'':n}</span></div>`).join('')}</div>`:''}</div>
+  <span class="chip ghost">A–Z ${ic('chevron-down','s')}</span>
+  <div class="viewtog" style="margin-left:auto"><div class="${s.view==='list'?'on':''}" data-a="view" data-v="list">${ic('list','s')}</div><div class="${s.view==='map'?'on':''}" data-a="view" data-v="map">${ic('map','s')}</div></div></div>`;
+  if(s.view==='map'){
+    const sel=rows[s.sel]||null;
+    return hdr+`<div class="bigmap" data-a="mapbg"><div class="roads"></div>${rows.map((p,i)=>`<div class="pin ${p.sp?'g':p.st==='been'?'b':'w'} ${sel===p?'sel':''}" style="left:${p.x}px;top:${p.y}px" data-a="pin" data-i="${i}"></div>${sel===p?`<div class="lbl" style="left:${p.x-20}px;top:${p.y-26}px">${p.n}</div>`:''}`).join('')}
+    ${sel?`<div class="card pincard"><div class="pr" style="border:0;padding:0"><div class="ci">${ic(TICON[sel.t]||ICON[sel.k])}</div><div class="t"><div class="name">${sel.n} ${sel.sp?`<svg class="ic s fill" style="color:var(--gold)"><use href="#i-star"/></svg>`:''}</div><div class="meta">${sel.t} · ${sel.a}${sel.vis?` · Been ${sel.vis}× · ${sel.d}`:' · To try'}</div></div>${sel.v?vd(sel.v):`<span class="chip want" style="margin:0">To try</span>`}</div><div class="tiny" style="margin-top:6px">Tap again for the drawer: Ours first, then overview, reviews, hours, photos.</div></div>`:`<div class="tiny" style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.8);padding:3px 8px;border-radius:8px">${rows.length} pins · green been · purple to try · gold special · tap one</div>`}</div>`;
+  }
+  return hdr+`<div class="scroll"><div class="card" style="padding:2px 12px">${rows.map(p=>`<div class="pr"><div class="ci">${ic(TICON[typeOf(p,s.kind)]||TICON[p.t]||ICON[p.k])}</div><div class="t"><div class="name">${p.n} ${p.sp?`<svg class="ic s fill" style="color:var(--gold)"><use href="#i-star"/></svg>`:''}</div><div class="meta">${typeOf(p,s.kind)} · ${p.a}${p.vis?` · Been ${p.vis}× · ${p.d}`:''}</div></div>${p.v?vd(p.v):`<span class="chip want" style="margin:0">To try</span>`}</div>`).join('')||`<div class="pr"><div class="small">Nothing matches — clear a filter.</div></div>`}</div><div class="tiny">${rows.length} of 14 · tap a row for the drawer.</div></div>`;
+}
+function render(el,s){el.innerHTML=status+`<div class="screen">${s.level==='city'?cityScreen(s):atlasScreen(s)}</div>`+tabbar;}
+function wire(el,s){el.addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(!a)return;const d=a.dataset;
+  if(d.a==='fold'){s.open[d.c]=!s.open[d.c];}
+  else if(d.a==='city'){if(d.c==='London'){s.level='city';}else return;}
+  else if(d.a==='back'){s.level='atlas';s.dd=null;}
+  else if(d.a==='kind'){s.kind=d.k;s.type=null;s.dd=null;s.sel=null;}
+  else if(d.a==='view'){s.view=d.v;s.dd=null;s.sel=null;}
+  else if(d.a==='dd'){s.dd=s.dd===d.d?null:d.d;}
+  else if(d.a==='status'){s.status=d.s;s.dd=null;s.sel=null;}
+  else if(d.a==='type'){s.type=d.t||null;s.dd=null;s.sel=null;}
+  else if(d.a==='pin'){s.sel=+d.i;e.stopPropagation();}
+  else if(d.a==='mapbg'){s.sel=null;}
+  render(el,s);});}
+const base=()=>({level:'atlas',open:{},single:false,kind:'all',status:'any',type:null,view:'list',dd:null,sel:null});
+const live=base();render(document.getElementById('live'),live);wire(document.getElementById('live'),live);
+const STEPS=[
+ ['1 · Countries',{},'Two countries. Tap United Kingdom.'],
+ ['2 · Unfolded',{open:{GB:true}},'The cities, with places · been · to try · special. Tap London.'],
+ ['2b · One country',{single:true},'Only the UK in the atlas: the cities are the first screen.'],
+ ['3 · Inside London',{level:'city'},'Everything, any status, list. No trips.'],
+ ['4 · Things to do, Type open',{level:'city',kind:'do',dd:'type'},'The Type dropdown for things to do, with counts. Pubs & bars and Clubs & live music are types here.'],
+ ['5 · Food & drink · Been',{level:'city',kind:'eat',status:'been'},'Food you have been to. The Churchill Arms appears here as Pub food.'],
+ ['6 · Map',{level:'city',view:'map',sel:0},'Map fills the screen; the same filters apply; a tapped pin shows its card.'],
+];
+const story=document.getElementById('story');
+STEPS.forEach(([t,o,c])=>{const w=document.createElement('div');w.innerHTML=`<div class="step">${t}</div><div class="phone"></div><p class="cap">${c}</p>`;story.appendChild(w);const s=Object.assign(base(),o);const ph=w.querySelector('.phone');render(ph,s);wire(ph,s);});
+// web
+const web=document.getElementById('web');const ws=Object.assign(base(),{open:{GB:true},level:'city'});
+web.innerHTML=`<div class="nav"><div class="brand">Roam</div><div class="i">${ic('sparkles')}Plan</div><div class="i on">${ic('map-pin')}Places</div><div class="i">${ic('calendar')}Trips</div><div class="i">${ic('users')}Household</div><div class="i">${ic('settings')}Settings</div></div><div class="col c1" id="wa"></div><div class="col c2" id="wc" style="flex-direction:row;gap:16px"></div>`;
+document.getElementById('wa').innerHTML=atlasScreen(ws).replace('data-a="city" data-c="London"','data-a="city" data-c="London" style="background:var(--accentSoft)"');
+const wc=document.getElementById('wc');const listHtml=cityScreen(Object.assign({},ws,{view:'list'}));
+wc.innerHTML=`<div style="width:400px;display:flex;flex-direction:column;gap:10px;min-width:0">${listHtml.replace(/<div class="viewtog">[\s\S]*?<\/div><\/div>/,'<div class="viewtog" style="margin-left:auto"><div class="on">'+ic('map','s')+' Map on</div></div></div>')}</div><div class="bigmap" style="min-height:0">${PLACES.map(p=>`<div class="pin ${p.sp?'g':p.st==='been'?'b':'w'}" style="left:${p.x}px;top:${p.y*1.5+40}px"></div>`).join('')}</div>`;
+</script>
+</body>
+</html>
