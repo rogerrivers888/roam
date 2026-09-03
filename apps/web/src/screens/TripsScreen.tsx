@@ -19,6 +19,7 @@ import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
 import { CategoryIcon, Icon } from '../components/Icon';
 import { ShortlistJourney, TripJourneyDay } from '../components/Journey';
+import { BrowseNear } from '../components/BrowseNear';
 import { getSpeakPref } from './SettingsScreen';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
@@ -363,7 +364,7 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
         <View style={{ gap: spacing.md }}>
           {dayChips}
           <ShortlistJourney d={d} day={day} household={household} wide={wide} onChanged={load} onFind={() => setFinding((v) => !v)} onSaved={async () => { await load(); await refreshHousehold(); setSection('day'); }} />
-          {finding ? <Card style={{ borderColor: colors.accent }}><Row style={{ justifyContent: 'space-between' }}><Text style={type.h3}>Find places</Text><Button label="Close" icon="close" kind="ghost" onPress={() => setFinding(false)} /></Row><ShortlistPanel d={d} onChanged={load} /></Card> : null}
+          {finding || !shortlist.some((s) => ['to_call', 'booked', 'no_booking'].includes(s.status)) ? <BrowseNear d={d} onChanged={load} onClose={finding ? () => setFinding(false) : undefined} /> : null}
           {household ? (
             <View style={{ gap: spacing.sm }}>
               <Button label={planning ? 'Hide the planner' : 'Plan it for me'} icon="plan" kind="ghost" onPress={() => setPlanning((v) => !v)} />
@@ -375,7 +376,7 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
       {section === 'day' && day ? (
         <View style={{ gap: spacing.md }}>
           {dayChips}
-          <TripJourneyDay d={d} day={day} wide={wide} onChanged={load} onChangePlan={() => setSection('shortlist')} />
+          <TripJourneyDay d={d} day={day} wide={wide} onChanged={load} onChangePlan={() => { setSection('shortlist'); setFinding(true); }} />
         </View>
       ) : null}
       {section === 'stay' ? <StayPanel d={d} onChanged={load} onFindNear={() => { setSection('shortlist'); setFinding(true); }} /> : null}

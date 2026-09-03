@@ -334,7 +334,8 @@ router.put('/:id/attendees', async (req, res, next) => {
 
 router.patch('/:id/days/:dayId', async (req, res, next) => {
   try {
-    const { intensity, travelMode, startTime, endTime, notes } = req.body || {};
+    const b = req.body || {};
+    const { intensity, travelMode, startTime, endTime, notes } = b;
     if (intensity && !INTENSITY_TARGETS[intensity]) return res.status(400).json({ error: 'invalid_intensity' });
     if (travelMode && !TRAVEL_MODES.includes(travelMode)) return res.status(400).json({ error: 'invalid_mode' });
     const { rowCount } = await query(
@@ -343,6 +344,10 @@ router.patch('/:id/days/:dayId', async (req, res, next) => {
       [req.params.id, req.params.dayId, intensity ?? null, travelMode ?? null, startTime ?? null, endTime ?? null, notes ?? null],
     );
     if (!rowCount) return res.status(404).json({ error: 'day_not_found' });
+    // Where the day starts and ends: a place, or null to go back to the rule (home to home).
+    const point = (p) => (p && p.lat != null && p.lng != null ? JSON.stringify({ label: p.label ?? null, lat: Number(p.lat), lng: Number(p.lng), kind: p.kind ?? 'custom' }) : null);
+    if ('startPoint' in b) await query('update trip_days set start_point = $3 where id = $2 and trip_id = $1', [req.params.id, req.params.dayId, point(b.startPoint)]);
+    if ('endPoint' in b) await query('update trip_days set end_point = $3 where id = $2 and trip_id = $1', [req.params.id, req.params.dayId, point(b.endPoint)]);
     res.json(await tripPayload(req.params.id));
   } catch (err) { next(err); }
 });

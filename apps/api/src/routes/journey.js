@@ -92,6 +92,28 @@ function defaultDwell(item, household) {
 
 const mealOf = (hour) => (hour < 11 ? 'breakfast' : hour < 15.5 ? 'lunch' : hour >= 17 ? 'dinner' : null);
 
+/**
+ * Where the day starts and ends. The household's home unless told otherwise:
+ * a day out is home to home; a trip away leaves home on its first day, comes
+ * home on its last, and runs base to base in between. A day can override
+ * either end (trip_days.start_point / end_point).
+ */
+async function resolveEndpoints(trip, day, household) {
+  const home = household?.home_lat != null ? { label: 'Home', lat: household.home_lat, lng: household.home_lng, kind: 'home' } : null;
+  const base = trip.base_lat != null && trip.base_kind !== 'home' ? { label: trip.base_label || 'Where we are staying', lat: trip.base_lat, lng: trip.base_lng, kind: 'base' } : null;
+  const origin = trip.origin_lat != null ? { label: trip.origin_label || 'Start', lat: trip.origin_lat, lng: trip.origin_lng, kind: 'custom' } : null;
+  const usual = home ?? base ?? origin;
+  let start = usual; let end = usual;
+  if (trip.kind === 'trip' && base) {
+    const { rows } = await query('select id from trip_days where trip_id = $1 order by date', [trip.id]);
+    const i = rows.findIndex((r) => r.id === day.id);
+    start = i === 0 ? (home ?? base) : base;
+    end = i === rows.length - 1 ? (home ?? base) : base;
+  }
+  const custom = (p) => (p && p.lat != null && p.lng != null ? { label: p.label || 'Somewhere else', lat: Number(p.lat), lng: Number(p.lng), kind: p.kind || 'custom' } : null);
+  return { start: custom(day.start_point) ?? start, end: custom(day.end_point) ?? end, choices: { home, base } };
+}
+
 // ---------------------------------------------------------------------------
 // The engine
 // ---------------------------------------------------------------------------
@@ -100,7 +122,8 @@ async function buildJourney({ trip, day, household, items, source }) {
   const tz = trip.timezone || DEFAULT_TZ;
   const v = dayAsTrip(trip, day);
   const hasCar = Boolean(trip.has_car);
-  const home = { label: trip.base_kind === 'home' || !trip.base_label ? 'Home' : trip.base_label, lat: v.origin_lat, lng: v.origin_lng };
+  const ends = await resolveEndpoints(trip, day, household);
+  const home = ends.start;
   const start = new Date(v.depart_at);
   const end = new Date(v.return_at);
   const fmt = (d) => wallClock(d, tz).hhmm;
@@ -144,8 +167,8 @@ async function buildJourney({ trip, day, household, items, source }) {
 
   let legHome = null;
   let homeAt = cursor;
-  if (stops.length) {
-    const opts = await legOptions(from, home, hasCar, cursor.toISOString(), meter);
+  if (stops.length || ends.end.lat !== ends.start.lat || ends.end.lng !== ends.start.lng) {
+    const opts = await legOptions(from, ends.end, hasCar, cursor.toISOString(), meter);
     const mode = pickMode(opts, hasCar, null);
     homeAt = new Date(cursor.getTime() + opts[mode].minutes * 60_000);
     legHome = legShape(opts, mode, from, homeAt);
@@ -189,7 +212,7 @@ async function buildJourney({ trip, day, household, items, source }) {
 
   return {
     source, dayId: day.id, date: day.date, hasCar, timezone: tz,
-    startAt: fmt(start), endAt: fmt(end), home, homeAt: fmt(homeAt),
+    startAt: fmt(start), endAt: fmt(end), home, start: ends.start, end: ends.end, choices: ends.choices, homeAt: fmt(homeAt),
     stops: stops.map(({ _arrive, _leave, ...s }) => s),
     legHome, fits: overBy === 0, spareMinutes: overBy ? 0 : mins(homeAt, end), overBy, tipping,
     blockers, canSave: stops.length > 0 && blockers.length === 0,

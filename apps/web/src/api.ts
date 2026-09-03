@@ -170,8 +170,10 @@ export type JourneyStop = {
   legIn: JourneyLeg; legModeChosen: LegMode | null;
 };
 export type JourneyBlocker = { kind: 'to_call' | 'clash' | 'late' | 'over'; text: string; ids: string[] };
+export type Endpoint = { label: string; lat: number; lng: number; kind: 'home' | 'base' | 'custom' };
 export type Journey = {
   source: 'shortlist' | 'day'; dayId: string; date: string; hasCar: boolean; timezone: string; startAt: string; endAt: string; home: { label: string; lat: number; lng: number }; homeAt: string;
+  start: Endpoint; end: Endpoint; choices: { home: Endpoint | null; base: Endpoint | null };
   stops: JourneyStop[]; legHome: JourneyLeg | null; fits: boolean; spareMinutes: number; overBy: number; tipping: { id: string; name: string } | null;
   blockers: JourneyBlocker[]; canSave: boolean; estimated: boolean; routing: string; lookups: number;
   others?: { id: string; name: string; category: string | null; status: ShortlistStatus; statusNote: string | null; statusOn: string | null }[];
@@ -354,7 +356,7 @@ export const api = {
   createMultiDayTrip: (body: { title?: string; notes?: string; place?: Place; placeText?: string; startDate: string; endDate: string; base?: Place; baseText?: string; baseKind?: string; checkIn?: string; checkOut?: string; hasCar?: boolean; travelMode?: Trip['travelMode']; intensity?: Trip['intensity']; dayStart?: string; dayEnd?: string; attendingMemberIds?: string[]; seedFromAtlas?: boolean }) =>
     post<TripDetail>('/api/trips', { kind: 'trip', ...body }),
   updateTripV2: (id: string, body: Partial<{ title: string; notes: string; startDate: string; endDate: string; hasCar: boolean; travelMode: Trip['travelMode']; intensity: Trip['intensity']; dayStart: string; dayEnd: string; base: Place; baseText: string; baseKind: string; checkIn: string; checkOut: string; sources: string[] | null }>) => patch<TripDetail>(`/api/trips/${id}`, body),
-  updateDay: (tripId: string, dayId: string, body: Partial<{ intensity: Trip['intensity']; travelMode: Trip['travelMode']; startTime: string; endTime: string; notes: string }>) => patch<TripDetail>(`/api/trips/${tripId}/days/${dayId}`, body),
+  updateDay: (tripId: string, dayId: string, body: Partial<{ intensity: Trip['intensity']; travelMode: Trip['travelMode']; startTime: string; endTime: string; notes: string; startPoint: Endpoint | Place | null; endPoint: Endpoint | Place | null }>) => patch<TripDetail>(`/api/trips/${tripId}/days/${dayId}`, body),
   shortlistSearch: (tripId: string, p: { q?: string; categories?: string; radiusKm?: number; near?: string; sources?: string }) =>
     request<{ near: Place; radiusKm: number; results: (Venue & { onShortlist: boolean })[]; degradedSources: { source: string; error: string }[] }>(`/api/trips/${tripId}/shortlist/search${qs(p)}`),
   addToShortlist: (tripId: string, body: { venueRef: string; venueLabel: string; kind?: string; category?: string | null; lat?: number | null; lng?: number | null; venue?: Partial<Venue>; note?: string; mustDo?: boolean; preferredDayId?: string | null }) => post<TripDetail>(`/api/trips/${tripId}/shortlist`, body),

@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Linking, Modal, PanResponder, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, BrowseItem, HouseholdResponse, Journey, JourneyLeg, JourneyStop, LegMode, ShortlistItem, ShortlistStatus, TripDay, TripDetail, Venue } from '../api';
+import { api, BrowseItem, Endpoint, HouseholdResponse, Journey, JourneyLeg, JourneyStop, LegMode, Place, ShortlistItem, ShortlistStatus, TripDay, TripDetail, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap, minutes as fmtMinutes } from './ui';
 import { CategoryIcon, Icon, IconName } from './Icon';
 import { MapLine, MapPin, MapView } from './MapView';
 import { VenueDrawer } from './VenueDrawer';
 import { DirectionsDrawer, LegPoint, MODE_LABEL } from './DirectionsDrawer';
+import { PlacePicker } from './PlacePicker';
 
 /**
  * The shortlist as the working surface, and the day that comes out of it
@@ -150,6 +151,50 @@ function BookingControl({ trip, item, venue, dwell, onChanged, onSetAside }: { t
   );
 }
 
+/** Where the day starts or ends: home by default, where you're staying, or anywhere you name. */
+function EndpointModal({ which, journey, trip, day, onClose, onChanged }: { which: 'start' | 'end'; journey: Journey; trip: TripDetail; day: TripDay; onClose: () => void; onChanged: () => Promise<void> }) {
+  const current = which === 'start' ? journey.start : journey.end;
+  const [busy, setBusy] = useState(false);
+  const [other, setOther] = useState(false);
+  const set = async (p: Endpoint | Place | null) => {
+    setBusy(true);
+    try { await api.updateDay(trip.trip.id, day.id, which === 'start' ? { startPoint: p } : { endPoint: p }); await onChanged(); onClose(); } finally { setBusy(false); }
+  };
+  const same = (a: Endpoint | null) => !!a && a.lat === current.lat && a.lng === current.lng;
+  const near = { label: current.label, lat: current.lat, lng: current.lng };
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.scrim} onPress={onClose} />
+      <View style={styles.modalWrap} pointerEvents="box-none">
+        <View style={styles.modal}>
+          <Row style={{ alignItems: 'flex-start' }}>
+            <View style={{ flex: 1 }}><Text style={type.h3}>{which === 'start' ? 'Start the day from' : 'End the day at'}</Text><Text style={type.tiny}>Now: {current.label}. Travel times are worked out from here.</Text></View>
+            <Pressable onPress={onClose} style={styles.close}><Icon name="close" size={20} color={colors.inkMuted} /></Pressable>
+          </Row>
+          {journey.choices.home ? (
+            <Pressable onPress={() => set(journey.choices.home)} disabled={busy} style={[styles.opt, same(journey.choices.home) && styles.optOn]}>
+              <View style={styles.optIcon}><Icon name="home" size={18} color={colors.ink} /></View>
+              <View style={{ flex: 1 }}><Text style={[type.body, { fontWeight: '700' }]}>Home</Text><Text style={type.tiny}>The usual</Text></View>
+            </Pressable>
+          ) : <Text style={type.small}>No home address yet. Set it in Household and every trip will start and end there.</Text>}
+          {journey.choices.base ? (
+            <Pressable onPress={() => set(journey.choices.base)} disabled={busy} style={[styles.opt, same(journey.choices.base) && styles.optOn]}>
+              <View style={styles.optIcon}><Icon name="hotel" size={18} color={colors.ink} /></View>
+              <View style={{ flex: 1 }}><Text style={[type.body, { fontWeight: '700' }]} numberOfLines={1}>{journey.choices.base.label}</Text><Text style={type.tiny}>Where you're staying</Text></View>
+            </Pressable>
+          ) : null}
+          <Pressable onPress={() => setOther((v) => !v)} disabled={busy} style={[styles.opt, current.kind === 'custom' && styles.optOn]}>
+            <View style={styles.optIcon}><Icon name="address" size={18} color={colors.ink} /></View>
+            <View style={{ flex: 1 }}><Text style={[type.body, { fontWeight: '700' }]}>Somewhere else</Text><Text style={type.tiny}>{current.kind === 'custom' ? current.label : 'A station, a friend\'s, a car park'}</Text></View>
+          </Pressable>
+          {other ? <PlacePicker value={null} onPick={(p) => { if (p) set(p); }} near={near} placeholder="Search a place or address" /> : null}
+          <Button label="Back to the usual" kind="ghost" onPress={() => set(null)} disabled={busy} />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const asBrowseItem = (s: ShortlistItem): BrowseItem => ({
   id: s.id, venueRef: s.venueRef, name: s.name, category: s.category ?? 'attraction', lat: s.lat ?? 0, lng: s.lng ?? 0,
   dwellMinutes: s.dwellMinutes ?? 0, reasons: [], justification: null, startsAt: null, endsAt: null, pinned: false,
@@ -175,6 +220,7 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
   const [legFor, setLegFor] = useState<{ stop: JourneyStop | null; leg: JourneyLeg; title: string; hint: string | null } | null>(null);
   const [venue, setVenue] = useState<Venue | null>(null);
   const [showOthers, setShowOthers] = useState(false);
+  const [endpointFor, setEndpointFor] = useState<'start' | 'end' | null>(null);
   const [leave, setLeave] = useState(day.startTime ? clock24(day.startTime) : '');
   const [homeBy, setHomeBy] = useState(day.endTime ? clock24(day.endTime) : '');
 
@@ -212,8 +258,11 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
   const selected = stops.find((s) => s.id === selectedId) ?? null;
   const selIndex = selected ? stops.indexOf(selected) : -1;
   const pins: MapPin[] = [];
-  const home = journey?.home;
-  if (home) pins.push({ id: 'home', lat: home.lat, lng: home.lng, label: home.label, tone: 'home', number: 'H' });
+  const home = journey?.start;
+  const endPt = journey?.end;
+  const sameEnds = !!home && !!endPt && home.lat === endPt.lat && home.lng === endPt.lng;
+  if (home) pins.push({ id: 'home', lat: home.lat, lng: home.lng, label: home.label, tone: 'home', number: home.kind === 'home' ? 'H' : 'S', onPress: () => setEndpointFor('start') });
+  if (endPt && !sameEnds) pins.push({ id: 'end', lat: endPt.lat, lng: endPt.lng, label: endPt.label, tone: 'home', number: endPt.kind === 'home' ? 'H' : 'E', onPress: () => setEndpointFor('end') });
   stops.forEach((s, i) => { if (s.lat != null && s.lng != null) pins.push({ id: s.id, lat: s.lat, lng: s.lng, label: `${i + 1} · ${s.name}`, tone: s.fixed ? 'base' : 'day', number: i + 1, onPress: () => setSelectedId(s.id) }); });
   others.forEach((o, i) => { const it = o.item; if (it?.lat != null && it?.lng != null) pins.push({ id: o.id, lat: it.lat, lng: it.lng, label: `${o.name} · ${STATUS[o.status].label}`, tone: o.status === 'full' ? 'full' : 'aside', number: stops.length + i + 1, onPress: () => setOpenId(o.id) }); });
   const pt = (s: JourneyStop | null | undefined) => (s && s.lat != null && s.lng != null ? { lat: s.lat, lng: s.lng } : null);
@@ -221,12 +270,12 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
   if (home && stops.length) {
     if (selected) {
       const prev = selIndex > 0 ? pt(stops[selIndex - 1]) : home;
-      const next = selIndex < stops.length - 1 ? pt(stops[selIndex + 1]) : home;
+      const next = selIndex < stops.length - 1 ? pt(stops[selIndex + 1]) : (endPt ?? home);
       const me = pt(selected);
       if (prev && me) lines.push({ id: 'in', points: [prev, me], dashed: true });
       if (me && next) lines.push({ id: 'out', points: [me, next] });
     } else {
-      const route = [home, ...stops.map(pt).filter(Boolean) as { lat: number; lng: number }[], home];
+      const route = [home, ...stops.map(pt).filter(Boolean) as { lat: number; lng: number }[], endPt ?? home];
       lines.push({ id: 'route', points: route, color: colors.accent });
     }
   }
@@ -265,7 +314,7 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
   const list = (
     <Card style={{ paddingVertical: 2, paddingHorizontal: spacing.md, gap: 0 }}>
       {journey && home ? (
-        <View style={styles.row}><Text style={styles.time}>{journey.startAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>Leave {home.label === 'Home' ? 'home' : home.label.split(',')[0]}</Text></View>
+        <Pressable onPress={() => setEndpointFor('start')} style={styles.row} accessibilityRole="button"><Text style={styles.time}>{journey.startAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><View style={{ flex: 1 }}><Text style={type.h3} numberOfLines={1}>Leave {home.kind === 'home' ? 'home' : home.label.split(',')[0]}</Text><Text style={type.tiny}>{home.kind === 'home' ? 'Tap to start somewhere else' : home.kind === 'base' ? 'Where you\'re staying · tap to change' : 'Tap to change'}</Text></View><Icon name="edit" size={14} color={colors.inkFaint} /></Pressable>
       ) : null}
       {stops.map((s, i) => (
         <View key={s.id}>
@@ -287,10 +336,10 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
           </SwipeRow>
         </View>
       ))}
-      {journey?.legHome && home ? (
+      {journey && home && endPt ? (
         <>
-          <LegPill leg={journey.legHome} hasCar={hasCar} onPress={legTap(null, journey.legHome, home.label, `Home by ${journey.endAt}.`)} />
-          <View style={styles.row}><Text style={[styles.time, journey.overBy ? { color: colors.overrun, fontWeight: '700' } : null]}>{journey.homeAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>{home.label === 'Home' ? 'Home' : home.label.split(',')[0]}</Text></View>
+          {journey.legHome ? <LegPill leg={journey.legHome} hasCar={hasCar} onPress={legTap(null, journey.legHome, endPt.label, `Back by ${journey.endAt}.`)} /> : null}
+          <Pressable onPress={() => setEndpointFor('end')} style={styles.row} accessibilityRole="button"><Text style={[styles.time, journey.overBy ? { color: colors.overrun, fontWeight: '700' } : null]}>{stops.length ? journey.homeAt : ''}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><View style={{ flex: 1 }}><Text style={type.h3} numberOfLines={1}>{endPt.kind === 'home' ? 'Home' : endPt.label.split(',')[0]}</Text><Text style={type.tiny}>{stops.length ? `by ${journey.endAt}` : 'Tap to end somewhere else'}</Text></View><Icon name="edit" size={14} color={colors.inkFaint} /></Pressable>
         </>
       ) : null}
       {journey && !stops.length ? <Text style={[type.small, { paddingVertical: spacing.md }]}>Nothing in the running for {fmtDate(day.date)} yet. Find places, or bring one back from the ones set aside.</Text> : null}
@@ -318,10 +367,10 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
       </View>
       {nextStop || journey.legHome ? (
         <>
-          <View style={styles.tlLeg}><View style={[styles.tlBar, { backgroundColor: colors.line }]} />{nextStop ? <LegPill leg={nextStop.legIn} hasCar={hasCar} onPress={legTap(nextStop, nextStop.legIn, nextStop.name, null)} hint={`leave ${selected.name.split(' ')[0]} by ${selected.mustLeaveBy}`} /> : journey.legHome ? <LegPill leg={journey.legHome} hasCar={hasCar} onPress={legTap(null, journey.legHome, home.label, null)} hint={`leave by ${selected.mustLeaveBy}`} /> : null}</View>
+          <View style={styles.tlLeg}><View style={[styles.tlBar, { backgroundColor: colors.line }]} />{nextStop ? <LegPill leg={nextStop.legIn} hasCar={hasCar} onPress={legTap(nextStop, nextStop.legIn, nextStop.name, null)} hint={`leave ${selected.name.split(' ')[0]} by ${selected.mustLeaveBy}`} /> : journey.legHome ? <LegPill leg={journey.legHome} hasCar={hasCar} onPress={legTap(null, journey.legHome, (endPt ?? home).label, null)} hint={`leave by ${selected.mustLeaveBy}`} /> : null}</View>
           <View style={styles.tlStop}>
             <View style={[styles.num, { backgroundColor: nextStop ? (nextStop.fixed ? colors.ink : colors.accent) : colors.rating }]}>{nextStop ? <Text style={styles.numText}>{selIndex + 2}</Text> : <Icon name="home" size={13} color="#fff" />}</View>
-            <View style={{ flex: 1 }}><Text style={[type.body, { fontWeight: '700' }]}>{nextStop ? nextStop.name : home.label}</Text><Text style={type.tiny}>{nextStop ? (nextStop.fixed ? `Booked for ${nextStop.fixedAt}` : `Arrive ${nextStop.arriveAt}`) : `By ${journey.endAt}`}</Text></View>
+            <View style={{ flex: 1 }}><Text style={[type.body, { fontWeight: '700' }]}>{nextStop ? nextStop.name : (endPt ?? home).label}</Text><Text style={type.tiny}>{nextStop ? (nextStop.fixed ? `Booked for ${nextStop.fixedAt}` : `Arrive ${nextStop.arriveAt}`) : `By ${journey.endAt}`}</Text></View>
           </View>
         </>
       ) : null}
@@ -381,6 +430,7 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
         />
       ) : null}
       {legModal}
+      {endpointFor && journey ? <EndpointModal which={endpointFor} journey={journey} trip={d} day={day} onClose={() => setEndpointFor(null)} onChanged={onChanged} /> : null}
     </View>
   );
 }
@@ -398,23 +448,25 @@ export function TripJourneyDay({ d, day, onChangePlan, onChanged, wide }: { d: T
   const refresh = useCallback(async () => { try { setJourney(await api.journey(trip.id, { dayId: day.id, source: 'day' })); } catch (e: any) { setError(e.message); } }, [trip.id, day.id]);
   useEffect(() => { refresh(); }, [refresh, d]);
   const stops = journey?.stops ?? [];
-  const home = journey?.home;
+  const home = journey?.start;
+  const endPt = journey?.end ?? home;
   const kept = d.shortlist.filter((s) => !s.scheduled).length;
   const pins: MapPin[] = [];
-  if (home) pins.push({ id: 'home', lat: home.lat, lng: home.lng, label: home.label, tone: 'home', number: 'H' });
+  if (home) pins.push({ id: 'home', lat: home.lat, lng: home.lng, label: home.label, tone: 'home', number: home.kind === 'home' ? 'H' : 'S' });
+  if (home && endPt && (endPt.lat !== home.lat || endPt.lng !== home.lng)) pins.push({ id: 'end', lat: endPt.lat, lng: endPt.lng, label: endPt.label, tone: 'home', number: endPt.kind === 'home' ? 'H' : 'E' });
   stops.forEach((s, i) => { if (s.lat != null && s.lng != null) pins.push({ id: s.id, lat: s.lat, lng: s.lng, label: `${i + 1} · ${s.name}`, tone: s.fixed ? 'base' : 'day', number: i + 1 }); });
-  const lines: MapLine[] = home && stops.length ? [{ id: 'route', points: [home, ...stops.filter((s) => s.lat != null && s.lng != null).map((s) => ({ lat: s.lat!, lng: s.lng! })), home], color: colors.accent }] : [];
+  const lines: MapLine[] = home && stops.length ? [{ id: 'route', points: [home, ...stops.filter((s) => s.lat != null && s.lng != null).map((s) => ({ lat: s.lat!, lng: s.lng! })), endPt ?? home], color: colors.accent }] : [];
   const point = (s: JourneyStop | null, fallback: LegPoint): LegPoint => (s && s.lat != null && s.lng != null ? { label: s.name, lat: s.lat, lng: s.lng } : fallback);
   const departIso = (hhmm: string) => `${day.date}T${hhmm}:00`;
   const openDir = (from: LegPoint, to: LegPoint, leg: JourneyLeg) => setDir({ from, to, leg, departAt: departIso(leg.leaveBy) });
 
   return (
     <View style={{ gap: spacing.md }}>
-      <Text style={type.small}>{fmtDate(day.date)} · leave {journey?.startAt ?? ''} · {journey?.home.label === 'Home' ? 'home' : 'back'} {journey?.homeAt ?? ''} · {hasCar ? 'with the car' : 'no car'}</Text>
+      <Text style={type.small}>{fmtDate(day.date)} · leave {journey?.start.kind === 'home' ? 'home' : (journey?.start.label.split(',')[0] ?? '')} {journey?.startAt ?? ''} · {journey?.end.kind === 'home' ? 'home' : (journey?.end.label.split(',')[0] ?? 'back')} {journey?.homeAt ?? ''} · {hasCar ? 'with the car' : 'no car'}</Text>
       <MapView pins={pins} lines={lines} height={wide ? 420 : 200} />
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       <Card style={{ paddingVertical: 2, paddingHorizontal: spacing.md, gap: 0 }}>
-        {journey && home ? <View style={styles.row}><Text style={styles.time}>{journey.startAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>Leave {home.label === 'Home' ? 'home' : home.label.split(',')[0]}</Text></View> : null}
+        {journey && home ? <View style={styles.row}><Text style={styles.time}>{journey.startAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>Leave {home.kind === 'home' ? 'home' : home.label.split(',')[0]}</Text></View> : null}
         {stops.map((s, i) => {
           const from = point(i > 0 ? stops[i - 1] : null, home!);
           return (
@@ -437,11 +489,11 @@ export function TripJourneyDay({ d, day, onChangePlan, onChanged, wide }: { d: T
         })}
         {journey?.legHome && home && stops.length ? (
           <>
-            <Pressable onPress={() => openDir(point(stops[stops.length - 1], home), home, journey.legHome!)} style={styles.legRow}>
+            <Pressable onPress={() => openDir(point(stops[stops.length - 1], home), endPt ?? home, journey.legHome!)} style={styles.legRow}>
               <View style={styles.legPill}><Icon name={journey.legHome.mode} size={13} color={colors.ink} /><Text style={styles.legText}>{fmtMinutes(journey.legHome.minutes)}</Text></View>
               <Row style={{ gap: 2 }}><Text style={type.tiny}>directions</Text><Icon name="more" size={12} color={colors.inkFaint} /></Row>
             </Pressable>
-            <View style={styles.row}><Text style={styles.time}>{journey.homeAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>{home.label === 'Home' ? 'Home' : home.label.split(',')[0]}</Text></View>
+            <View style={styles.row}><Text style={styles.time}>{journey.homeAt}</Text><View style={[styles.num, { backgroundColor: colors.rating }]}><Icon name="home" size={13} color="#fff" /></View><Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>{(endPt ?? home).kind === 'home' ? 'Home' : (endPt ?? home).label.split(',')[0]}</Text></View>
           </>
         ) : null}
         {journey && !stops.length ? <Text style={[type.small, { paddingVertical: spacing.md }]}>Nothing saved for this day yet.</Text> : null}
