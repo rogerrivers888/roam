@@ -7,14 +7,17 @@ import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Stepper, Wrap, minutes, clock } from '../components/ui';
 import { TimeBar } from '../components/TimeBar';
 import { FaceRow } from '../components/Faces';
-import { speak, useSpeech } from '../hooks/useSpeech';
+import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
+import { getSpeakPref } from './SettingsScreen';
+
+const speak = (text: string) => { if (getSpeakPref()) speakRaw(text); };
 
 type Turn = { role: 'user' | 'assistant'; text: string; voice?: boolean };
 
 const SUGGESTIONS_START = [
-  'From home to the opera house, three hours, at least two things to do and somewhere to eat',
-  'Around home for two hours, something relaxed, Ada is coming',
-  'Home to Fenway, four hours, one activity and lunch, walking',
+  'From home, three hours, at least two things to do and somewhere to eat, everyone is coming',
+  'Around home for two hours this afternoon, something relaxed with the kids',
+  'From home to the British Museum, four hours, one activity and lunch, walking',
 ];
 const SUGGESTIONS_REFINE = [
   'I like the museum but not the pub',
@@ -139,7 +142,8 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
         <Card style={{ gap: spacing.sm }}>
           <Text style={type.h3}>Who's coming</Text>
           <FaceRow members={members} attending={attending} />
-          <Text style={type.tiny}>Say "just me and Ada" to change who's coming. Allergens of everyone coming exclude places; dislikes only rank them.</Text>
+          <Text style={type.tiny}>Say "just me and {members.find((m) => m.isMinor)?.name ?? members[1]?.name}" to change who's coming. Allergens of everyone coming exclude places; dislikes only rank them.</Text>
+          {!household?.household.home ? <Text style={[type.tiny, { color: colors.dislike }]}>No home address yet — set it in Settings so you can just say "from home".</Text> : null}
         </Card>
       ) : null}
 

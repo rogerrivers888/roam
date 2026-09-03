@@ -27,7 +27,7 @@ npm run web                        # http://localhost:8081  (Expo web)
 
 The conversational planner needs an Anthropic key in the API's environment: `ANTHROPIC_API_KEY=sk-ant-…` (put it in `.env`; it is git-ignored). Without it, household, trips and the touch controls work; interpreting what you *say* does not.
 
-Place data is a local fixture set (`apps/api/src/sources/fixtures.js`) — invented venues, no licensed content — behind the same source interface a real provider uses. Enable sources with `ROAM_SOURCES=fixtures,…`.
+Place data comes from two sources behind one interface (`apps/api/src/sources/`): **OpenStreetMap** (Overpass for places, Nominatim for geocoding — open data, no key, cacheable with attribution; no reviews, ratings or allergen data) and a local **fixture** set of invented Boston venues used for development. `ROAM_SOURCES` defaults to `fixtures,osm`; Google, Yelp and TripAdvisor slot in behind the same interface once credentials and spend caps exist. Taste vocabulary (dishes, cuisines, experiences, diets, with aliases and fuzzy matching) lives in `apps/api/src/domain/concepts.js`.
 
 ## API sketch
 
@@ -66,7 +66,9 @@ Postgres is a Railway Postgres service in the same project; the `api` needs its 
 | `ANTHROPIC_API_KEY` | yes | conversational planner (Doppler) |
 | `ANTHROPIC_WORKSPACE_ID` | if the key is identity-linked | The Anthropic workspace the key acts in (`wrkspc_…`). Console-issued keys that are linked to a person require it; a legacy workspace key does not. |
 | `RAILPACK_START_CMD` | yes | see table above (non-secret) |
-| `ROAM_SOURCES` | no | comma-separated enabled place sources; default `fixtures` |
+| `ROAM_SOURCES` | no | comma-separated enabled place sources; default `fixtures,osm` |
+| `ROAM_OVERPASS_URLS` / `ROAM_NOMINATIM_URL` | no | override the OpenStreetMap endpoints (e.g. a self-hosted mirror) |
+| `ROAM_LEARN_THRESHOLD` | no | rating events before a learned preference counts; default 3 |
 | `ROAM_SESSION_CALL_BOUND` / `ROAM_HOUSEHOLD_MONTHLY_CALL_BOUND` | no | spend containment bounds; defaults 40 / 3000 |
 | `ROAM_MERGE_THRESHOLD` | no | entity-resolution confidence; default 0.75 |
 

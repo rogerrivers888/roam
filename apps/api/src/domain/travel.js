@@ -66,3 +66,10 @@ export function detourMinutes({ origin, destination, venue, mode }) {
     estimateTravelMinutes(origin, venue, mode) + estimateTravelMinutes(venue, destination, mode);
   return Math.max(0, viaVenue - direct);
 }
+
+/** How far, in km, the mode plausibly reaches in the given minutes — for bounding a source query. */
+export function reachRadiusKm(mode, minutes) {
+  const profile = MODE_PROFILE[mode] || MODE_PROFILE.driving;
+  const usable = Math.max(0, minutes - profile.fixedOverheadMinutes);
+  return Math.max(0.5, (usable / 60) * profile.kmh / profile.detourFactor);
+}

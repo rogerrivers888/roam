@@ -1,23 +1,18 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, memberColor, TARGET, type } from '../theme';
 
-export type Face = { id: string; name: string; isMinor?: boolean };
+export type Face = { id: string; name: string; isMinor?: boolean; avatarUrl?: string | null };
 
 /**
  * People are the explanation (research §11). Faces appear wherever a
  * constraint or a reason is attributed to someone.
  */
-export function Avatar({ name, index, size = 36, dim }: { name: string; index: number; size?: number; dim?: boolean }) {
+export function Avatar({ name, index, size = 36, dim, url }: { name: string; index: number; size?: number; dim?: boolean; url?: string | null }) {
+  const base = { width: size, height: size, borderRadius: size / 2, opacity: dim ? 0.35 : 1 };
+  if (url) return <Image source={{ uri: url }} style={base} accessibilityLabel={name} />;
   return (
-    <View
-      style={{
-        width: size, height: size, borderRadius: size / 2,
-        backgroundColor: memberColor(index), opacity: dim ? 0.35 : 1,
-        alignItems: 'center', justifyContent: 'center',
-      }}
-      accessibilityLabel={name}
-    >
+    <View style={[base, { backgroundColor: memberColor(index), alignItems: 'center', justifyContent: 'center' }]} accessibilityLabel={name}>
       <Text style={{ color: '#fff', fontWeight: '700', fontSize: size * 0.42 }}>{name.slice(0, 1).toUpperCase()}</Text>
     </View>
   );
@@ -46,7 +41,7 @@ export function FaceRow({
             accessibilityState={{ checked: on }}
             accessibilityLabel={`${m.name} ${on ? 'coming' : 'not coming'}`}
           >
-            <Avatar name={m.name} index={i} size={40} dim={!on} />
+            <Avatar name={m.name} index={i} size={40} dim={!on} url={m.avatarUrl} />
             <Text style={[type.tiny, { color: on ? colors.ink : colors.inkFaint }]}>
               {m.name}{m.isMinor ? ' ·' : ''}
             </Text>

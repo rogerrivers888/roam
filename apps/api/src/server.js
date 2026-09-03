@@ -5,12 +5,14 @@ import householdRoutes from './routes/household.js';
 import discoverRoutes from './routes/discover.js';
 import tripRoutes from './routes/trips.js';
 import planRoutes from './routes/plan.js';
+import conceptRoutes from './routes/concepts.js';
+import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 
 const app = express();
 
 // JSON API only — no templates, no static assets, no server-rendered HTML.
 // The web app is a separate Expo workspace that talks to this over HTTP.
-app.use(express.json());
+app.use(express.json({ limit: '1mb' })); // member photos travel as data URLs
 app.use(cors({ origin: true }));
 
 app.get('/health', async (_req, res) => {
@@ -26,6 +28,9 @@ app.use('/api/household', householdRoutes);
 app.use('/api/discover', discoverRoutes);
 app.use('/api/trips', tripRoutes);
 app.use('/api/plan', planRoutes);
+app.use('/api/concepts', conceptRoutes);
+app.use('/api/places', placeRoutes);
+app.use('/api/visits', visitRoutes);
 
 app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
 

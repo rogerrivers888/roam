@@ -20,7 +20,7 @@ const VENUES = [
     ],
   },
   {
-    id: 'v-002', name: 'The Copper Kettle', category: 'pub',
+    id: 'v-002', name: 'The Copper Kettle', category: 'pub', dietaryOptions: ["vegetarian"],
     cuisines: ['british', 'pub'], allergens: ['wheat', 'milk', 'eggs'],
     priceLevel: 2, rating: 4.2, goodForChildren: true, lat: 42.3554, lng: -71.0640,
     dishes: [
@@ -38,12 +38,12 @@ const VENUES = [
     ],
   },
   {
-    id: 'v-004', name: "Nonna's Table", category: 'restaurant',
+    id: 'v-004', name: "Nonna's Table", category: 'restaurant', dietaryOptions: ["vegetarian", "gluten-free"],
     cuisines: ['italian'], allergens: ['wheat', 'milk', 'eggs'],
     priceLevel: 2, rating: 4.4, goodForChildren: true, lat: 42.3638, lng: -71.0554,
     dishes: [
-      { concept: 'arrabbiata', name: "Penne all'arrabbiata", comment: 'Arrabbiata has real heat rather than just tomato.' },
-      { concept: 'tiramisu', name: 'Tiramisu', comment: 'Made in-house, and you can tell.' },
+      { concept: "arrabbiata", veg: true, name: "Penne all'arrabbiata", comment: 'Arrabbiata has real heat rather than just tomato.' },
+      { concept: "tiramisu", veg: true, name: 'Tiramisu', comment: 'Made in-house, and you can tell.' },
     ],
   },
   {
@@ -56,21 +56,21 @@ const VENUES = [
     ],
   },
   {
-    id: 'v-006', name: 'Little Kettle Café', category: 'cafe',
+    id: 'v-006', name: 'Little Kettle Café', category: 'cafe', dietaryOptions: ["vegetarian", "vegan"],
     cuisines: ['cafe'], allergens: ['milk', 'wheat', 'tree nuts'],
     priceLevel: 1, rating: 4.1, goodForChildren: true, lat: 42.3572, lng: -71.0668,
     dishes: [
-      { concept: 'flat-white', name: 'Flat white', comment: 'Best flat white within walking distance of the theatre.' },
-      { concept: 'cinnamon-bun', name: 'Cinnamon bun', comment: 'Buns come out warm at eleven.' },
+      { concept: "flat-white", veg: true, name: 'Flat white', comment: 'Best flat white within walking distance of the theatre.' },
+      { concept: "cinnamon-bun", veg: true, name: 'Cinnamon bun', comment: 'Buns come out warm at eleven.' },
     ],
   },
   {
-    id: 'v-007', name: 'Green Fig', category: 'restaurant',
+    id: 'v-007', name: 'Green Fig', category: 'restaurant', dietaryOptions: ["vegetarian", "vegan", "gluten-free"],
     cuisines: ['mediterranean', 'vegetarian'], allergens: ['sesame', 'tree nuts'],
     priceLevel: 2, rating: 4.5, goodForChildren: true, lat: 42.3701, lng: -71.0705,
     dishes: [
-      { concept: 'falafel', name: 'Herb falafel plate', comment: 'Falafel green all the way through, not beige.' },
-      { concept: 'mezze', name: 'Mezze board', comment: 'Enough mezze for four without ordering mains.' },
+      { concept: "falafel", veg: true, name: 'Herb falafel plate', comment: 'Falafel green all the way through, not beige.' },
+      { concept: "mezze", veg: true, name: 'Mezze board', comment: 'Enough mezze for four without ordering mains.' },
     ],
   },
   {
@@ -82,7 +82,7 @@ const VENUES = [
     ],
   },
   {
-    id: 'v-009', name: 'Sagano Ramen', category: 'restaurant',
+    id: 'v-009', name: 'Sagano Ramen', category: 'restaurant', dietaryOptions: [],
     cuisines: ['japanese'], allergens: ['wheat', 'soybeans', 'eggs'],
     priceLevel: 2, rating: 4.7, goodForChildren: true, lat: 42.3455, lng: -71.0748,
     dishes: [
@@ -91,27 +91,29 @@ const VENUES = [
     ],
   },
   {
-    id: 'v-010', name: 'Bramble Bakehouse', category: 'cafe',
+    id: 'v-010', name: 'Bramble Bakehouse', category: 'cafe', dietaryOptions: ["vegetarian"],
     cuisines: ['bakery', 'cafe'], allergens: ['wheat', 'milk', 'eggs', 'tree nuts'],
     priceLevel: 1, rating: 4.6, goodForChildren: true, lat: 42.3663, lng: -71.0836,
     dishes: [
-      { concept: 'almond-croissant', name: 'Almond croissant', comment: 'Croissants sell out by ten on a Saturday.' },
+      { concept: "almond-croissant", veg: true, name: 'Almond croissant', comment: 'Croissants sell out by ten on a Saturday.' },
     ],
   },
   {
     id: 'v-011', name: 'Tidewater Maritime Museum', category: 'attraction',
+    experiences: ["museum"],
     cuisines: [], allergens: [],
     priceLevel: 2, rating: 4.3, goodForChildren: true, lat: 42.3548, lng: -71.0480,
     dishes: [],
   },
   {
     id: 'v-012', name: 'Rowan Park Gardens', category: 'attraction',
+    experiences: ["park", "walk"],
     cuisines: [], allergens: [],
     priceLevel: 0, rating: 4.6, goodForChildren: true, lat: 42.3742, lng: -71.0965,
     dishes: [],
   },
   {
-    id: 'v-013', name: 'Pike & Pepper', category: 'restaurant',
+    id: 'v-013', name: 'Pike & Pepper', category: 'restaurant', dietaryOptions: ["vegetarian", "vegan"],
     cuisines: ['mexican'], allergens: ['milk', 'wheat'],
     priceLevel: 1, rating: 4.2, goodForChildren: true, lat: 42.3412, lng: -71.0655,
     dishes: [
@@ -119,7 +121,7 @@ const VENUES = [
     ],
   },
   {
-    id: 'v-014', name: 'The Anchor Tap', category: 'pub',
+    id: 'v-014', name: 'The Anchor Tap', category: 'pub', dietaryOptions: ["vegetarian"],
     cuisines: ['pub'], allergens: ['wheat'],
     priceLevel: 2, rating: 4.0, goodForChildren: false, lat: 42.3812, lng: -71.0537,
     dishes: [
@@ -127,12 +129,12 @@ const VENUES = [
     ],
   },
   {
-    id: 'v-015', name: 'Cinder House Pizza', category: 'restaurant',
+    id: 'v-015', name: 'Cinder House Pizza', category: 'restaurant', dietaryOptions: ["vegetarian", "gluten-free"],
     cuisines: ['italian', 'pizza'], allergens: ['wheat', 'milk'],
     priceLevel: 2, rating: 4.5, goodForChildren: true, lat: 42.3327, lng: -71.0588,
     dishes: [
-      { concept: 'margherita', name: 'Margherita', comment: 'Base is charred and chewy, not cracker-thin.' },
-      { concept: 'arrabbiata', name: 'Arrabbiata pizza', comment: 'Hot enough that the children left it alone.' },
+      { concept: "margherita", veg: true, name: 'Margherita', comment: 'Base is charred and chewy, not cracker-thin.' },
+      { concept: "arrabbiata", veg: true, name: 'Arrabbiata pizza', comment: 'Hot enough that the children left it alone.' },
     ],
   },
 ];
@@ -142,17 +144,17 @@ const VENUES = [
 // window so the fixtures do not go stale.
 const EVENT_TEMPLATES = [
   {
-    id: 'e-001', name: 'Bandstand Jazz Hour',
+    id: 'e-001', name: 'Bandstand Jazz Hour', experiences: ["live-music"],
     venueName: 'Rowan Park Bandstand', lat: 42.3738, lng: -71.0958,
     startOffsetHours: 1.5, durationMinutes: 60, priceLevel: 2, goodForChildren: true,
   },
   {
-    id: 'e-002', name: 'Harbour Lights Market',
+    id: 'e-002', name: 'Harbour Lights Market', experiences: ["market"],
     venueName: 'Tidewater Quay', lat: 42.3556, lng: -71.0472,
     startOffsetHours: 0.5, durationMinutes: 150, priceLevel: 1, goodForChildren: true,
   },
   {
-    id: 'e-003', name: 'Comedy at the Copper Kettle',
+    id: 'e-003', name: 'Comedy at the Copper Kettle', experiences: ["comedy"],
     venueName: 'The Copper Kettle', lat: 42.3554, lng: -71.0640,
     startOffsetHours: 3, durationMinutes: 90, priceLevel: 2, goodForChildren: false,
   },
@@ -203,6 +205,8 @@ export const fixturesSource = {
         lat: venue.lat,
         lng: venue.lng,
         dishes: venue.dishes,
+        experiences: venue.experiences ?? [],
+        dietaryOptions: venue.dietaryOptions ?? [],
         // The evidence behind a dish-level match (Epic 3 C4). Google returns the
         // equivalent as contextualContent.justifications; it is display-only and
         // must never be persisted once a licensed source supplies it.
@@ -232,6 +236,8 @@ export const fixturesSource = {
           justification: null,
           matchedDish: null,
           venueName: tpl.venueName,
+          experiences: tpl.experiences ?? [],
+          dietaryOptions: [],
           startsAt: startsAt.toISOString(),
           endsAt: new Date(startsAt.getTime() + tpl.durationMinutes * 60_000).toISOString(),
         });
@@ -268,3 +274,11 @@ export function resolvePlace(text) {
   );
   return partial ? { label: partial.label, lat: partial.lat, lng: partial.lng } : null;
 }
+
+/** One venue by fixture id, in the same shape search returns. */
+fixturesSource.get = async (id) => {
+  const venue = VENUES.find((v) => v.id === id);
+  if (!venue) return null;
+  const [hit] = await fixturesSource.search({ query: venue.name });
+  return hit && hit.sourcePlaceId === id ? hit : null;
+};

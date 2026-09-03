@@ -6,6 +6,9 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(here, '../../../.env'), quiet: true });
 
+// DATE columns come back as 'YYYY-MM-DD', not a local-midnight Date that shifts with timezone.
+pg.types.setTypeParser(1082, (v) => v);
+
 export const pool = new pg.Pool({
   connectionString:
     process.env.DATABASE_URL || 'postgres://roam:roam@localhost:5432/roam',

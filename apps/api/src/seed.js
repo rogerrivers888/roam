@@ -15,22 +15,22 @@ const HOUSEHOLD = {
 // italian while Sam likes it, so both must surface against the same candidate.
 const MEMBERS = [
   {
-    name: 'Roger', isMinor: false, typicalVisitMinutes: 90,
+    name: 'Roger', isMinor: false, relationship: 'parent', typicalVisitMinutes: 90,
     constraints: [['dislike', 'italian'], ['like', 'ramen']],
   },
   {
-    name: 'Jules', isMinor: false, typicalVisitMinutes: 75,
+    name: 'Jules', isMinor: false, relationship: 'partner', typicalVisitMinutes: 75,
     constraints: [['allergen', 'shellfish'], ['like', 'seafood']],
   },
   {
-    name: 'Sam', isMinor: false, typicalVisitMinutes: 60,
+    name: 'Sam', isMinor: false, relationship: 'child', birthYear: 2010, typicalVisitMinutes: 60,
     constraints: [['like', 'italian'], ['dislike', 'pub']],
   },
   {
     // Under 13 — profile creation and editing require a consenting adult
     // (Epic 1 C8), and COPPA verifiable parental consent gates any voice
     // capture against this profile (Technical Constraints L1).
-    name: 'Ada', isMinor: true, typicalVisitMinutes: 45,
+    name: 'Ada', isMinor: true, relationship: 'child', birthYear: 2015, typicalVisitMinutes: 45,
     constraints: [['allergen', 'tree nuts'], ['dislike', 'barbecue']],
   },
 ];
@@ -64,9 +64,9 @@ async function main() {
     const memberIds = [];
     for (const member of MEMBERS) {
       const { rows: created } = await client.query(
-        `insert into members (household_id, name, is_minor, typical_visit_minutes)
-         values ($1, $2, $3, $4) returning id`,
-        [householdId, member.name, member.isMinor, member.typicalVisitMinutes],
+        `insert into members (household_id, name, is_minor, relationship, birth_year, typical_visit_minutes)
+         values ($1, $2, $3, $4, $5, $6) returning id`,
+        [householdId, member.name, member.isMinor, member.relationship ?? null, member.birthYear ?? null, member.typicalVisitMinutes],
       );
       memberIds.push(created[0].id);
       for (const [kind, value] of member.constraints) {

@@ -2,9 +2,9 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { query } from '../db.js';
 import { searchAllSources } from '../sources/index.js';
-import { deriveCatchment, detourMinutes, TRAVEL_MODES } from '../domain/travel.js';
+import { deriveCatchment, detourMinutes, reachRadiusKm, TRAVEL_MODES } from '../domain/travel.js';
 import { applyConstraints } from '../domain/ranking.js';
-import { currentHousehold, loadMembers, toAttendees } from './household.js';
+import { currentHousehold, loadMembers, toAttendees, loadLearnedPreferences } from './household.js';
 
 const router = Router();
 
@@ -48,6 +48,8 @@ router.post('/', async (req, res, next) => {
     const attendees = toAttendees(members.filter((m) => attendingIds.has(m.id)));
 
     const { venues, degraded, sourcesQueried } = await searchAllSources({
+      center: origin,
+      radiusKm: reachRadiusKm(mode, maxTravelMinutes),
       categories,
       query: searchQuery.trim(),
       includeEvents,
@@ -78,7 +80,8 @@ router.post('/', async (req, res, next) => {
       ledgerFiltered = before - inCatchment.length;
     }
 
-    const { candidates, excluded } = applyConstraints({ venues: inCatchment, attendees });
+    const learned = await loadLearnedPreferences(household.id);
+    const { candidates, excluded } = applyConstraints({ venues: inCatchment, attendees, learned });
 
     // Attribution logging, from the first day (Epic 2 C5, Technical Constraints §2).
     const queryId = crypto.randomUUID();

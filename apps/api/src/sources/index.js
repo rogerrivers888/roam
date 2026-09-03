@@ -6,12 +6,13 @@
 // adapters slot in here without changing any caller.
 
 import { fixturesSource } from './fixtures.js';
+import { osmSource } from './osm.js';
 
-const REGISTRY = [fixturesSource];
+const REGISTRY = [fixturesSource, osmSource];
 
 /** Sources are enabled by config, not by code change (Epic 2 C8). */
 export function enabledSources() {
-  const configured = (process.env.ROAM_SOURCES || 'fixtures')
+  const configured = (process.env.ROAM_SOURCES || 'fixtures,osm')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -110,6 +111,23 @@ export function resolveVenues(rawRecords) {
   return resolved;
 }
 
+// Venues seen recently, by ref, so a detail view after a search is instant and
+// does not re-query the provider. Only sources whose terms permit retention
+// (fixtures, OSM) are remembered; a licensed source must opt out here.
+const RETAINABLE = new Set(['fixtures', 'osm']);
+const recent = new Map();
+const RECENT_MAX = 2000;
+export function rememberVenues(venues) {
+  for (const v of venues) {
+    if (!RETAINABLE.has(v.source)) continue;
+    const key = `${v.source}:${v.sourcePlaceId}`;
+    recent.delete(key);
+    recent.set(key, v);
+    if (recent.size > RECENT_MAX) recent.delete(recent.keys().next().value);
+  }
+}
+export const recallVenue = (ref) => recent.get(ref) ?? null;
+
 /** Fan out across every enabled source; one failing source must not block a search (Epic 2 C7). */
 export async function searchAllSources(params) {
   const sources = enabledSources();
@@ -125,5 +143,6 @@ export async function searchAllSources(params) {
     }
   });
 
+  rememberVenues(raw);
   return { venues: resolveVenues(raw), degraded, sourcesQueried: sources.map((s) => s.key) };
 }

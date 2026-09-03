@@ -13,11 +13,12 @@ import { query } from '../db.js';
 import { parseStructured, spendSummary, SpendBoundError } from '../claude.js';
 import { searchAllSources } from '../sources/index.js';
 import { resolvePlace, KNOWN_PLACES } from '../sources/fixtures.js';
-import { deriveCatchment, TRAVEL_MODES } from '../domain/travel.js';
+import { geocode, reverseGeocode } from '../sources/geocode.js';
+import { deriveCatchment, reachRadiusKm, TRAVEL_MODES } from '../domain/travel.js';
 import { applyConstraints } from '../domain/ranking.js';
 import { composeOptions } from '../domain/options.js';
 import { INTENSITY_TARGETS } from '../domain/budget.js';
-import { currentHousehold, loadMembers, toAttendees } from './household.js';
+import { currentHousehold, loadMembers, toAttendees, loadLearnedPreferences } from './household.js';
 
 const router = Router();
 
@@ -126,6 +127,24 @@ function householdContext(household, members) {
   };
 }
 
+/**
+ * Where a spoken place is: the household's home, a place the app knows, or —
+ * for anywhere else in the world — a geocoded match biased toward home.
+ */
+async function resolveSpokenPlace(text, household) {
+  if (!text) return null;
+  const home = household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null;
+  if (/^(home|our house|the house|ours)$/i.test(text.trim()) && home) return { ...home, how: 'home' };
+  const known = resolvePlace(text);
+  if (known) return { ...known, how: 'known' };
+  try {
+    const [hit] = await geocode(text, { limit: 1, near: home });
+    return hit ? { label: hit.label, lat: hit.lat, lng: hit.lng, country: hit.country, countryCode: hit.countryCode, locality: hit.locality, how: 'geocoded' } : null;
+  } catch {
+    return null;
+  }
+}
+
 function roundUpToQuarter(date) {
   const d = new Date(date);
   d.setSeconds(0, 0);
@@ -157,6 +176,16 @@ async function createTripFromIntent({ household, members, intent, origin, destin
   );
   const trip = rows[0];
 
+  // Where the outing "is", for grouping trips by country and place later.
+  const anchor = destination ?? origin;
+  try {
+    const where = anchor.countryCode ? anchor : await reverseGeocode(anchor.lat, anchor.lng);
+    if (where) {
+      await query('update trips set country = $2, country_code = $3, locality = $4 where id = $1', [trip.id, where.country, where.countryCode, where.locality]);
+      Object.assign(trip, { country: where.country, country_code: where.countryCode, locality: where.locality });
+    }
+  } catch { /* unknown is acceptable */ }
+
   const attendingNames = new Set(intent.attending.map((n) => n.toLowerCase()));
   const attending = attendingNames.size
     ? members.filter((m) => attendingNames.has(m.name.toLowerCase()))
@@ -175,7 +204,10 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
   const maxTravelMinutes = Math.min(household.max_travel_minutes, Math.max(15, Math.round(durationMinutes / 3)));
 
   const wantsText = (intent.wants || []).join(' ');
+  const originPoint = { lat: trip.origin_lat, lng: trip.origin_lng };
   const { venues, degraded, sourcesQueried } = await searchAllSources({
+    center: originPoint,
+    radiusKm: reachRadiusKm(trip.travel_mode, maxTravelMinutes),
     categories: [],
     query: '',
     includeEvents: true,
@@ -186,9 +218,9 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
     [household.id, sessionId, sourcesQueried.join('+') || 'none', 'plan.retrieve'],
   );
 
-  const origin = { lat: trip.origin_lat, lng: trip.origin_lng };
-  const inReach = deriveCatchment({ origin, maxTravelMinutes, mode: trip.travel_mode, venues });
-  const { candidates, excluded } = applyConstraints({ venues: inReach, attendees });
+  const inReach = deriveCatchment({ origin: originPoint, maxTravelMinutes, mode: trip.travel_mode, venues });
+  const learned = await loadLearnedPreferences(household.id);
+  const { candidates, excluded } = applyConstraints({ venues: inReach, attendees, learned });
 
   // "Wants" are a soft boost, not a filter: the pool stays broad so options can differ.
   const wantTerms = (intent.wants || []).map((w) => w.toLowerCase());
@@ -217,6 +249,9 @@ function publicTrip(trip) {
     returnAt: trip.return_at,
     travelMode: trip.travel_mode,
     intensity: trip.intensity,
+    country: trip.country ?? null,
+    countryCode: trip.country_code ?? null,
+    locality: trip.locality ?? null,
   };
 }
 
@@ -310,8 +345,8 @@ router.post('/start', async (req, res, next) => {
     merged.attending = intent.attending?.length ? intent.attending : (state.intent?.attending || []);
     state.intent = merged;
 
-    const origin = resolvePlace(merged.origin);
-    const destination = merged.destination ? resolvePlace(merged.destination) : null;
+    const origin = await resolveSpokenPlace(merged.origin, household);
+    const destination = merged.destination ? await resolveSpokenPlace(merged.destination, household) : null;
     const missing = [];
     if (!merged.origin) missing.push('origin');
     else if (!origin) missing.push('origin_unknown');
@@ -320,8 +355,8 @@ router.post('/start', async (req, res, next) => {
 
     if (!intent.understood || missing.length) {
       let reply = intent.reply;
-      if (missing.includes('origin_unknown')) reply = `I don't know "${merged.origin}" yet — try one of: ${KNOWN_PLACES.slice(0, 4).map((p) => p.label).join(', ')}.`;
-      if (missing.includes('destination_unknown')) reply = `I don't know "${merged.destination}" yet — where's the outing ending? I know ${KNOWN_PLACES.slice(0, 4).map((p) => p.label).join(', ')}.`;
+      if (missing.includes('origin_unknown')) reply = `I couldn't place "${merged.origin}" — try the town or a fuller address, or set your home address in Settings and just say "home".`;
+      if (missing.includes('destination_unknown')) reply = `I couldn't place "${merged.destination}" — try the full name with the town, like "the British Museum, London".`;
       state.transcript.push({ role: 'assistant', text: reply });
       await saveSession(session.id, state, null);
       return res.json({ sessionId: session.id, reply, intent: merged, missing, options: [] });
