@@ -6,6 +6,7 @@ import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
 import { priceMarks, typeLine } from './StopCard';
 import { VenuePhoto } from './VenuePhoto';
 import { VenueDrawer } from './VenueDrawer';
+import { SourceLine, useSourceFilter } from './SourceData';
 
 /**
  * The planner's main view (owner, 3 Sep 2026): everything found near the base
@@ -52,8 +53,9 @@ export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLa
     return [...c.entries()].sort((a, b) => b[1] - a[1]).slice(0, 14);
   }, [inTab, tab]);
 
+  const sf = useSourceFilter(inTab);
   const list = useMemo(() => {
-    let l = inTab;
+    let l = sf.filtered;
     if (facets.size) l = l.filter((b) => ((tab === 'food' ? b.cuisines : b.experiences) ?? []).some((f) => facets.has(f)));
     const by: Record<Sort, (a: BrowseItem, b: BrowseItem) => number> = {
       best: (a, b) => (b.score ?? 0) - (a.score ?? 0),
@@ -63,7 +65,7 @@ export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLa
       time: (a, b) => new Date(a.startsAt ?? 0).getTime() - new Date(b.startsAt ?? 0).getTime(),
     };
     return [...l].sort(by[sort]);
-  }, [inTab, facets, sort, tab]);
+  }, [sf.filtered, facets, sort, tab]);
 
   const switchTab = (t: BrowseTab) => { setTab(t); setFacets(new Set()); setShown(15); setSort(t === 'events' ? 'time' : 'best'); };
   const toggleFacet = (f: string) => setFacets((s) => { const n = new Set(s); n.has(f) ? n.delete(f) : n.add(f); return n; });
@@ -85,6 +87,7 @@ export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLa
           {facets.size ? <Chip label="Clear" onPress={() => setFacets(new Set())} /> : null}
         </Wrap>
       ) : null}
+      {sf.chips}
       {sort === 'best' ? <Text style={type.tiny}>Best match weighs the rating and how many people gave it most, then what you like, whether it suits children, and distance from {baseLabel}.</Text> : null}
 
       {tab === 'events' && !eventsSource ? (
@@ -131,6 +134,7 @@ function BrowseRow({ item, isPinned, isShortlisted, busy, addLabel, addedLabel, 
             {item.distanceKm != null ? ` · ${item.distanceKm} km` : ''}{item.travelFromBaseMinutes != null ? `, ${item.travelFromBaseMinutes} min` : ''}
             {!isEvent ? ` · about ${minutes(item.dwellMinutes)}` : ''}
           </Text>
+          <SourceLine item={item} />
           {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').slice(0, 3).map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
           <Text style={[type.tiny, { color: colors.accent }]}>Details, reviews, hours, photos ›</Text>
         </View>

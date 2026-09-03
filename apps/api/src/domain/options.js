@@ -145,7 +145,7 @@ function toRows(timed) {
   }));
 }
 
-function eventInsideWindow(candidate, trip) {
+export function eventInsideWindow(candidate, trip) {
   if (!isEvent(candidate)) return true;
   return new Date(candidate.startsAt) >= new Date(trip.depart_at) && new Date(candidate.endsAt) <= new Date(trip.return_at);
 }
@@ -417,6 +417,7 @@ function richFields(s, base) {
     // What kind of place, how it is rated and by whom, what it costs, how far
     // it is — so a card can say more than a name and a reason.
     source: s.source,
+    contributingSources: s.contributingSources ?? [s.source],
     cuisines: s.cuisines ?? [],
     experiences: s.experiences ?? [],
     rating: s.rating ?? null,

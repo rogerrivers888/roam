@@ -11,12 +11,12 @@ import { Router } from 'express';
 import { z } from 'zod/v4';
 import { query, withTransaction } from '../db.js';
 import { parseStructured, spendSummary, SpendBoundError } from '../claude.js';
-import { searchAllSources, eventSources } from '../sources/index.js';
+import { searchAllSources, eventSources, optInFrom, defaultSourceKeys } from '../sources/index.js';
 import { resolvePlace, KNOWN_PLACES } from '../sources/fixtures.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
-import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, TRAVEL_MODES } from '../domain/travel.js';
+import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, TRAVEL_MODES, kmBetween } from '../domain/travel.js';
 import { applyConstraints } from '../domain/ranking.js';
-import { composeOptions, PRICE_POINTS } from '../domain/options.js';
+import { composeOptions, PRICE_POINTS, eventInsideWindow } from '../domain/options.js';
 import { paceOf, travelLimitFor, maxReachMinutes } from '../domain/pace.js';
 import { dayAsTrip, slotFor } from '../domain/days.js';
 import { ensureDays, placeTrip } from './trips.js';
@@ -427,7 +427,7 @@ async function createStayFromIntent({ household, members, intent, destination })
 }
 
 /** Retrieve the candidate pool ONCE for a trip (Epic 5 C3). */
-async function retrievePool({ household, trip, attendees, intent, sessionId }) {
+async function retrievePool({ household, trip, attendees, intent, sessionId, sourcesOverride = null }) {
   const durationMinutes = Math.round((new Date(trip.return_at) - new Date(trip.depart_at)) / 60_000);
   const pace = paceOf(household);
   const special = Boolean(intent.special);
@@ -440,7 +440,7 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
   // The pool is what's around the base within a comfortable hop, not the whole
   // reach: a day in central London is a 2–3 km affair; a driving day a bit more.
   const hopRadiusKm = Math.min(reachRadiusKm(trip.travel_mode, maxTravelMinutes), trip.travel_mode === 'driving' ? 10 : trip.travel_mode === 'cycling' ? 5 : 3);
-  const { venues, degraded, sourcesQueried, units } = await searchAllSources({
+  const { venues, degraded, sourcesQueried, units, rawCounts, resolvedCounts } = await searchAllSources({
     center: originPoint,
     radiusKm: hopRadiusKm,
     categories: [],
@@ -448,7 +448,7 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
     includeEvents: true,
     outingStart: trip.depart_at,
     // A trip's saved source set applies to its plans too; Tripadvisor only when the trip names it.
-    sources: Array.isArray(trip.sources) ? trip.sources : [],
+    sources: sourcesOverride ?? (Array.isArray(trip.sources) ? trip.sources : []),
     locality: trip.locality ?? null,
     outingEnd: trip.return_at,
     // For the local scout: where and when in words, and who is asking.
@@ -495,7 +495,11 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
   }
   candidates.sort((a, b) => b.score - a.score);
 
-  return { candidates, excluded, degraded, maxTravelMinutes, sourcesQueried, wantsText };
+  return {
+    candidates, excluded, degraded, maxTravelMinutes, sourcesQueried, wantsText,
+    // Every stage, so the admin source view can say where each record was lost.
+    stages: { venues, reached, inReach }, rawCounts, resolvedCounts, radiusKm: hopRadiusKm, window: { from: trip.depart_at, to: trip.return_at }, origin: originPoint,
+  };
 }
 
 function publicTrip(trip) {
@@ -515,6 +519,82 @@ function publicTrip(trip) {
     locality: trip.locality ?? null,
   };
 }
+
+/**
+ * Admin: what each source returns for a day of a trip and where the plan
+ * loses it. Runs the plan's own retrieval (same point, radius, window and
+ * source set) with no Claude call, then walks every record through the same
+ * stages — catchment, reach, allergens, the day's window — and reports the
+ * last one it survived. The scout is left out unless asked for (it costs
+ * money); Tripadvisor only when the trip or the query names it.
+ */
+router.get('/trips/:tripId/sources', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const { rows: [real] } = await query('select * from trips where id = $1', [req.params.tripId]);
+    if (!real) return res.status(404).json({ error: 'trip_not_found' });
+    const { rows: days } = await query('select * from trip_days where trip_id = $1 order by date', [real.id]);
+    const day = days.find((d) => d.id === req.query.dayId) ?? days[0];
+    if (!day) return res.status(400).json({ error: 'no_days', message: 'This trip has no days yet.' });
+    const trip = dayAsTrip(real, day);
+    const members = await loadMembers(household.id);
+    const attendees = toAttendees(members);
+    const picked = optInFrom(req.query.sources);
+    const includeScout = String(req.query.scout || '') === '1';
+    const set = (picked.length ? picked : (Array.isArray(real.sources) && real.sources.length ? real.sources : defaultSourceKeys())).filter((k) => includeScout || k !== 'scout');
+
+    const pool = await retrievePool({ household, trip, attendees, intent: { wants: [], special: false }, sessionId: null, sourcesOverride: set });
+    const keyOf = (v) => v.key ?? `${v.source}:${v.sourcePlaceId}`;
+    const reached = new Map(pool.stages.reached.map((v) => [keyOf(v), v]));
+    const inReach = new Map(pool.stages.inReach.map((v) => [keyOf(v), v]));
+    const excluded = new Map(pool.excluded.map((v) => [keyOf(v), v]));
+    const candidates = new Map(pool.candidates.map((v) => [keyOf(v), v]));
+    const base = pool.origin;
+
+    const venues = pool.stages.venues.map((v) => {
+      const k = keyOf(v);
+      const r = reached.get(k); const ir = inReach.get(k); const ex = excluded.get(k); const c = candidates.get(k);
+      let stage; let reason = null;
+      if (!r) { stage = 'catchment'; reason = `Estimated ${Math.round(estimateTravelMinutes(base, v, trip.travel_mode))} min away, beyond ${Math.round(pool.maxTravelMinutes * 1.5)} min`; }
+      else if (!ir) { stage = 'reach'; reason = `${Math.round(r.travelMinutes)} min away${r.travelEstimated === false ? ' (Google Routes)' : ' (estimated)'}, beyond the pace limit`; }
+      else if (ex) { stage = 'allergen'; reason = (ex.exclusionReasons || []).join('; '); }
+      else if (c && !eventInsideWindow(c, trip)) { stage = 'window'; reason = `Runs ${c.startsAt?.slice(11, 16)}–${c.endsAt?.slice(11, 16)} UTC, outside the day's ${trip.depart_at.slice(11, 16)}–${trip.return_at.slice(11, 16)} UTC`; }
+      else if (c) { stage = 'shown'; reason = c.chain ? 'Shown only when chains are allowed' : null; }
+      else { stage = 'reach'; reason = 'Dropped before ranking'; }
+      const src = c ?? ir ?? r ?? v;
+      const { photos, reviews, provenance, conflicts, ...rest } = src;
+      return {
+        key: k, venueRef: `${v.source}:${v.sourcePlaceId}`, name: v.name, category: v.category, source: v.source,
+        contributingSources: v.contributingSources ?? [v.source], ratingSource: v.rating != null ? (provenance?.rating?.source ?? v.source) : null,
+        rating: v.rating ?? null, ratingCount: v.ratingCount ?? null, priceLevel: v.priceLevel ?? null, goodForChildren: v.goodForChildren ?? null,
+        startsAt: v.startsAt ?? null, endsAt: v.endsAt ?? null, venueName: v.venueName ?? null, experiences: v.experiences ?? [], cuisines: v.cuisines ?? [],
+        distanceKm: Number(kmBetween(base, v).toFixed(2)), travelMinutes: src.travelMinutes != null ? Math.round(src.travelMinutes) : null, travelEstimated: src.travelEstimated !== false,
+        stage, reason, score: c?.score ?? null, reasons: c?.reasons ?? [], chain: Boolean(v.chain), conflicts: conflicts ?? [],
+        externalUrl: v.externalUrl ?? v.website ?? null, address: v.address ?? null, justification: v.justification ?? null, attribution: v.attributionText ?? v.attribution ?? null,
+        photoCount: (photos ?? []).length,
+        raw: rest,
+      };
+    });
+    const count = (list) => { const o = {}; for (const v of list) for (const k of v.contributingSources) o[k] = (o[k] || 0) + 1; return o; };
+    const survived = (min) => venues.filter((v) => ORDER.indexOf(v.stage) >= ORDER.indexOf(min));
+    const stages = [
+      { key: 'raw', label: 'Returned by the source', bySource: pool.rawCounts, total: Object.values(pool.rawCounts).reduce((a, b) => a + b, 0) },
+      { key: 'resolved', label: 'After merging duplicates', bySource: pool.resolvedCounts, total: venues.length },
+      { key: 'reach', label: `Within reach (${pool.maxTravelMinutes} min ${trip.travel_mode})`, bySource: count(survived('allergen')), total: survived('allergen').length },
+      { key: 'allergen', label: 'Not excluded by an allergen', bySource: count(survived('window')), total: survived('window').length },
+      { key: 'shown', label: "Inside the day's window (shown to browse)", bySource: count(survived('shown')), total: survived('shown').length },
+    ];
+    res.json({
+      trip: { id: real.id, title: real.title, dayId: day.id, date: day.date, base: { label: trip.origin_label, ...base }, window: pool.window, mode: trip.travel_mode, timezone: trip.timezone },
+      days: days.map((d) => ({ id: d.id, date: d.date })),
+      sourcesQueried: pool.sourcesQueried, requested: set, includeScout, degraded: pool.degraded, radiusKm: pool.radiusKm, maxTravelMinutes: pool.maxTravelMinutes,
+      stages, venues,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+const ORDER = ['catchment', 'reach', 'allergen', 'window', 'shown'];
 
 /** The trip a session plans: the real trip, or one day of it seen as a trip. */
 async function sessionTrip(session) {

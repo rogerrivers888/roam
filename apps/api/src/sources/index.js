@@ -189,9 +189,12 @@ export async function searchAllSources(params) {
 
   const raw = [];
   const degraded = [];
+  // How many records each source returned, before the resolver folds them (the admin source view).
+  const rawCounts = {};
   settled.forEach((outcome, i) => {
     if (outcome.status === 'fulfilled') {
       raw.push(...outcome.value);
+      rawCounts[sources[i].key] = outcome.value.length;
     } else {
       degraded.push({ source: sources[i].key, error: String(outcome.reason?.message || outcome.reason) });
     }
@@ -202,12 +205,17 @@ export async function searchAllSources(params) {
   for (const s of sources) {
     if (typeof s.enrich !== 'function' || sources.length < 2) continue;
     try {
-      raw.push(...(await s.enrich(raw, { ...params, meter })));
+      const extra = await s.enrich(raw, { ...params, meter });
+      rawCounts[s.key] = (rawCounts[s.key] || 0) + extra.length;
+      raw.push(...extra);
     } catch (err) {
       degraded.push({ source: s.key, error: String(err?.message || err) });
     }
   }
 
   rememberVenues(raw);
-  return { venues: resolveVenues(raw), degraded, sourcesQueried: sources.map((s) => s.key), units: meter };
+  const venues = resolveVenues(raw);
+  const resolvedCounts = {};
+  for (const v of venues) for (const k of v.contributingSources || [v.source]) resolvedCounts[k] = (resolvedCounts[k] || 0) + 1;
+  return { venues, degraded, sourcesQueried: sources.map((s) => s.key), units: meter, rawCounts, resolvedCounts };
 }

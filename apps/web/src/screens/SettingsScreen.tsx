@@ -5,6 +5,7 @@ import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Meter, Row, Segmented, SectionTitle, StatusLine, Stepper, Wrap, minutes } from '../components/ui';
 import { PlacePicker } from '../components/PlacePicker';
 import { DateRangePicker } from '../components/DateRangePicker';
+import { isAdmin, setAdmin } from '../admin';
 
 export const SPEAK_KEY = 'roam.speakReplies';
 export const getSpeakPref = () => (Platform.OS === 'web' && typeof localStorage !== 'undefined' ? localStorage.getItem(SPEAK_KEY) !== 'off' : true);
@@ -163,6 +164,7 @@ function Preferences({ data, refresh }: { data: HouseholdResponse; refresh: () =
 // ---------------------------------------------------------------------------
 
 function Sources() {
+  const [admin, setAdminState] = useState(isAdmin());
   const [sources, setSources] = useState<SourcesStatus | null>(null);
   const [spend, setSpend] = useState<SpendResponse | null>(null);
   useEffect(() => { api.sources().then(setSources).catch(() => null); api.spend({ period: 'month' }).then((r) => setSpend(usable(r))).catch(() => null); }, []);
@@ -173,6 +175,17 @@ function Sources() {
 
   return (
     <>
+      <SectionTitle hint="For judging each provider's data before paying for it. On this device only; households never see it.">Admin</SectionTitle>
+      <Card>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={type.body}>Show where every record came from</Text>
+            <Text style={type.tiny}>Adds a Data section to each trip (what each source returned for a day and where the plan lost it), a source filter on the plan's browse lists and shortlist searches, and a "via" line under each result.</Text>
+          </View>
+          <Switch value={admin} onValueChange={(v) => { setAdmin(v); setAdminState(v); }} />
+        </Row>
+      </Card>
+
       <SectionTitle hint="A search runs the default set unless its Sources row says otherwise; a trip keeps its own set.">Default set</SectionTitle>
       <Card>
         <Wrap>{defaults.map((k) => <Chip key={k} label={label(k)} tone="like" />)}</Wrap>

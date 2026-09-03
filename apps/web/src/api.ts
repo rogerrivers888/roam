@@ -145,7 +145,7 @@ export type OptionStop = {
   photos?: VenuePhotoRef[];
 };
 
-export type BrowseItem = Omit<OptionStop, 'position' | 'travelFromPrevMinutes' | 'pinned'> & { pinned: boolean; ticketed?: boolean; venueName?: string | null; externalUrl?: string | null; shortlisted?: boolean; score?: number | null };
+export type BrowseItem = Omit<OptionStop, 'position' | 'travelFromPrevMinutes' | 'pinned'> & { pinned: boolean; ticketed?: boolean; venueName?: string | null; externalUrl?: string | null; shortlisted?: boolean; score?: number | null; contributingSources?: string[] };
 
 export type TripOption = {
   id: string; title: string; basis: string; stops: OptionStop[]; budget: Budget;
@@ -209,6 +209,24 @@ export type PlanAction =
 
 export type SourceCost = { perSearchUsd: number; note: string };
 export type SourcesStatus = { cost?: Record<string, SourceCost>; enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; defaults?: string[]; available: { key: string; label: string; env: string; on: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number; locationsAllTime?: number; locationsFree?: number } } };
+
+// Admin: what each source returned for a day of a trip and where the plan lost it.
+export type SourceStage = 'catchment' | 'reach' | 'allergen' | 'window' | 'shown';
+export type SourceTraceVenue = {
+  key: string; venueRef: string; name: string; category: string; source: string; contributingSources: string[]; ratingSource: string | null;
+  rating: number | null; ratingCount: number | null; priceLevel: number | null; goodForChildren: boolean | null;
+  startsAt: string | null; endsAt: string | null; venueName: string | null; experiences: string[]; cuisines: string[];
+  distanceKm: number; travelMinutes: number | null; travelEstimated: boolean; stage: SourceStage; reason: string | null;
+  score: number | null; reasons: { kind: string; text: string }[]; chain: boolean; conflicts: { field: string; held: any; heldSource?: string; offered: any; offeredSource?: string }[];
+  externalUrl: string | null; address: string | null; justification: string | null; attribution: string | null; photoCount: number; raw: Record<string, any>;
+};
+export type SourceTrace = {
+  trip: { id: string; title: string | null; dayId: string; date: string; base: { label: string; lat: number; lng: number }; window: { from: string; to: string }; mode: string; timezone: string };
+  days: { id: string; date: string }[];
+  sourcesQueried: string[]; requested: string[]; includeScout: boolean; degraded: { source: string; error: string }[]; radiusKm: number; maxTravelMinutes: number;
+  stages: { key: string; label: string; bySource: Record<string, number>; total: number }[];
+  venues: SourceTraceVenue[];
+};
 
 // Settings › Usage: what the household's calls have used and cost, by provider.
 export type SpendPeriod = 'month' | 'last-month' | 'all' | 'custom';
@@ -316,6 +334,7 @@ export const api = {
 
   // planner
   planStart: (utterance: string, sessionId?: string | null, sources?: string[] | null) => post<PlanResponse>('/api/plan/start', { utterance, sessionId: sessionId ?? undefined, sources: sources ?? undefined }),
+  tripSources: (id: string, p: { dayId?: string; sources?: string; scout?: '1' }) => request<SourceTrace>(`/api/plan/trips/${id}/sources${qs(p)}`),
   tripSpend: (id: string) => request<{ calls: number; costUsd: number; byProvider: { provider: string; calls: number; cost_usd: number }[] }>(`/api/trips/${id}/spend`),
   planRefine: (sessionId: string, utterance: string, viewingOptionId?: string | null) => post<PlanResponse>('/api/plan/refine', { sessionId, utterance, viewingOptionId }),
   planAct: (sessionId: string, action: PlanAction) => post<PlanResponse>('/api/plan/act', { sessionId, action }),
