@@ -20,6 +20,7 @@ export function PlacePicker({
   extra?: Place[];
 }) {
   const [text, setText] = useState('');
+  const [editing, setEditing] = useState(false);
   const [items, setItems] = useState<(Place & { matchedBy?: string; approximate?: boolean })[]>([]);
   const [busy, setBusy] = useState(false);
   const [searched, setSearched] = useState('');
@@ -42,7 +43,9 @@ export function PlacePicker({
     return () => clearTimeout(timer.current);
   }, [text]);
 
-  if (value) {
+  const choose = (p: Place) => { onPick(p); setEditing(false); setText(''); setItems([]); };
+
+  if (value && !editing) {
     return (
       <View style={styles.chosen}>
         <View style={{ flex: 1, gap: 2 }}>
@@ -54,7 +57,7 @@ export function PlacePicker({
           ) : value.country ? <Text style={type.small}>{[value.locality, value.country].filter(Boolean).join(' · ')}</Text> : null}
           {value.approximate ? <Text style={type.tiny}>Pin placed by {value.matchedBy} — the map data has no exact entry for this address.</Text> : null}
         </View>
-        <Pressable onPress={() => onPick(null)} style={styles.change} accessibilityRole="button"><Text style={type.small}>Change</Text></Pressable>
+        <Pressable onPress={() => setEditing(true)} style={styles.change} accessibilityRole="button"><Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>Change</Text></Pressable>
       </View>
     );
   }
@@ -64,14 +67,15 @@ export function PlacePicker({
       {extra?.length ? (
         <View style={styles.pills}>
           {extra.map((p) => (
-            <Pressable key={p.label} onPress={() => onPick(p)} style={styles.pill}><Text style={styles.pillText}>{p.label}</Text></Pressable>
+            <Pressable key={p.label} onPress={() => choose(p)} style={styles.pill}><Text style={styles.pillText}>{p.label}</Text></Pressable>
           ))}
         </View>
       ) : null}
-      <TextInput value={text} onChangeText={setText} placeholder={placeholder} placeholderTextColor={colors.inkFaint} style={styles.input} autoCapitalize="words" onSubmitEditing={() => { if (items[0]) { onPick(items[0]); setText(''); setItems([]); } }} returnKeyType="search" />
+      <TextInput value={text} onChangeText={setText} placeholder={placeholder} placeholderTextColor={colors.inkFaint} style={styles.input} autoCapitalize="words" onSubmitEditing={() => { if (items[0]) choose(items[0]); }} returnKeyType="search" autoFocus={editing} />
+      {value && editing ? <Pressable onPress={() => { setEditing(false); setText(''); setItems([]); }} style={styles.change}><Text style={type.small}>Cancel — keep "{value.formatted ?? value.label}"</Text></Pressable> : null}
       {busy ? <Text style={type.tiny}>Looking…</Text> : null}
       {items.map((p, i) => (
-        <Pressable key={`${p.lat},${p.lng},${i}`} onPress={() => { onPick(p); setText(''); setItems([]); }} style={styles.result} accessibilityRole="button">
+        <Pressable key={`${p.lat},${p.lng},${i}`} onPress={() => choose(p)} style={styles.result} accessibilityRole="button">
           <View style={{ flex: 1 }}>
             <Text style={type.h3}>{p.formatted ?? p.label}</Text>
             <Text style={type.tiny} numberOfLines={2}>{p.approximate ? p.displayName : [p.address?.town, p.address?.postcode, p.country].filter(Boolean).join(' · ')}</Text>
