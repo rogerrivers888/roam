@@ -136,7 +136,7 @@ export const tripadvisorSource = {
     const out = [];
     for (const [category, roamCategory] of groups) {
       const data = await get('/catalog/locations/nearby', {
-        lat: center.lat, lon: center.lng, radius: Math.min(radiusKm, 25), unit: 'KM', category, size, locale: 'en-GB',
+        lat: center.lat, lon: center.lng, radius: Math.min(radiusKm, 25), unit: 'KM', category, size,
       });
       for (const item of data.data || []) out.push(toVenue(item.location ?? item, roamCategory));
     }
@@ -148,7 +148,7 @@ export const tripadvisorSource = {
   /** Full detail plus up to 3 reviews (Discover). Two billable entities per view. */
   async get(id) {
     if (!KEY()) return null;
-    const details = await get(`/locations/${id}`, { locale: 'en-GB' });
+    const details = await get(`/locations/${id}`);
     const v = toVenue(details);
     try {
       const rev = await get(`/locations/${id}/reviews`, { size: REVIEWS_PER_VENUE, sort_by: 'MOST_RECENT', language: 'en' });
