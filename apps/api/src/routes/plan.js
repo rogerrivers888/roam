@@ -10,7 +10,10 @@
 import { Router } from 'express';
 import { z } from 'zod/v4';
 import { query, withTransaction } from '../db.js';
-import { parseStructured, spendSummary, SpendBoundError } from '../claude.js';
+import { parseStructured, spendSummary, SpendBoundError, MODEL } from '../claude.js';
+
+// Rows fill while the household is still talking: a smaller, quicker model reads the words so far.
+const PREVIEW_MODEL = process.env.ROAM_PREVIEW_MODEL || 'claude-sonnet-5';
 import { searchAllSources, eventSources, optInFrom, defaultSourceKeys } from '../sources/index.js';
 import { resolvePlace, KNOWN_PLACES } from '../sources/fixtures.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
@@ -122,7 +125,7 @@ Dates: resolve "Saturday", "tomorrow", "next Friday" to a YYYY-MM-DD from today'
 
 Staying over: "stay the night", "a hotel", "back the next evening" mean nights ≥ 1 and end_date the day they return; describe the place to stay in stay. For a stay, duration_minutes is only what they said about a particular day, else null. Attractions imply their town: the Roman Baths are in Bath, Somerset; the Louvre is in Paris.
 
-Ask, don't guess: when something could mean two different things and it matters — which of two places, which day, whether a time is fixed — put one short question in question with two to four answers they can tap or say, and make the reply that same question. Never ask about what they already said, and never ask what the app can look up (an address, an opening time). If the context shows the app's last question and its choices, a short answer picks one of those choices: put that choice's exact words into the field the question was about.
+Ask, don't guess: when something could mean two different things and it matters — which day, whether a time is fixed, indoor or outdoor — put one short question in question with two to four answers they can tap or say, and make the reply that same question. Never ask about what they already said, and never ask what the app can look up (an address, an opening time, which town of that name — the app puts that question itself with the map's choices). If the context shows the app's last question and its choices, a short answer picks one of those choices: put that choice's exact words into the field the question was about.
 
 The reply is spoken aloud as well as shown, so keep it to one plain sentence with no lists or markup.`;
 
@@ -224,7 +227,7 @@ async function resolveSpokenPlace(text, household) {
     // A name with no street number or comma is looked for everywhere as well.
     const bareName = !/[\d,]/.test(said);
     if (bareName || !hits[0] || !(named(hits[0]) && !LINEAR.has(hits[0].kind))) {
-      const wide = await geocode(text, { limit: 5 });
+      const wide = await geocode(text, { limit: 8 });
       const seen = new Set(hits.map((h) => h.sourcePlaceId));
       hits = [...hits, ...wide.filter((h) => !seen.has(h.sourcePlaceId))];
     }
@@ -240,7 +243,13 @@ async function resolveSpokenPlace(text, household) {
     const have = byPlace.get(key);
     if (!have || rank(h) < rank(have)) byPlace.set(key, h);
   }
-  const pool = [...byPlace.values()];
+  // The town and its parish boundary, or the town under two different locality
+  // names, are one Newport: same name within 3 km collapses to the best-ranked.
+  const pool = [];
+  for (const h of [...byPlace.values()].sort((a, b) => rank(a) - rank(b))) {
+    if (pool.some((p) => normName(p.name) === normName(h.name) && kmBetween(p, h) < 3)) continue;
+    pool.push(h);
+  }
   if (!pool.length) return { place: null, choices: null };
   const exactTowns = pool.filter((h) => isSettlement(h) && named(h));
   if (exactTowns.length === 1) return { place: asPlace(exactTowns[0], 'geocoded') };
@@ -267,6 +276,112 @@ function matchChoice(question, utterance) {
   if (!question?.choices?.length) return null;
   const u = normName(utterance);
   return question.choices.find((c) => normName(c.say) === u || normName(c.label) === u || normName(c.label.replace(/\s*\([^)]*\)$/, '')) === u) ?? null;
+}
+
+const firstName = (n) => String(n || '').split(' ')[0];
+const minutesWords = (m) => (m < 60 ? `${m} min` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} hour${m / 60 === 1 ? '' : 's'}`);
+const MEAL_WORDS = /\b(breakfast|brunch|lunch|dinner|supper|tea|coffee)\b/i;
+const isNamedPlace = (w) => /[A-Z]/.test(String(w).replace(/^(the|a|an)\s+/i, '')) && !FOOD_WORDS.test(w) && !GENERIC_WANT.test(w);
+const PLAN_IT = /^(plan it|go|let'?s go|that'?s it|do it|plan|make the plan|go ahead)[.! ]*$/i;
+
+/** "somewhere nice for lunch", "Italian for dinner" → "Lunch: somewhere nice", "Dinner: Italian". */
+function eatLines(wants) {
+  const lines = [];
+  const cap = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
+  for (const w of wants) {
+    if (!FOOD_WORDS.test(w)) continue;
+    const meals = [...String(w).matchAll(new RegExp(MEAL_WORDS.source, 'gi'))].map((m) => m[1].toLowerCase());
+    const rest = String(w).replace(new RegExp(MEAL_WORDS.source, 'gi'), ' ').replace(/\b(for|some|a|an|the|to|at|have|and|then|go|out|both|too|also)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+    if (!meals.length) { lines.push(cap(w)); continue; }
+    // "lunch and dinner somewhere nice" is two meals with the same wish.
+    for (const meal of [...new Set(meals)]) lines.push(`${cap(meal)}: ${rest ? cap(rest) : 'somewhere nice'}`);
+  }
+  return lines;
+}
+
+/**
+ * The rows are the screen: everything said so far in its slot. A row the
+ * planner is sure of is plain; one it is not sure of carries a check (the
+ * queue below asks it); one not said is empty. Never a guess.
+ */
+function rowsFor({ merged, places, checks, overnight, members = [] }) {
+  const checkFields = new Set(checks.map((c) => c.field).filter(Boolean));
+  const row = (key, label, value, detail = null) => ({ key, label, value: value || null, detail: detail || null, state: checkFields.has(key) ? 'check' : value ? 'plain' : 'empty' });
+  const o = places.origin;
+  const d = places.destination;
+  const rows = [];
+  const placeName = (pl) => (pl.locality && normName(pl.locality) !== normName(pl.label) && !pl.label.includes(',') ? `${pl.label}, ${pl.locality}` : pl.label);
+  rows.push(row('from', 'From', o ? (o.how === 'home' ? 'Home' : placeName(o)) : merged.origin || null));
+  rows.push(row('to', 'To', d ? placeName(d) : merged.destination || null, !d && !merged.destination && o ? 'around where you start' : null));
+  const date = merged.date ? dayWords(merged.date) : null;
+  if (overnight) {
+    const nights = Math.max(1, Number(merged.nights) || 1);
+    const end = merged.end_date || (merged.date ? addDays(merged.date, nights) : null);
+    rows.push(row('when', 'When', date ? `${date} → ${end ? dayWords(end) : '?'}` : `${nights} night${nights > 1 ? 's' : ''}`, date ? `${nights} night${nights > 1 ? 's' : ''}` : null));
+  } else {
+    const dur = merged.duration_minutes ? minutesWords(merged.duration_minutes) : null;
+    rows.push(row('when', 'When', [date, dur].filter(Boolean).join(' · ') || null, merged.depart_time ? `leaving ${merged.depart_time}` : (date && !dur ? 'how long?' : null)));
+  }
+  const everyone = merged.attending_everyone || (members.length > 1 && merged.attending?.length === members.length);
+  const who = everyone ? 'The family' : merged.attending?.length ? merged.attending.map(firstName).join(', ') : null;
+  rows.push(row('who', 'Who', who));
+  if (overnight || merged.stay) rows.push(row('stay', 'Stay', merged.stay || null, overnight && !merged.stay ? 'somewhere to sleep — not said' : null));
+  const wants = merged.wants || [];
+  const named = wants.filter(isNamedPlace);
+  const other = wants.filter((w) => !FOOD_WORDS.test(w) && !isNamedPlace(w));
+  const doParts = [...(merged.anchor?.name ? [merged.anchor.name] : []), ...named, ...other];
+  const count = merged.min_activities;
+  rows.push(row('do', 'Do', doParts.join(', ') || (count != null ? `${count} thing${count === 1 ? '' : 's'} to do` : null), doParts.length && count != null ? `+ ${count} more` : merged.anchor?.start_time ? `at ${merged.anchor.start_time}` : null));
+  const eat = eatLines(wants);
+  const foodCount = merged.min_food_stops;
+  rows.push(row('eat', 'Eat', eat[0] || (foodCount != null ? `${foodCount} place${foodCount === 1 ? '' : 's'} to eat` : null), eat.slice(1).join(' · ') || null));
+  const budget = merged.price_point ? { affordable: 'Affordable', mid: 'Mid-range', upmarket: 'Upmarket' }[merged.price_point] : merged.special ? 'Somewhere special' : null;
+  rows.push(row('budget', 'Budget', budget, merged.avoid_chains ? 'no chains' : merged.avoid_chains === false ? 'chains are fine' : null));
+  return rows;
+}
+
+function whichCheck(intentField, rowKey, said, choices) {
+  const text = `Which ${normName(said) === normName(choices[0].say) ? said : 'one'} do you mean — ${choices.slice(0, -1).map((c) => c.label).join(', ')} or ${choices.at(-1).label}?`;
+  return { id: `${intentField}_which`, kind: 'place', field: rowKey, intentField, text, choices, skippable: false };
+}
+
+/** Everything the planner is not sure of, all at once, in the order it matters: place, time, who, stay. */
+function buildChecks({ merged, origin, destination, asks, anchorPlace, overnight, members, household, state }) {
+  const checks = [];
+  const skipped = new Set(state.skipped || []);
+  const add = (c) => { if (!skipped.has(c.id)) checks.push(c); };
+  if (!merged.origin) add({ id: 'origin', kind: 'open', field: 'from', text: 'Where are you starting from? You can just say "home".', choices: household.home_lat != null ? [{ label: 'From home', say: 'From home' }] : [], skippable: false });
+  else if (!origin) add(asks.origin ? whichCheck('origin', 'from', merged.origin, asks.origin) : { id: 'origin_unknown', kind: 'open', field: 'from', text: `I couldn't place "${merged.origin}" — say the town or a fuller address, or set your home in Settings and say "home".`, choices: [], skippable: false });
+  if (merged.destination && !destination) add(asks.destination ? whichCheck('destination', 'to', merged.destination, asks.destination) : { id: 'destination_unknown', kind: 'open', field: 'to', text: `I couldn't place "${merged.destination}" — try the full name with the town, like "the British Museum, London".`, choices: [], skippable: false });
+  if (merged.anchor && !anchorPlace) add({ id: 'anchor', kind: 'open', field: 'do', text: merged.anchor.place_text ? `I couldn't find "${merged.anchor.place_text}" on the map — which venue is ${merged.anchor.name} at?` : `Which venue is ${merged.anchor.name} at? The theatre or ground, and the town.`, choices: [], skippable: false });
+  if (!overnight && !merged.duration_minutes) add({ id: 'duration', kind: 'duration', field: 'when', text: 'How long have you got there?', choices: [{ label: '2 hours', say: 'About 2 hours', value: 120 }, { label: '3 hours', say: 'About 3 hours', value: 180 }, { label: 'Half a day', say: 'Half a day', value: 300 }, { label: 'All day', say: 'All day', value: 600 }], skippable: true });
+  const q = state.claudeQuestion;
+  // The map's own "which one" question stands in for anything the interpreter asked about that place.
+  const askedPlaces = Object.keys(asks).map((f) => normName(merged[f])).filter(Boolean);
+  const aboutAPlace = q?.text && askedPlaces.some((pl) => normName(q.text).includes(pl));
+  if (q?.text && q.choices?.length >= 2 && !aboutAPlace) add({ id: `q:${normName(q.text).slice(0, 40)}`, kind: 'open', field: null, text: q.text, choices: q.choices.map((c) => ({ label: c, say: c })), skippable: true });
+  if (members.length > 1 && !merged.attending?.length && merged.attending_everyone == null) {
+    const names = members.map((m) => m.name);
+    const list = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
+    add({ id: 'attending', kind: 'attending', field: 'who', text: `Is it all of you — ${list}?`, choices: [{ label: 'Yes, everyone', say: 'Yes, everyone is coming', value: 'all' }, ...members.map((m) => ({ label: `Without ${firstName(m.name)}`, say: `Everyone except ${m.name}`, value: `except:${m.id}` }))], skippable: true });
+  }
+  if (overnight && !state.stayDecision) {
+    const start = merged.date && /^\d{4}-\d{2}-\d{2}$/.test(merged.date) ? merged.date : null;
+    const end = start ? (merged.end_date && merged.end_date > start ? merged.end_date : addDays(start, Math.max(1, Number(merged.nights) || 1))) : null;
+    const where = (destination ?? origin)?.locality || (destination ?? origin)?.label || merged.destination || merged.origin;
+    add({ id: 'stay', kind: 'stay', field: 'when', text: `That's a night away — ${where}${start ? `, ${dayWords(start)} to ${dayWords(end)}` : ''}. Set it up as a trip with dates and somewhere to stay, or just plan the day out?`, choices: [{ label: 'Set up the trip', say: 'Set up the trip', value: 'trip' }, { label: 'Just plan the day', say: 'Just plan the day', value: 'day' }], skippable: true });
+  }
+  return checks;
+}
+
+/** What was already known plus what this turn said; nulls and empty lists never overwrite. */
+function mergeIntent(prev, intent) {
+  const merged = { ...(prev || {}), ...Object.fromEntries(Object.entries(intent).filter(([, v]) => v !== null && !(Array.isArray(v) && v.length === 0))) };
+  merged.wants = [...new Set([...(prev?.wants || []), ...(intent.wants || [])])];
+  merged.avoids = [...new Set([...(prev?.avoids || []), ...(intent.avoids || [])])];
+  merged.attending = intent.attending?.length ? intent.attending : (prev?.attending || []);
+  delete merged.question;
+  return merged;
 }
 
 const addDays = (dateStr, n) => new Date(new Date(`${dateStr}T12:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
@@ -713,6 +828,10 @@ async function respond(res, { session, household, reply, extra = {} }) {
     pool: { size: poolSize, targetFill: target, excludedByAllergen: session.state.excludedByAllergen ?? [], hiddenChains: hiddenChains ?? 0 },
     suggestedPreferences: session.state.suggestedPreferences ?? [],
     spend,
+    rows: session.state.rows ?? null,
+    checks: [],
+    answered: session.state.answered ?? [],
+    ready: true,
     ...extra,
   });
 }
@@ -729,8 +848,9 @@ router.post('/start', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const members = await loadMembers(household.id);
-    const { utterance, sessionId: existingId, sources: pickedSources, attendingMemberIds } = req.body || {};
-    if (!utterance?.trim()) return res.status(400).json({ error: 'utterance_required' });
+    const { utterance: said, sessionId: existingId, sources: pickedSources, attendingMemberIds, field, skip } = req.body || {};
+    const utterance = String(said || '').trim();
+    if (!utterance && !skip) return res.status(400).json({ error: 'utterance_required' });
 
     let session;
     if (existingId) {
@@ -743,30 +863,66 @@ router.post('/start', async (req, res, next) => {
       session = rows[0];
     }
     const state = session.state;
-    const lastAsked = [...(state.transcript || [])].reverse().find((t) => t.role === 'assistant');
-    state.transcript = [...(state.transcript || []), { role: 'user', text: utterance }];
+    state.transcript = state.transcript || [];
     state.resolved = state.resolved || {};
-    const pending = state.question ?? null;
-    const picked = pending ? matchChoice(pending, utterance) : null;
-    state.question = null;
+    state.answered = state.answered || [];
+    state.skipped = state.skipped || [];
+    if (pickedSources) state.sources = Array.isArray(pickedSources) && pickedSources.length ? pickedSources.map(String) : null;
+    const lastAsked = [...state.transcript].reverse().find((t) => t.role === 'assistant');
+    const before = state.checks || [];
+    if (utterance) state.transcript.push({ role: 'user', text: utterance });
 
+    // "Plan it" (said or tapped) runs the plan once nothing is left to check.
+    if (utterance && PLAN_IT.test(utterance) && state.intent) {
+      if (before.length) {
+        const reply = `Still to check: ${before[0].text}`;
+        return res.json({ sessionId: session.id, reply, rows: state.rows ?? [], checks: before, answered: state.answered, ready: false, intent: state.intent, options: [] });
+      }
+      return executePlan({ household, members, session, state, res });
+    }
+
+    // An answer to something in the queue is applied as it was tapped — no interpretation, no guess.
+    let picked = null;
+    let pickedCheck = null;
+    for (const c of before) { const m = matchChoice(c, utterance); if (m) { picked = m; pickedCheck = c; break; } }
     let intent;
-    if (picked && pending.kind === 'place' && picked.place) {
-      // A tapped (or repeated) answer to "which one" is the place itself: no interpretation, no guess.
-      state.resolved[pending.field] = { said: picked.say, place: picked.place };
-      intent = { ...(state.intent || {}), [pending.field]: picked.say, understood: true, question: null, reply: `${picked.say} it is.` };
-    } else if (picked && pending.kind === 'stay') {
+    const base = state.intent || {};
+    if (skip) {
+      const c = before.find((x) => x.id === skip);
+      if (c?.skippable) {
+        state.skipped.push(c.id);
+        if (c.kind === 'attending') base.attending_everyone = true;
+        if (c.kind === 'stay') state.stayDecision = 'day';
+        if (c.id.startsWith('q:')) state.claudeQuestion = null;
+        state.answered.push({ id: c.id, text: c.text, answer: 'skipped' });
+      }
+      intent = { ...base, understood: true, question: null, reply: 'Skipped.' };
+    } else if (picked && pickedCheck.kind === 'place' && picked.place) {
+      state.resolved[pickedCheck.intentField] = { said: picked.say, place: { ...picked.place, label: picked.label.replace(/\s*\([^)]*\)$/, '') } };
+      intent = { ...base, [pickedCheck.intentField]: picked.say, understood: true, question: null, reply: `${picked.say} it is.` };
+    } else if (picked && pickedCheck.kind === 'stay') {
       state.stayDecision = picked.value;
-      intent = { ...(state.intent || {}), understood: true, question: null, reply: picked.value === 'trip' ? 'Setting up the trip.' : 'Planning the day.' };
+      intent = { ...base, understood: true, question: null, reply: picked.value === 'trip' ? 'A trip with dates, then.' : 'Just the day, then.' };
+    } else if (picked && pickedCheck.kind === 'duration') {
+      intent = { ...base, duration_minutes: picked.value, understood: true, question: null, reply: `${picked.label} there.` };
+    } else if (picked && pickedCheck.kind === 'attending') {
+      const except = String(picked.value).startsWith('except:') ? String(picked.value).slice(7) : null;
+      intent = except
+        ? { ...base, attending: members.filter((m) => m.id !== except).map((m) => m.name), attending_everyone: false, understood: true, question: null, reply: picked.label + '.' }
+        : { ...base, attending: [], attending_everyone: true, understood: true, question: null, reply: 'Everyone, then.' };
     } else {
-      // Earlier partial intent (e.g. origin given, duration still missing) is
-      // carried so the household only has to answer the gap; the question they
-      // are answering is carried too, so "yes" and "home" mean something.
+      // Earlier partial intent is carried so the household only has to answer
+      // the gap; the open question is carried too, so "yes" and "home" mean
+      // something; a tapped row scopes the words to that row alone.
+      const open = before[0] ?? null;
+      const FIELD_WORDS = { from: 'origin (where they start)', to: 'destination (where they are going)', when: 'date, nights and how long they have', who: 'who is coming', stay: 'where they sleep', do: 'things to do', eat: 'places to eat and meals', budget: 'price point' };
       const prior = [
         state.intent ? `Earlier in this conversation the user said: ${JSON.stringify(state.intent)}` : '',
-        pending
-          ? `The app last asked: "${pending.text}" with the choices ${JSON.stringify(pending.choices.map((c) => c.say))}${pending.field ? ` — the question was about the ${pending.field}` : ''}.`
-          : lastAsked ? `The app last asked: "${lastAsked.text}"` : '',
+        field && FIELD_WORDS[field] ? `The user tapped the "${field}" row and is changing only the ${FIELD_WORDS[field]}: apply their words to that alone and repeat every other field exactly as it was.` : '',
+        open
+          ? `The app is asking: "${open.text}"${open.choices?.length ? ` with the choices ${JSON.stringify(open.choices.map((c) => c.say))}` : ''}${open.field ? ` — it is about the ${open.field}` : ''}. A short answer answers it.`
+          : lastAsked ? `The app last said: "${lastAsked.text}"` : '',
+        state.intent ? 'A correction ("no, not X — Y", "actually make it Sunday") replaces the one field it is about; everything else stays.' : '',
       ].filter(Boolean).join('\n');
 
       intent = normaliseIntent(await parseStructured({
@@ -780,26 +936,20 @@ router.post('/start', async (req, res, next) => {
         sessionId: session.id,
         purpose: 'plan.interpret',
       }));
-      // A choice named in words is as good as tapped.
-      if (pending?.kind === 'place') {
-        const named = matchChoice(pending, intent[pending.field] || '') ?? matchChoice(pending, utterance);
-        if (named?.place) { state.resolved[pending.field] = { said: named.say, place: named.place }; intent[pending.field] = named.say; }
+      state.claudeQuestion = intent.question ?? null;
+      // A place choice named in words is as good as tapped.
+      for (const c of before.filter((x) => x.kind === 'place')) {
+        const named = matchChoice(c, intent[c.intentField] || '') ?? matchChoice(c, utterance);
+        if (named?.place) { state.resolved[c.intentField] = { said: named.say, place: { ...named.place, label: named.label.replace(/\s*\([^)]*\)$/, '') } }; intent[c.intentField] = named.say; }
       }
-      if (pending?.kind === 'stay' && !state.stayDecision) {
-        const said = utterance.toLowerCase();
-        if (/\b(trip|set it up|set up|yes|both|the stay|overnight)\b/.test(said)) state.stayDecision = 'trip';
-        else if (/\b(just the day|day out|the day|only the day|no)\b/.test(said)) state.stayDecision = 'day';
+      if (before.some((x) => x.kind === 'stay') && !state.stayDecision) {
+        const low = utterance.toLowerCase();
+        if (/\b(trip|set it up|set up|yes|both|the stay|overnight)\b/.test(low)) state.stayDecision = 'trip';
+        else if (/\b(just the day|day out|the day|only the day|no)\b/.test(low)) state.stayDecision = 'day';
       }
     }
 
-    // Merge with what was already known.
-    const merged = { ...(state.intent || {}), ...Object.fromEntries(Object.entries(intent).filter(([, v]) => v !== null && !(Array.isArray(v) && v.length === 0))) };
-    // Empty arrays are dropped by the merge above; restore them so later code
-    // can rely on their shape.
-    merged.wants = [...new Set([...(state.intent?.wants || []), ...(intent.wants || [])])];
-    merged.avoids = [...new Set([...(state.intent?.avoids || []), ...(intent.avoids || [])])];
-    merged.attending = intent.attending?.length ? intent.attending : (state.intent?.attending || []);
-    delete merged.question;
+    const merged = mergeIntent(state.intent, intent);
     // Ticks on the Who's coming row are the same statement as saying the names.
     if (Array.isArray(attendingMemberIds)) {
       const chosen = members.filter((m) => attendingMemberIds.includes(m.id));
@@ -809,80 +959,195 @@ router.post('/start', async (req, res, next) => {
 
     // Places: home, a known place, a sure match — or the choices to put to them.
     const asks = {};
-    const placeFor = async (field) => {
-      if (!merged[field]) return null;
-      const kept = state.resolved[field];
-      if (kept && normName(kept.said) === normName(merged[field])) return kept.place;
-      const r = await resolveSpokenPlace(merged[field], household);
-      if (r.choices?.length) asks[field] = r.choices;
+    const placeFor = async (f) => {
+      if (!merged[f]) return null;
+      const kept = state.resolved[f];
+      if (kept && normName(kept.said) === normName(merged[f])) return kept.place;
+      const r = await resolveSpokenPlace(merged[f], household);
+      if (r.choices?.length) asks[f] = r.choices;
       return r.place;
     };
     const origin = await placeFor('origin');
     const destination = await placeFor('destination');
     const overnight = (Number(merged.nights) || 0) >= 1 || Boolean(merged.end_date && merged.date && merged.end_date > merged.date);
-    // A fixed commitment: find its venue (near the destination if we have one).
     let anchorPlace = null;
     if (merged.anchor?.place_text) {
       try { const [hit] = await geocode(merged.anchor.place_text, { limit: 1, near: destination ?? origin }); if (hit) anchorPlace = { label: hit.label, lat: hit.lat, lng: hit.lng, country: hit.country, countryCode: hit.countryCode, locality: hit.locality }; } catch { /* ask below */ }
     }
-    const missing = [];
-    if (!merged.origin) missing.push('origin');
-    else if (!origin) missing.push(asks.origin ? 'origin_which' : 'origin_unknown');
-    if (merged.destination && !destination) missing.push(asks.destination ? 'destination_which' : 'destination_unknown');
-    // A stay has dates, not a window; a day out needs to know how long.
-    if (!overnight && !merged.duration_minutes) missing.push('duration');
-    if (merged.anchor && !anchorPlace) missing.push('anchor_place');
-    // Something the interpreter found two-ways is asked once, never guessed.
-    state.asked = state.asked || [];
-    const claudeAsks = intent.understood && intent.question?.choices?.length >= 2 && !state.asked.includes(intent.question.text) ? intent.question : null;
-    if (claudeAsks && !missing.length) missing.push('question');
-    // Who's coming decides which allergens exclude, so it is confirmed rather
-    // than assumed — asked once, after the where and how long are settled.
-    const everyoneNames = members.map((m) => m.name);
-    const askWhoIsComing = intent.understood && !missing.length && members.length > 1 && !merged.attending?.length && merged.attending_everyone == null && !state.askedAttending;
-    if (askWhoIsComing) missing.push('attending');
-    // A night away is a trip with dates, not a day out: their call, put plainly.
-    if (intent.understood && !missing.length && overnight && !state.stayDecision) missing.push('stay');
-
-    if (!intent.understood || missing.length) {
-      let reply = intent.reply;
-      let question = null;
-      const whichField = missing.includes('origin_which') ? 'origin' : missing.includes('destination_which') ? 'destination' : null;
-      if (whichField) {
-        const choices = asks[whichField];
-        reply = `Which ${normName(merged[whichField]) === normName(choices[0].say) ? merged[whichField] : 'one'} do you mean — ${choices.slice(0, -1).map((c) => c.label).join(', ')} or ${choices.at(-1).label}?`;
-        question = { kind: 'place', field: whichField, text: reply, choices };
-      } else if (missing.includes('question')) {
-        state.asked.push(claudeAsks.text);
-        reply = claudeAsks.text;
-        question = { kind: 'open', field: null, text: reply, choices: claudeAsks.choices.map((c) => ({ label: c, say: c })) };
-      } else if (missing.includes('origin') && household.home_lat != null) {
-        reply = 'Where are you starting from? You can just say "home".';
-        question = { kind: 'open', field: 'origin', text: reply, choices: [{ label: 'From home', say: 'From home' }] };
-      } else if (missing.length === 1 && missing[0] === 'attending') {
-        state.askedAttending = true;
-        const list = everyoneNames.length > 2 ? `${everyoneNames.slice(0, -1).join(', ')} and ${everyoneNames.at(-1)}` : everyoneNames.join(' and ');
-        reply = `Is it all of you — ${list}? Say yes, or tell me who's coming.`;
-        question = { kind: 'attending', field: 'attending', text: reply, choices: [{ label: 'Yes, everyone', say: 'Yes, everyone is coming' }, ...members.map((m) => ({ label: `Without ${m.name}`, say: `Everyone except ${m.name}` }))] };
-      } else if (missing.length === 1 && missing[0] === 'stay') {
-        const start = merged.date && /^\d{4}-\d{2}-\d{2}$/.test(merged.date) ? merged.date : null;
-        const end = start ? (merged.end_date && merged.end_date > start ? merged.end_date : addDays(start, Math.max(1, Number(merged.nights) || 1))) : null;
-        const where = (destination ?? origin)?.locality || (destination ?? origin)?.label || merged.destination || merged.origin;
-        reply = `That's a night away — ${where}${start ? `, ${dayWords(start)} to ${dayWords(end)}` : ''}. Shall I set it up as a trip with dates and somewhere to stay, or just plan the day out?`;
-        question = { kind: 'stay', field: null, text: reply, choices: [{ label: 'Set up the trip', say: 'Set up the trip', value: 'trip' }, { label: 'Just plan the day', say: 'Just plan the day', value: 'day' }] };
-      }
-      if (missing.includes('origin_unknown')) reply = `I couldn't place "${merged.origin}" — try the town or a fuller address, or set your home address in Settings and just say "home".`;
-      if (missing.includes('destination_unknown')) reply = `I couldn't place "${merged.destination}" — try the full name with the town, like "the British Museum, London".`;
-      if (missing.includes('anchor_place')) reply = merged.anchor?.place_text
-        ? `I couldn't find "${merged.anchor.place_text}" on the map — which venue is ${merged.anchor.name} at?`
-        : `Which venue is ${merged.anchor.name} at? Tell me the theatre or ground and the town, and I'll plan around it.`;
-      state.question = question;
-      state.transcript.push({ role: 'assistant', text: reply });
-      await saveSession(session.id, state, null);
-      return res.json({ sessionId: session.id, reply, intent: merged, missing, question, options: [] });
+    state.places = { origin, destination, anchorPlace };
+    const checks = intent.understood === false && !state.intent?.origin ? [] : buildChecks({ merged, origin, destination, asks, anchorPlace, overnight, members, household, state });
+    // Whatever was open and is not any more was answered by this turn.
+    const stillOpen = new Set(checks.map((c) => c.id));
+    const replacedQuestion = checks.some((c) => c.id.startsWith('q:'));
+    for (const c of before) {
+      if (stillOpen.has(c.id) || state.answered.some((a) => a.id === c.id)) continue;
+      if (c.id.startsWith('q:') && replacedQuestion && pickedCheck?.id !== c.id) continue;
+      const answer = pickedCheck?.id === c.id ? picked.label : utterance.slice(0, 60);
+      state.answered.push({ id: c.id, text: c.text, answer });
     }
+    state.checks = checks;
+    state.rows = rowsFor({ merged, places: state.places, checks, overnight, members });
+    state.ready = intent.understood !== false && checks.length === 0;
+    const reply = checks.length ? (checks[0].kind === 'open' && !checks[0].choices.length ? checks[0].text : intent.reply || checks[0].text) : (intent.reply || 'Got it.');
+    state.transcript.push({ role: 'assistant', text: reply });
+    await saveSession(session.id, state, null);
+    return res.json({ sessionId: session.id, reply, rows: state.rows, checks, answered: state.answered, ready: state.ready, intent: merged, missing: checks.map((c) => c.id), question: checks[0] ?? null, options: [] });
+  } catch (err) {
+    next(err);
+  }
+});
 
-    if (overnight && state.stayDecision === 'trip') {
+// ---------------------------------------------------------------------------
+// Inspire me: a loose brief, a mood or two and a travel cap become ideas that
+// say why; an idea opens as a list of things to do and see there.
+// ---------------------------------------------------------------------------
+
+const Ideas = z.object({
+  ideas: z.array(z.object({
+    title: z.string().describe('Short and concrete: "Kew Gardens + Treetop Walkway, lunch in Richmond"'),
+    place_text: z.string().describe('The one place to go, as a name the map can find, with its town or region: "Kew Gardens, Richmond", "Bath, Somerset"'),
+    why: z.string().describe('One line: the mood it fits, roughly how far, and the person or fact it rests on ("Gina liked the Palm House", "Phoenix loves the water", "on your list since June")'),
+    do: z.array(z.string()).describe('Two to four named things to do there'),
+    eat: z.array(z.string()).describe('One or two meals, e.g. "lunch at a pub in Hathersage"; empty if food is not the point'),
+    travel_minutes: z.number().int().describe('Rough driving time from home, in minutes'),
+    overnight: z.boolean().describe('True only if the brief asks for a night away'),
+  })).max(5),
+  reply: z.string().describe('One warm sentence introducing the ideas, spoken aloud'),
+});
+
+const INSPIRE_SYSTEM = `You suggest days out — or a night away only if the brief asks — for one family, starting from their home.
+
+You are given the household (people, likes, dislikes, allergens), their atlas (places they have saved, loved, listed or visited, with notes), today's date, a brief in their words, the moods they picked, a travel cap in minutes by car, and who is coming. Give three to five real, specific places in their own country within the cap. Match the moods. Prefer places from the atlas they loved or listed, and say so. Never suggest anything a coming member dislikes or cannot eat. Each idea's "why" names the person or the fact it rests on. Each idea has named things to do and, where food matters, meals. The reply is spoken aloud: one plain sentence, no lists.`;
+
+router.post('/inspire', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const members = await loadMembers(household.id);
+    const { query: brief = '', moods = [], maxTravelMinutes = null, attendingMemberIds } = req.body || {};
+    const attending = Array.isArray(attendingMemberIds) && attendingMemberIds.length ? members.filter((m) => attendingMemberIds.includes(m.id)) : members;
+    const { rows: atlas } = await query(
+      `select hp.label, hp.kind, hp.category, hp.locality, hp.note,
+              (select string_agg(distinct l.status::text, ',') from place_ledger l where l.household_id = hp.household_id and l.source || ':' || l.source_place_id = hp.venue_ref) as statuses
+         from household_places hp where hp.household_id = $1 order by hp.last_seen desc limit 40`,
+      [household.id],
+    );
+    const { rows: srows } = await query('insert into plan_sessions (household_id, state) values ($1, $2) returning *', [household.id, JSON.stringify({ transcript: [], kind: 'inspire' })]);
+    const session = srows[0];
+    const out = await parseStructured({
+      system: INSPIRE_SYSTEM,
+      messages: [{ role: 'user', content: JSON.stringify({ ...householdContext(household, attending), atlas, brief: String(brief || '').trim() || null, moods, maxTravelMinutes: maxTravelMinutes ?? null, attending: attending.map((m) => m.name) }) }],
+      schema: Ideas,
+      householdId: household.id,
+      sessionId: session.id,
+      purpose: 'plan.inspire',
+    });
+    const home = household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null;
+    const ideas = [];
+    for (const [i, idea] of out.ideas.entries()) {
+      let place = null;
+      try {
+        const [hit] = await geocode(idea.place_text, { limit: 1, near: home });
+        if (hit) place = { label: hit.label, lat: hit.lat, lng: hit.lng, locality: hit.locality ?? null, countryCode: hit.countryCode ?? null };
+      } catch { /* the idea stands without a pin */ }
+      const travelMinutes = place && home ? estimateTravelMinutes(home, place, 'driving') : (idea.travel_minutes ?? null);
+      ideas.push({ id: `idea-${i}`, title: idea.title, why: idea.why, placeText: idea.place_text, place, travelMinutes, overnight: idea.overnight, do: idea.do, eat: idea.eat });
+    }
+    res.json({ ideas, reply: out.reply, sessionId: session.id });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** What there is to do, eat and see around an idea — the ordinary place search, no model call. */
+router.get('/inspire/things', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const members = await loadMembers(household.id);
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'lat_lng_required' });
+    const center = { lat, lng };
+    const { venues, sourcesQueried, units } = await searchAllSources({ center, radiusKm: 6, categories: [], query: '', includeEvents: false, sources: [], locality: null });
+    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'plan.inspire.things', units]);
+    const withTravel = deriveCatchment({ origin: center, maxTravelMinutes: 10_000, mode: 'driving', venues });
+    const { candidates } = applyConstraints({ venues: withTravel, attendees: toAttendees(members), learned: await loadLearnedPreferences(household.id) });
+    const kindOf = (c) => (['restaurant', 'cafe', 'pub', 'bar'].includes(c.category) ? 'eat' : ['attraction', 'event', 'activity'].includes(c.category) ? 'do' : 'see');
+    const items = [...candidates].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 18).map((c) => ({
+      venueRef: `${c.source}:${c.sourcePlaceId}`, name: c.name, category: c.category, kind: kindOf(c),
+      rating: c.rating ?? null, ratingCount: c.ratingCount ?? null, priceLevel: c.priceLevel ?? null,
+      distanceKm: Number(kmBetween(center, c).toFixed(1)), lat: c.lat, lng: c.lng, reasons: (c.reasons || []).map((r) => r.text),
+    }));
+    res.json({ items, label: req.query.label ?? null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Plan it: run the plan for what the rows say. Body: { sessionId } */
+router.post('/go', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const members = await loadMembers(household.id);
+    const { sessionId } = req.body || {};
+    if (!sessionId) return res.status(400).json({ error: 'session_required' });
+    const session = await loadSession(sessionId);
+    const state = session.state;
+    if (!state.intent) return res.status(409).json({ error: 'nothing_to_plan', message: 'Say where and when first.' });
+    if (state.checks?.length) return res.json({ sessionId: session.id, reply: `Still to check: ${state.checks[0].text}`, rows: state.rows ?? [], checks: state.checks, answered: state.answered ?? [], ready: false, intent: state.intent, options: [] });
+    return executePlan({ household, members, session, state, res });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Rows while the household is still talking: the words so far are read by a
+ * quicker model and shown in their slots; nothing is saved but the session.
+ * Body: { utterance, sessionId? }
+ */
+router.post('/preview', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const members = await loadMembers(household.id);
+    const { utterance, sessionId } = req.body || {};
+    if (!utterance?.trim()) return res.status(400).json({ error: 'utterance_required' });
+    let session = null;
+    if (sessionId) { try { session = await loadSession(sessionId); } catch { session = null; } }
+    if (!session) {
+      const { rows } = await query('insert into plan_sessions (household_id, state) values ($1, $2) returning *', [household.id, JSON.stringify({ transcript: [] })]);
+      session = rows[0];
+    }
+    const state = session.state;
+    const prior = state.intent ? `Earlier in this conversation the user said: ${JSON.stringify(state.intent)}` : '';
+    const intent = normaliseIntent(await parseStructured({
+      system: INTERPRET_SYSTEM,
+      messages: [{ role: 'user', content: `${JSON.stringify(householdContext(household, members))}\n\n${prior}\n\nThe user is still talking; this is what they have said so far: "${utterance}"` }],
+      schema: TripIntent,
+      householdId: household.id,
+      sessionId: session.id,
+      purpose: 'plan.preview',
+      effort: 'low',
+      model: PREVIEW_MODEL,
+    }));
+    const merged = mergeIntent(state.intent, intent);
+    const overnight = (Number(merged.nights) || 0) >= 1 || Boolean(merged.end_date && merged.date && merged.end_date > merged.date);
+    const places = {
+      origin: merged.origin ? (HOME_WORDS.test(merged.origin.trim()) ? { label: 'Home', how: 'home' } : { label: merged.origin }) : null,
+      destination: merged.destination ? { label: merged.destination } : null,
+    };
+    res.json({ sessionId: session.id, rows: rowsFor({ merged, places, checks: [], overnight, members }) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Everything after the rows are settled: a night away becomes a trip, a day out gets its pool. */
+async function executePlan({ household, members, session, state, res }) {
+    const merged = state.intent;
+    const { origin, destination, anchorPlace } = state.places || {};
+    const overnight = (Number(merged.nights) || 0) >= 1 || Boolean(merged.end_date && merged.date && merged.end_date > merged.date);
+    const pickedSources = state.sources ?? null;
+    if (overnight && (state.stayDecision ?? 'day') === 'trip') {
       const where = destination ?? origin;
       const trip = await createStayFromIntent({ household, members, intent: merged, destination: where });
       // What was asked for goes with the trip: named places on the shortlist as
@@ -921,10 +1186,10 @@ router.post('/start', async (req, res, next) => {
       ].filter(Boolean).join(' ');
       state.transcript.push({ role: 'assistant', text: reply });
       await saveSession(session.id, state, trip.id);
-      return res.json({ sessionId: session.id, reply, intent: merged, missing: [], options: [], handoff: { tripId: trip.id, title: trip.title } });
+      return res.json({ sessionId: session.id, reply, rows: state.rows ?? [], checks: [], answered: state.answered ?? [], ready: true, intent: merged, missing: [], options: [], handoff: { tripId: trip.id, title: trip.title } });
     }
 
-    const { trip, attending } = await createTripFromIntent({ household, members, intent: merged, origin, destination, anchorPlace, sources: Array.isArray(pickedSources) && pickedSources.length ? pickedSources.map(String) : null });
+    const { trip, attending } = await createTripFromIntent({ household, members, intent: merged, origin, destination, anchorPlace, sources: pickedSources });
     const attendees = toAttendees(attending);
     // Plan the day where it happens: the pool is what's around the base, and
     // the journey there is reported separately rather than eating the window.
@@ -955,9 +1220,6 @@ router.post('/start', async (req, res, next) => {
         reasons: [{ kind: 'want', text: `Your ${merged.anchor.kind === 'theatre' ? 'show' : merged.anchor.kind === 'sports-game' ? 'match' : 'booking'} at ${merged.anchor.start_time ?? ''}`.trim() }],
         venueName: anchorPlace.label,
       });
-    }
-
-    if (merged.anchor && anchorPlace) {
       // One show is enough for one day: don't propose another of the same kind.
       const kind = merged.anchor.kind;
       for (const c of pool.candidates) {
@@ -966,6 +1228,7 @@ router.post('/start', async (req, res, next) => {
       pool.candidates.sort((a, b) => b.score - a.score);
     }
     state.dayId = trip.day.id;
+    state.date = trip.day.date;
     state.anchor = merged.anchor && anchorPlace ? { ...merged.anchor, place: anchorPlace } : null;
     state.journey = { from: trip.origin_label, to: trip.base_label, minutes: estimateTravelMinutes({ lat: trip.origin_lat, lng: trip.origin_lng }, { lat: trip.base_lat, lng: trip.base_lng }, trip.travel_mode), mode: trip.travel_mode, estimated: true };
     if (routingEnabled() && (trip.origin_lat !== trip.base_lat || trip.origin_lng !== trip.base_lng)) {
@@ -980,15 +1243,23 @@ router.post('/start', async (req, res, next) => {
     state.excludedByAllergen = pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons }));
     // Must-haves come from the time left once a fixed commitment is placed:
     // a 2½-hour show in a 5½-hour window leaves room for lunch and one thing,
-    // not two things and no lunch.
+    // not two things and no lunch. A named want counts as a thing to do.
     const windowMin = Math.round((new Date(dayTrip.return_at) - new Date(dayTrip.depart_at)) / 60_000);
     const spare = windowMin - (merged.anchor ? (merged.anchor.duration_minutes ?? 120) : 0);
     const packedness = { relaxed: 0.8, balanced: 1, packed: 1.25 }[trip.intensity] ?? 1;
     const activitiesThatFit = Math.max(0, Math.min(3, Math.floor(((spare - 75) / 110) * packedness)));
-    const wantsToEat = merged.min_food_stops != null ? merged.min_food_stops : (spare >= 90 ? 1 : 0);
-    state.minActivities = merged.min_activities ?? Math.min(activitiesThatFit, merged.anchor ? 1 : 2);
-    state.minFood = wantsToEat;
+    const namedWants = (merged.wants || []).filter(isNamedPlace).length;
+    const foodLines = eatLines(merged.wants || []).length;
+    const wantsToEat = merged.min_food_stops != null ? merged.min_food_stops : Math.max(foodLines, spare >= 90 ? 1 : 0);
+    state.minActivities = merged.min_activities != null ? Math.min(3, merged.min_activities + namedWants) : Math.max(namedWants, Math.min(activitiesThatFit, merged.anchor ? 1 : 2));
+    state.minFood = Math.min(3, wantsToEat);
     state.pinned = state.anchor ? [pool.candidates[0].key] : [];
+    // A named want that is in the pool is pinned: the day is built around it.
+    for (const w of (merged.wants || []).filter(isNamedPlace)) {
+      const want = normName(w.replace(/^(the|a|an)\s+/i, ''));
+      const hit = pool.candidates.find((c) => normName(c.name) === want || normName(c.name).includes(want));
+      if (hit && !state.pinned.includes(hit.key)) { state.pinned.push(hit.key); hit.score += 40; hit.reasons = [...(hit.reasons || []), { kind: 'want', text: 'You asked for it' }]; }
+    }
     state.excluded = [];
     // No chains unless asked for; "somewhere special" means upmarket.
     state.includeChains = merged.avoid_chains === false;
@@ -997,19 +1268,17 @@ router.post('/start', async (req, res, next) => {
     state.suggestedPreferences = [];
     state.attending = attendees.map((a) => ({ id: a.id, name: a.name }));
     state.attendeePrefs = attendees;
-    state.transcript.push({ role: 'assistant', text: intent.reply });
+    const reply = `Here's ${trip.base_label || 'the day'}: ${pool.candidates.length} places to choose from.`;
+    state.transcript.push({ role: 'assistant', text: reply });
     await saveSession(session.id, state, trip.id);
 
     session.state = state;
     session.trip_id = trip.id;
     await respond(res, {
-      session, household, reply: intent.reply,
+      session, household, reply,
       extra: { intent: merged, missing: [], attending: state.attending, reach: { maxTravelMinutes: pool.maxTravelMinutes, estimated: true }, degradedSources: pool.degraded, journey: state.journey, anchor: state.anchor, date: trip.day.date },
     });
-  } catch (err) {
-    next(err);
-  }
-});
+}
 
 /**
  * React in words to the options on screen. Body: { sessionId, utterance, viewingOptionId? }
@@ -1342,7 +1611,7 @@ router.get('/:sessionId', async (req, res, next) => {
     const household = await currentHousehold();
     const session = await loadSession(req.params.sessionId);
     if (!session.state.pool) {
-      return res.json({ sessionId: session.id, intent: session.state.intent ?? null, options: [], transcript: session.state.transcript ?? [], question: session.state.question ?? null });
+      return res.json({ sessionId: session.id, intent: session.state.intent ?? null, options: [], transcript: session.state.transcript ?? [], rows: session.state.rows ?? null, checks: session.state.checks ?? [], answered: session.state.answered ?? [], ready: Boolean(session.state.ready), question: session.state.checks?.[0] ?? null });
     }
     await respond(res, { session, household, reply: null, extra: { transcript: session.state.transcript ?? [], intent: session.state.intent } });
   } catch (err) {

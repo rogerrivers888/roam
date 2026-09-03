@@ -16,7 +16,7 @@ Read `docs/requirements.md` (governing) and `docs/technical-constraints.md` befo
 - Every outbound provider call is attributed to a household and session in `provider_calls`; new integrations must log there before they are enabled.
 - Allergens exclude; dislikes rank. They never share a control, a colour, or a code path.
 - Voice is interpreted against a closed set that is visible on screen, and every voice action has a tap equivalent that produces the same state change.
-- While the household is speaking, the screen shows only the live transcript (`Listening` component): suggestions and everything else collapse, listening continues until they tap Done, and nothing is sent before then. Use `useSpeech` (continuous, accumulating) for every mic; never send on the first pause.
+- While the household is speaking, the screen shows only the live transcript (`Listening` component): suggestions and everything else collapse, listening continues until they tap Done, and nothing is sent before then. Use `useSpeech` (continuous, accumulating) for every mic; never send on the first pause. Exception (owner, 3 Sep 2026, Plan screen): the criteria rows stay in view and fill as the words arrive (`/api/plan/preview`), with a small live box and one red Stop; the rest of the rule holds.
 - Options are composed from one retrieved pool; adding an option must not add a provider call.
 
 ## Web and mobile are one layout system (owner, 3 Sep 2026)

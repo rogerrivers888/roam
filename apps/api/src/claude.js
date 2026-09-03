@@ -88,11 +88,12 @@ export async function parseStructured({
   sessionId,
   purpose,
   effort = 'medium',
+  model = MODEL,
 }) {
   await assertWithinBounds({ householdId, sessionId });
 
   const response = await client.messages.parse({
-    model: MODEL,
+    model,
     max_tokens: 4096,
     system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
     messages,
