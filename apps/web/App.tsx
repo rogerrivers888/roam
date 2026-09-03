@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { api, API_URL, HouseholdResponse } from './src/api';
@@ -93,10 +93,17 @@ export default function App() {
 function Shell() {
   const { width } = useViewport();
   const desktop = width >= DESKTOP;
-  const [tab, setTab] = useState<Tab>('plan');
+  // A link can open a tab, and a trip, straight away (?tab=trips&trip=<id>): the address Roger keeps on his phone.
+  const fromUrl = useMemo(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return { tab: null as Tab | null, trip: null as string | null };
+    const q = new URLSearchParams(window.location.search);
+    const t = q.get('tab');
+    return { tab: TABS.some((x) => x.key === t) ? (t as Tab) : null, trip: q.get('trip') };
+  }, []);
+  const [tab, setTab] = useState<Tab>(fromUrl.tab ?? 'plan');
   const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking');
   const [household, setHousehold] = useState<HouseholdResponse | null>(null);
-  const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(null);
+  const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(fromUrl.trip ? { openTripId: fromUrl.trip } : null);
 
   const refreshHousehold = useCallback(async () => {
     try {
@@ -146,7 +153,7 @@ function Shell() {
       <View style={desktop ? styles.desktop : styles.fill}>
         {desktop ? (
           <View style={styles.sidebar}>
-            <Brand height={88} />
+            <Brand height={108} />
             <Text style={[type.tiny, { marginBottom: spacing.lg }]}>Remember every place you love</Text>
             {TABS.map((t) => (
               <Pressable key={t.key} onPress={() => setTab(t.key)} style={[styles.navItem, tab === t.key && styles.navItemActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }}>
@@ -159,7 +166,7 @@ function Shell() {
             {status}
           </View>
         ) : (
-          <View style={styles.header}><Brand height={44} /></View>
+          <View style={styles.header}><Brand height={60} /></View>
         )}
         {!desktop && health !== 'ok' ? banner : null}
         <View style={styles.content}>
@@ -203,7 +210,7 @@ const styles = StyleSheet.create({
   screen: { borderRadius: 36 - BEZEL, backgroundColor: colors.bg, overflow: 'hidden' },
   desktop: { flex: 1, flexDirection: 'row' },
   sidebar: { width: 220, padding: spacing.lg, borderRightWidth: 1, borderRightColor: colors.line, backgroundColor: colors.surface, gap: 4 },
-  header: { alignItems: 'center', backgroundColor: BRAND_GROUND, borderBottomWidth: 1, borderBottomColor: colors.line },
+  header: { alignItems: 'center', paddingVertical: spacing.sm, backgroundColor: BRAND_GROUND, borderBottomWidth: 1, borderBottomColor: colors.line },
   navItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET, paddingHorizontal: spacing.sm, borderRadius: 10 },
   navItemActive: { backgroundColor: colors.accentSoft },
   navIcon: { width: 22, alignItems: 'center' },
