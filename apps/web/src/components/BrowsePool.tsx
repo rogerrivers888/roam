@@ -4,6 +4,7 @@ import { BrowseItem } from '../api';
 import { colors, radius, spacing, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
 import { priceMarks, typeLine } from './StopCard';
+import { VenuePhoto } from './VenuePhoto';
 
 /**
  * Everything Roam found for the day — not just the three plans. Three lists:
@@ -62,6 +63,7 @@ function BrowseRow({ item, isPinned, busy, onAdd, onRemove, onDislike, onShortli
   const isEvent = item.category === 'event';
   return (
     <View style={styles.row}>
+      <VenuePhoto photos={item.photos} size={56} credit={false} />
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={type.h3}>{item.name}{item.chain ? '  ' : ''}{item.chain ? <Text style={[type.tiny, { color: colors.dislike }]}>chain</Text> : null}</Text>
         <Text style={type.small}>

@@ -419,5 +419,7 @@ function richFields(s, base) {
     distanceKm: s.lat != null && base?.lat != null ? Number(kmBetween(base, s).toFixed(1)) : null,
     travelFromBaseMinutes: typeof s.travelMinutes === 'number' ? Math.round(s.travelMinutes) : null,
     attribution: s.attributionText ?? s.attribution ?? null,
+    // One licensed photo reference (never the bytes); the web fetches it through /api/photos.
+    photos: (s.photos ?? []).slice(0, 1),
   };
 }

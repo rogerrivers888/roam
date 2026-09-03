@@ -3,6 +3,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { api, OptionStop, Venue } from '../api';
 import { colors, radius, spacing, type } from '../theme';
 import { Chip, Row, Wrap, clock, minutes } from './ui';
+import { VenuePhoto } from './VenuePhoto';
 
 /**
  * One suggested stop, with enough on the card to judge it (owner feedback,
@@ -45,6 +46,7 @@ export function StopCard({ stop, mode, baseLabel, previousName, dim, pinned, bus
 
   return (
     <View style={[styles.stop, dim && { opacity: 0.35 }]}>
+      {!isAnchor ? <VenuePhoto photos={stop.photos} size={84} /> : null}
       <View style={{ flex: 1, gap: 4 }}>
         <Row>
           <Text style={styles.stopPos}>{stop.position}</Text>

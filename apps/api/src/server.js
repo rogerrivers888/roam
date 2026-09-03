@@ -9,6 +9,7 @@ import conceptRoutes from './routes/concepts.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 import { atlas as atlasRoutes } from './routes/atlas.js';
 import { fetchPhoto } from './sources/google.js';
+import { currentHousehold } from './routes/household.js';
 import { enabledSources } from './sources/index.js';
 import { routingEnabled } from './sources/routing.js';
 
@@ -55,6 +56,8 @@ app.get('/api/photos/google', async (req, res) => {
   try {
     const name = String(req.query.name || '');
     if (!/^places\/[^/]+\/photos\/[^/]+$/.test(name)) return res.status(400).end();
+    const household = await currentHousehold();
+    await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'google-places', 'photo']);
     const photo = await fetchPhoto(name, Math.min(1200, Number(req.query.w) || 480));
     if (!photo) return res.status(404).end();
     res.setHeader('content-type', photo.contentType);

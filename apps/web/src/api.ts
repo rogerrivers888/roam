@@ -103,6 +103,9 @@ export type Budget = {
 
 export type Review = { text: string; rating: number | null; author: string | null; authorUri?: string | null; when: string | null };
 
+/** A licensed photo: a reference the API proxies, plus the author credit the licence requires on screen. */
+export type VenuePhotoRef = { ref: string; attribution?: string };
+
 export type Venue = {
   venueRef: string; source: string; sourcePlaceId: string; name: string; category: string;
   cuisines: string[]; experiences: string[]; allergens: string[]; dietaryOptions?: string[];
@@ -111,6 +114,7 @@ export type Venue = {
   website?: string | null; openingHours?: string | null; address?: string | null; attribution?: string;
   summary?: string | null; mapsUrl?: string | null; externalUrl?: string | null; reviews?: Review[]; chain?: boolean; brand?: string | null;
   distanceKm?: number;
+  photos?: VenuePhotoRef[];
   household?: { visits?: number; lastOn?: string; loved?: number; notForMe?: number; ledger?: string } | null;
 };
 
@@ -138,6 +142,7 @@ export type OptionStop = {
   chain?: boolean; brand?: string | null; goodForChildren?: boolean | null; menuForChildren?: boolean | null;
   address?: string | null; website?: string | null; summary?: string | null; openingHours?: string | null;
   distanceKm?: number | null; travelFromBaseMinutes?: number | null; attribution?: string | null;
+  photos?: VenuePhotoRef[];
 };
 
 export type BrowseItem = Omit<OptionStop, 'position' | 'travelFromPrevMinutes' | 'pinned'> & { pinned: boolean; ticketed?: boolean; venueName?: string | null; externalUrl?: string | null; shortlisted?: boolean; score?: number | null };

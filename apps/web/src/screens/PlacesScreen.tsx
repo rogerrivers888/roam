@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { api, AtlasCity, AtlasCountry, AtlasPlace, HouseholdResponse, Place, Take, Venue, Visit, VisitTake } from '../api';
 import { MapView, MapPin } from '../components/MapView';
+import { VenuePhoto } from '../components/VenuePhoto';
 import type { TripPrefill } from './TripsScreen';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap } from '../components/ui';
@@ -305,11 +306,12 @@ export function VenueRow({ venue, onPress, action }: { venue: Venue; onPress?: (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined}>
       <Card style={{ gap: 4 }}>
         <Row>
-          <Text style={{ fontSize: 20 }}>{CATEGORY_ICON[venue.category] ?? '📍'}</Text>
+          {venue.photos?.length ? <VenuePhoto photos={venue.photos} size={56} credit={false} /> : <Text style={{ fontSize: 20 }}>{CATEGORY_ICON[venue.category] ?? '📍'}</Text>}
           <View style={{ flex: 1 }}>
             <Text style={type.h3}>{venue.name}</Text>
             <Text style={type.small}>
               {[venue.category, ...venue.experiences, ...venue.cuisines].filter(Boolean).join(' · ')}
+              {venue.rating != null ? ` · ★ ${venue.rating.toFixed(1)}${venue.ratingCount ? ` (${venue.ratingCount.toLocaleString()})` : ''}` : ''}
               {venue.distanceKm != null ? ` · ${venue.distanceKm} km` : ''}
             </Text>
           </View>
