@@ -11,6 +11,7 @@ import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { BrowsePool } from '../components/BrowsePool';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
+import { Icon } from '../components/Icon';
 import { getSpeakPref } from './SettingsScreen';
 
 const speak = (text: string) => { if (getSpeakPref()) speakRaw(text); };
@@ -41,6 +42,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
   const [sessionId, setSessionId] = useState<string | null>(null);
   // Who's coming: everyone until a tick is taken off. Ticking is the same statement as saying the names.
   const [attendingIds, setAttendingIds] = useState<Set<string> | null>(null);
+  const [whoOpen, setWhoOpen] = useState(false);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
@@ -188,20 +190,31 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
         <Row style={{ justifyContent: 'space-between' }}>
           {speech.supported ? (
             <Pressable onPress={speech.toggle} style={styles.mic} accessibilityRole="button" accessibilityLabel="Speak">
-              <Text style={{ fontSize: 18 }}>🎙</Text>
+              <Icon name="mic" size={20} color={colors.ink} />
               <Text style={[type.small, { fontWeight: '600' }]}>Speak</Text>
             </Pressable>
           ) : <View />}
           <Button label="Send" onPress={() => send(input)} disabled={!input.trim() || !!busy} />
         </Row>
         {members.length > 1 ? (
-          <Row style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-            <Text style={type.tiny}>Who's coming</Text>
-            {members.map((m) => {
-              const on = attendingIds?.has(m.id) ?? true;
-              return <Chip key={m.id} label={`${on ? '✓ ' : ''}${firstName(m.name)}`} selected={on} onPress={() => toggleMember(m.id)} />;
-            })}
-          </Row>
+          <View>
+            {/* One line: "The family" until someone is left out. Tap to open the ticks. */}
+            <Pressable onPress={() => setWhoOpen((o) => !o)} style={styles.whoRow} accessibilityRole="button" accessibilityLabel="Who's coming" accessibilityState={{ expanded: whoOpen }}>
+              <Text style={type.tiny}>Who's coming</Text>
+              <Text style={[type.small, { fontWeight: '600', color: colors.ink, flex: 1 }]} numberOfLines={1}>
+                {!attendingIds || attendingIds.size === members.length ? 'The family' : members.filter((m) => attendingIds.has(m.id)).map((m) => firstName(m.name)).join(', ')}
+              </Text>
+              <Text style={type.tiny}>{whoOpen ? '▾' : '▸'}</Text>
+            </Pressable>
+            {whoOpen ? (
+              <Row style={{ flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                {members.map((m) => {
+                  const on = attendingIds?.has(m.id) ?? true;
+                  return <Chip key={m.id} label={firstName(m.name)} icon={on ? 'check' : undefined} selected={on} onPress={() => toggleMember(m.id)} />;
+                })}
+              </Row>
+            ) : null}
+          </View>
         ) : null}
         {!speech.supported ? <Text style={type.tiny}>Voice input isn't available in this browser — typing does exactly the same thing.</Text> : null}
         {turns.length === 0 ? (
@@ -214,10 +227,9 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
         <Card>
           <View style={{ gap: spacing.sm }}>
             {turns.slice(-8).map((t, i) => (
-              <View key={i} style={[styles.bubble, t.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant]}>
-                <Text style={[type.body, t.role === 'user' && { color: '#fff' }]}>
-                  {t.voice ? '🎙 ' : ''}{t.text}
-                </Text>
+              <View key={i} style={[styles.bubble, t.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant, { flexDirection: 'row', alignItems: 'flex-start', gap: 6 }]}>
+                {t.voice ? <View style={{ paddingTop: 3 }}><Icon name="mic" size={14} color={t.role === 'user' ? '#fff' : colors.inkMuted} /></View> : null}
+                <Text style={[type.body, { flexShrink: 1 }, t.role === 'user' && { color: '#fff' }]}>{t.text}</Text>
               </View>
             ))}
           </View>
@@ -297,7 +309,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
             pinned={new Set(plan!.selection?.pinned ?? [])}
             busy={busy === 'updating'}
             addLabel="+ Add to plan"
-            addedLabel="♥ In the plan"
+            addedLabel="In the plan"
             onAdd={(b) => act({ type: 'like', stopId: b.id })}
             onRemove={(b) => act({ type: 'unlike', stopId: b.id })}
             onDislike={(b) => act({ type: 'dislike', stopId: b.id })}
@@ -312,7 +324,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
               </>
             ) : <Text style={type.small}>Nothing added yet. Add places above, or let Roam fill the day.</Text>}
             <Row>
-              <Button label={committed ? 'Saved as your day ✓' : picks ? 'Save these as the day' : 'Let Roam fill the day'} onPress={() => commit(picks?.id ?? plan!.options[0]?.id)} disabled={busy === 'updating' || !!committed || !plan!.options.length} />
+              <Button icon={committed ? 'check' : undefined} label={committed ? 'Saved as your day' : picks ? 'Save these as the day' : 'Let Roam fill the day'} onPress={() => commit(picks?.id ?? plan!.options[0]?.id)} disabled={busy === 'updating' || !!committed || !plan!.options.length} />
               {picks && !committed ? <Button label="Let Roam fill the rest" kind="secondary" onPress={() => commit(plan!.options.find((o) => o.id !== 'pinned')?.id ?? picks.id)} disabled={busy === 'updating'} /> : null}
             </Row>
           </Card>
@@ -325,7 +337,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
                   <Chip key={key} label={labelFor(key, plan!)} tone="dislike" onRemove={() => act({ type: 'restore', stopId: key })} />
                 ))}
               </Wrap>
-              <Text style={type.tiny}>Tap ✕ to let a place back in.</Text>
+              <Text style={type.tiny}>Tap the cross on a place to let it back in.</Text>
             </Card>
           ) : null}
 
@@ -403,6 +415,7 @@ const styles = StyleSheet.create({
     minHeight: 150, padding: spacing.md, borderRadius: radius.md, textAlignVertical: 'top',
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 16, lineHeight: 22, color: colors.ink,
   },
+  whoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32, paddingHorizontal: 4 },
   mic: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.pill,
     backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.line,

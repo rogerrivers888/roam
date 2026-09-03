@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Roam · Plan screen — three ways, and how it becomes a trip</title>
+<style>
+  :root{--bg:#F7F6F2;--surface:#fff;--muted:#F0EEE8;--ink:#1D1B16;--ink2:#6B675E;--ink3:#A8A399;--line:#E4E0D6;--accent:#1F5F5B;--accentSoft:#DCEBE9;--want:#4A4A8A;--wantSoft:#E6E6F5;--over:#C0392B;--overSoft:#F8E1DE;--like:#2E7D32;--gold:#B0771E;--goldSoft:#F6EBD5}
+  *{box-sizing:border-box}
+  body{margin:0;background:#E9E6DF;font:14px/1.45 -apple-system,Inter,Segoe UI,Helvetica,Arial,sans-serif;color:var(--ink);padding:32px}
+  h1{font-size:26px;margin:0 0 4px}
+  .lede{color:var(--ink2);max-width:900px;margin:0 0 28px}
+  section{margin:0 0 48px}
+  h2{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 16px;max-width:900px}
+  .row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+  .notes{width:300px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13px}
+  .notes h4{margin:0 0 6px;font-size:13px}
+  .notes ul{margin:0 0 10px;padding-left:18px}
+  .notes li{margin:0 0 4px}
+  .cap{font-size:12px;color:var(--ink2);text-align:center;margin:8px 0 0;max-width:390px}
+  .phone{width:390px;height:844px;background:var(--bg);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column}
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700}
+  .screen{flex:1;overflow:hidden;padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+  .tabbar{height:64px;border-top:1px solid var(--line);background:var(--surface);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--ink3)}
+  .tabbar div{text-align:center}.tabbar .on{color:var(--accent);font-weight:700}
+  .tabbar span{display:block;font-size:18px}
+  .title{font-size:22px;font-weight:700;letter-spacing:-.3px}
+  .hdr{display:flex;justify-content:space-between;align-items:center}
+  .btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:10px;font-weight:700;font-size:13px;background:var(--accent);color:#fff;white-space:nowrap}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+  .btn.sec{background:var(--accentSoft);color:var(--accent)}
+  .btn.sm{min-height:30px;padding:0 10px;font-size:12px}
+  .btn.dim{background:#9BB8B5}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .card.hero{border-color:var(--accent);border-width:2px}
+  .h3{font-weight:600;font-size:15px}
+  .small{font-size:13px;color:var(--ink2)}
+  .tiny{font-size:11px;color:var(--ink3)}
+  .chip{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:12px;font-weight:600;margin:2px 4px 0 0}
+  .chip.want{background:var(--wantSoft);color:var(--want);border-color:transparent}
+  .chip.acc{background:var(--accentSoft);color:var(--accent);border-color:transparent}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .chip.ghost{color:var(--ink2)}
+  .seg{display:flex;background:var(--muted);border-radius:10px;padding:3px}
+  .seg div{flex:1;text-align:center;padding:8px 4px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink2)}
+  .seg .on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  /* the box */
+  .box{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;font-size:15px;line-height:1.4;min-height:120px;color:var(--ink)}
+  .box.empty{color:var(--ink3)}
+  .box.live{border-color:var(--accent);background:var(--accentSoft)}
+  .box .heard{color:var(--ink3)}
+  .under{display:flex;justify-content:space-between;align-items:center}
+  .mic{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--muted);font-weight:600;font-size:13px}
+  .mic.on{background:var(--over);color:#fff;border-color:var(--over)}
+  .who{display:flex;justify-content:space-between;align-items:center;height:30px;padding:0 4px;font-size:13px}
+  .who b{font-weight:600}
+  .who .tiny{margin-right:auto;margin-left:8px}
+  /* criteria rows */
+  .crit{display:flex;flex-direction:column}
+  .cr{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:13px}
+  .cr:first-child{border-top:0}
+  .cr .k{width:64px;color:var(--ink3);font-size:11px;text-transform:uppercase;letter-spacing:.3px;flex:none}
+  .cr .v{flex:1;min-width:0;font-weight:600}
+  .cr .v.empty{font-weight:400;color:var(--ink3)}
+  .st{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+  .st.ok{background:var(--accentSoft);color:var(--accent)}
+  .st.q{background:var(--goldSoft);color:var(--gold)}
+  .st.no{border:1px dashed var(--line);color:var(--ink3)}
+  .cr.new{background:var(--accentSoft);margin:0 -8px;padding:7px 8px;border-radius:8px;border-top:0}
+  /* bubbles */
+  .bub{padding:10px 12px;border-radius:12px;max-width:92%;font-size:14px}
+  .bub.me{background:var(--accent);color:#fff;align-self:flex-end}
+  .bub.ai{background:var(--muted);align-self:flex-start}
+  .conv{display:flex;flex-direction:column;gap:8px}
+  /* ideas */
+  .idea{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+  .idea:first-child{border-top:0}
+  .ph{width:64px;height:64px;border-radius:10px;background:linear-gradient(135deg,#d9d3c4,#bfb8a6);flex:none}
+  .idea .t{flex:1;min-width:0}
+  .idea .name{font-weight:600;font-size:14px}
+  .idea .why{font-size:12px;color:var(--ink2)}
+  .moods{display:flex;flex-wrap:wrap;gap:6px}
+  .moods .chip{margin:0;font-size:13px;padding:7px 12px}
+  .slider{height:6px;border-radius:3px;background:var(--line);position:relative;margin:14px 6px 6px}
+  .slider i{position:absolute;left:0;top:0;height:100%;width:55%;background:var(--accent);border-radius:3px}
+  .slider b{position:absolute;left:55%;top:50%;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid var(--accent)}
+  .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--ink3);padding:0 4px}
+  /* journey list (trip page) */
+  .stop{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
+  .stop:first-child{border-top:0}
+  .num{width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px}
+  .num.fix{background:var(--ink)}
+  .stop .t{flex:1;min-width:0}
+  .stop .name{font-weight:600;font-size:14px}
+  .time{font-variant-numeric:tabular-nums;font-size:12px;color:var(--ink2);width:44px;flex:none;padding-top:3px}
+  .ok{background:var(--accentSoft);color:var(--accent);font-size:12px;padding:6px 10px;border-radius:8px;font-weight:600}
+  .arrow{align-self:center;font-size:28px;color:var(--ink3);padding:0 4px}
+  .days{display:flex;gap:8px}
+  .day{flex:1;border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--surface)}
+  .day.on{border:2px solid var(--accent)}
+  .day .d{font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase}
+  .day .n{font-weight:700}
+  .day .s{font-size:11px;color:var(--ink3)}
+  .setup li{margin:0 0 4px}
+  .setup ul{margin:6px 0 0;padding-left:18px;font-size:13px}
+  .q{border-left:3px solid var(--gold);padding-left:8px}
+</style>
+</head>
+<body>
+
+<h1>Plan screen — three ways, and how it becomes a trip</h1>
+<p class="lede">Every option keeps the rules that already hold: the box comes first and is big; Speak and Send sit under it; Who's coming is one line ("The family") that opens to ticks; nothing is guessed — anything the planner is not sure of gets a <span class="st q" style="display:inline-flex;vertical-align:middle">?</span> and a question with answers you can tap or say. The three differ in <b>where the criteria live</b> and <b>how "Inspire me" fits</b>. The last section shows the same journey end to end: speaking → criteria filling in → one question → the trip.</p>
+
+<!-- ============================================================ -->
+<section>
+<h2>Option A · Two modes: "Tell me" / "Inspire me"</h2>
+<p class="sub">A switch under the title. <b>Tell me</b> is what exists today, with a "So far" card that fills as you speak. <b>Inspire me</b> is a mood board: pick a few pills, cap the travel, and get a list of ideas — each one becomes a plan with one tap.</p>
+<div class="row">
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="title">Where should we go?</div>
+    <div class="seg"><div class="on">Tell me</div><div>Inspire me</div></div>
+    <div class="box live"><span class="heard">🎙 </span>I'd like to go to Bath, stay in a hotel with a thermal spa near the centre, one night. From home on Friday the 11th, back the next evening. All of us. Lunch and dinner somewhere nice, the Roman Baths and one or two other things…</div>
+    <div class="under"><span class="mic on">■ Done</span><span class="btn dim">Send</span></div>
+    <div class="who"><span class="tiny">Who's coming</span><b>The family</b><span class="tiny">▸</span></div>
+    <div class="card">
+      <div class="h3" style="margin-bottom:4px">So far</div>
+      <div class="crit">
+        <div class="cr"><span class="k">From</span><span class="v">Home</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">To</span><span class="v">Bath, Somerset</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">When</span><span class="v">Fri 11 → Sat 12 Sept · 1 night</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Who</span><span class="v">The family</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Stay</span><span class="v">Thermal spa hotel, near the centre</span><span class="st ok">✓</span></div>
+        <div class="cr new"><span class="k">Do</span><span class="v">Roman Baths + 1–2 more</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Eat</span><span class="v">Lunch, dinner</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Arrive</span><span class="v empty">not said</span><span class="st no">–</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">A1 · Tell me, mid-sentence. The row that just filled in flashes green. "Arrive" is empty, not guessed.</p></div>
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="title">Where should we go?</div>
+    <div class="seg"><div>Tell me</div><div class="on">Inspire me</div></div>
+    <div class="card">
+      <div class="h3">In the mood for</div>
+      <div class="moods" style="margin-top:6px">
+        <span class="chip on">Easygoing</span><span class="chip">Intensive</span><span class="chip on">Fun</span><span class="chip">Relaxing</span>
+        <span class="chip">Food-focused</span><span class="chip on">Activity-focused</span><span class="chip">Educational</span><span class="chip">Outdoors</span><span class="chip">Somewhere new</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="h3">How far</div>
+      <div class="slider"><i></i><b></b></div>
+      <div class="ticks"><span>30 min</span><span>1 h</span><span><b style="color:var(--ink)">3 h</b></span><span>Anywhere</span></div>
+      <div class="tiny" style="margin-top:6px">Day out · <b>The family</b> · from home</div>
+    </div>
+    <div class="who"><span class="tiny">Who's coming</span><b>The family</b><span class="tiny">▸</span></div>
+    <span class="btn" style="align-self:stretch;justify-content:center">Inspire me</span>
+    <div class="card">
+      <div class="idea"><div class="ph"></div><div class="t"><div class="name">Bath for a night — spa + Roman Baths</div><div class="why">1 h 45 by car · fun, activity-focused · Phoenix loves the water</div><span class="chip acc">Plan this</span></div></div>
+      <div class="idea"><div class="ph"></div><div class="t"><div class="name">Kew Gardens, then lunch in Richmond</div><div class="why">50 min · easygoing, outdoors · Gina liked the Palm House</div><span class="chip acc">Plan this</span></div></div>
+      <div class="idea"><div class="ph"></div><div class="t"><div class="name">Go Ape at Bracknell + pizza</div><div class="why">25 min · fun, activity-focused · Roger likes pizza</div><span class="chip acc">Plan this</span></div></div>
+    </div>
+  </div>
+  <div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">A2 · Inspire me. Pills, a travel cap, and ideas that name why (who likes what, how far). "Plan this" drops the idea into Tell me with the criteria already filled.</p></div>
+
+<div class="notes">
+  <h4>What it optimises</h4>
+  <ul><li>Two clear jobs, one switch. The suggestions under the box today become a real place to go.</li><li>"So far" reads like a receipt: you can watch it get things right.</li></ul>
+  <h4>Trade-offs</h4>
+  <ul><li>Two panels on one screen while speaking; on a small phone "So far" is below the fold until Done.</li><li>Inspire me needs a small model call to make ideas from the pills + the atlas.</li></ul>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<h2>Option B · The criteria <i>are</i> the screen</h2>
+<p class="sub">Voice or typing fills a form. Each row is a field you can also tap to edit. What you say lands in the right row as you say it; what it is not sure of gets a <b>?</b>; what you did not say stays empty. The transcript is small, under the rows. "Inspire me" is a row of its own at the top when the form is empty.</p>
+<div class="row">
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="title">Where should we go?</div>
+    <div class="who"><span class="tiny">Who's coming</span><b>The family</b><span class="tiny">▸</span></div>
+    <div class="card">
+      <div class="crit">
+        <div class="cr"><span class="k">From</span><span class="v">Home</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">To</span><span class="v">Newport</span><span class="st q">?</span></div>
+        <div class="cr new"><span class="k">When</span><span class="v">Sat 5 Sept, 3 hours</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Do</span><span class="v empty">not said</span><span class="st no">–</span></div>
+        <div class="cr"><span class="k">Eat</span><span class="v empty">not said</span><span class="st no">–</span></div>
+        <div class="cr"><span class="k">Stay</span><span class="v empty">day out</span><span class="st no">–</span></div>
+        <div class="cr"><span class="k">Budget</span><span class="v empty">any</span><span class="st no">–</span></div>
+      </div>
+    </div>
+    <div class="box live" style="min-height:90px"><span class="heard">🎙 </span>From home to Newport for three hours on Saturday, everyone's coming, and somewhere for lu…</div>
+    <div class="under"><span class="mic on">■ Done</span><span class="btn dim">Send</span></div>
+    <div class="tiny">Rows fill as you talk. Tap any row to change it.</div>
+  </div>
+  <div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">B1 · Speaking. "When" just landed. "To" already carries a ? because Newport could be three places.</p></div>
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="title">Where should we go?</div>
+    <div class="who"><span class="tiny">Who's coming</span><b>The family</b><span class="tiny">▸</span></div>
+    <div class="card">
+      <div class="crit">
+        <div class="cr"><span class="k">From</span><span class="v">Home</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">To</span><span class="v">Newport</span><span class="st q">?</span></div>
+        <div class="cr"><span class="k">When</span><span class="v">Sat 5 Sept, 3 hours</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Do</span><span class="v">At least 1</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Eat</span><span class="v">Lunch</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Stay</span><span class="v empty">day out</span><span class="st no">–</span></div>
+      </div>
+    </div>
+    <div class="card q">
+      <div class="h3">One thing to check</div>
+      <div class="small">Which Newport do you mean?</div>
+      <div style="margin-top:6px"><span class="chip acc">Newport, Wales (city)</span><span class="chip acc">Newport, Uttlesford (village)</span><span class="chip acc">Newport, Isle of Wight</span></div>
+      <div class="tiny" style="margin-top:6px">Tap one or just say it.</div>
+    </div>
+    <div class="box empty" style="min-height:70px">Anything else…</div>
+    <div class="under"><span class="mic">🎙 Speak</span><span class="btn">Send</span></div>
+  </div>
+  <div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">B2 · After Done. Everything said is in a row; the one doubt is a question with tappable answers, not a guess.</p></div>
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="title">Where should we go?</div>
+    <div class="who"><span class="tiny">Who's coming</span><b>Roger, Phoenix</b><span class="tiny">▾</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip on">✓ Roger</span><span class="chip">Gina</span><span class="chip on">✓ Phoenix</span></div>
+    <div class="card">
+      <div class="h3">Inspire me</div>
+      <div class="moods" style="margin-top:6px"><span class="chip">Easygoing</span><span class="chip on">Fun</span><span class="chip">Relaxing</span><span class="chip">Food-focused</span><span class="chip on">Educational</span><span class="chip">Outdoors</span></div>
+      <div class="tiny" style="margin-top:8px">Up to <b style="color:var(--ink)">2 h</b> from home · today</div>
+    </div>
+    <div class="card">
+      <div class="crit">
+        <div class="cr"><span class="k">From</span><span class="v">Home</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">To</span><span class="v empty">say it, or let Roam suggest</span><span class="st no">–</span></div>
+        <div class="cr"><span class="k">When</span><span class="v empty">not said</span><span class="st no">–</span></div>
+        <div class="cr"><span class="k">Do</span><span class="v empty">not said</span><span class="st no">–</span></div>
+        <div class="cr"><span class="k">Eat</span><span class="v empty">not said</span><span class="st no">–</span></div>
+      </div>
+    </div>
+    <div class="box empty" style="min-height:90px">Where, when, how long, and anything you must fit in…</div>
+    <div class="under"><span class="mic">🎙 Speak</span><span class="btn dim">Send</span></div>
+  </div>
+  <div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">B3 · Empty state with Who's coming opened (Gina unticked) and Inspire me folded in as pills above the form.</p></div>
+
+<div class="notes">
+  <h4>What it optimises</h4>
+  <ul><li>Confidence: every fact you said is visible in its slot the moment it lands, with ✓ / ? / –.</li><li>One mental model for voice, typing and tapping — they all edit the same rows.</li></ul>
+  <h4>Trade-offs</h4>
+  <ul><li>Less "conversation", more "form". Replies from the planner are one line under the rows.</li><li>Ideas from Inspire me have to fit the same rows (they do: To + Do + Eat).</li></ul>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<h2>Option C · Conversation, with a running summary pinned at the top</h2>
+<p class="sub">Closest to today. The chat stays; a one-line summary strip under the title is rebuilt after every message, with a <b>?</b> on anything unsure. Inspire me is a row of pills that only shows when there is nothing in the box yet.</p>
+<div class="row">
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="title">Where should we go?</div>
+    <div class="card" style="padding:8px 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <span class="chip acc">Home → Bath</span><span class="chip acc">Fri 11 – Sat 12</span><span class="chip acc">The family</span><span class="chip acc">Spa hotel</span><span class="chip acc">Roman Baths +1–2</span><span class="chip acc">Lunch, dinner</span><span class="chip" style="background:var(--goldSoft);color:var(--gold);border-color:transparent">Arrive ?</span>
+    </div>
+    <div class="box empty" style="min-height:80px">Anything else…</div>
+    <div class="under"><span class="mic">🎙 Speak</span><span class="btn dim">Send</span></div>
+    <div class="who"><span class="tiny">Who's coming</span><b>The family</b><span class="tiny">▸</span></div>
+    <div class="card conv">
+      <div class="bub me">🎙 I'd like to go to Bath, stay one night in a hotel with a thermal spa… Roman Baths, lunch and dinner, one or two other things.</div>
+      <div class="bub ai">That's a night away — Bath, Fri 11 to Sat 12 Sept. What time do you get there on Friday?</div>
+      <div><span class="chip acc">Evening, no dinner</span><span class="chip acc">Afternoon</span><span class="chip acc">Morning</span></div>
+    </div>
+  </div>
+  <div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">C1 · The strip is the receipt; the chat is where questions get asked and answered.</p></div>
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="title">Where should we go?</div>
+    <div class="box empty">Where, when, how long, who is coming, and anything you must fit in…</div>
+    <div class="under"><span class="mic">🎙 Speak</span><span class="btn dim">Send</span></div>
+    <div class="who"><span class="tiny">Who's coming</span><b>The family</b><span class="tiny">▸</span></div>
+    <div class="card">
+      <div class="h3">Or let Roam inspire you</div>
+      <div class="moods" style="margin-top:6px"><span class="chip">Easygoing</span><span class="chip">Intensive</span><span class="chip">Fun</span><span class="chip">Relaxing</span><span class="chip">Food-focused</span><span class="chip">Activity-focused</span><span class="chip">Educational</span></div>
+      <div style="display:flex;gap:6px;margin-top:8px;align-items:center"><span class="tiny">Up to</span><span class="chip">1 h</span><span class="chip on">2 h</span><span class="chip">3 h</span><span class="chip">Anywhere</span></div>
+      <span class="btn sec sm" style="margin-top:8px">Inspire me</span>
+    </div>
+  </div>
+  <div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">C2 · Empty state: the box, then Inspire me pills in place of today's three random sentences. They disappear once you start.</p></div>
+
+<div class="notes">
+  <h4>What it optimises</h4>
+  <ul><li>Smallest change from what is live; the chat and its questions stay as they are.</li><li>The strip fits one line on a phone and is tappable — tap "Arrive ?" to answer it.</li></ul>
+  <h4>Trade-offs</h4>
+  <ul><li>Chips are terse; the full row view (Option B) is clearer for numbers like "2 to eat, 3 to do".</li><li>Inspire me is a card, not a mode: fine for a first version, cramped if it grows.</li></ul>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<h2>From speaking to the trip — the same journey, four frames</h2>
+<p class="sub">Shown with Option B's rows, but the steps are identical for A and C: the criteria build while you talk, the one doubt is asked, a set-up card says exactly what is going onto the trip, and the trip opens with the full day already filled and the arrival day left open.</p>
+<div class="row" style="padding-bottom:12px">
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="title">Where should we go?</div>
+    <div class="who"><span class="tiny">Who's coming</span><b>The family</b><span class="tiny">▸</span></div>
+    <div class="card">
+      <div class="crit">
+        <div class="cr"><span class="k">From</span><span class="v">Home</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">To</span><span class="v">Bath, Somerset</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">When</span><span class="v">Fri 11 → Sat 12 Sept · 1 night</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Stay</span><span class="v">Thermal spa hotel, central</span><span class="st ok">✓</span></div>
+        <div class="cr new"><span class="k">Eat</span><span class="v">Lunch, dinner</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Do</span><span class="v empty">…</span><span class="st no">–</span></div>
+      </div>
+    </div>
+    <div class="box live" style="min-height:90px"><span class="heard">🎙 </span>…somewhere nice for lunch and dinner, and obviously the Roman Baths, plus maybe one or two other activ…</div>
+    <div class="under"><span class="mic on">■ Done</span><span class="btn dim">Send</span></div>
+  </div>
+  <div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">1 · Speaking. Rows fill as each fact is heard.</p></div>
+
+<div class="arrow">→</div>
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="title">Where should we go?</div>
+    <div class="who"><span class="tiny">Who's coming</span><b>The family</b><span class="tiny">▸</span></div>
+    <div class="card">
+      <div class="crit">
+        <div class="cr"><span class="k">From</span><span class="v">Home</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">To</span><span class="v">Bath, Somerset</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">When</span><span class="v">Fri 11 → Sat 12 Sept · 1 night</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Stay</span><span class="v">Thermal spa hotel, central</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Eat</span><span class="v">Lunch, dinner</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Do</span><span class="v">Roman Baths + 1–2 more</span><span class="st ok">✓</span></div>
+        <div class="cr"><span class="k">Arrive</span><span class="v empty">not said</span><span class="st q">?</span></div>
+      </div>
+    </div>
+    <div class="card q">
+      <div class="h3">Two things to check</div>
+      <div class="small" style="margin-top:4px">A night away — set it up as a trip, or just plan the Saturday?</div>
+      <div><span class="chip acc">Set up the trip</span><span class="chip acc">Just plan the day</span></div>
+      <div class="small" style="margin-top:8px">When do you get to Bath on Friday?</div>
+      <div><span class="chip acc">Evening, no dinner</span><span class="chip acc">Afternoon</span><span class="chip acc">Morning</span></div>
+    </div>
+  </div>
+  <div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">2 · Done. All rows ✓ except one; the doubts are questions with tappable answers.</p></div>
+
+<div class="arrow">→</div>
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="title">Setting up your trip</div>
+    <div class="card hero setup">
+      <div class="h3">Bath · the Roman Baths</div>
+      <div class="small">Fri 11 – Sat 12 Sept · The family · by car</div>
+      <ul>
+        <li><b>Shortlist:</b> The Roman Baths — a must</li>
+        <li><b>Stay:</b> thermal spa hotel near the centre — 4 to choose from</li>
+        <li><b>Saturday:</b> filled — Roman Baths, lunch, 2 more things, dinner</li>
+        <li><b>Friday:</b> evening only — arrive, settle in, no dinner</li>
+        <li><b>Sources:</b> OpenStreetMap, Google, Ticketmaster (default set)</li>
+      </ul>
+      <div style="display:flex;gap:8px;margin-top:10px"><span class="btn">Open the trip</span><span class="btn ghost">Change something</span></div>
+    </div>
+    <div class="tiny">Nothing is booked. Everything here can be swapped on the trip.</div>
+    <div class="card conv" style="margin-top:auto">
+      <div class="bub me">Set up the trip · Evening, no dinner</div>
+      <div class="bub ai">Done — opening Bath in Trips.</div>
+    </div>
+  </div>
+  <div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">3 · The set-up card: exactly what is going onto the trip, before it opens. "Change something" goes back to the rows.</p></div>
+
+<div class="arrow">→</div>
+
+<div><div class="phone">
+  <div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+  <div class="screen">
+    <div class="tiny">← Trips</div>
+    <div class="title">Bath · the Roman Baths</div>
+    <div class="small">Fri 11 – Sat 12 Sept · The family · staying near the centre</div>
+    <div class="seg" style="font-size:12px"><div>Overview</div><div class="on">Days (2)</div><div>Shortlist (1)</div><div>Stay</div></div>
+    <div class="days">
+      <div class="day"><div class="d">Day 1</div><div class="n">Fri 11</div><div class="s">evening · open</div></div>
+      <div class="day on"><div class="d">Day 2</div><div class="n">Sat 12</div><div class="s">6 stops · packed</div></div>
+    </div>
+    <div class="card">
+      <div class="stop"><span class="time"><b>10:00</b></span><span class="num fix">1</span><div class="t"><div class="name">The Roman Baths</div><div class="tiny">Must do · 2 h</div></div></div>
+      <div class="stop"><span class="time"><b>12:15</b></span><span class="num">2</span><div class="t"><div class="name">The Scallop Shell</div><div class="tiny">Lunch · 4.6 (2,100) · ££</div></div></div>
+      <div class="stop"><span class="time"><b>13:45</b></span><span class="num">3</span><div class="t"><div class="name">Bath Skyline walk</div><div class="tiny">1 h 30 · Gina likes long walks</div></div></div>
+      <div class="stop"><span class="time"><b>15:30</b></span><span class="num">4</span><div class="t"><div class="name">Royal Victoria Park</div><div class="tiny">1 h · playground for Phoenix</div></div></div>
+      <div class="stop"><span class="time"><b>18:30</b></span><span class="num">5</span><div class="t"><div class="name">Sally Lunn's</div><div class="tiny">Dinner · 4.5 (9,800) · ££</div></div></div>
+    </div>
+    <div class="ok">Home by 21:30 · 1 h 45 drive</div>
+  </div>
+  <div class="tabbar"><div><span>✦</span>Plan</div><div><span>◎</span>Places</div><div class="on"><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div>
+</div><p class="cap">4 · The trip, Saturday filled, Friday open. Swap anything from "Everything Roam found near Bath" below.</p></div>
+
+</div>
+</section>
+
+<section>
+<h2>Side by side</h2>
+<div class="row">
+  <div class="notes"><h4>A · Two modes</h4><ul><li>Best if Inspire me is a first-class thing you use often.</li><li>"So far" card = receipt.</li></ul></div>
+  <div class="notes"><h4>B · Rows are the screen</h4><ul><li>Best for confidence while speaking: each fact lands in its slot with ✓ / ?.</li><li>Tap-to-edit any row; the chat shrinks to one line.</li></ul></div>
+  <div class="notes"><h4>C · Chat + summary strip</h4><ul><li>Least change; keeps today's questions-with-chips.</li><li>Strip is compact but terse.</li></ul></div>
+  <div class="notes"><h4>Common to all</h4><ul><li>Box first, big; Speak/Send under it.</li><li>Who's coming = "The family ▸", opens to ticks.</li><li>Suggestions gone once you start.</li><li>No guessing: ? + a question.</li><li>Set-up card before the trip opens.</li></ul></div>
+</div>
+</section>
+
+</body>
+</html>
