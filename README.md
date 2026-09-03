@@ -64,6 +64,7 @@ Postgres is a Railway Postgres service in the same project; the `api` needs its 
 | `PORT` | set by the platform | |
 | `DATABASE_URL` | yes | Postgres connection string (Doppler) |
 | `ANTHROPIC_API_KEY` | yes | conversational planner (Doppler) |
+| `ANTHROPIC_WORKSPACE_ID` | if the key is identity-linked | The Anthropic workspace the key acts in (`wrkspc_…`). Console-issued keys that are linked to a person require it; a legacy workspace key does not. |
 | `RAILPACK_START_CMD` | yes | see table above (non-secret) |
 | `ROAM_SOURCES` | no | comma-separated enabled place sources; default `fixtures` |
 | `ROAM_SESSION_CALL_BOUND` / `ROAM_HOUSEHOLD_MONTHLY_CALL_BOUND` | no | spend containment bounds; defaults 40 / 3000 |

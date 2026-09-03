@@ -20,7 +20,12 @@ export const HOUSEHOLD_MONTHLY_CALL_BOUND = Number(process.env.ROAM_HOUSEHOLD_MO
 // instrumentation. Cache rates are approximate; the point is the trend.
 const RATE = { input: 5 / 1e6, output: 25 / 1e6, cacheRead: 0.5 / 1e6, cacheWrite: 6.25 / 1e6 };
 
-const client = new Anthropic();
+// Identity-linked API keys (the default kind the Console issues now) must name
+// the workspace each request acts in; a legacy workspace key needs nothing.
+const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
+const client = new Anthropic(
+  workspaceId ? { defaultHeaders: { 'anthropic-workspace-id': workspaceId } } : {},
+);
 
 export class SpendBoundError extends Error {
   constructor(scope, bound) {
