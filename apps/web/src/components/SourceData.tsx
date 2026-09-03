@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { api, SourceTrace, SourceTraceVenue, TripDetail } from '../api';
 import { colors, radius, spacing, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap, clock } from './ui';
@@ -92,7 +92,8 @@ export function SourceDataPanel({ d }: { d: TripDetail }) {
               {trace.trip.date} · {trace.radiusKm} km around {trace.trip.base.label} · window {clock(trace.trip.window.from)}–{clock(trace.trip.window.to)} · reach {trace.maxTravelMinutes} min {trace.trip.mode} · asked: {trace.sourcesQueried.join(', ') || 'none'}
             </Text>
             {trace.degraded.length ? trace.degraded.map((g) => <StatusLine key={g.source} tone="warn">{g.source} failed: {g.error}</StatusLine>) : null}
-            <View style={styles.table}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={[styles.table, { minWidth: 160 + 64 * (sources.length + 1) }]}>
               <View style={styles.tr}>
                 <Text style={[styles.th, { flex: 2 }]}>Stage</Text>
                 {sources.map((s) => <Text key={s} style={styles.th}>{s}</Text>)}
@@ -106,6 +107,7 @@ export function SourceDataPanel({ d }: { d: TripDetail }) {
                 </View>
               ))}
             </View>
+            </ScrollView>
             <Text style={type.tiny}>"After merging" counts a merged record once per source that contributed to it, so a place Google and Tripadvisor both returned counts for both.</Text>
           </Card>
 
@@ -160,8 +162,8 @@ function TraceRow({ v, open, onToggle }: { v: SourceTraceVenue; open: boolean; o
 const styles = StyleSheet.create({
   table: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, overflow: 'hidden' },
   tr: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.line, paddingVertical: 6, paddingHorizontal: 8, gap: 4 },
-  th: { flex: 1, fontSize: 11, fontWeight: '700', color: colors.inkMuted, textAlign: 'right' },
-  td: { flex: 1, fontSize: 12, color: colors.inkMuted, textAlign: 'right' },
+  th: { flex: 1, minWidth: 56, fontSize: 11, fontWeight: '700', color: colors.inkMuted, textAlign: 'right' },
+  td: { flex: 1, minWidth: 56, fontSize: 12, color: colors.inkMuted, textAlign: 'right' },
   row: { paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line, gap: 4 },
   raw: { backgroundColor: colors.surfaceMuted, borderRadius: radius.sm, padding: spacing.sm, gap: 4 },
   mono: { fontFamily: 'Menlo, monospace', fontSize: 11, color: colors.ink },
