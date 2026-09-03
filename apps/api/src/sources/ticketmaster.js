@@ -12,6 +12,7 @@ const SEGMENT_EXPERIENCE = { Music: 'live-music', Sports: 'sports-game', 'Arts &
 export const ticketmasterSource = {
   key: 'ticketmaster',
   label: 'Ticketmaster',
+  events: true,
   retention: { placeId: 'indefinite', displayFields: 'none' },
   attribution: { text: TICKETMASTER_ATTRIBUTION, requiresAuthorCredit: false },
   enabled: () => Boolean(KEY()),

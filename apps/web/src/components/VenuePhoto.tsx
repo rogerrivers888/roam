@@ -14,7 +14,8 @@ export function VenuePhoto({ photos, size = 72, credit = true }: { photos?: Venu
   const [failed, setFailed] = useState(false);
   const photo = photos?.[0];
   if (!photo || failed) return null;
-  const uri = `${API_URL}/api/photos/google?name=${encodeURIComponent(photo.ref)}&w=${size >= 120 ? 480 : 240}`;
+  const uri = photo.url ?? (photo.ref ? `${API_URL}/api/photos/google?name=${encodeURIComponent(photo.ref)}&w=${size >= 120 ? 480 : 240}` : null);
+  if (!uri) return null;
   return (
     <View style={{ width: size, gap: 2 }}>
       <Image source={{ uri }} style={[styles.img, { width: size, height: size }]} onError={() => setFailed(true)} accessibilityIgnoresInvertColors />

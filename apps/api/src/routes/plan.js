@@ -11,7 +11,7 @@ import { Router } from 'express';
 import { z } from 'zod/v4';
 import { query } from '../db.js';
 import { parseStructured, spendSummary, SpendBoundError } from '../claude.js';
-import { searchAllSources, enabledSources } from '../sources/index.js';
+import { searchAllSources, eventSources } from '../sources/index.js';
 import { resolvePlace, KNOWN_PLACES } from '../sources/fixtures.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, TRAVEL_MODES } from '../domain/travel.js';
@@ -299,6 +299,11 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
     includeEvents: true,
     outingStart: trip.depart_at,
     outingEnd: trip.return_at,
+    // For the local scout: where and when in words, and who is asking.
+    placeLabel: trip.origin_label,
+    timezone: trip.timezone || household.timezone || null,
+    householdId: household.id,
+    sessionId,
   });
   await query(
     `insert into provider_calls (household_id, session_id, provider, purpose) values ($1, $2, $3, $4)`,
@@ -420,7 +425,7 @@ async function respond(res, { session, household, reply, extra = {} }) {
     // Everything found nearby, for browsing and adding; and whether any source
     // of timed events is on at all, so "nothing on" can be told from "not looked".
     browse,
-    eventsSource: enabledSources().find((s) => s.key === 'ticketmaster')?.key ?? null,
+    eventsSource: eventSources().map((s) => s.label).join(', ') || null,
     selection: {
       pinned: session.state.pinned,
       excluded: session.state.excluded,

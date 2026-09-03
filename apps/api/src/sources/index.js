@@ -10,15 +10,22 @@ import { osmSource } from './osm.js';
 import { googleSource } from './google.js';
 import { tripadvisorSource } from './tripadvisor.js';
 import { ticketmasterSource } from './ticketmaster.js';
+import { seatgeekSource } from './seatgeek.js';
+import { predicthqSource } from './predicthq.js';
+import { datathistleSource } from './datathistle.js';
+import { localScoutSource } from './localscout.js';
 import { detectChain } from '../domain/chains.js';
 
 // Licensed sources register here and switch on when their key exists;
 // ROAM_SOURCES still narrows the set (Epic 2 C10: no code change to enable/disable).
-const REGISTRY = [fixturesSource, osmSource, googleSource, tripadvisorSource, ticketmasterSource];
+const REGISTRY = [fixturesSource, osmSource, googleSource, tripadvisorSource, ticketmasterSource, seatgeekSource, predicthqSource, datathistleSource, localScoutSource];
+
+/** Sources that return timed events, so "nothing on" can be told from "not looked". */
+export const eventSources = () => enabledSources().filter((s) => s.events);
 
 /** Sources are enabled by config, not by code change (Epic 2 C8). */
 export function enabledSources() {
-  const configured = (process.env.ROAM_SOURCES || 'fixtures,osm,google,tripadvisor,ticketmaster')
+  const configured = (process.env.ROAM_SOURCES || 'fixtures,osm,google,tripadvisor,ticketmaster,seatgeek,predicthq,datathistle,scout')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);

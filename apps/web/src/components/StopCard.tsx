@@ -16,7 +16,7 @@ import { VenuePhoto } from './VenuePhoto';
 
 const CATEGORY_ICON: Record<string, string> = { restaurant: '🍽', cafe: '☕', pub: '🍺', bar: '🍸', attraction: '🏛', event: '🎟' };
 const CATEGORY_LABEL: Record<string, string> = { restaurant: 'Restaurant', cafe: 'Café', pub: 'Pub', bar: 'Bar', attraction: 'Attraction', event: 'Event' };
-const SOURCE_LABEL: Record<string, string> = { google: 'Google', tripadvisor: 'Tripadvisor', osm: 'OpenStreetMap', fixtures: 'sample data', ticketmaster: 'Ticketmaster' };
+export const SOURCE_LABEL: Record<string, string> = { google: 'Google', tripadvisor: 'Tripadvisor', osm: 'OpenStreetMap', fixtures: 'sample data', ticketmaster: 'Ticketmaster', seatgeek: 'SeatGeek', predicthq: 'PredictHQ', datathistle: 'Data Thistle', scout: 'the local scout' };
 const MODE_WORD: Record<string, string> = { walking: 'on foot', cycling: 'by bike', driving: 'by car', transit: 'by public transport' };
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

@@ -104,7 +104,7 @@ export type Budget = {
 export type Review = { text: string; rating: number | null; author: string | null; authorUri?: string | null; when: string | null };
 
 /** A licensed photo: a reference the API proxies, plus the author credit the licence requires on screen. */
-export type VenuePhotoRef = { ref: string; attribution?: string };
+export type VenuePhotoRef = { ref?: string; url?: string; attribution?: string };
 
 export type Venue = {
   venueRef: string; source: string; sourcePlaceId: string; name: string; category: string;

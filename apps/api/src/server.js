@@ -50,6 +50,10 @@ app.get('/api/sources', (_req, res) => {
       { key: 'google', label: 'Google Places + Routes', env: 'GOOGLE_MAPS_API_KEY' },
       { key: 'tripadvisor', label: 'Tripadvisor', env: 'TRIPADVISOR_API_KEY' },
       { key: 'ticketmaster', label: 'Ticketmaster events', env: 'TICKETMASTER_API_KEY' },
+      { key: 'seatgeek', label: 'SeatGeek events', env: 'SEATGEEK_CLIENT_ID' },
+      { key: 'predicthq', label: 'PredictHQ events (incl. community)', env: 'PREDICTHQ_API_KEY' },
+      { key: 'datathistle', label: 'Data Thistle UK listings', env: 'DATATHISTLE_API_KEY' },
+      { key: 'scout', label: 'Local scout (Claude reads local what\'s-on pages)', env: 'ROAM_LOCAL_SCOUT=on' },
     ].map((a) => ({ ...a, on: enabledSources().some((s) => s.key === a.key) })),
   });
 });
