@@ -215,12 +215,15 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
       {plan?.trip ? (
         <Card>
           <Text style={type.h3}>
-            {plan.trip.origin.label}{plan.trip.destination ? ` → ${plan.trip.destination.label}` : ' and back'}
+            {plan.journey ? `${plan.journey.to}` : `${plan.trip.origin.label}${plan.trip.destination ? ` → ${plan.trip.destination.label}` : ' and back'}`}
           </Text>
           <Text style={type.small}>
-            {clock(plan.trip.departAt)} – {clock(plan.trip.returnAt)} · {plan.trip.travelMode}
+            {plan.date ? `${new Date(`${plan.date}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })} · ` : ''}
+            {clock(plan.trip.departAt)} – {clock(plan.trip.returnAt)} there · {plan.trip.travelMode}
             {plan.reach ? ` · reach ~${plan.reach.maxTravelMinutes} min (estimated)` : ''}
           </Text>
+          {plan.journey && plan.journey.minutes > 20 ? <Text style={type.small}>Getting there: {plan.journey.from} → {plan.journey.to}, about {minutes(plan.journey.minutes)} by {plan.journey.mode} (estimated) — not counted in your time there.</Text> : null}
+          {plan.anchor ? <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>Fixed: {plan.anchor.name}{plan.anchor.start_time ? ` at ${plan.anchor.start_time}` : ''} · {plan.anchor.place.label}</Text> : null}
           <Stepper
             label="Time we have"
             value={Math.round((new Date(plan.trip.returnAt).getTime() - new Date(plan.trip.departAt).getTime()) / 60000)}
@@ -396,7 +399,7 @@ function StopRow({ stop, dim, pinned, busy, onLike, onDislike }: {
         <Row>
           <Text style={styles.stopPos}>{stop.position}</Text>
           <Text style={[type.h3, { flex: 1 }]} numberOfLines={2}>
-            {CATEGORY_ICON[stop.category] ?? '•'} {stop.name}
+            {stop.fixed ? '📌 ' : CATEGORY_ICON[stop.category] ?? '•'} {stop.name}{stop.fixed ? ' (fixed)' : ''}
           </Text>
         </Row>
         <Text style={type.small}>

@@ -66,11 +66,13 @@ function simulate(trip, sequence) {
     clock += travel * 60_000;
     let wait = 0;
     if (isEvent(stop)) {
-      const start = new Date(stop.startsAt).getTime();
+      // A fixed booking (your show) is arrived at 15 minutes early and never late.
+      const early = stop.fixed ? 15 * 60_000 : 0;
+      const start = new Date(stop.startsAt).getTime() - early;
       const lateBy = (clock - start) / 60_000;
-      if (lateBy > EVENT_LATE_TOLERANCE_MINUTES) return null;
+      if (lateBy > (stop.fixed ? 0 : EVENT_LATE_TOLERANCE_MINUTES)) return null;
       wait = Math.max(0, Math.round((start - clock) / 60_000));
-      clock = Math.max(clock, start);
+      clock = Math.max(clock, start) + early;
     }
     const arriveAt = new Date(clock);
     clock += stop.dwellMinutes * 60_000;
@@ -210,7 +212,7 @@ export function composeOptions({
 
   const withDwell = (c, scale) => ({
     ...c,
-    dwellMinutes: isEvent(c) ? c.baseDwell : Math.max(MIN_DWELL, Math.round(c.baseDwell * intensityDwell * scale)),
+    dwellMinutes: isEvent(c) || c.fixed ? c.baseDwell : Math.max(MIN_DWELL, Math.round(c.baseDwell * intensityDwell * scale)),
   });
 
   const evaluate = (stops) => {
@@ -229,14 +231,16 @@ export function composeOptions({
     return !!budget && budget.remainingMinutes >= 0 && budget.fillRatio <= target + 0.1;
   };
 
-  const quotas = [
-    { pred: isActivity, need: minActivities },
-    { pred: isFood, need: minFood },
-  ];
   // No second sit-down meal unless the day actually reaches dinner time.
   const dayStartH = hourOf(trip.depart_at);
   const dayEndH = hourOf(trip.return_at);
   const mealSlots = MEAL_WINDOWS.filter(([a, b]) => dayEndH >= a + 0.75 && dayStartH <= b).length;
+  // "Somewhere to eat" means a meal when the day spans a mealtime; a café only counts otherwise.
+  const foodQuotaPred = mealSlots > 0 ? isMeal : isFood;
+  const quotas = [
+    { pred: (c) => isActivity(c) && !c.fixed, need: minActivities },
+    { pred: foodQuotaPred, need: minFood },
+  ];
   const mealCapOk = (stops) => stops.filter(isMeal).length <= Math.max(1, mealSlots);
   const shortfallOf = (stops) => quotas.reduce((s, q) => s + Math.max(0, q.need - stops.filter(q.pred).length), 0);
 
@@ -311,6 +315,7 @@ export function composeOptions({
       startsAt: s.startsAt ?? null,
       endsAt: s.endsAt ?? null,
       pinned: pinned.includes(s.key),
+      fixed: Boolean(s.fixed),
     }));
 
     options.push({

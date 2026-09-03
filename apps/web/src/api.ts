@@ -125,7 +125,7 @@ export type Visit = {
 export type OptionStop = {
   id: string; position: number; venueRef: string; name: string; category: string; lat: number; lng: number;
   dwellMinutes: number; waitMinutes?: number; travelFromPrevMinutes: number; arriveAt?: string; leaveAt?: string;
-  reasons: Reason[]; justification: string | null; startsAt: string | null; endsAt: string | null; pinned: boolean; uniqueToThisOption?: boolean;
+  reasons: Reason[]; justification: string | null; startsAt: string | null; endsAt: string | null; pinned: boolean; fixed?: boolean; uniqueToThisOption?: boolean;
 };
 
 export type TripOption = {
@@ -162,7 +162,9 @@ export type SuggestedPreference = { member: string | null; kind: 'like' | 'disli
 export type Spend = { session_calls: number; session_cost_usd: number; month_calls: number; month_cost_usd: number; sessionBound: number; householdMonthlyBound: number };
 
 export type PlanResponse = {
-  sessionId: string; dayId?: string | null; date?: string; reply: string | null; intent?: Record<string, any>; missing?: string[]; trip?: Trip;
+  sessionId: string; dayId?: string | null; date?: string | null; reply: string | null;
+  journey?: { from: string; to: string; minutes: number; mode: string } | null;
+  anchor?: { name: string; start_time: string | null; duration_minutes: number | null; kind: string; place: Place } | null; intent?: Record<string, any>; missing?: string[]; trip?: Trip;
   options: TripOption[];
   selection?: { pinned: string[]; excluded: string[]; chosenOptionId: string | null };
   constraints?: { minActivities: number; minFood: number };

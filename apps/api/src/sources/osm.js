@@ -150,9 +150,16 @@ export const osmSource = {
       if (['restaurant', 'cafe', 'pub', 'bar', 'food'].includes(c)) groups.add('food');
       if (['attraction', 'event', 'things'].includes(c)) groups.add('things');
     }
-    const data = await overpass(buildQuery({
-      center, radiusM: Math.min(radiusKm, 25) * 1000, categories: [...groups], query: query?.trim(), limit,
-    }));
+    // Dense cities time out at large radii; shrink and retry rather than return nothing.
+    let data = null;
+    let r = Math.min(radiusKm, 25);
+    let lastErr = null;
+    while (r >= 0.75 && !data) {
+      try {
+        data = await overpass(buildQuery({ center, radiusM: r * 1000, categories: [...groups], query: query?.trim(), limit }));
+      } catch (err) { lastErr = err; r /= 2; }
+    }
+    if (!data) throw lastErr;
     const venues = (data.elements || []).map(toVenue).filter(Boolean);
     // Dedupe identical names at the same spot (a node and its building way).
     const seen = new Map();

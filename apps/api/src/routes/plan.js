@@ -14,7 +14,7 @@ import { parseStructured, spendSummary, SpendBoundError } from '../claude.js';
 import { searchAllSources } from '../sources/index.js';
 import { resolvePlace, KNOWN_PLACES } from '../sources/fixtures.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
-import { deriveCatchment, reachRadiusKm, TRAVEL_MODES } from '../domain/travel.js';
+import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, TRAVEL_MODES } from '../domain/travel.js';
 import { applyConstraints } from '../domain/ranking.js';
 import { composeOptions } from '../domain/options.js';
 import { paceOf, travelLimitFor, maxReachMinutes } from '../domain/pace.js';
@@ -32,8 +32,17 @@ const TripIntent = z.object({
   understood: z.boolean().describe('False if the message is not about planning an outing'),
   origin: z.string().nullable().describe('Where the outing starts, as the user said it; null if not said'),
   destination: z.string().nullable().describe('Where the outing ends, if different from the origin; null if not said or if they return to the origin'),
-  duration_minutes: z.number().int().nullable().describe('How long they have, in minutes; null if not said'),
-  depart_time: z.string().nullable().describe('Departure clock time as HH:MM 24h if said, else null'),
+  duration_minutes: z.number().int().nullable().describe('How long they have AT the destination, in minutes, not counting the journey there; null if not said'),
+  date: z.string().nullable().describe('The date of the outing as YYYY-MM-DD, resolved from words like "Saturday" or "tomorrow" using today\'s date; null if not said'),
+  depart_time: z.string().nullable().describe('Departure clock time as HH:MM 24h if the user said when they leave; null otherwise (a show time is NOT a departure time)'),
+  anchor: z.object({
+    name: z.string().describe('The fixed commitment the outing is planned around, e.g. "Paddington the Musical"'),
+    place_text: z.string().nullable().describe('Where it is, as precisely as you know — venue name and city (e.g. "Savoy Theatre, London"); null if you do not know'),
+    start_time: z.string().nullable().describe('HH:MM 24h start, if said'),
+    duration_minutes: z.number().int().nullable().describe('Typical length: a West End show ~150, a football match ~120, a cinema film ~120'),
+    kind: z.enum(['theatre', 'cinema', 'sports-game', 'live-music', 'museum', 'booking', 'other']),
+  }).nullable().describe('A show, match, booking or appointment with a fixed time that the day must fit around; null if none'),
+  wants_events: z.boolean().describe('True if they asked what events or special things are on'),
   travel_mode: z.enum(['walking', 'cycling', 'driving', 'transit']).nullable(),
   min_activities: z.number().int().nullable().describe('Minimum number of things to do (attractions or events), if said'),
   min_food_stops: z.number().int().nullable().describe('Minimum number of places to eat or drink, if said'),
@@ -76,6 +85,8 @@ const Refinement = z.object({
 const INTERPRET_SYSTEM = `You turn what a family says about an outing into a structured trip request.
 
 You are given the household (members, defaults) and a list of place names the app knows. Extract only what was said; do not invent an origin, duration or preferences. If the origin or the duration is missing, say so in the reply by asking for that one thing, briefly and warmly. Durations like "three hours" become minutes. "From X to Y" means origin X, destination Y. "Around here", "near us" and "home" mean the origin is Home. If the user names a place the app does not know, keep their wording in origin/destination anyway.
+
+Dates: resolve "Saturday", "tomorrow", "next Friday" to a YYYY-MM-DD from today's date in the context. Durations: "spend three hours there" is time at the destination and excludes travel. A fixed commitment (a show, a match, a booking) with a time is an anchor, not a departure — fill in the anchor with the venue if you know it (well-known productions and teams have known venues), and leave place_text null if you are not sure rather than guessing.
 
 The reply is spoken aloud as well as shown, so keep it to one plain sentence with no lists or markup.`;
 
@@ -156,33 +167,62 @@ function roundUpToQuarter(date) {
 }
 
 /** Turn an intent into a trip row in the database. */
-async function createTripFromIntent({ household, members, intent, origin, destination }) {
-  const depart = intent.depart_time
-    ? (() => { const d = new Date(); const [h, m] = intent.depart_time.split(':').map(Number); d.setHours(h, m, 0, 0); return d; })()
-    : roundUpToQuarter(new Date());
-  const returnAt = new Date(depart.getTime() + intent.duration_minutes * 60_000);
+async function createTripFromIntent({ household, members, intent, origin, destination, anchorPlace }) {
+  const dateStr = intent.date && /^\d{4}-\d{2}-\d{2}$/.test(intent.date) ? intent.date : new Date().toISOString().slice(0, 10);
+  const at = (hhmm) => { const d = new Date(`${dateStr}T00:00:00`); const [h, m] = String(hhmm).split(':').map(Number); d.setHours(h, m || 0, 0, 0); return d; };
+  const duration = intent.duration_minutes;
+  let depart;
+  let returnAt;
+  const anchor = intent.anchor;
+  if (anchor?.start_time) {
+    // The window is time at the destination, wrapped around the fixed commitment.
+    // "Three hours there" around a 2½-hour show means three hours besides the
+    // show — otherwise there would be nothing to plan. Weighted before it.
+    const start = at(anchor.start_time);
+    const len = anchor.duration_minutes ?? 120;
+    const spare = Math.max(60, duration);
+    const before = Math.round(spare * 0.6);
+    depart = new Date(start.getTime() - before * 60_000);
+    returnAt = new Date(start.getTime() + (len + (spare - before)) * 60_000);
+  } else if (intent.depart_time) {
+    depart = at(intent.depart_time);
+    returnAt = new Date(depart.getTime() + duration * 60_000);
+  } else {
+    depart = intent.date ? at('10:00') : roundUpToQuarter(new Date());
+    returnAt = new Date(depart.getTime() + duration * 60_000);
+  }
   const mode = intent.travel_mode && TRAVEL_MODES.includes(intent.travel_mode) ? intent.travel_mode : 'transit';
   const intensity = intent.intensity && INTENSITY_TARGETS[intent.intensity] ? intent.intensity : household.default_intensity;
+  // Where the day happens: the anchor's venue, else the destination, else the origin.
+  const base = anchorPlace ?? destination ?? origin;
+  const title = anchor ? `${anchor.name}` : destination ? `${origin.label} → ${destination.label}` : `Out from ${origin.label}`;
 
   const { rows } = await query(
-    `insert into trips (household_id, title, origin_label, origin_lat, origin_lng,
+    `insert into trips (household_id, kind, title, origin_label, origin_lat, origin_lng,
                         destination_label, destination_lat, destination_lng,
-                        depart_at, return_at, travel_mode, intensity)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
+                        depart_at, return_at, travel_mode, intensity,
+                        start_date, end_date, base_label, base_lat, base_lng, base_kind, day_start, day_end, has_car)
+     values ($1,'outing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$13::date,$14,$15,$16,$17,$19::time,$20::time,$18) returning *`,
     [
-      household.id,
-      destination ? `${origin.label} → ${destination.label}` : `Out from ${origin.label}`,
+      household.id, title,
       origin.label, origin.lat, origin.lng,
-      destination?.label ?? null, destination?.lat ?? null, destination?.lng ?? null,
+      (destination ?? anchorPlace)?.label ?? null, (destination ?? anchorPlace)?.lat ?? null, (destination ?? anchorPlace)?.lng ?? null,
       depart.toISOString(), returnAt.toISOString(), mode, intensity,
+      dateStr, base.label, base.lat, base.lng, base === origin ? 'home' : 'other', mode === 'driving',
+      depart.toTimeString().slice(0, 5), returnAt.toTimeString().slice(0, 5),
     ],
   );
   const trip = rows[0];
+  const { rows: dayRows } = await query(
+    'insert into trip_days (trip_id, date, intensity, travel_mode, start_time, end_time) values ($1, $2, $3, $4, $5::time, $6::time) returning *',
+    [trip.id, dateStr, intensity, mode, depart.toTimeString().slice(0, 5), returnAt.toTimeString().slice(0, 5)],
+  );
+  trip.day = dayRows[0];
 
   // Where the outing "is", for grouping trips by country and place later.
-  const anchor = destination ?? origin;
+  const placeAnchor = anchorPlace ?? destination ?? origin;
   try {
-    const where = anchor.countryCode ? anchor : await reverseGeocode(anchor.lat, anchor.lng);
+    const where = placeAnchor.countryCode ? placeAnchor : await reverseGeocode(placeAnchor.lat, placeAnchor.lng);
     if (where) {
       await query('update trips set country = $2, country_code = $3, locality = $4 where id = $1', [trip.id, where.country, where.countryCode, where.locality]);
       Object.assign(trip, { country: where.country, country_code: where.countryCode, locality: where.locality });
@@ -210,9 +250,12 @@ async function retrievePool({ household, trip, attendees, intent, sessionId }) {
 
   const wantsText = (intent.wants || []).join(' ');
   const originPoint = { lat: trip.origin_lat, lng: trip.origin_lng };
+  // The pool is what's around the base within a comfortable hop, not the whole
+  // reach: a day in central London is a 2–3 km affair; a driving day a bit more.
+  const hopRadiusKm = Math.min(reachRadiusKm(trip.travel_mode, maxTravelMinutes), trip.travel_mode === 'driving' ? 10 : trip.travel_mode === 'cycling' ? 5 : 3);
   const { venues, degraded, sourcesQueried } = await searchAllSources({
     center: originPoint,
-    radiusKm: reachRadiusKm(trip.travel_mode, maxTravelMinutes),
+    radiusKm: hopRadiusKm,
     categories: [],
     query: '',
     includeEvents: true,
@@ -317,6 +360,9 @@ async function respond(res, { session, household, reply, extra = {} }) {
   res.json({
     sessionId: session.id,
     dayId: session.state.dayId ?? null,
+    date: session.state.date ?? null,
+    journey: session.state.journey ?? null,
+    anchor: session.state.anchor ?? null,
     trip: publicTrip(trip),
     reply,
     options,
@@ -388,30 +434,62 @@ router.post('/start', async (req, res, next) => {
 
     const origin = await resolveSpokenPlace(merged.origin, household);
     const destination = merged.destination ? await resolveSpokenPlace(merged.destination, household) : null;
+    // A fixed commitment: find its venue (near the destination if we have one).
+    let anchorPlace = null;
+    if (merged.anchor?.place_text) {
+      try { const [hit] = await geocode(merged.anchor.place_text, { limit: 1, near: destination ?? origin }); if (hit) anchorPlace = { label: hit.label, lat: hit.lat, lng: hit.lng, country: hit.country, countryCode: hit.countryCode, locality: hit.locality }; } catch { /* ask below */ }
+    }
     const missing = [];
     if (!merged.origin) missing.push('origin');
     else if (!origin) missing.push('origin_unknown');
     if (!merged.duration_minutes) missing.push('duration');
     if (merged.destination && !destination) missing.push('destination_unknown');
+    if (merged.anchor && !anchorPlace) missing.push('anchor_place');
 
     if (!intent.understood || missing.length) {
       let reply = intent.reply;
       if (missing.includes('origin_unknown')) reply = `I couldn't place "${merged.origin}" — try the town or a fuller address, or set your home address in Settings and just say "home".`;
       if (missing.includes('destination_unknown')) reply = `I couldn't place "${merged.destination}" — try the full name with the town, like "the British Museum, London".`;
+      if (missing.includes('anchor_place')) reply = merged.anchor?.place_text
+        ? `I couldn't find "${merged.anchor.place_text}" on the map — which venue is ${merged.anchor.name} at?`
+        : `Which venue is ${merged.anchor.name} at? Tell me the theatre or ground and the town, and I'll plan around it.`;
       state.transcript.push({ role: 'assistant', text: reply });
       await saveSession(session.id, state, null);
       return res.json({ sessionId: session.id, reply, intent: merged, missing, options: [] });
     }
 
-    const { trip, attending } = await createTripFromIntent({ household, members, intent: merged, origin, destination });
+    const { trip, attending } = await createTripFromIntent({ household, members, intent: merged, origin, destination, anchorPlace });
     const attendees = toAttendees(attending);
-    const pool = await retrievePool({ household, trip, attendees, intent: merged, sessionId: session.id });
+    // Plan the day where it happens: the pool is what's around the base, and
+    // the journey there is reported separately rather than eating the window.
+    const dayTrip = dayAsTrip(trip, trip.day);
+    const pool = await retrievePool({ household, trip: dayTrip, attendees, intent: merged, sessionId: session.id });
 
+    if (merged.anchor && anchorPlace) {
+      const startsAt = dayTrip.depart_at && merged.anchor.start_time
+        ? new Date(`${trip.day.date}T${merged.anchor.start_time.padStart(5, '0')}:00`).toISOString()
+        : dayTrip.depart_at;
+      const endsAt = new Date(new Date(startsAt).getTime() + (merged.anchor.duration_minutes ?? 120) * 60_000).toISOString();
+      const key = `anchor:${merged.anchor.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+      pool.candidates.unshift({
+        key, source: 'anchor', sourcePlaceId: key.split(':')[1], name: merged.anchor.name, category: 'event',
+        cuisines: [], experiences: [merged.anchor.kind === 'other' || merged.anchor.kind === 'booking' ? 'theatre' : merged.anchor.kind], allergens: [], dietaryOptions: undefined,
+        priceLevel: null, rating: null, goodForChildren: null, lat: anchorPlace.lat, lng: anchorPlace.lng, dishes: [],
+        justification: null, matchedDish: null, startsAt, endsAt, travelMinutes: 0, score: 1000, fixed: true,
+        reasons: [{ kind: 'want', text: `Your ${merged.anchor.kind === 'theatre' ? 'show' : merged.anchor.kind === 'sports-game' ? 'match' : 'booking'} at ${merged.anchor.start_time ?? ''}`.trim() }],
+        venueName: anchorPlace.label,
+      });
+    }
+
+    state.dayId = trip.day.id;
+    state.anchor = merged.anchor && anchorPlace ? { ...merged.anchor, place: anchorPlace } : null;
+    state.journey = { from: trip.origin_label, to: trip.base_label, minutes: estimateTravelMinutes({ lat: trip.origin_lat, lng: trip.origin_lng }, { lat: trip.base_lat, lng: trip.base_lng }, trip.travel_mode), mode: trip.travel_mode };
     state.pool = pool.candidates;
     state.excludedByAllergen = pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons }));
-    state.minActivities = merged.min_activities ?? 0;
-    state.minFood = merged.min_food_stops ?? 0;
-    state.pinned = [];
+    const defaults = { relaxed: [1, 0], balanced: [1, 1], packed: [2, 1] }[trip.intensity] ?? [1, 1];
+    state.minActivities = merged.min_activities ?? defaults[0];
+    state.minFood = merged.min_food_stops ?? defaults[1];
+    state.pinned = state.anchor ? [pool.candidates[0].key] : [];
     state.excluded = [];
     state.chosenOptionId = null;
     state.suggestedPreferences = [];
@@ -424,7 +502,7 @@ router.post('/start', async (req, res, next) => {
     session.trip_id = trip.id;
     await respond(res, {
       session, household, reply: intent.reply,
-      extra: { intent: merged, missing: [], attending: state.attending, reach: { maxTravelMinutes: pool.maxTravelMinutes, estimated: true }, degradedSources: pool.degraded },
+      extra: { intent: merged, missing: [], attending: state.attending, reach: { maxTravelMinutes: pool.maxTravelMinutes, estimated: true }, degradedSources: pool.degraded, journey: state.journey, anchor: state.anchor, date: trip.day.date },
     });
   } catch (err) {
     next(err);

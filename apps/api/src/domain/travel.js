@@ -37,7 +37,11 @@ export function kmBetween(a, b) {
 
 export function estimateTravelMinutes(from, to, mode = 'driving') {
   const profile = MODE_PROFILE[mode] || MODE_PROFILE.driving;
-  const km = kmBetween(from, to) * profile.detourFactor;
+  const straight = kmBetween(from, to);
+  const km = straight * profile.detourFactor;
+  // Beyond city scale, transit means rail: faster, with a change or two.
+  if (mode === 'transit' && straight > 8) return Math.round((km / 45) * 60 + 18);
+  if (mode === 'driving' && straight > 15) return Math.round((km / 55) * 60 + profile.fixedOverheadMinutes);
   return Math.round((km / profile.kmh) * 60 + profile.fixedOverheadMinutes);
 }
 
