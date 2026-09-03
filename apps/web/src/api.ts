@@ -111,7 +111,7 @@ export type Venue = {
   cuisines: string[]; experiences: string[]; allergens: string[]; dietaryOptions?: string[];
   priceLevel: number | null; rating: number | null; ratingCount?: number | null; goodForChildren: boolean | null; menuForChildren?: boolean | null; lat: number; lng: number;
   dishes: { concept: string; name: string; comment?: string; veg?: boolean }[];
-  website?: string | null; openingHours?: string | null; address?: string | null; attribution?: string;
+  website?: string | null; phone?: string | null; openingHours?: string | null; address?: string | null; attribution?: string;
   summary?: string | null; mapsUrl?: string | null; externalUrl?: string | null; reviews?: Review[]; chain?: boolean; brand?: string | null;
   distanceKm?: number;
   photos?: VenuePhotoRef[];
@@ -153,9 +153,31 @@ export type TripOption = {
 };
 
 export type TripKind = 'outing' | 'trip';
-export type DayStop = { id: string; position: number; venueRef: string; name: string; lat: number | null; lng: number | null; dwellMinutes: number; startTime: string | null; visit: Visit | null };
+export type DayStop = { id: string; position: number; venueRef: string; name: string; lat: number | null; lng: number | null; dwellMinutes: number; startTime: string | null; visit: Visit | null; bookingStatus?: ShortlistStatus | null; bookingRef?: string | null; legMode?: LegMode | null };
 export type TripDay = { id: string; date: string; intensity: 'relaxed' | 'balanced' | 'packed'; travelMode: 'walking' | 'cycling' | 'driving' | 'transit'; startTime: string; endTime: string; notes: string | null; slots: { slot: 'morning' | 'afternoon' | 'evening'; stops: DayStop[] }[]; budget: Budget };
-export type ShortlistItem = { id: string; venueRef: string; name: string; kind: 'food' | 'activity' | 'other'; category: string | null; lat: number | null; lng: number | null; venue: Partial<Venue> | null; note: string | null; mustDo: boolean; preferredDayId: string | null; scheduled: boolean };
+export type ShortlistStatus = 'to_call' | 'booked' | 'no_booking' | 'full' | 'set_aside';
+export type LegMode = 'walking' | 'transit' | 'driving' | 'taxi';
+export type ShortlistItem = {
+  id: string; venueRef: string; name: string; kind: 'food' | 'activity' | 'other'; category: string | null; lat: number | null; lng: number | null; venue: Partial<Venue> | null; note: string | null; mustDo: boolean; preferredDayId: string | null; scheduled: boolean;
+  // The working state: booking status, order, length, way of travelling to it (owner, 3 Sep 2026).
+  status: ShortlistStatus; bookedTime: string | null; partySize: string | null; bookingRef: string | null; statusNote: string | null; statusOn: string | null; position: number | null; dwellMinutes: number | null; legMode: LegMode | null; dayId: string | null;
+};
+export type JourneyLeg = { from: { label: string; lat: number; lng: number }; mode: LegMode; minutes: number; estimated: boolean; leaveBy: string; options: Partial<Record<LegMode, { minutes: number; estimated: boolean }>> };
+export type JourneyStop = {
+  id: string; venueRef: string; name: string; category: string | null; kind: string | null; lat: number | null; lng: number | null; venue: Partial<Venue> | null;
+  status: ShortlistStatus; bookedTime: string | null; partySize: string | null; bookingRef: string | null; note: string | null; mustDo: boolean; position: number; dwellMinutes: number; dwellDefault: boolean;
+  fixed: boolean; fixedAt: string | null; arriveAt: string; leaveAt: string; spareBefore: number | null; lateBy: number | null; mustLeaveBy: string; windowMinutes: number;
+  legIn: JourneyLeg; legModeChosen: LegMode | null;
+};
+export type JourneyBlocker = { kind: 'to_call' | 'clash' | 'late' | 'over'; text: string; ids: string[] };
+export type Journey = {
+  source: 'shortlist' | 'day'; dayId: string; date: string; hasCar: boolean; timezone: string; startAt: string; endAt: string; home: { label: string; lat: number; lng: number }; homeAt: string;
+  stops: JourneyStop[]; legHome: JourneyLeg | null; fits: boolean; spareMinutes: number; overBy: number; tipping: { id: string; name: string } | null;
+  blockers: JourneyBlocker[]; canSave: boolean; estimated: boolean; routing: string; lookups: number;
+  others?: { id: string; name: string; category: string | null; status: ShortlistStatus; statusNote: string | null; statusOn: string | null }[];
+};
+export type DirectionStep = { text: string; minutes: number; meters: number | null; travelMode: string; transit: { line: string | null; agency: string | null; vehicle: string | null; color: string | null; textColor: string | null; headsign: string | null; stopCount: number | null; from: string | null; to: string | null; departs: string | null; arrives: string | null } | null };
+export type Directions = { mode: LegMode; minutes: number; meters: number | null; encodedPolyline: string | null; steps: DirectionStep[]; estimated: boolean; source: string };
 export type AtlasCity = { name: string; places: number; been: number; special: number; trips: number; lastSeen: string | null; lat: number | null; lng: number | null; created: boolean };
 export type AtlasCountry = { code: string; name: string; places: number; been: number; cities: AtlasCity[] };
 export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number };
@@ -196,11 +218,21 @@ export type PlanResponse = {
   browse?: BrowseItem[]; eventsSource?: string | null; resumed?: boolean;
   // A question the planner is asking instead of guessing; each choice is tapped or said in the same words.
   question?: PlanQuestion | null;
+  // The rows are the screen: everything said so far in its slot; the checks are what the planner is not sure of.
+  rows?: PlanRow[] | null;
+  checks?: PlanCheck[];
+  answered?: { id: string; text: string; answer: string }[];
+  ready?: boolean;
   // An overnight stay was set up as a dated trip: open it in Trips.
   handoff?: { tripId: string; title: string } | null;
 };
 
-export type PlanQuestion = { kind: 'place' | 'stay' | 'attending' | 'open'; field?: string | null; text: string; choices: { label: string; say: string }[] };
+export type PlanQuestion = { kind: 'place' | 'stay' | 'attending' | 'open' | 'duration'; field?: string | null; text: string; choices: { label: string; say: string }[] };
+export type PlanCheck = PlanQuestion & { id: string; skippable: boolean };
+export type PlanRowKey = 'from' | 'to' | 'when' | 'who' | 'stay' | 'do' | 'eat' | 'budget';
+export type PlanRow = { key: PlanRowKey; label: string; value: string | null; detail: string | null; state: 'plain' | 'check' | 'empty' };
+export type Idea = { id: string; title: string; why: string; placeText: string; place: Place | null; travelMinutes: number | null; overnight: boolean; do: string[]; eat: string[] };
+export type IdeaThing = { venueRef: string; name: string; category: string; kind: 'do' | 'eat' | 'see'; rating: number | null; ratingCount: number | null; priceLevel: number | null; distanceKm: number | null; lat: number | null; lng: number | null; reasons: string[] };
 
 export type PlanAction =
   | { type: 'like' | 'unlike' | 'dislike' | 'restore'; stopId: string }
@@ -326,7 +358,11 @@ export const api = {
   shortlistSearch: (tripId: string, p: { q?: string; categories?: string; radiusKm?: number; near?: string; sources?: string }) =>
     request<{ near: Place; radiusKm: number; results: (Venue & { onShortlist: boolean })[]; degradedSources: { source: string; error: string }[] }>(`/api/trips/${tripId}/shortlist/search${qs(p)}`),
   addToShortlist: (tripId: string, body: { venueRef: string; venueLabel: string; kind?: string; category?: string | null; lat?: number | null; lng?: number | null; venue?: Partial<Venue>; note?: string; mustDo?: boolean; preferredDayId?: string | null }) => post<TripDetail>(`/api/trips/${tripId}/shortlist`, body),
-  updateShortlist: (tripId: string, itemId: string, body: { note?: string; mustDo?: boolean; preferredDayId?: string | null; kind?: string }) => patch<TripDetail>(`/api/trips/${tripId}/shortlist/${itemId}`, body),
+  updateShortlist: (tripId: string, itemId: string, body: { note?: string; mustDo?: boolean; preferredDayId?: string | null; kind?: string; status?: ShortlistStatus; bookedTime?: string | null; partySize?: string | null; bookingRef?: string | null; statusNote?: string | null; statusOn?: string | null; dwellMinutes?: number | null; legMode?: LegMode | '' | null; dayId?: string | null }) => patch<TripDetail>(`/api/trips/${tripId}/shortlist/${itemId}`, body),
+  reorderShortlist: (tripId: string, itemIds: string[]) => post<TripDetail>(`/api/trips/${tripId}/shortlist/reorder`, { itemIds }),
+  journey: (tripId: string, p: { dayId?: string; source?: 'shortlist' | 'day' } = {}) => request<Journey>(`/api/trips/${tripId}/journey${qs(p)}`),
+  saveJourney: (tripId: string, dayId: string, force = false) => post<{ saved: number; dayId: string; trip: TripDetail }>(`/api/trips/${tripId}/journey/save`, { dayId, force }),
+  directions: (tripId: string, p: { from: string; to: string; mode: LegMode; departAt?: string }) => request<Directions>(`/api/trips/${tripId}/directions${qs(p)}`),
   removeFromShortlist: (tripId: string, itemId: string) => del<TripDetail>(`/api/trips/${tripId}/shortlist/${itemId}`),
   addDayStop: (tripId: string, dayId: string, body: { venueRef?: string; name?: string; lat?: number | null; lng?: number | null; category?: string | null; dwellMinutes?: number; slot?: 'morning' | 'afternoon' | 'evening'; startTime?: string; shortlistId?: string }) => post<TripDetail>(`/api/trips/${tripId}/days/${dayId}/stops`, body),
   updateStop: (tripId: string, stopId: string, body: { dayId?: string; slot?: 'morning' | 'afternoon' | 'evening'; startTime?: string; dwellMinutes?: number; position?: number }) => patch<TripDetail>(`/api/trips/${tripId}/stops/${stopId}`, body),
@@ -343,7 +379,12 @@ export const api = {
     post<{ visit: Visit; tripId: string }>(`/api/trips/${tripId}/stops/${stopId}/visit`, body),
 
   // planner
-  planStart: (utterance: string, sessionId?: string | null, sources?: string[] | null, attendingMemberIds?: string[] | null) => post<PlanResponse>('/api/plan/start', { utterance, sessionId: sessionId ?? undefined, sources: sources ?? undefined, attendingMemberIds: attendingMemberIds ?? undefined }),
+  planStart: (utterance: string, sessionId?: string | null, sources?: string[] | null, attendingMemberIds?: string[] | null, extra: { field?: PlanRowKey | null; skip?: string | null } = {}) =>
+    post<PlanResponse>('/api/plan/start', { utterance, sessionId: sessionId ?? undefined, sources: sources ?? undefined, attendingMemberIds: attendingMemberIds ?? undefined, field: extra.field ?? undefined, skip: extra.skip ?? undefined }),
+  planGo: (sessionId: string) => post<PlanResponse>('/api/plan/go', { sessionId }),
+  planPreview: (utterance: string, sessionId?: string | null) => post<{ sessionId: string; rows: PlanRow[] }>('/api/plan/preview', { utterance, sessionId: sessionId ?? undefined }),
+  inspire: (body: { query: string; moods: string[]; maxTravelMinutes: number | null; attendingMemberIds?: string[] | null }) => post<{ ideas: Idea[]; reply: string | null }>('/api/plan/inspire', body),
+  inspireThings: (q: { lat: number; lng: number; label: string }) => request<{ items: IdeaThing[] }>(`/api/plan/inspire/things${qs(q)}`),
   tripSources: (id: string, p: { dayId?: string; sources?: string; scout?: '1' }) => request<SourceTrace>(`/api/plan/trips/${id}/sources${qs(p)}`),
   tripSpend: (id: string) => request<{ calls: number; costUsd: number; byProvider: { provider: string; calls: number; cost_usd: number }[] }>(`/api/trips/${id}/spend`),
   planRefine: (sessionId: string, utterance: string, viewingOptionId?: string | null) => post<PlanResponse>('/api/plan/refine', { sessionId, utterance, viewingOptionId }),

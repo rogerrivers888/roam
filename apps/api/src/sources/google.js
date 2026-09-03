@@ -28,7 +28,7 @@ const SEARCH_FIELDS = [
   'places.goodForChildren', 'places.menuForChildren', 'places.servesVegetarianFood', 'places.reservable', 'places.editorialSummary',
 ].join(',');
 const TEXT_SEARCH_FIELDS = `${SEARCH_FIELDS},contextualContents.justifications`;
-const DETAIL_FIELDS = 'id,displayName,formattedAddress,location,types,primaryType,rating,userRatingCount,priceLevel,regularOpeningHours.weekdayDescriptions,websiteUri,googleMapsUri,photos.name,photos.authorAttributions,goodForChildren,menuForChildren,servesVegetarianFood,reservable,editorialSummary,reviews';
+const DETAIL_FIELDS = 'id,displayName,formattedAddress,location,types,primaryType,rating,userRatingCount,priceLevel,regularOpeningHours.weekdayDescriptions,websiteUri,googleMapsUri,photos.name,photos.authorAttributions,goodForChildren,menuForChildren,servesVegetarianFood,reservable,editorialSummary,reviews,nationalPhoneNumber';
 
 const FOOD_TYPES = ['restaurant', 'cafe', 'bar', 'pub', 'bakery', 'ice_cream_shop', 'coffee_shop'];
 const THING_TYPES = [
@@ -105,6 +105,7 @@ function toVenue(place, justification = null) {
     address: place.formattedAddress ?? null,
     openingHours: place.regularOpeningHours?.weekdayDescriptions?.join(' · ') ?? null,
     website: place.websiteUri ?? null,
+    phone: place.nationalPhoneNumber ?? null,
     mapsUrl: place.googleMapsUri ?? null,
     summary: place.editorialSummary?.text ?? null,
     upmarket: types.includes('fine_dining_restaurant') || null,

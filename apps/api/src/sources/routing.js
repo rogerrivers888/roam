@@ -65,3 +65,42 @@ export async function routeBetween({ from, to, mode = 'driving', departAt = null
   const r = data.routes?.[0];
   return r ? { minutes: secondsToMinutes(r.duration), meters: r.distanceMeters ?? null, encodedPolyline: r.polyline?.encodedPolyline ?? null, estimated: false } : null;
 }
+
+/**
+ * Step-by-step directions for one leg, for the trip's "Directions" drawer:
+ * walking turns, driving, or public transport with the line, headsign, stops
+ * and departure time. Fetched when the drawer opens, never stored.
+ */
+export async function directions({ from, to, mode = 'walking', departAt = null }) {
+  if (!KEY()) return null;
+  const body = {
+    origin: wp(from), destination: wp(to), travelMode: MODE[mode] || 'WALK',
+    ...(mode === 'driving' ? { routingPreference: 'TRAFFIC_AWARE' } : {}),
+    ...(departAt && new Date(departAt) > new Date() ? { departureTime: new Date(departAt).toISOString() } : {}),
+    ...(mode === 'transit' ? { transitPreferences: { routingPreference: 'FEWER_TRANSFERS' } } : {}),
+  };
+  const mask = [
+    'routes.duration', 'routes.distanceMeters', 'routes.polyline.encodedPolyline',
+    'routes.legs.steps.navigationInstruction.instructions', 'routes.legs.steps.distanceMeters', 'routes.legs.steps.staticDuration', 'routes.legs.steps.travelMode',
+    'routes.legs.steps.transitDetails.stopDetails', 'routes.legs.steps.transitDetails.localizedValues', 'routes.legs.steps.transitDetails.headsign',
+    'routes.legs.steps.transitDetails.transitLine', 'routes.legs.steps.transitDetails.stopCount',
+  ].join(',');
+  const data = await post('/directions/v2:computeRoutes', body, mask);
+  const r = data.routes?.[0];
+  if (!r) return null;
+  const steps = (r.legs || []).flatMap((leg) => leg.steps || []).map((s) => {
+    const t = s.transitDetails;
+    const line = t?.transitLine;
+    return {
+      text: s.navigationInstruction?.instructions ?? (t ? `${line?.vehicle?.name?.text ?? 'Transit'} towards ${t.headsign ?? ''}`.trim() : ''),
+      minutes: secondsToMinutes(s.staticDuration), meters: s.distanceMeters ?? null, travelMode: (s.travelMode || 'WALK').toLowerCase(),
+      transit: t ? {
+        line: line?.nameShort || line?.name || null, agency: line?.agencies?.[0]?.name ?? null, vehicle: line?.vehicle?.name?.text ?? null, color: line?.color ?? null, textColor: line?.textColor ?? null,
+        headsign: t.headsign ?? null, stopCount: t.stopCount ?? null,
+        from: t.stopDetails?.departureStop?.name ?? null, to: t.stopDetails?.arrivalStop?.name ?? null,
+        departs: t.localizedValues?.departureTime?.time?.text ?? null, arrives: t.localizedValues?.arrivalTime?.time?.text ?? null,
+      } : null,
+    };
+  });
+  return { minutes: secondsToMinutes(r.duration), meters: r.distanceMeters ?? null, encodedPolyline: r.polyline?.encodedPolyline ?? null, steps, estimated: false };
+}

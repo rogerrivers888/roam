@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, TripDay, TripDetail, TripSummary, Venue, DayStop } from '../api';
@@ -18,6 +18,7 @@ import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
 import { CategoryIcon, Icon } from '../components/Icon';
+import { ShortlistJourney, TripJourneyDay } from '../components/Journey';
 import { getSpeakPref } from './SettingsScreen';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
@@ -36,12 +37,10 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
 }) {
   const { width } = useViewport();
   const wide = width >= 1000;
-  const [country, setCountry] = useState('');
-  const [kind, setKind] = useState<'' | 'trip' | 'outing'>('');
-  const [when, setWhen] = useState<'' | 'upcoming' | 'past'>('');
   const [data, setData] = useState<Awaited<ReturnType<typeof api.trips>> | null>(null);
   const [creating, setCreating] = useState(!!prefill);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [fold, setFold] = useState<'later' | 'past' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,24 +49,75 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
   }, [prefill]);
 
   const load = useCallback(async () => {
-    try { setData(await api.trips({ country: country || undefined, kind: kind || undefined, when: when || undefined })); } catch (e: any) { setError(e.message); }
-  }, [country, kind, when]);
+    try { setData(await api.trips()); } catch (e: any) { setError(e.message); }
+  }, []);
   useEffect(() => { load(); }, [load]);
 
-  const grouped = useMemo(() => {
-    const g = new Map<string, TripSummary[]>();
-    for (const t of data?.trips ?? []) { const k = t.country ?? 'Somewhere'; if (!g.has(k)) g.set(k, []); g.get(k)!.push(t); }
-    return [...g.entries()];
+  // What is about to happen is in view; everything else is folded away (owner, 3 Sep 2026).
+  const buckets = useMemo(() => {
+    const all = data?.trips ?? [];
+    const today = new Date(new Date().toDateString());
+    const soon = new Date(today.getTime() + 14 * 86400000);
+    const startOf = (t: TripSummary) => new Date(t.startDate ? `${t.startDate}T12:00:00` : t.departAt);
+    const asc = (a: TripSummary, b: TripSummary) => +startOf(a) - +startOf(b);
+    return {
+      up: all.filter((t) => !t.isPast && startOf(t) <= soon).sort(asc),
+      later: all.filter((t) => !t.isPast && startOf(t) > soon).sort(asc),
+      past: all.filter((t) => t.isPast).sort((a, b) => asc(b, a)),
+      startOf,
+    };
   }, [data]);
 
   if (openId) return <TripPage id={openId} household={household} onBack={async () => { setOpenId(null); await load(); }} refreshHousehold={refreshHousehold} wide={wide} />;
 
+  const daysAway = (t: TripSummary) => {
+    const n = Math.round((+buckets.startOf(t) - +new Date(new Date().toDateString())) / 86400000);
+    return n <= 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`;
+  };
+  const card = (t: TripSummary, hero: boolean) => (
+    <Pressable key={t.id} onPress={() => setOpenId(t.id)} accessibilityRole="button">
+      <Card style={[{ gap: 4 }, hero && { borderColor: colors.accent, borderWidth: 2 }]}>
+        <Row style={{ justifyContent: 'space-between' }}>
+          <Text style={[type.h3, { flex: 1 }]}>{t.title ?? t.place?.label ?? t.origin.label}</Text>
+          <Text style={type.tiny}>{t.isPast ? 'past' : daysAway(t)}</Text>
+        </Row>
+        <Text style={type.small}>
+          {t.kind === 'trip' ? fmtRange(t.startDate, t.endDate) : `${fmtDate(t.departAt)} · ${clock(t.departAt)}–${clock(t.returnAt)}`}
+          {t.locality ? ` · ${t.locality}` : t.country ? ` · ${t.country}` : ''}{t.base?.label && t.kind === 'trip' ? ` · staying ${t.base.label}` : ''}
+        </Text>
+        <Wrap>
+          {t.kind === 'trip' ? <Chip label={`${t.dayCount} day${t.dayCount === 1 ? '' : 's'}`} /> : null}
+          {t.stopCount ? <Chip label={`${t.stopCount} on the day`} icon="booked" tone="like" /> : <Chip label={t.shortlistCount ? `Shortlist · ${t.shortlistCount}` : 'Nothing shortlisted yet'} icon="list" tone={t.shortlistCount ? 'want' : 'neutral'} />}
+          {t.stopCount && t.shortlistCount > t.stopCount ? <Chip label={`${t.shortlistCount - t.stopCount} kept for later`} icon="shortlist" /> : null}
+          {t.visitCount ? <Chip label={`${t.visitCount} visited`} tone="accent" /> : null}
+          {t.attendees.length ? <Chip label={t.attendees.join(', ')} /> : null}
+          <DeleteTrip id={t.id} onDeleted={load} />
+        </Wrap>
+      </Card>
+    </Pressable>
+  );
+  const foldRow = (key: 'later' | 'past', label: string, list: TripSummary[]) => (
+    list.length ? (
+      <View key={key} style={{ gap: spacing.sm }}>
+        <Pressable onPress={() => setFold((f) => (f === key ? null : key))} style={styles.fold} accessibilityRole="button">
+          <Text style={[type.small, { fontWeight: '700' }]}>{label}</Text>
+          <Text style={[type.tiny, { flex: 1 }]} numberOfLines={1}>{list.slice(0, 3).map((t) => `${t.title ?? t.place?.label ?? t.origin.label}, ${fmtDate(t.startDate ?? t.departAt)}`).join(' · ')}{list.length > 3 ? ` · ${list.length - 3} more` : ''}</Text>
+          <Icon name={fold === key ? 'collapse' : 'more'} size={16} color={colors.inkFaint} />
+        </Pressable>
+        {fold === key ? list.map((t) => card(t, false)) : null}
+      </View>
+    ) : null
+  );
+  const sameDay = new Map<string, number>();
+  for (const t of buckets.up) { const k = t.startDate ?? t.departAt.slice(0, 10); sameDay.set(k, (sameDay.get(k) ?? 0) + 1); }
+  const clashes = [...sameDay.entries()].filter(([, n]) => n > 1);
+
   return (
-    <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={[styles.page, wide && { maxWidth: 760 }]} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={type.title}>Trips</Text>
-          <Text style={type.small}>A day out or a week away. Every trip starts from the places you already know there.</Text>
+          <Text style={type.small}>What's coming up in the next fortnight. Later and past trips are folded below.</Text>
         </View>
         <Button label={creating ? 'Close' : 'New trip'} icon={creating ? 'close' : 'add'} kind={creating ? 'ghost' : 'primary'} onPress={() => { setCreating((c) => !c); onPrefillConsumed?.(); }} />
       </View>
@@ -76,53 +126,13 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
         <NewTripForm household={household} prefill={prefill ?? null} onCreated={async (t) => { setCreating(false); onPrefillConsumed?.(); await load(); setOpenId(t.trip.id); }} />
       ) : null}
 
-      <View style={[styles.split, wide && { flexDirection: 'row', alignItems: 'flex-start' }]}>
-        <View style={[{ gap: spacing.md }, wide && { width: 300 }]}>
-          <Card>
-            <Text style={type.h3}>Where</Text>
-            <Wrap>
-              <Chip label="Everywhere" selected={!country} onPress={() => setCountry('')} />
-              {(data?.countries ?? []).map((c) => <Chip key={c.code} label={`${c.name} (${c.trips})`} selected={country === c.code} onPress={() => setCountry(c.code)} />)}
-            </Wrap>
-            <Text style={type.h3}>What</Text>
-            <Segmented value={kind} options={[{ value: '', label: 'All' }, { value: 'trip', label: 'Trips away' }, { value: 'outing', label: 'Days out' }]} onChange={setKind} />
-            <Text style={type.h3}>When</Text>
-            <Segmented value={when} options={[{ value: '', label: 'All' }, { value: 'upcoming', label: 'Upcoming' }, { value: 'past', label: 'Past' }]} onChange={setWhen} />
-          </Card>
-        </View>
-        <View style={{ flex: 1, gap: spacing.md }}>
-          {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-          {grouped.length === 0 && data ? <Card><Text style={type.small}>No trips here yet. Create one above, or open a city in Places and tap "Plan a trip here".</Text></Card> : null}
-          {grouped.map(([countryName, trips]) => (
-            <View key={countryName} style={{ gap: spacing.sm }}>
-              <Text style={type.h2}>{countryName}</Text>
-              {trips.map((t) => (
-                <Pressable key={t.id} onPress={() => setOpenId(t.id)} accessibilityRole="button">
-                  <Card style={{ gap: 4 }}>
-                    <Row style={{ justifyContent: 'space-between' }}>
-                      <Text style={[type.h3, { flex: 1 }]}>{t.title ?? t.place?.label ?? t.origin.label}</Text>
-                      <Text style={type.tiny}>{t.kind === 'trip' ? 'trip' : 'day out'} · {t.isPast ? 'past' : 'upcoming'}</Text>
-                    </Row>
-                    <Text style={type.small}>
-                      {t.kind === 'trip' ? fmtRange(t.startDate, t.endDate) : `${fmtDate(t.departAt)} · ${clock(t.departAt)}–${clock(t.returnAt)}`}
-                      {t.locality ? ` · ${t.locality}` : ''}{t.base?.label && t.kind === 'trip' ? ` · staying ${t.base.label}` : ''}
-                    </Text>
-                    <Wrap>
-                      {t.kind === 'trip' ? <Chip label={`${t.dayCount} day${t.dayCount === 1 ? '' : 's'}`} /> : null}
-                      <Chip label={`${t.stopCount} planned`} />
-                      {t.shortlistCount ? <Chip label={`${t.shortlistCount} shortlisted`} tone="want" /> : null}
-                      {t.visitCount ? <Chip label={`${t.visitCount} visited`} tone="accent" /> : null}
-                      {t.ratingCount ? <Chip label={`${t.ratingCount} takes`} tone="like" /> : null}
-                      {t.attendees.length ? <Chip label={t.attendees.join(', ')} /> : null}
-                      <DeleteTrip id={t.id} onDeleted={load} />
-                    </Wrap>
-                  </Card>
-                </Pressable>
-              ))}
-            </View>
-          ))}
-        </View>
-      </View>
+      {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+      {data && !data.trips.length ? <Card><Text style={type.small}>No trips yet. Create one above, or open a city in Places and tap "Plan a trip here".</Text></Card> : null}
+      {buckets.up.length ? <Text style={[type.tiny, { letterSpacing: 0.4 }]}>UP NEXT · 14 DAYS</Text> : data && data.trips.length ? <Card><Text style={type.small}>Nothing in the next fortnight.</Text></Card> : null}
+      {buckets.up.map((t, i) => card(t, i === 0))}
+      {clashes.length ? <StatusLine tone="warn">{clashes.map(([k, n]) => `${n} trips on ${fmtDate(k)}`).join(' · ')}. Keep them all?</StatusLine> : null}
+      {foldRow('later', `Later · ${buckets.later.length}`, buckets.later)}
+      {foldRow('past', `Past · ${buckets.past.length}`, buckets.past)}
     </ScrollView>
   );
 }
@@ -274,7 +284,7 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
 // Trip page
 // ---------------------------------------------------------------------------
 
-type Section = 'overview' | 'days' | 'shortlist' | 'stay' | 'map' | 'data';
+type Section = 'shortlist' | 'day' | 'stay' | 'data';
 
 /** Two taps to delete a trip: its days, stops and shortlist go with it; visits and ratings stay (they lose the link). */
 function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<void> }) {
@@ -291,121 +301,94 @@ function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<vo
 
 function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: string; household: HouseholdResponse | null; onBack: () => Promise<void>; refreshHousehold: () => Promise<void>; wide: boolean }) {
   const [d, setD] = useState<TripDetail | null>(null);
-  const [section, setSection] = useState<Section>('days');
+  const [section, setSection] = useState<Section>('shortlist');
   const [dayId, setDayId] = useState<string | null>(null);
+  const [finding, setFinding] = useState(false);
+  const [planning, setPlanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => { try { const t = await api.trip(id); setD(t); setDayId((cur) => cur ?? t.days[0]?.id ?? null); } catch (e: any) { setError(e.message); } }, [id]);
+  const first = useRef(true);
+  const load = useCallback(async () => {
+    try {
+      const t = await api.trip(id); setD(t);
+      setDayId((cur) => cur ?? t.days[0]?.id ?? null);
+      // A saved day opens on the day; otherwise on the shortlist (owner, 3 Sep 2026).
+      if (first.current) { first.current = false; setSection(t.days[0]?.slots.some((sl) => sl.stops.length) ? 'day' : 'shortlist'); }
+    } catch (e: any) { setError(e.message); }
+  }, [id]);
   useEffect(() => { load(); }, [load]);
 
   if (!d) return <ScrollView contentContainerStyle={styles.page}><Button label="Trips" icon="back" kind="ghost" onPress={onBack} style={{ alignSelf: 'flex-start' }} />{error ? <StatusLine tone="warn">{error}</StatusLine> : <Text style={type.small}>Loading…</Text>}</ScrollView>;
   const { trip, days, shortlist, attendees } = d;
   const isTrip = trip.kind === 'trip';
   const day = days.find((x) => x.id === dayId) ?? days[0];
-
-  const pins: MapPin[] = [];
-  if (trip.base) pins.push({ id: 'base', lat: trip.base.lat, lng: trip.base.lng, label: `Staying: ${trip.base.label}`, tone: 'base' });
-  days.forEach((dd, i) => dd.slots.forEach((s) => s.stops.forEach((st) => { if (st.lat != null && st.lng != null) pins.push({ id: st.id, lat: st.lat, lng: st.lng, label: `${fmtDate(dd.date)} · ${st.name}`, tone: 'day', dayIndex: i }); })));
-  shortlist.filter((s) => !s.scheduled && s.lat != null).forEach((s) => pins.push({ id: s.id, lat: s.lat!, lng: s.lng!, label: `Shortlist: ${s.name}`, tone: 'shortlist' }));
+  const stopsOn = (dd: TripDay) => dd.slots.reduce((a, s) => a + s.stops.length, 0);
 
   const header = (
     <View style={{ gap: 4 }}>
       <Button label="Trips" icon="back" kind="ghost" onPress={onBack} style={{ alignSelf: 'flex-start' }} />
       <Text style={type.title}>{trip.title ?? trip.place?.label ?? trip.origin.label}</Text>
       <Text style={type.small}>
-        {isTrip ? fmtRange(trip.startDate, trip.endDate) : `${fmtDate(trip.departAt)} · ${clock(trip.departAt)}–${clock(trip.returnAt)}`}
+        {isTrip ? fmtRange(trip.startDate, trip.endDate) : fmtDate(trip.departAt)}
         {trip.locality ? ` · ${trip.locality}${trip.country ? `, ${trip.country}` : ''}` : ''}
-        {isTrip ? ` · ${trip.hasCar ? 'with a car' : 'no car'}` : ` · ${trip.travelMode}`}
+        {trip.base && trip.base.kind !== 'home' ? ` · staying at ${trip.base.label}` : ''}{attendees.length ? ` · ${attendees.map((a) => a.name).join(', ')}` : ''}
       </Text>
-      <Text style={type.small}>{trip.base ? `Staying at ${trip.base.label}` : ''}{attendees.length ? ` · with ${attendees.map((a) => a.name).join(', ')}` : ''}</Text>
     </View>
   );
 
   const sections: { value: Section; label: string }[] = [
-    { value: 'overview', label: 'Overview' }, { value: 'days', label: isTrip ? `Days (${days.length})` : 'The day' },
-    { value: 'shortlist', label: `Shortlist (${shortlist.length})` }, { value: 'stay', label: 'Stay' }, { value: 'map', label: 'Map' },
+    { value: 'shortlist', label: `Shortlist (${shortlist.length})` }, { value: 'day', label: isTrip ? `Days (${days.length})` : 'The day' }, { value: 'stay', label: 'Stay' },
     // Admin only (Settings › Sources), web layout only (owner): what each source returned for a day and where the plan lost it.
     ...(isAdmin() && wide ? [{ value: 'data' as Section, label: 'Data' }] : []),
   ];
 
+  const dayChips = isTrip ? (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
+      {days.map((dd, i) => {
+        const n = stopsOn(dd);
+        const on = dd.id === day?.id;
+        return (
+          <Pressable key={dd.id} onPress={() => setDayId(dd.id)} style={[styles.dayChip, on && { borderColor: memberColors[i % memberColors.length], backgroundColor: colors.surface }]}>
+            <Text style={[type.tiny, { color: memberColors[i % memberColors.length], fontWeight: '700' }]}>DAY {i + 1}</Text>
+            <Text style={type.h3}>{fmtDate(dd.date)}</Text>
+            <Text style={type.tiny}>{n ? `${n} stop${n === 1 ? '' : 's'} saved` : 'nothing saved yet'}</Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  ) : null;
+
   const body = (
     <>
-      {section === 'overview' ? <Overview d={d} onGo={(s, did) => { setSection(s); if (did) setDayId(did); }} pins={pins} /> : null}
-      {section === 'days' ? (
+      {section === 'shortlist' && day ? (
         <View style={{ gap: spacing.md }}>
-          {isTrip ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
-              {days.map((dd, i) => {
-                const n = dd.slots.reduce((a, s) => a + s.stops.length, 0);
-                const on = dd.id === day?.id;
-                return (
-                  <Pressable key={dd.id} onPress={() => setDayId(dd.id)} style={[styles.dayChip, on && { borderColor: memberColors[i % memberColors.length], backgroundColor: colors.surface }]}>
-                    <Text style={[type.tiny, { color: memberColors[i % memberColors.length], fontWeight: '700' }]}>DAY {i + 1}</Text>
-                    <Text style={type.h3}>{fmtDate(dd.date)}</Text>
-                    <Text style={type.tiny}>{n ? `${n} stop${n === 1 ? '' : 's'} · ${dd.intensity}` : 'nothing yet'}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+          {dayChips}
+          <ShortlistJourney d={d} day={day} household={household} wide={wide} onChanged={load} onFind={() => setFinding((v) => !v)} onSaved={async () => { await load(); await refreshHousehold(); setSection('day'); }} />
+          {finding ? <Card style={{ borderColor: colors.accent }}><Row style={{ justifyContent: 'space-between' }}><Text style={type.h3}>Find places</Text><Button label="Close" icon="close" kind="ghost" onPress={() => setFinding(false)} /></Row><ShortlistPanel d={d} onChanged={load} /></Card> : null}
+          {household ? (
+            <View style={{ gap: spacing.sm }}>
+              <Button label={planning ? 'Hide the planner' : 'Plan it for me'} icon="plan" kind="ghost" onPress={() => setPlanning((v) => !v)} />
+              {planning ? <DayPlanner trip={d} day={day} household={household} onChanged={async () => { await load(); await refreshHousehold(); }} /> : null}
+            </View>
           ) : null}
-          {day && household ? <DayPlanner trip={d} day={day} household={household} onChanged={async () => { await load(); await refreshHousehold(); }} /> : null}
         </View>
       ) : null}
-      {section === 'shortlist' ? <ShortlistPanel d={d} onChanged={load} /> : null}
-      {section === 'stay' ? <StayPanel d={d} onChanged={load} onFindNear={() => setSection('shortlist')} /> : null}
+      {section === 'day' && day ? (
+        <View style={{ gap: spacing.md }}>
+          {dayChips}
+          <TripJourneyDay d={d} day={day} wide={wide} onChanged={load} onChangePlan={() => setSection('shortlist')} />
+        </View>
+      ) : null}
+      {section === 'stay' ? <StayPanel d={d} onChanged={load} onFindNear={() => { setSection('shortlist'); setFinding(true); }} /> : null}
       {section === 'data' && wide ? <SourceDataPanel d={d} /> : null}
-      {section === 'map' ? <Card><MapView pins={pins} height={wide ? 560 : 380} /><Text style={type.tiny}>Black: where you're staying · colours: each day's stops · purple: shortlist not yet placed</Text></Card> : null}
     </>
   );
 
   return (
-    <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={[styles.page, wide && { maxWidth: 820 }]} keyboardShouldPersistTaps="handled">
       {header}
       <Segmented value={section} options={sections} onChange={setSection} />
-      {wide && section !== 'map' ? (
-        <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}>
-          <View style={{ flex: 1, minWidth: 0 }}>{body}</View>
-          <View style={{ width: 380 }}>
-            <Card style={{ padding: spacing.sm }}>
-              <MapView pins={section === 'days' && day ? pins.filter((p) => p.tone !== 'day' || (day.slots.some((s) => s.stops.some((st) => st.id === p.id)))) : pins} height={460} />
-              <Text style={type.tiny}>{section === 'days' ? 'This day' : 'Whole trip'} · black = base · purple = shortlist</Text>
-            </Card>
-          </View>
-        </View>
-      ) : body}
+      {body}
     </ScrollView>
-  );
-}
-
-function Overview({ d, onGo, pins }: { d: TripDetail; onGo: (s: Section, dayId?: string) => void; pins: MapPin[] }) {
-  const { trip, days, shortlist } = d;
-  const planned = days.reduce((a, dd) => a + dd.slots.reduce((b, s) => b + s.stops.length, 0), 0);
-  const food = shortlist.filter((s) => s.kind === 'food').length;
-  const act = shortlist.filter((s) => s.kind === 'activity').length;
-  return (
-    <View style={{ gap: spacing.md }}>
-      <View style={styles.statRow}>
-        <Pressable onPress={() => onGo('days')} style={styles.stat}><Text style={type.h2}>{days.length}</Text><Text style={type.tiny}>day{days.length === 1 ? '' : 's'}</Text></Pressable>
-        <Pressable onPress={() => onGo('days')} style={styles.stat}><Text style={type.h2}>{planned}</Text><Text style={type.tiny}>planned stops</Text></Pressable>
-        <Pressable onPress={() => onGo('shortlist')} style={styles.stat}><Text style={type.h2}>{food}</Text><Text style={type.tiny}>restaurants shortlisted</Text></Pressable>
-        <Pressable onPress={() => onGo('shortlist')} style={styles.stat}><Text style={type.h2}>{act}</Text><Text style={type.tiny}>things to do shortlisted</Text></Pressable>
-      </View>
-      {days.map((dd, i) => {
-        const n = dd.slots.reduce((a, s) => a + s.stops.length, 0);
-        return (
-          <Pressable key={dd.id} onPress={() => onGo('days', dd.id)}>
-            <Card style={{ gap: 4, borderLeftWidth: 4, borderLeftColor: memberColors[i % memberColors.length] }}>
-              <Row style={{ justifyContent: 'space-between' }}>
-                <Text style={type.h3}>Day {i + 1} · {fmtDate(dd.date)}</Text>
-                <Text style={type.tiny}>{dd.intensity} · {dd.travelMode}</Text>
-              </Row>
-              <Text style={type.small}>{n ? dd.slots.flatMap((s) => s.stops.map((st) => st.name)).join(' → ') : 'Nothing planned yet — tap to plan.'}</Text>
-            </Card>
-          </Pressable>
-        );
-      })}
-      <Card><MapView pins={pins} height={260} /></Card>
-      {trip.notes ? <Card><Text style={type.small}>{trip.notes}</Text></Card> : null}
-    </View>
   );
 }
 
@@ -790,4 +773,5 @@ const styles = StyleSheet.create({
   react: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   reactText: { fontSize: 16, fontWeight: '700', color: colors.ink },
   star: { width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'center' },
+  fold: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
 });

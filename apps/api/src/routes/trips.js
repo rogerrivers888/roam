@@ -17,6 +17,8 @@ import { upsertHouseholdPlace } from './atlas.js';
 const router = Router();
 const SLOTS = ['morning', 'afternoon', 'evening'];
 const KINDS = ['food', 'activity', 'other'];
+export const SHORTLIST_STATUSES = ['to_call', 'booked', 'no_booking', 'full', 'set_aside'];
+export const LEG_MODES = ['walking', 'transit', 'driving', 'taxi'];
 
 async function loadTrip(tripId) {
   const { rows } = await query('select * from trips where id = $1', [tripId]);
@@ -75,7 +77,7 @@ export async function tripPayload(tripId) {
     query('select * from trip_stops where trip_id = $1 order by position', [tripId]),
     query(`select m.id, m.name, m.is_minor, m.avatar_url from trip_attendees ta join members m on m.id = ta.member_id where ta.trip_id = $1 order by m.is_minor, m.name`, [tripId]),
     query('select id, stop_id from visits where trip_id = $1', [tripId]),
-    query('select * from trip_shortlist where trip_id = $1 order by must_do desc, added_at', [tripId]),
+    query('select * from trip_shortlist where trip_id = $1 order by position nulls last, must_do desc, added_at', [tripId]),
   ]);
   const visitsByStop = new Map();
   for (const v of visitRows) if (v.stop_id) visitsByStop.set(v.stop_id, await visitPayload(v.id));
@@ -100,6 +102,7 @@ export async function tripPayload(tripId) {
         stops: dayStops.filter((s) => (s.slot || 'morning') === slot).map((s) => ({
           id: s.id, position: s.position, venueRef: s.venue_ref, name: s.venue_name, lat: s.lat, lng: s.lng,
           dwellMinutes: s.dwell_minutes, startTime: s.start_time?.slice(0, 5) ?? null, visit: visitsByStop.get(s.id) ?? null,
+          bookingStatus: s.booking_status ?? null, bookingRef: s.booking_ref ?? null, legMode: s.leg_mode ?? null,
         })),
       })),
       budget,
@@ -113,6 +116,9 @@ export async function tripPayload(tripId) {
     shortlist: shortlist.map((s) => ({
       id: s.id, venueRef: s.venue_ref, name: s.venue_label, kind: s.kind, category: s.category, lat: s.lat, lng: s.lng,
       venue: s.venue, note: s.note, mustDo: s.must_do, preferredDayId: s.preferred_day_id, scheduled: scheduledRefs.has(s.venue_ref),
+      // The working state (owner, 3 Sep 2026): booking status, order, length, way of travelling to it.
+      status: s.status ?? 'to_call', bookedTime: s.booked_time?.slice(0, 5) ?? null, partySize: s.party_size ?? null, bookingRef: s.booking_ref ?? null,
+      statusNote: s.status_note ?? null, statusOn: s.status_on ?? null, position: s.position ?? null, dwellMinutes: s.dwell_minutes ?? null, legMode: s.leg_mode ?? null, dayId: s.day_id ?? null,
     })),
     // Legacy single-window view for outings (the Plan screen and older clients).
     stops: stops.map((s) => ({ id: s.id, position: s.position, venueRef: s.venue_ref, name: s.venue_name, lat: s.lat, lng: s.lng, dwellMinutes: s.dwell_minutes, visit: visitsByStop.get(s.id) ?? null })),
@@ -380,8 +386,9 @@ router.post('/:id/shortlist', async (req, res, next) => {
     const kind = KINDS.includes(b.kind) ? b.kind : kindOfCategory(b.category);
     const snapshot = b.venue && ['osm', 'fixtures'].includes(String(b.venueRef).split(':')[0]) ? b.venue : null;
     await query(
-      `insert into trip_shortlist (trip_id, venue_ref, venue_label, kind, category, lat, lng, venue, note, must_do, preferred_day_id)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `insert into trip_shortlist (trip_id, venue_ref, venue_label, kind, category, lat, lng, venue, note, must_do, preferred_day_id, status, position)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, case when $5 in ('attraction','cafe') or $4 = 'other' then 'no_booking' else 'to_call' end,
+               (select coalesce(max(position), 0) + 1 from trip_shortlist where trip_id = $1))
        on conflict (trip_id, venue_ref) do update set note = coalesce(excluded.note, trip_shortlist.note), must_do = excluded.must_do, preferred_day_id = coalesce(excluded.preferred_day_id, trip_shortlist.preferred_day_id)`,
       [trip.id, b.venueRef, b.venueLabel, kind, b.category ?? null, b.lat ?? null, b.lng ?? null, snapshot ? JSON.stringify(snapshot) : null, b.note?.trim() || null, Boolean(b.mustDo), b.preferredDayId ?? null],
     );
@@ -393,9 +400,18 @@ router.post('/:id/shortlist', async (req, res, next) => {
 
 router.patch('/:id/shortlist/:itemId', async (req, res, next) => {
   try {
-    const { note, mustDo, preferredDayId, kind } = req.body || {};
-    await query(`update trip_shortlist set note = coalesce($3, note), must_do = coalesce($4, must_do), preferred_day_id = $5, kind = coalesce($6, kind) where id = $2 and trip_id = $1`,
-      [req.params.id, req.params.itemId, note ?? null, mustDo ?? null, preferredDayId ?? null, KINDS.includes(kind) ? kind : null]);
+    const { note, mustDo, preferredDayId, kind, status, bookedTime, partySize, bookingRef, statusNote, statusOn, dwellMinutes, legMode, dayId } = req.body || {};
+    if (status != null && !SHORTLIST_STATUSES.includes(status)) return res.status(400).json({ error: 'invalid_status' });
+    if (legMode != null && legMode !== '' && !LEG_MODES.includes(legMode)) return res.status(400).json({ error: 'invalid_mode' });
+    await query(`update trip_shortlist set note = coalesce($3, note), must_do = coalesce($4, must_do), preferred_day_id = coalesce($5, preferred_day_id), kind = coalesce($6, kind),
+                   status = coalesce($7, status),
+                   booked_time = case when $7 is not null and $7 <> 'booked' then null else coalesce($8::time, booked_time) end,
+                   party_size = coalesce($9, party_size), booking_ref = coalesce($10, booking_ref), status_note = coalesce($11, status_note),
+                   status_on = case when $7 in ('full', 'set_aside') then coalesce($12::date, current_date) when $7 is not null then null else status_on end,
+                   dwell_minutes = coalesce($13, dwell_minutes), leg_mode = case when $14 = '' then null else coalesce($14, leg_mode) end, day_id = coalesce($15, day_id)
+                 where id = $2 and trip_id = $1`,
+      [req.params.id, req.params.itemId, note ?? null, mustDo ?? null, preferredDayId ?? null, KINDS.includes(kind) ? kind : null,
+       status ?? null, bookedTime ? String(bookedTime).slice(0, 5) : null, partySize ?? null, bookingRef ?? null, statusNote ?? null, statusOn ?? null, dwellMinutes ?? null, legMode ?? null, dayId ?? null]);
     res.json(await tripPayload(req.params.id));
   } catch (err) { next(err); }
 });

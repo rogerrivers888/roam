@@ -6,6 +6,7 @@ import { pool, query } from './db.js';
 import householdRoutes from './routes/household.js';
 import discoverRoutes from './routes/discover.js';
 import tripRoutes from './routes/trips.js';
+import journeyRoutes from './routes/journey.js';
 import planRoutes from './routes/plan.js';
 import conceptRoutes from './routes/concepts.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
@@ -34,6 +35,7 @@ app.get('/health', async (_req, res) => {
 
 app.use('/api/household', householdRoutes);
 app.use('/api/discover', discoverRoutes);
+app.use('/api/trips', journeyRoutes);
 app.use('/api/trips', tripRoutes);
 app.use('/api/plan', planRoutes);
 app.use('/api/concepts', conceptRoutes);
