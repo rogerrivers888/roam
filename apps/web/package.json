@@ -4,11 +4,12 @@
   "private": true,
   "main": "index.ts",
   "scripts": {
-    "start": "expo start",
+    "start": "serve dist -s -l tcp://0.0.0.0:${PORT:-8080} --no-clipboard",
     "web": "expo start --web",
     "ios": "expo start --ios",
     "android": "expo start --android",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "expo export --platform web --output-dir dist"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.15",
@@ -17,7 +18,8 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
-    "react-native-web": "^0.21.2"
+    "react-native-web": "^0.21.2",
+    "serve": "^14.2.6"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
