@@ -34,7 +34,8 @@ const ICONS = {
 
 export type IconName = keyof typeof ICONS;
 
-export function Icon({ name, size = 18, color = colors.inkMuted, fill, strokeWidth = 2 }: {
+// One icon colour per mode (style guide): leaf in light, off-white in dark; Lucide outline at 1.8px.
+export function Icon({ name, size = 18, color = colors.icon, fill, strokeWidth = 1.8 }: {
   name: IconName; size?: number; color?: string; fill?: boolean; strokeWidth?: number;
 }) {
   const Glyph = ICONS[name];
@@ -44,12 +45,12 @@ export function Icon({ name, size = 18, color = colors.inkMuted, fill, strokeWid
 const CATEGORY: Record<string, IconName> = { restaurant: 'restaurant', cafe: 'cafe', pub: 'pub', bar: 'bar', attraction: 'attraction', event: 'event', hotel: 'hotel', lodging: 'hotel' };
 
 /** The icon for a place's category; a pin when the category is unknown. */
-export function CategoryIcon({ category, size = 18, color = colors.inkMuted }: { category?: string | null; size?: number; color?: string }) {
+export function CategoryIcon({ category, size = 18, color = colors.icon }: { category?: string | null; size?: number; color?: string }) {
   return <Icon name={CATEGORY[category ?? ''] ?? 'place'} size={size} color={color} />;
 }
 
 /** A line of small text led by an icon: an address, opening hours, a note about children. */
-export function IconText({ name, children, color = colors.inkMuted, style }: { name: IconName; children: React.ReactNode; color?: string; style?: object }) {
+export function IconText({ name, children, color = colors.icon, style }: { name: IconName; children: React.ReactNode; color?: string; style?: object }) {
   return (
     <View style={styles.line}>
       <View style={styles.lineIcon}><Icon name={name} size={15} color={color} /></View>
@@ -62,7 +63,7 @@ export function IconText({ name, children, color = colors.inkMuted, style }: { n
 export function Rating({ value, children }: { value: number; children?: React.ReactNode }) {
   return (
     <View style={styles.line}>
-      <Icon name="favourite" size={14} color={colors.rating} fill />
+      <Icon name="favourite" size={14} color={colors.icon} fill />
       <Text style={type.small}><Text style={{ fontWeight: '700', color: colors.ink }}>{value.toFixed(1)}</Text>{children}</Text>
     </View>
   );

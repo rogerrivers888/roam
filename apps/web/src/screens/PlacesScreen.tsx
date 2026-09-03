@@ -319,7 +319,7 @@ function PlaceRow({ place, members, selected, narrow, onPress }: { place: AtlasP
       <View style={{ width: 26, alignItems: 'center' }}><CategoryIcon category={place.category} size={18} /></View>
       <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          {place.special ? <Icon name="favourite" size={13} color={colors.rating} fill /> : null}
+          {place.special ? <Icon name="keep" size={13} color={colors.red} fill /> : null}
           <Text style={[type.h3, { flexShrink: 1 }, place.unnamed && { fontStyle: 'italic', color: colors.inkMuted }]} numberOfLines={1}>{place.unnamed ? 'Unnamed place — open for its name' : place.name}</Text>
         </View>
         <Text style={type.small} numberOfLines={1}>
@@ -569,7 +569,7 @@ function PlaceDetail({ venue, household, onClose, onChanged }: { venue: Venue; h
       <Row>
         <Button label="We've been here" onPress={() => setAdding(true)} />
         <Button label={saved === 'yes' ? 'Saved' : 'Save for later'} icon={saved === 'yes' ? 'check' : 'shortlist'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'saved', { label: venue.name, venue, category: venue.category, lat: venue.lat, lng: venue.lng }); setSaved('yes'); await onChanged(); }} />
-        <Button label={saved === 'special' ? 'Special' : 'Mark as special'} icon={saved === 'special' ? 'check' : 'favourite'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'special', { label: venue.name, venue, category: venue.category, lat: venue.lat, lng: venue.lng }); setSaved('special'); await onChanged(); }} />
+        <Button label={saved === 'special' ? 'Special' : 'Mark as special'} icon={saved === 'special' ? 'check' : 'keep'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'special', { label: venue.name, venue, category: venue.category, lat: venue.lat, lng: venue.lng }); setSaved('special'); await onChanged(); }} />
       </Row>
       <Text style={type.tiny}>Special places are worth going further for — the planner uses your "if it's special" travel limit for them.</Text>
 

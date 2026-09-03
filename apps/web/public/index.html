@@ -9,7 +9,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Roam" />
-    <meta name="theme-color" content="#1F5F5B" />
+    <meta name="theme-color" content="#B6E3CF" />
+    <!-- Type from the style guide: Archivo for UI, Caveat for the wordmark only -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800&family=Caveat:wght@700&display=swap" />
     <link rel="manifest" href="/manifest.json" />
     <!-- Chrome tab / bookmarks: .ico for older UAs, .svg for modern; 180px for the iOS home screen (docs/brand).
          Tab icons sit on brand red (the pack's app-icon alt) so they read on Chrome's dark tab strip; the ink square vanished into it. -->
@@ -19,15 +23,17 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <style>
       html, body, #root { height: 100%; }
-      body { margin: 0; overflow: hidden; background: #F7F6F2; -webkit-text-size-adjust: 100%; }
+      body { margin: 0; overflow: hidden; background: #FFFFFF; -webkit-text-size-adjust: 100%; }
+      /* Archivo everywhere except the wordmark (Caveat) and the odd monospace value, which mark themselves with data-font */
+      #root *:not(svg):not(svg *):not([data-font]) { font-family: Archivo, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
       /* 100vh includes Safari's bar; fill-available does not */
       #root { min-height: 100vh; min-height: -webkit-fill-available; display: flex; }
     </style>
       <style>
-      :root { --roam-bg: #F7F6F2; --roam-surface: #FFFFFF; --roam-ink: #1D1B16; color-scheme: light; }
+      :root { --roam-bg: #FFFFFF; --roam-surface: #FFFFFF; --roam-ink: #201E1D; --roam-headerBg: #B6E3CF; color-scheme: light; }
       body { background: var(--roam-bg); }
       [data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.86) contrast(0.9); }
-      [data-theme="dark"] .leaflet-container { background: #14130F; }
+      [data-theme="dark"] .leaflet-container { background: #17171A; }
     </style>
   </head>
   <body>

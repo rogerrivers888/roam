@@ -128,7 +128,7 @@ export function BrowseNear({ d, onChanged, find, setFind, initialPrices, onShort
             <Card style={{ gap: spacing.sm, marginTop: spacing.sm }}>
               {fromAtlas.slice(0, 12).map((p) => (
                 <Row key={p.venueRef} style={{ justifyContent: 'space-between' }}>
-                  {p.status === 'been' ? <Icon name="check" size={14} color={colors.like} /> : p.status === 'special' ? <Icon name="favourite" size={14} color={colors.rating} fill /> : <Icon name="shortlist" size={14} color={colors.inkFaint} />}
+                  {p.status === 'been' ? <Icon name="check" size={14} color={colors.like} /> : p.status === 'special' ? <Icon name="keep" size={14} color={colors.red} fill /> : <Icon name="shortlist" size={14} color={colors.inkFaint} />}
                   <Text style={[type.body, { flex: 1 }]} numberOfLines={1}>{p.name}</Text>
                   <Button label="Shortlist" icon="shortlist" kind="secondary" onPress={async () => { await api.addToShortlist(trip.id, { venueRef: p.venueRef, venueLabel: p.name, kind: p.kind ?? undefined, category: p.category, lat: p.lat, lng: p.lng, venue: p.venue ?? undefined }); await onChanged(); }} />
                 </Row>

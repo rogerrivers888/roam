@@ -464,7 +464,7 @@ function DayPlanner({ trip, day, household, onChanged }: { trip: TripDetail; day
         {unscheduled.map((s) => (
           <View key={s.id} style={styles.unscheduled}>
             <View style={{ flex: 1 }}>
-              <Row>{s.mustDo ? <Icon name="favourite" size={14} color={colors.rating} fill /> : null}<CategoryIcon category={s.category} size={16} color={colors.ink} /><Text style={[type.h3, { flexShrink: 1 }]}>{s.name}</Text></Row>
+              <Row>{s.mustDo ? <Icon name="favourite" size={14} color={colors.icon} fill /> : null}<CategoryIcon category={s.category} size={16} color={colors.ink} /><Text style={[type.h3, { flexShrink: 1 }]}>{s.name}</Text></Row>
               <Text style={type.tiny}>{s.kind}{s.note ? ` · ${s.note}` : ''}</Text>
             </View>
             <Wrap>

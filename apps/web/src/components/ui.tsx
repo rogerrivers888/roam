@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, StyleProp, Text, View, ViewStyle, ActivityIndicator } from 'react-native';
-import { colors, radius, spacing, type, TARGET } from '../theme';
+import { colors, fonts, radius, spacing, type, TARGET } from '../theme';
 import { Icon, IconName } from './Icon';
 
 export function Card({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
@@ -18,7 +18,7 @@ export function SectionTitle({ children, hint }: { children: React.ReactNode; hi
 
 type ChipTone = 'neutral' | 'allergen' | 'like' | 'dislike' | 'want' | 'accent';
 const chipTones: Record<ChipTone, { bg: string; fg: string; border: string }> = {
-  neutral: { bg: colors.surfaceMuted, fg: colors.ink, border: colors.line },
+  neutral: { bg: colors.surface, fg: colors.ink, border: colors.line },
   allergen: { bg: colors.allergenSoft, fg: colors.allergen, border: colors.allergen },
   like: { bg: colors.likeSoft, fg: colors.like, border: colors.likeSoft },
   dislike: { bg: colors.dislikeSoft, fg: colors.dislike, border: colors.dislikeSoft },
@@ -45,9 +45,10 @@ export function Chip({
   /** Fill the icon (a kept heart, a favourite star). */
   iconFill?: boolean;
 }) {
-  const t = chipTones[tone];
+  // A selected chip is an ink pill with white type (style guide); tones are tints of the one green and of ink.
+  const t = selected ? { bg: colors.primary, fg: colors.primaryFg, border: colors.primary } : chipTones[tone];
   const body = (
-    <View style={[styles.chip, { backgroundColor: t.bg, borderColor: selected ? colors.ink : t.border }]}>
+    <View style={[styles.chip, { backgroundColor: t.bg, borderColor: t.border }]}>
       {icon ? <View style={{ marginRight: 5 }}><Icon name={icon} size={14} color={t.fg} fill={iconFill} /></View> : null}
       <Text style={[styles.chipText, { color: t.fg, flexShrink: 1 }]}>{label}</Text>
       {onRemove ? (
@@ -85,14 +86,16 @@ export function Button({
   icon?: IconName;
   iconFill?: boolean;
 }) {
-  const bg = kind === 'primary' ? colors.accent : kind === 'danger' ? colors.overrunSoft : kind === 'secondary' ? colors.surfaceMuted : 'transparent';
-  const fg = kind === 'primary' ? colors.bg : kind === 'danger' ? colors.overrun : colors.ink;
+  // Buttons are ink (style guide): a primary is an ink fill, a secondary is a 1px ink outline.
+  const bg = kind === 'primary' ? colors.primary : kind === 'danger' ? colors.overrunSoft : kind === 'secondary' ? colors.surface : 'transparent';
+  const fg = kind === 'primary' ? colors.primaryFg : kind === 'danger' ? colors.overrun : colors.ink;
+  const border = kind === 'secondary' ? colors.ink : kind === 'ghost' ? colors.line : 'transparent';
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
       accessibilityRole="button"
-      style={({ pressed }) => [styles.button, { backgroundColor: bg, opacity: disabled ? 0.5 : pressed ? 0.85 : 1 }, style]}
+      style={({ pressed }) => [styles.button, { backgroundColor: bg, borderColor: border, opacity: disabled ? 0.5 : pressed ? 0.85 : 1 }, style]}
     >
       {loading ? <ActivityIndicator color={fg} /> : (
         <View style={styles.buttonInner}>
@@ -211,16 +214,17 @@ export const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 1,
   },
-  chipText: { fontSize: 13, fontWeight: '600' },
+  chipText: { fontFamily: fonts.body, fontSize: 13, fontWeight: '600' },
   button: {
     minHeight: TARGET,
     paddingHorizontal: spacing.lg,
     borderRadius: radius.md,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  buttonText: { fontSize: 15, fontWeight: '700' },
+  buttonText: { fontFamily: fonts.body, fontSize: 15, fontWeight: '700' },
   segmented: {
     flexDirection: 'row',
     backgroundColor: colors.surfaceMuted,
@@ -228,9 +232,10 @@ export const styles = StyleSheet.create({
     padding: 3,
   },
   segment: { flex: 1, minHeight: 38, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
-  segmentActive: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
-  segmentText: { fontSize: 13, color: colors.inkMuted, fontWeight: '600' },
-  segmentTextActive: { color: colors.ink },
+  // The selected segment is ink with white type, like a selected chip (style guide).
+  segmentActive: { backgroundColor: colors.primary },
+  segmentText: { fontFamily: fonts.body, fontSize: 13, color: colors.inkMuted, fontWeight: '600' },
+  segmentTextActive: { color: colors.primaryFg },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET },
   stepBtn: {
     width: TARGET, height: TARGET - 6, borderRadius: radius.md,

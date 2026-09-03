@@ -170,7 +170,7 @@ function TraceRow({ v, open, onToggle }: { v: SourceTraceVenue; open: boolean; o
       {open ? (
         <View style={styles.raw}>
           {v.conflicts.length ? <Text style={type.tiny}>Disagreements: {v.conflicts.map((c) => `${c.field}: ${c.heldSource ?? '?'} says ${JSON.stringify(c.held)}, ${c.offeredSource ?? '?'} says ${JSON.stringify(c.offered)}`).join('; ')}</Text> : null}
-          <Text selectable style={styles.mono}>{JSON.stringify(v.raw, null, 2)}</Text>
+          <Text selectable {...({ dataSet: { font: "mono" } } as object)} style={styles.mono}>{JSON.stringify(v.raw, null, 2)}</Text>
         </View>
       ) : null}
     </View>

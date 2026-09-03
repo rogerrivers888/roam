@@ -1,12 +1,14 @@
-// Visual system for the prototype. Calm by default; colour is reserved for
-// meaning — allergen exclusions, overrun, and the household's own people.
+// Visual system, from the Roam colour & style guidelines v1 (September 2026,
+// Supporting docs/Roam Style Guide.pdf): light mode "Mint", dark mode "Night ·
+// mint". Bright, airy and mostly white. One mint field carries the header;
+// everything else is ink on white with soft rules. Red belongs to the heart —
+// the mark of a place you love — and to nothing else. Buttons are ink, icons
+// are one deeper green, and there is no colour-coding of rows.
 //
 // Two palettes, one set of names. On the web every colour is a CSS variable
 // (react-native-web passes `var(--…)` through untouched), so switching the
 // theme is setting the variables on <html>; nothing re-renders and every
-// StyleSheet keeps working. Dark is its own set of steps chosen against the
-// dark surface, not an automatic flip: accents lighten so they read as text on
-// the dark ground and still carry dark text as fills.
+// StyleSheet keeps working.
 
 import { Platform } from 'react-native';
 
@@ -14,64 +16,92 @@ export type ThemeName = 'light' | 'dark';
 export type ThemePref = ThemeName | 'system';
 
 const LIGHT = {
-  bg: '#F7F6F2',
-  surface: '#FFFFFF',
-  surfaceMuted: '#F0EEE8',
-  ink: '#1D1B16',
-  inkMuted: '#6B675E',
-  inkFaint: '#A8A399',
-  line: '#E4E0D6',
-  accent: '#1F5F5B',
-  accentSoft: '#DCEBE9',
-  travel: '#C9C3B5',
-  dwell: '#1F5F5B',
-  slack: '#EDE9DF',
+  // Ground and surfaces
+  bg: '#FFFFFF',           // screen ground
+  surface: '#FFFFFF',      // cards, tab bar
+  surfaceMuted: '#EFF8F3', // mint tint: open-panel ground, second picture tile, neutral chips
+  panel: '#EFF8F3',
+  well: '#EFF8F3',         // row icon squares (dark mode has a real well)
+  tabbar: '#FFFFFF',
+  headerBg: '#B6E3CF',     // the one mint field
+  headerSub: '#2F6A52',    // deep leaf: sub-copy on mint
+  mint: '#B6E3CF',
+  // Type
+  ink: '#201E1D',
+  inkMuted: '#6B6663',     // labels, placeholders, inactive tabs
+  inkFaint: '#8B8784',
+  line: '#E5EFEA',         // 1px rules, chip outlines, slider track
+  // The single icon colour, links, focus, slider range
+  accent: '#2E8A63',       // leaf
+  accentSoft: '#EFF8F3',
+  icon: '#2E8A63',
+  // Buttons and selection are ink
+  primary: '#201E1D',
+  primaryFg: '#FFFFFF',
+  // The heart, and nothing else
+  red: '#EC3013',
+  // Time bar
+  travel: '#CFD9D3',
+  dwell: '#2E8A63',
+  slack: '#EFF8F3',
+  // Meaning that must still read: overruns and allergens keep a warning red,
+  // the one deliberate exception to "red is the heart".
   overrun: '#C0392B',
-  overrunSoft: '#F8E1DE',
+  overrunSoft: '#FBE9E7',
   allergen: '#B3261E',
   allergenSoft: '#FBE9E7',
-  like: '#2E7D32',
-  likeSoft: '#E3F2E4',
-  dislike: '#8A6D1F',
-  dislikeSoft: '#F6EFD8',
-  want: '#4A4A8A',
-  wantSoft: '#E6E6F5',
-  rating: '#B0771E',
+  // Household verdicts are tints of the one green and of ink, not new colours
+  like: '#2E8A63',
+  likeSoft: '#EFF8F3',
+  dislike: '#6B6663',
+  dislikeSoft: '#F3F2F2',
+  want: '#2F6A52',
+  wantSoft: '#EFF8F3',
+  rating: '#2E8A63',
 };
 
 const DARK: typeof LIGHT = {
-  bg: '#14130F',
-  surface: '#1E1C18',
-  surfaceMuted: '#282520',
-  ink: '#F1EEE6',
-  inkMuted: '#ABA69A',
-  inkFaint: '#7A7565',
-  line: '#35322B',
-  accent: '#5FB3AB',
-  accentSoft: '#1E3634',
-  travel: '#4B473D',
-  dwell: '#5FB3AB',
-  slack: '#26231E',
+  bg: '#17171A',           // charcoal
+  surface: '#1E1E23',      // raised
+  surfaceMuted: '#24242A',
+  panel: '#1E1E23',
+  well: '#24242A',
+  tabbar: '#101013',
+  headerBg: '#17171A',
+  headerSub: '#8F8D93',
+  mint: '#B6E3CF',
+  ink: '#F3F2F2',          // off-white
+  inkMuted: '#8F8D93',
+  inkFaint: '#6E6C72',
+  line: '#2B2B30',
+  accent: '#B6E3CF',       // mint carries links, slider, selection
+  accentSoft: '#24242A',
+  icon: '#F3F2F2',
+  primary: '#B6E3CF',
+  primaryFg: '#17171A',
+  red: '#EC3013',
+  travel: '#3A3A42',
+  dwell: '#B6E3CF',
+  slack: '#24242A',
   overrun: '#E8776B',
   overrunSoft: '#3E1F1B',
   allergen: '#EA7A70',
   allergenSoft: '#3D1E1B',
-  like: '#7CC47F',
-  likeSoft: '#1D3321',
-  dislike: '#D3B15A',
-  dislikeSoft: '#35301B',
-  want: '#A5A5E6',
-  wantSoft: '#26264B',
-  rating: '#E2AA4E',
+  like: '#B6E3CF',
+  likeSoft: '#24242A',
+  dislike: '#8F8D93',
+  dislikeSoft: '#24242A',
+  want: '#B6E3CF',
+  wantSoft: '#24242A',
+  rating: '#B6E3CF',
 };
 
 export const PALETTES: Record<ThemeName, typeof LIGHT> = { light: LIGHT, dark: DARK };
 export type ColorName = keyof typeof LIGHT;
 
 const isWeb = Platform.OS === 'web' && typeof document !== 'undefined';
-// Text that sits on a filled shape (a primary button, a numbered stop) uses
-// `colors.bg`: it is the inverse of ink in both palettes, so it stays readable
-// on ink, accent and status fills whichever theme is on.
+// Text that sits on a filled shape uses `colors.primaryFg` on a primary fill
+// and `colors.bg` on a status fill: each is the inverse of its ground in both palettes.
 export const colors: typeof LIGHT = isWeb
   ? (Object.fromEntries(Object.keys(LIGHT).map((k) => [k, `var(--roam-${k})`])) as typeof LIGHT)
   : LIGHT;
@@ -98,7 +128,7 @@ export function applyTheme(name: ThemeName = resolveTheme()) {
   root.style.colorScheme = name;
   document.body.style.backgroundColor = p.bg;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', name === 'dark' ? p.surface : LIGHT.accent);
+  if (meta) meta.setAttribute('content', p.headerBg);
   listeners.forEach((fn) => fn(name));
 }
 
@@ -114,19 +144,32 @@ if (isWeb) {
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 
-export const radius = { sm: 8, md: 12, lg: 16, pill: 999 };
+// Corners: 4px on controls and tiles; chips are pills.
+export const radius = { sm: 4, md: 4, lg: 8, pill: 999 };
+
+// Type: Archivo — headings 800 with tight tracking, body 400/600 at 15px,
+// labels 12px 700 uppercase. Caveat is the wordmark only, never UI text.
+// The fonts load from Google Fonts on the web (public/index.html); native
+// falls back to the system face until a font pack is bundled.
+export const fonts = {
+  heading: Platform.OS === 'web' ? 'Archivo, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' : undefined,
+  body: Platform.OS === 'web' ? 'Archivo, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' : undefined,
+  wordmark: Platform.OS === 'web' ? 'Caveat, cursive' : undefined,
+};
 
 export const type = {
-  title: { fontSize: 24, fontWeight: '700' as const, color: colors.ink, letterSpacing: -0.3 },
-  h2: { fontSize: 18, fontWeight: '700' as const, color: colors.ink },
-  h3: { fontSize: 15, fontWeight: '600' as const, color: colors.ink },
-  body: { fontSize: 15, color: colors.ink, lineHeight: 21 },
-  small: { fontSize: 13, color: colors.inkMuted, lineHeight: 18 },
-  tiny: { fontSize: 11, color: colors.inkFaint, lineHeight: 15 },
+  title: { fontFamily: fonts.heading, fontSize: 28, fontWeight: '800' as const, color: colors.ink, letterSpacing: -0.56, lineHeight: 32 },
+  h2: { fontFamily: fonts.heading, fontSize: 20, fontWeight: '800' as const, color: colors.ink, letterSpacing: -0.4 },
+  h3: { fontFamily: fonts.body, fontSize: 15, fontWeight: '600' as const, color: colors.ink },
+  body: { fontFamily: fonts.body, fontSize: 15, color: colors.ink, lineHeight: 21 },
+  small: { fontFamily: fonts.body, fontSize: 13, color: colors.inkMuted, lineHeight: 18 },
+  tiny: { fontFamily: fonts.body, fontSize: 11, color: colors.inkFaint, lineHeight: 15 },
+  label: { fontFamily: fonts.body, fontSize: 12, fontWeight: '700' as const, color: colors.inkMuted, letterSpacing: 0.72, textTransform: 'uppercase' as const },
 };
 
 // Every interactive target is at least 44pt (research §12).
 export const TARGET = 44;
 
-export const memberColors = ['#1F5F5B', '#8A4B2F', '#3F5AA8', '#9C3D7A', '#5C7A2E', '#B0771E'];
+// The household's own people keep their colours: they are people, not rows.
+export const memberColors = ['#2E8A63', '#8A4B2F', '#3F5AA8', '#9C3D7A', '#5C7A2E', '#B0771E'];
 export const memberColor = (index: number) => memberColors[index % memberColors.length];

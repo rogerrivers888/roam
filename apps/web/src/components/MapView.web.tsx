@@ -7,8 +7,8 @@ import type { MapLine, MapPin } from './MapView';
 import { colors, memberColors } from '../theme';
 
 const TONE: Record<NonNullable<MapPin['tone']>, string> = {
-  base: colors.ink, day: colors.accent, shortlist: colors.want, been: colors.like, special: '#B0771E', muted: colors.inkFaint,
-  full: colors.overrun, aside: '#fff', home: '#B0771E', selected: colors.want,
+  base: colors.ink, day: colors.accent, shortlist: colors.want, been: colors.like, special: colors.red, muted: colors.inkFaint,
+  full: colors.overrun, aside: '#fff', home: colors.ink, selected: colors.want,
 };
 
 /** A numbered pin: the journey's order drawn on the marker, so the list and the map read the same. */
