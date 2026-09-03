@@ -104,6 +104,8 @@ function toVenue(el) {
     lng,
     dishes: [],
     styles: t.amenity === 'fast_food' ? ['fast-food'] : [],
+    // A cinema or theatre needs a booking and a showtime; it is not a wander-in stop.
+    ticketed: ['cinema', 'theatre'].includes(t.amenity) || t.tourism === 'theme_park',
     justification: null,
     matchedDish: null,
     website: t.website || t['contact:website'] || null,

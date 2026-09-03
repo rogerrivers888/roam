@@ -206,7 +206,9 @@ export function composeOptions({
   const intensityDwell = INTENSITY_DWELL[trip.intensity] ?? 1;
 
   const usable = pool
-    .filter((c) => !excludedSet.has(c.key) && eventInsideWindow(c, trip))
+    // Anything ranked below zero (needs a booking, plainly unsuitable) is out
+    // for every basis, including the ones that order by distance.
+    .filter((c) => !excludedSet.has(c.key) && eventInsideWindow(c, trip) && (c.fixed || (c.score ?? 0) >= 0))
     .map((c) => { const a = dwellFor(c, household, attendees); return { ...c, baseDwell: a.minutes, dwellCappedBy: a.cappedBy }; });
   const byKey = new Map(usable.map((c) => [c.key, c]));
   const pinnedStops = pinned.map((k) => byKey.get(k)).filter(Boolean);
@@ -272,7 +274,11 @@ export function composeOptions({
             if (fitsWindow([...attempt, c])) { attempt.push(c); count += 1; }
           }
         }
-        if (!bestAttempt || shortfallOf(attempt) < shortfallOf(bestAttempt)) bestAttempt = attempt;
+        const better = !bestAttempt
+          || shortfallOf(attempt) < shortfallOf(bestAttempt)
+          // A meal is harder to reschedule than a walk in a park: keep it on ties.
+          || (shortfallOf(attempt) === shortfallOf(bestAttempt) && attempt.filter(isMeal).length > bestAttempt.filter(isMeal).length);
+        if (better) bestAttempt = attempt;
       }
 
       if (!chosen || shortfallOf(bestAttempt) < shortfallOf(chosen)) { chosen = bestAttempt; chosenScale = scale; }

@@ -497,9 +497,16 @@ router.post('/start', async (req, res, next) => {
     state.journey = { from: trip.origin_label, to: trip.base_label, minutes: estimateTravelMinutes({ lat: trip.origin_lat, lng: trip.origin_lng }, { lat: trip.base_lat, lng: trip.base_lng }, trip.travel_mode), mode: trip.travel_mode };
     state.pool = pool.candidates;
     state.excludedByAllergen = pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons }));
-    const defaults = { relaxed: [1, 0], balanced: [1, 1], packed: [2, 1] }[trip.intensity] ?? [1, 1];
-    state.minActivities = merged.min_activities ?? defaults[0];
-    state.minFood = merged.min_food_stops ?? defaults[1];
+    // Must-haves come from the time left once a fixed commitment is placed:
+    // a 2½-hour show in a 5½-hour window leaves room for lunch and one thing,
+    // not two things and no lunch.
+    const windowMin = Math.round((new Date(dayTrip.return_at) - new Date(dayTrip.depart_at)) / 60_000);
+    const spare = windowMin - (merged.anchor ? (merged.anchor.duration_minutes ?? 120) : 0);
+    const packedness = { relaxed: 0.8, balanced: 1, packed: 1.25 }[trip.intensity] ?? 1;
+    const activitiesThatFit = Math.max(0, Math.min(3, Math.floor(((spare - 75) / 110) * packedness)));
+    const wantsToEat = merged.min_food_stops != null ? merged.min_food_stops : (spare >= 90 ? 1 : 0);
+    state.minActivities = merged.min_activities ?? Math.min(activitiesThatFit, merged.anchor ? 1 : 2);
+    state.minFood = wantsToEat;
     state.pinned = state.anchor ? [pool.candidates[0].key] : [];
     state.excluded = [];
     state.chosenOptionId = null;
