@@ -5,7 +5,7 @@ import { ALLERGENS, matchConcepts, resolveConcept, conceptByKey, isNegated } fro
 const NEGATION_PREFIX = /^(not|no|never|without|anything but|nothing)\s+/i;
 import { geocode } from '../sources/geocode.js';
 import { LINES, legacyLines, perSearchCost } from '../sources/pricing.js';
-import { usageBetween, allowanceUsage } from '../sources/usage.js';
+import { usageBetween, allowanceUsage, usageByMonth } from '../sources/usage.js';
 import { enabledSources } from '../sources/index.js';
 import { routingEnabled } from '../sources/routing.js';
 import { paceOf, DEFAULT_PACE } from '../domain/pace.js';
@@ -427,6 +427,38 @@ router.get('/spend', async (req, res, next) => {
       recent,
       generatedAt: w.now,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Spend by month for the charts in Settings › Providers: the last 12 months
+ * (or ?months=), per line and in total, with an estimate of what each month
+ * cost beyond the free allowances (monthly allowances per month; a lifetime
+ * one cumulatively).
+ */
+router.get('/spend/series', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const months = Math.min(36, Math.max(3, Number(req.query.months) || 12));
+    const series = await usageByMonth(household.id, months);
+    const lines = {};
+    for (const line of LINES) {
+      const pts = series.lines[line.key] ?? [];
+      let cumulative = 0;
+      lines[line.key] = pts.map((p) => {
+        let paidUsd = 0;
+        if (line.key === 'claude' || line.key === 'scout') paidUsd = p.costUsd;
+        else if (line.allowance?.beyondUsd) {
+          if (line.allowance.kind === 'lifetime') { const before = cumulative; cumulative += p.units; paidUsd = Math.max(0, cumulative - line.allowance.limit) - Math.max(0, before - line.allowance.limit); paidUsd *= line.allowance.beyondUsd; }
+          else if (line.allowance.kind === 'monthly') paidUsd = Math.max(0, p.units - line.allowance.limit) * line.allowance.beyondUsd;
+        }
+        return { ...p, paidUsd };
+      });
+    }
+    const total = series.months.map((m, i) => ({ ...series.total[i], paidUsd: Object.values(lines).reduce((n, pts) => n + (pts[i]?.paidUsd ?? 0), 0) }));
+    res.json({ months: series.months, lines, total });
   } catch (err) {
     next(err);
   }

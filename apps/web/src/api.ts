@@ -229,6 +229,10 @@ export type SourceTrace = {
   spend?: { units: Record<string, number>; listPriceUsd: number; byProvider: { key: string; units: number; usd: number }[]; actualUsd: number };
 };
 
+// Settings › Providers charts: spend by month, per provider line and in total.
+export type SpendPoint = { month: string; calls: number; units: number; costUsd: number; paidUsd: number; estimated: boolean };
+export type SpendSeries = { months: string[]; lines: Record<string, SpendPoint[]>; total: { month: string; calls: number; costUsd: number; paidUsd: number }[] };
+
 // Settings › Usage: what the household's calls have used and cost, by provider.
 export type SpendPeriod = 'month' | 'last-month' | 'all' | 'custom';
 export type SpendAllowance = {
@@ -275,6 +279,7 @@ export const api = {
   deleteConstraint: (id: string) => del<void>(`/api/household/constraints/${id}`),
   learned: () => request<{ learned: Learned[]; threshold: number }>('/api/household/learned'),
   exportUrl: () => `${API_URL}/api/household/export`,
+  spendSeries: (months = 12) => request<SpendSeries>(`/api/household/spend/series${qs({ months })}`),
   spend: (p: { period: SpendPeriod; from?: string; to?: string }) => request<SpendResponse>(`/api/household/spend${qs(p)}`),
   deleteHousehold: (confirmName: string) => del<{ deleted: boolean }>('/api/household', { confirmName }),
 

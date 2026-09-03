@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { api, SourcesStatus, SpendLine, SpendResponse } from '../api';
+import { api, SourcesStatus, SpendLine, SpendResponse, SpendSeries } from '../api';
+import { Comparison, MonthBars } from './SpendChart';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Meter, Row, Segmented, StatusLine, Wrap } from './ui';
 import { useViewport } from '../hooks/useViewport';
@@ -46,14 +47,17 @@ export function ProvidersTable() {
   const [filter, setFilter] = useState<Filter>('all');
   const [sources, setSources] = useState<SourcesStatus | null>(null);
   const [spend, setSpend] = useState<SpendResponse | null>(null);
+  const [series, setSeries] = useState<SpendSeries | null>(null);
+  const [month, setMonth] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const load = async () => {
     try {
-      const [s, sp] = await Promise.all([api.sources(), api.spend({ period: 'month' })]);
-      setSources(s); setSpend(sp && Array.isArray(sp.lines) ? sp : null); setError(null);
+      const [s, sp, se] = await Promise.all([api.sources(), api.spend({ period: 'month' }), api.spendSeries(12).catch(() => null)]);
+      setSources(s); setSpend(sp && Array.isArray(sp.lines) ? sp : null); setSeries(se); setError(null);
+      if (se && !month) setMonth(se.months[se.months.length - 1]);
     } catch (e: any) { setError(e.message); }
   };
   useEffect(() => { load(); }, []);
@@ -94,6 +98,13 @@ export function ProvidersTable() {
         </Text>
       ) : null}
 
+      {series && month ? (
+        <Card>
+          <MonthBars points={series.total.map((t) => ({ month: t.month, costUsd: t.costUsd, calls: t.calls }))} selected={month} onSelect={setMonth} unitLabel="All providers, estimated spend" />
+          <Comparison points={series.total.map((t) => ({ month: t.month, costUsd: t.costUsd, calls: t.calls }))} selected={month} />
+        </Card>
+      ) : null}
+
       {spend ? (
         <Card style={{ padding: 0, overflow: 'hidden' }}>
           {wide ? (
@@ -115,7 +126,7 @@ export function ProvidersTable() {
       ) : null}
       <Text style={type.tiny}>Free counts against each provider's own window (a month, a day, or the account's lifetime) whatever period is shown. A source without a key cannot be switched on here; the owner adds keys through Doppler. Places and addresses: © OpenStreetMap contributors. Travel times: {sources?.routing === 'google-routes' ? 'Google Routes' : 'estimated from distance'}.</Text>
 
-      {open ? <ProviderDrawer line={open} period={period} spend={spend!} source={sources?.available.find((a) => a.key === open.source) ?? null} onClose={() => setOpenKey(null)} onToggle={(on) => toggle(open.source, on)} busy={busyKey === open.key} /> : null}
+      {open ? <ProviderDrawer line={open} period={period} spend={spend!} series={series} initialMonth={month} source={sources?.available.find((a) => a.key === open.source) ?? null} onClose={() => setOpenKey(null)} onToggle={(on) => toggle(open.source, on)} busy={busyKey === open.key} /> : null}
     </View>
   );
 }
@@ -174,13 +185,18 @@ function ProviderRow({ r, wide, busy, onOpen, onToggle }: { r: RowModel; wide: b
   );
 }
 
-function ProviderDrawer({ line, period, spend, source, onClose, onToggle, busy }: { line: SpendLine; period: Period; spend: SpendResponse; source: SourcesStatus['available'][number] | null; onClose: () => void; onToggle: (on: boolean) => void; busy: boolean }) {
+function ProviderDrawer({ line, period, spend, series, initialMonth, source, onClose, onToggle, busy }: { line: SpendLine; period: Period; spend: SpendResponse; series: SpendSeries | null; initialMonth: string | null; source: SourcesStatus['available'][number] | null; onClose: () => void; onToggle: (on: boolean) => void; busy: boolean }) {
   const { width, height, framed, origin } = useViewport();
   const wide = width >= 900;
   const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height, borderRadius: radius.lg, overflow: 'hidden' as const } : null;
+  const [tab, setTab] = useState<'spend' | 'activity'>('spend');
+  const [month, setMonth] = useState<string>(initialMonth ?? series?.months[series.months.length - 1] ?? '');
   const a = line.allowance ?? line.cap;
-  const activity = spend.recent.filter((c) => c.lines?.includes(line.key)).slice(0, 40);
+  const activity = spend.recent.filter((c) => c.lines?.includes(line.key)).slice(0, 60);
   const hasKey = line.key === 'claude' || line.source === 'osm' || line.source === 'fixtures' || Boolean(source?.hasKey);
+  const isAi = line.key === 'claude' || line.key === 'scout';
+  // What the chart shows: money for Claude lines; for metered providers the paid part, with units in the tooltip.
+  const points = (series?.lines[line.key] ?? []).map((p) => ({ month: p.month, costUsd: isAi ? p.costUsd : p.paidUsd, calls: p.calls, units: p.units }));
   return (
     <Modal visible transparent animationType={wide ? 'fade' : 'slide'} onRequestClose={onClose}>
       <View style={styles.backdropWrap}>
@@ -200,44 +216,53 @@ function ProviderDrawer({ line, period, spend, source, onClose, onToggle, busy }
                 <Switch value={line.on} disabled={busy || !hasKey} onValueChange={onToggle} />
               </Row>
             ) : null}
-            {source ? <Text style={type.tiny}>Key: {source.env}, added by the owner through Doppler.{source.optIn ? ' Opt-in: runs only when a search names it.' : ''}</Text> : null}
+            <Segmented value={tab} options={[{ value: 'spend', label: 'Spend' }, { value: 'activity', label: `Activity (${activity.length})` }]} onChange={setTab} />
 
-            <Card>
-              <Text style={type.h3}>Spend by period</Text>
-              <View style={styles.table}>
-                <View style={styles.tr2}><Text style={[styles.th, { flex: 1.4, textAlign: 'left' }]}>Period</Text><Text style={styles.th}>Calls</Text><Text style={styles.th}>{line.unitPlural}</Text><Text style={styles.th}>Cost</Text></View>
-                {(['month', 'last-month', 'all'] as Period[]).map((p) => { const s = split(line, p); return (
-                  <View key={p} style={[styles.tr2, p === period && { backgroundColor: colors.accentSoft }]}>
-                    <Text style={[styles.td, { flex: 1.4, textAlign: 'left', color: colors.ink }]}>{PERIOD_LABEL[p]}</Text>
-                    <Text style={styles.td}>{count(s.calls)}</Text>
-                    <Text style={styles.td}>{line.unit === 'call' || line.unit === 'run' ? '—' : `${count(s.units)}${s.estimated ? '*' : ''}`}</Text>
-                    <Text style={[styles.td, { fontWeight: '700', color: colors.ink }]}>{s.paidUsd > 0 ? money(s.paidUsd) : 'free'}</Text>
+            {tab === 'spend' ? (
+              <>
+                {points.length && month ? (
+                  <Card>
+                    <MonthBars points={points} selected={month} onSelect={setMonth} unitLabel={isAi ? 'Estimated spend' : 'Paid beyond the free allowance'} />
+                    <Comparison points={points} selected={month} />
+                    {!isAi ? <Text style={type.tiny}>Tap a month to compare it. Units by month: {points.slice(-6).map((p) => `${new Date(`${p.month}-01T12:00:00Z`).toLocaleDateString('en-GB', { month: 'short' })} ${count(p.units ?? 0)}`).join(' · ')}.</Text> : <Text style={type.tiny}>Tap a month to compare it.</Text>}
+                  </Card>
+                ) : null}
+                {a ? (
+                  <Card>
+                    <Text style={type.h3}>{line.allowance ? 'Free allowance' : 'Roam cap'}</Text>
+                    <Meter used={a.used} limit={a.limit} label={`${count(a.used)} of ${count(a.limit)} ${plural(a.limit, line.unit, line.unitPlural)} ${a.kind === 'monthly' ? 'this month' : a.kind === 'daily' ? 'today' : 'ever'} · ${a.kind === 'lifetime' ? 'never renews' : a.resetsAt ? `resets ${shortDate(a.resetsAt)}` : ''}${a.estimated ? ' · estimated' : ''}`} />
+                    <Text style={type.tiny}>{line.allowance?.basis ? `${line.allowance.basis}.` : ''}{line.allowance?.beyondUsd ? ` Beyond it about $${line.allowance.beyondUsd.toFixed(3)} per ${line.unit}.` : ''}{line.cap?.env ? ` Set by ${line.cap.env}.` : ''}{line.hardStop ? ` ${line.hardStop}` : ''}</Text>
+                  </Card>
+                ) : null}
+                <Card>
+                  <Text style={type.h3}>By period</Text>
+                  <View style={styles.table}>
+                    <View style={styles.tr2}><Text style={[styles.th, { flex: 1.4, textAlign: 'left' }]}>Period</Text><Text style={styles.th}>Calls</Text><Text style={styles.th}>{line.unitPlural}</Text><Text style={styles.th}>Cost</Text></View>
+                    {(['month', 'last-month', 'all'] as Period[]).map((p) => { const s = split(line, p); return (
+                      <View key={p} style={[styles.tr2, p === period && { backgroundColor: colors.accentSoft }]}>
+                        <Text style={[styles.td, { flex: 1.4, textAlign: 'left', color: colors.ink }]}>{PERIOD_LABEL[p]}</Text>
+                        <Text style={styles.td}>{count(s.calls)}</Text>
+                        <Text style={styles.td}>{line.unit === 'call' || line.unit === 'run' ? '—' : `${count(s.units)}${s.estimated ? '*' : ''}`}</Text>
+                        <Text style={[styles.td, { fontWeight: '700', color: colors.ink }]}>{s.paidUsd > 0 ? money(s.paidUsd) : 'free'}</Text>
+                      </View>
+                    ); })}
                   </View>
-                ); })}
-              </View>
-              <Text style={type.tiny}>* estimated from search counts for calls made before units were recorded.</Text>
-            </Card>
-
-            {a ? (
+                  <Text style={type.tiny}>* estimated from search counts for calls made before units were recorded.{line.perSearchUsd ? ` About $${line.perSearchUsd.toFixed(2)} per search.` : ''}</Text>
+                </Card>
+                {source ? <Text style={type.tiny}>Key: {source.env}, added by the owner through Doppler.{source.optIn ? ' Opt-in: runs only when a search names it.' : ''}</Text> : null}
+                {line.console ? <Button label={`${line.console.label} ↗`} kind="secondary" onPress={() => Linking.openURL(line.console!.url)} /> : null}
+              </>
+            ) : (
               <Card>
-                <Text style={type.h3}>{line.allowance ? 'Free allowance' : 'Roam cap'}</Text>
-                <Meter used={a.used} limit={a.limit} label={`${count(a.used)} of ${count(a.limit)} ${plural(a.limit, line.unit, line.unitPlural)} ${a.kind === 'monthly' ? 'this month' : a.kind === 'daily' ? 'today' : 'ever'} · ${a.kind === 'lifetime' ? 'never renews' : a.resetsAt ? `resets ${shortDate(a.resetsAt)}` : ''}${a.estimated ? ' · estimated' : ''}`} />
-                <Text style={type.tiny}>{line.allowance?.basis ? `${line.allowance.basis}.` : ''}{line.allowance?.beyondUsd ? ` Beyond it about $${line.allowance.beyondUsd.toFixed(3)} per ${line.unit}.` : ''}{line.cap?.env ? ` Set by ${line.cap.env}.` : ''}{line.hardStop ? ` ${line.hardStop}` : ''}</Text>
+                {activity.length ? activity.map((c) => (
+                  <View key={c.id} style={styles.activityRow}>
+                    <Text style={[type.tiny, { width: 92 }]}>{new Date(c.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>
+                    <Text style={[type.tiny, { flex: 1, color: colors.ink }]}>{PURPOSE_LABEL[c.purpose ?? ''] ?? c.purpose ?? c.provider}{c.units?.[line.key] != null ? <Text style={type.tiny}> · {c.units[line.key]} {plural(c.units[line.key], line.unit, line.unitPlural)}</Text> : null}</Text>
+                    <Text style={[type.tiny, { width: 48, textAlign: 'right' }]}>{c.cost_usd && isAi ? money(c.cost_usd) : 'free'}</Text>
+                  </View>
+                )) : <Text style={type.small}>No calls yet.</Text>}
               </Card>
-            ) : null}
-            {line.perSearchUsd ? <Text style={type.small}>About ${line.perSearchUsd.toFixed(2)} per search.</Text> : null}
-            {line.console ? <Button label={`${line.console.label} ↗`} kind="secondary" onPress={() => Linking.openURL(line.console!.url)} /> : null}
-
-            <Card>
-              <Text style={type.h3}>Activity</Text>
-              {activity.length ? activity.map((c) => (
-                <View key={c.id} style={styles.activityRow}>
-                  <Text style={[type.tiny, { width: 92 }]}>{new Date(c.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>
-                  <Text style={[type.tiny, { flex: 1, color: colors.ink }]}>{PURPOSE_LABEL[c.purpose ?? ''] ?? c.purpose ?? c.provider}{c.units?.[line.key] != null ? <Text style={type.tiny}> · {c.units[line.key]} {plural(c.units[line.key], line.unit, line.unitPlural)}</Text> : null}</Text>
-                  <Text style={[type.tiny, { width: 48, textAlign: 'right' }]}>{c.cost_usd && (line.key === 'claude' || line.key === 'scout') ? money(c.cost_usd) : 'free'}</Text>
-                </View>
-              )) : <Text style={type.small}>No calls yet.</Text>}
-            </Card>
+            )}
           </ScrollView>
         </View>
       </View>

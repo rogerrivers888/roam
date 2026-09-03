@@ -92,3 +92,53 @@ export async function allowanceUsage(householdId) {
   }
   return { allowances: out, windows: w };
 }
+
+/**
+ * Per-line totals by calendar month for the last `months` months, oldest
+ * first, for the spend charts: {months: ['2025-10', …], lines: {key: [{month,
+ * calls, units, costUsd, estimated}]}, total: [{month, calls, costUsd}]}.
+ */
+export async function usageByMonth(householdId, months = 12) {
+  const w = await windows();
+  const start = new Date(w.month_start);
+  start.setUTCMonth(start.getUTCMonth() - (months - 1));
+  const labels = [];
+  for (let i = 0; i < months; i += 1) { const d = new Date(start); d.setUTCMonth(d.getUTCMonth() + i); labels.push(d.toISOString().slice(0, 7)); }
+  const blank = () => Object.fromEntries(labels.map((m) => [m, empty()]));
+  const lines = Object.fromEntries(LINES.map((l) => [l.key, blank()]));
+  const total = Object.fromEntries(labels.map((m) => [m, { calls: 0, costUsd: 0 }]));
+  const bucket = (m) => (lines[m] ? lines[m] : (lines[m] = blank()));
+
+  const { rows: metered } = await query(
+    `select to_char(date_trunc('month', pc.created_at), 'YYYY-MM') as month, k.key, count(*)::int as calls, coalesce(sum(k.value::numeric), 0)::float as units
+       from provider_calls pc cross join lateral jsonb_each_text(pc.units) k
+      where pc.household_id = $1 and pc.created_at >= $2
+      group by 1, 2`,
+    [householdId, start],
+  );
+  for (const r of metered) { if (!labels.includes(r.month)) continue; const b = bucket(r.key)[r.month]; b.calls += r.calls; b.units += r.units; }
+
+  const { rows } = await query(
+    `select to_char(date_trunc('month', created_at), 'YYYY-MM') as month, provider, purpose, (units is null) as legacy, count(*)::int as calls, coalesce(sum(estimated_cost_usd), 0)::float as cost_usd
+       from provider_calls where household_id = $1 and created_at >= $2
+      group by 1, 2, 3, 4`,
+    [householdId, start],
+  );
+  for (const r of rows) {
+    if (!labels.includes(r.month)) continue;
+    total[r.month].calls += r.calls;
+    total[r.month].costUsd += r.cost_usd;
+    if (!r.legacy) continue;
+    for (const { key, units } of legacyLines(r.provider, r.purpose)) {
+      const b = bucket(key)[r.month];
+      b.calls += r.calls; b.units += units * r.calls;
+      b.costUsd += key === 'claude' || key === 'scout' ? r.cost_usd : 0;
+      if (key !== 'claude' && key !== 'scout') b.estimated = true;
+    }
+  }
+  return {
+    months: labels,
+    lines: Object.fromEntries(Object.entries(lines).map(([k, byMonth]) => [k, labels.map((m) => ({ month: m, calls: byMonth[m].calls, units: Math.round(byMonth[m].units), costUsd: byMonth[m].costUsd, estimated: byMonth[m].estimated }))])),
+    total: labels.map((m) => ({ month: m, ...total[m] })),
+  };
+}
