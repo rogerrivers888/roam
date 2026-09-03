@@ -7,6 +7,7 @@ import { priceMarks, typeLine } from './StopCard';
 import { VenuePhoto } from './VenuePhoto';
 import { VenueDrawer } from './VenueDrawer';
 import { SourceLine, useSourceFilter } from './SourceData';
+import { Icon } from './Icon';
 
 /**
  * The planner's main view (owner, 3 Sep 2026): everything found near the base
@@ -22,7 +23,7 @@ const FOOD = new Set(['restaurant', 'cafe', 'pub', 'bar']);
 export const tabOf = (b: BrowseItem): BrowseTab => (b.category === 'event' ? 'events' : FOOD.has(b.category) ? 'food' : 'things');
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/-/g, ' ');
 
-export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLabel = '+ Add to plan', addedLabel = '♥ In the plan', onAdd, onRemove, onDislike, onShortlist, shortlistedRefs }: {
+export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLabel = 'Add to plan', addedLabel = 'In the plan', onAdd, onRemove, onDislike, onShortlist, shortlistedRefs }: {
   items: BrowseItem[];
   eventsSource: string | null | undefined;
   baseLabel: string;
@@ -129,7 +130,7 @@ function BrowseRow({ item, isPinned, isShortlisted, busy, addLabel, addedLabel, 
             {typeLine(item)}{price ? ` · ${price}` : ''}
           </Text>
           <Text style={type.small}>
-            {item.rating != null ? <Text style={{ fontWeight: '700', color: colors.ink }}>★ {item.rating.toFixed(1)}</Text> : <Text style={type.tiny}>no rating</Text>}
+            {item.rating != null ? <Text style={{ fontWeight: '700', color: colors.ink }}>Rated {item.rating.toFixed(1)}</Text> : <Text style={type.tiny}>no rating</Text>}
             {item.ratingCount ? ` (${item.ratingCount.toLocaleString()})` : ''}
             {item.distanceKm != null ? ` · ${item.distanceKm} km` : ''}{item.travelFromBaseMinutes != null ? `, ${item.travelFromBaseMinutes} min` : ''}
             {!isEvent ? ` · about ${minutes(item.dwellMinutes)}` : ''}
@@ -141,14 +142,14 @@ function BrowseRow({ item, isPinned, isShortlisted, busy, addLabel, addedLabel, 
       </Pressable>
       <View style={{ gap: 6 }}>
         <Pressable onPress={isPinned && onRemove ? onRemove : onAdd} disabled={busy || (isPinned && !onRemove)} style={[styles.btn, isPinned && styles.btnOn]} accessibilityRole="button">
-          <Text style={[styles.btnText, isPinned && { color: '#fff' }]}>{isPinned ? addedLabel : addLabel}</Text>
+          <Icon name={isPinned ? 'keep' : 'add'} size={14} color={isPinned ? '#fff' : colors.ink} fill={isPinned} /><Text style={[styles.btnText, isPinned && { color: '#fff' }]}>{isPinned ? addedLabel : addLabel}</Text>
         </Pressable>
         {onShortlist ? (
           <Pressable onPress={async () => { await onShortlist(); setSaved(true); }} disabled={busy || saved || isShortlisted} style={styles.btn} accessibilityRole="button">
-            <Text style={styles.btnText}>{saved || isShortlisted ? '✓ Shortlisted' : '☆ Shortlist'}</Text>
+            <Icon name={saved || isShortlisted ? 'shortlisted' : 'shortlist'} size={14} color={colors.ink} /><Text style={styles.btnText}>{saved || isShortlisted ? 'Shortlisted' : 'Shortlist'}</Text>
           </Pressable>
         ) : null}
-        <Pressable onPress={onDislike} disabled={busy} style={styles.btn} accessibilityRole="button"><Text style={styles.btnText}>✕ Not this</Text></Pressable>
+        <Pressable onPress={onDislike} disabled={busy} style={styles.btn} accessibilityRole="button"><Icon name="close" size={14} color={colors.ink} /><Text style={styles.btnText}>Not this</Text></Pressable>
       </View>
     </View>
   );
@@ -156,7 +157,7 @@ function BrowseRow({ item, isPinned, isShortlisted, busy, addLabel, addedLabel, 
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
-  btn: { minHeight: 36, minWidth: 124, paddingHorizontal: 10, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
+  btn: { minHeight: 36, minWidth: 124, paddingHorizontal: 10, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted, flexDirection: 'row', gap: 5, alignItems: 'center', justifyContent: 'center' },
   btnOn: { backgroundColor: colors.like },
   btnText: { fontSize: 12, fontWeight: '700', color: colors.ink },
   notice: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: 4 },

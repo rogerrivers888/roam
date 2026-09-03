@@ -19,7 +19,7 @@ export function VenuePhoto({ photos, size = 72, credit = true }: { photos?: Venu
   return (
     <View style={{ width: size, gap: 2 }}>
       <Image source={{ uri }} style={[styles.img, { width: size, height: size }]} onError={() => setFailed(true)} accessibilityIgnoresInvertColors />
-      {credit && photo.attribution ? <Text style={[type.tiny, styles.credit]} numberOfLines={1}>📷 {photo.attribution}</Text> : null}
+      {credit && photo.attribution ? <Text style={[type.tiny, styles.credit]} numberOfLines={1}>{photo.attribution}</Text> : null}
     </View>
   );
 }

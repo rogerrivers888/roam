@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button } from './ui';
+import { Icon } from './Icon';
 
 /**
  * The two-month range calendar — the same control Parcelvision's shipments tab
@@ -76,9 +77,9 @@ export function DateRangePicker({ start, end, onApply, single = false }: {
   return (
     <View style={{ gap: spacing.sm }}>
       <Pressable onPress={() => (open ? cancel() : setOpen(true))} style={[styles.trigger, open && { borderColor: colors.accent }]} accessibilityRole="button" accessibilityLabel={single ? 'Choose the date' : 'Choose the dates'}>
-        <Text style={{ fontSize: 15 }}>📅</Text>
+        <Icon name="calendar" size={16} color={colors.inkMuted} />
         <Text style={[type.body, { flex: 1 }, !applied.s && { color: colors.inkFaint }]}>{rangeLabel(applied.s, single ? applied.s : applied.e, single ? 'Pick a date' : 'Pick dates')}</Text>
-        <Text style={[type.small, { color: colors.inkMuted }]}>{open ? '▴' : '▾'}</Text>
+        <Icon name={open ? 'collapse' : 'expand'} size={16} color={colors.inkMuted} />
       </Pressable>
       {open ? (
         <View style={styles.panel}>

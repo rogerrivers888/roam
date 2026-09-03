@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
+import { Icon, IconText, Rating } from './Icon';
 import { API_URL, api, BrowseItem, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
@@ -79,7 +80,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={type.title}>{title}</Text>
                 <Text style={type.small}>{typeLine(item)}{price ? ` · ${price}` : ''}{item.chain ? ` · chain${item.brand ? ` (${item.brand})` : ''}` : ''}</Text>
-                {rating != null ? <Text style={type.body}><Text style={{ fontWeight: '700' }}>★ {rating.toFixed(1)}</Text>{ratingCount ? ` from ${ratingCount.toLocaleString()} reviews` : ''} · {SOURCE_LABEL[item.ratingSource ?? source] ?? sourceName}</Text> : <Text style={type.tiny}>No rating from {sourceName}.</Text>}
+                {rating != null ? <Rating value={rating}>{ratingCount ? ` from ${ratingCount.toLocaleString()} reviews` : ''} · {SOURCE_LABEL[item.ratingSource ?? source] ?? sourceName}</Rating> : <Text style={type.tiny}>No rating from {sourceName}.</Text>}
                 {(() => {
                   const bits = [
                     item.distanceKm != null ? `${item.distanceKm} km from ${baseLabel ?? 'base'}` : null,
@@ -90,20 +91,20 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                   return bits.length ? <Text style={type.small}>{bits.join(' · ')}</Text> : null;
                 })()}
               </View>
-              <Pressable onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel="Close"><Text style={{ fontSize: 20 }}>✕</Text></Pressable>
+              <Pressable onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel="Close"><Icon name="close" size={22} color={colors.ink} /></Pressable>
             </Row>
 
             {photos[0] && photoUri(photos[0], 800) ? (
               <View>
                 <Image source={{ uri: photoUri(photos[0], 800)! }} style={styles.hero} accessibilityIgnoresInvertColors />
-                {photos[0].attribution ? <Text style={type.tiny}>📷 {photos[0].attribution}</Text> : null}
+                {photos[0].attribution ? <Text style={type.tiny}>{photos[0].attribution}</Text> : null}
               </View>
             ) : null}
 
             <Wrap>
-              {onAdd ? <Button label={added ? '♥ In the plan' : '+ Add to plan'} kind={added ? 'secondary' : 'primary'} onPress={() => onAdd(item)} disabled={added} /> : null}
-              {onShortlist ? <Button label={saved || shortlisted ? '✓ Shortlisted' : '☆ Shortlist'} kind="secondary" onPress={async () => { await onShortlist(item); setSaved(true); }} disabled={saved || shortlisted} /> : null}
-              {website ? <Button label="Website" kind="ghost" onPress={() => Linking.openURL(website)} /> : null}
+              {onAdd ? <Button label={added ? 'In the plan' : 'Add to plan'} icon={added ? 'keep' : 'add'} iconFill={added} kind={added ? 'secondary' : 'primary'} onPress={() => onAdd(item)} disabled={added} /> : null}
+              {onShortlist ? <Button label={saved || shortlisted ? 'Shortlisted' : 'Shortlist'} icon={saved || shortlisted ? 'shortlisted' : 'shortlist'} kind="secondary" onPress={async () => { await onShortlist(item); setSaved(true); }} disabled={saved || shortlisted} /> : null}
+              {website ? <Button label="Website" icon="external" kind="ghost" onPress={() => Linking.openURL(website)} /> : null}
               {mapsUrl ? <Button label="Open in Google Maps" kind="ghost" onPress={() => Linking.openURL(mapsUrl)} /> : null}
               {externalUrl && !mapsUrl ? <Button label={item.category === 'event' ? 'Tickets' : `On ${sourceName}`} kind="ghost" onPress={() => Linking.openURL(externalUrl)} /> : null}
             </Wrap>
@@ -118,10 +119,10 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
               <View style={{ gap: spacing.sm }}>
                 {v?.summary ?? item.summary ? <Text style={type.body}>{v?.summary ?? item.summary}</Text> : null}
                 {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
-                {v?.address ?? item.address ? <Text style={type.small}>📍 {v?.address ?? item.address}</Text> : null}
-                {item.venueName ? <Text style={type.small}>🎟 At {item.venueName}</Text> : null}
-                {(v?.goodForChildren ?? item.goodForChildren) != null ? <Text style={type.small}>{(v?.goodForChildren ?? item.goodForChildren) ? '👧 Good for children' : 'Not noted as good for children'}{(v?.menuForChildren ?? item.menuForChildren) ? " · children's menu" : ''}</Text> : null}
-                {item.reservable != null ? <Text style={type.small}>{item.reservable ? '📞 Takes bookings' : 'Walk-in only'}</Text> : null}
+                {v?.address ?? item.address ? <IconText name="address">{v?.address ?? item.address}</IconText> : null}
+                {item.venueName ? <IconText name="ticket">At {item.venueName}</IconText> : null}
+                {(v?.goodForChildren ?? item.goodForChildren) != null ? <IconText name="children">{(v?.goodForChildren ?? item.goodForChildren) ? 'Good for children' : 'Not noted as good for children'}{(v?.menuForChildren ?? item.menuForChildren) ? " · children's menu" : ''}</IconText> : null}
+                {item.reservable != null ? <IconText name="phone">{item.reservable ? 'Takes bookings' : 'Walk-in only'}</IconText> : null}
                 {(v?.dietaryOptions ?? []).length ? <Text style={type.small}>Diets: {(v?.dietaryOptions ?? []).join(', ')}</Text> : null}
                 {item.justification ? <Text style={type.small}>"{item.justification}"</Text> : null}
                 <Text style={type.tiny}>Menus: none of our sources publish menus; the website button is the nearest thing.</Text>
@@ -133,7 +134,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                 {reviews.map((r, i) => (
                   <View key={i} style={styles.review}>
                     <Text style={type.small}>
-                      <Text style={{ fontWeight: '700', color: colors.ink }}>{r.rating != null ? `★ ${r.rating}` : ''}</Text>
+                      <Text style={{ fontWeight: '700', color: colors.rating }}>{r.rating != null ? `${r.rating}/5` : ''}</Text>
                       {reviews.length > 1 && i === 0 ? '  best' : reviews.length > 1 && i === reviews.length - 1 ? '  most critical' : ''}
                       {r.author ? ` · ${r.author}` : ''}{r.when ? ` · ${r.when}` : ''}
                     </Text>
@@ -153,7 +154,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
 
             {tab === 'photos' ? (
               <View style={{ gap: spacing.sm }}>
-                {photos.length ? photos.map((p, i) => { const u = photoUri(p, 800); return u ? <View key={i}><Image source={{ uri: u }} style={styles.hero} accessibilityIgnoresInvertColors />{p.attribution ? <Text style={type.tiny}>📷 {p.attribution}</Text> : null}</View> : null; }) : <Text style={type.small}>{venue === undefined ? '' : `No photos from ${sourceName}.`}</Text>}
+                {photos.length ? photos.map((p, i) => { const u = photoUri(p, 800); return u ? <View key={i}><Image source={{ uri: u }} style={styles.hero} accessibilityIgnoresInvertColors />{p.attribution ? <Text style={type.tiny}>{p.attribution}</Text> : null}</View> : null; }) : <Text style={type.small}>{venue === undefined ? '' : `No photos from ${sourceName}.`}</Text>}
               </View>
             ) : null}
 

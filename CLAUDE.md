@@ -27,6 +27,7 @@ The owner reviews every screen in both views on the deployed site: the shell (`a
 - **Every screen has a phone layout and a wide layout**, decided from that width (breakpoints in use: 680 for the date picker, 900 for the shell, household and drawer, 1000 for Places and Trips). Design both before calling a screen done, and check both with the toggle on the Railway deployment, not only on a desktop window.
 - **Anything that portals out of the tree (a `Modal`) must pin itself to the frame.** Read `framed` and `origin` from `useViewport()` and position the sheet at that origin with the frame's size, as `VenueDrawer` does; otherwise it covers the whole browser window.
 - **Keep one tree shape across layouts.** A screen that returns two different trees for wide and narrow loses its state when the owner flips the toggle. Branch on style and on which children render, not on the whole return.
+- **Icons come from one set.** `apps/web/src/components/Icon.tsx` wraps Lucide (`lucide-react-native`); use `<Icon name=…>`, `<CategoryIcon>`, `<IconText>` and `<Rating>`, or the `icon` prop on `Chip` and `Button`. Never an emoji or a symbol character (★ ♥ ✕ ✓ 🎙 📍 …) as an icon; the owner called that embarrassing (3 Sep 2026). Add a name to the set rather than importing a glyph in a screen.
 - **Content must fit 390px.** Rows wrap, chips shrink (`Chip` already wraps long labels), and nothing is allowed to overflow the frame horizontally.
 
 ## Running

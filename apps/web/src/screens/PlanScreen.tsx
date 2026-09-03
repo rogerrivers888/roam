@@ -204,7 +204,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
               <Text style={[type.small, { fontWeight: '600', color: colors.ink, flex: 1 }]} numberOfLines={1}>
                 {!attendingIds || attendingIds.size === members.length ? 'The family' : members.filter((m) => attendingIds.has(m.id)).map((m) => firstName(m.name)).join(', ')}
               </Text>
-              <Text style={type.tiny}>{whoOpen ? '▾' : '▸'}</Text>
+              <Icon name={whoOpen ? 'expand' : 'more'} size={14} color={colors.inkMuted} />
             </Pressable>
             {whoOpen ? (
               <Row style={{ flexWrap: 'wrap', gap: 6, marginTop: 4 }}>

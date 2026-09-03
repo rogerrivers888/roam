@@ -17,13 +17,13 @@ import { MapView, MapPin } from '../components/MapView';
 import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
+import { CategoryIcon, Icon } from '../components/Icon';
 import { getSpeakPref } from './SettingsScreen';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
 const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 const fmtRange = (a?: string | null, b?: string | null) => (a && b ? (a === b ? fmtDate(a) : `${fmtDate(a)} – ${fmtDate(b)}`) : '');
 const SLOT_LABEL = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' } as const;
-const CATEGORY_ICON: Record<string, string> = { restaurant: '🍽', cafe: '☕', pub: '🍺', bar: '🍸', attraction: '🏛', event: '🎟' };
 
 export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string };
 
@@ -69,7 +69,7 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
           <Text style={type.title}>Trips</Text>
           <Text style={type.small}>A day out or a week away. Every trip starts from the places you already know there.</Text>
         </View>
-        <Button label={creating ? 'Close' : '+ New trip'} kind={creating ? 'ghost' : 'primary'} onPress={() => { setCreating((c) => !c); onPrefillConsumed?.(); }} />
+        <Button label={creating ? 'Close' : 'New trip'} icon={creating ? 'close' : 'add'} kind={creating ? 'ghost' : 'primary'} onPress={() => { setCreating((c) => !c); onPrefillConsumed?.(); }} />
       </View>
 
       {creating && household ? (
@@ -297,7 +297,7 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
   const load = useCallback(async () => { try { const t = await api.trip(id); setD(t); setDayId((cur) => cur ?? t.days[0]?.id ?? null); } catch (e: any) { setError(e.message); } }, [id]);
   useEffect(() => { load(); }, [load]);
 
-  if (!d) return <ScrollView contentContainerStyle={styles.page}><Button label="← Trips" kind="ghost" onPress={onBack} style={{ alignSelf: 'flex-start' }} />{error ? <StatusLine tone="warn">{error}</StatusLine> : <Text style={type.small}>Loading…</Text>}</ScrollView>;
+  if (!d) return <ScrollView contentContainerStyle={styles.page}><Button label="Trips" icon="back" kind="ghost" onPress={onBack} style={{ alignSelf: 'flex-start' }} />{error ? <StatusLine tone="warn">{error}</StatusLine> : <Text style={type.small}>Loading…</Text>}</ScrollView>;
   const { trip, days, shortlist, attendees } = d;
   const isTrip = trip.kind === 'trip';
   const day = days.find((x) => x.id === dayId) ?? days[0];
@@ -309,7 +309,7 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
 
   const header = (
     <View style={{ gap: 4 }}>
-      <Button label="← Trips" kind="ghost" onPress={onBack} style={{ alignSelf: 'flex-start' }} />
+      <Button label="Trips" icon="back" kind="ghost" onPress={onBack} style={{ alignSelf: 'flex-start' }} />
       <Text style={type.title}>{trip.title ?? trip.place?.label ?? trip.origin.label}</Text>
       <Text style={type.small}>
         {isTrip ? fmtRange(trip.startDate, trip.endDate) : `${fmtDate(trip.departAt)} · ${clock(trip.departAt)}–${clock(trip.returnAt)}`}
@@ -471,7 +471,7 @@ function DayPlanner({ trip, day, household, onChanged }: { trip: TripDetail; day
         {unscheduled.map((s) => (
           <View key={s.id} style={styles.unscheduled}>
             <View style={{ flex: 1 }}>
-              <Text style={type.h3}>{s.mustDo ? '★ ' : ''}{CATEGORY_ICON[s.category ?? ''] ?? ''} {s.name}</Text>
+              <Row>{s.mustDo ? <Icon name="favourite" size={14} color={colors.rating} fill /> : null}<CategoryIcon category={s.category} size={16} color={colors.ink} /><Text style={[type.h3, { flexShrink: 1 }]}>{s.name}</Text></Row>
               <Text style={type.tiny}>{s.kind}{s.note ? ` · ${s.note}` : ''}</Text>
             </View>
             <Wrap>
@@ -497,10 +497,10 @@ function StopRow({ stop, leg, trip, day, household, onChanged }: { stop: DayStop
         {visit ? <VisitSummary visit={visit} /> : null}
         {moving ? (
           <Wrap>
-            {(['morning', 'afternoon', 'evening'] as const).map((sl) => <Chip key={sl} label={`→ ${SLOT_LABEL[sl]}`} onPress={() => { setMoving(false); call(() => api.updateStop(trip.trip.id, stop.id, { slot: sl })); }} />)}
-            {trip.days.filter((dd) => dd.id !== day.id).map((dd) => <Chip key={dd.id} label={`→ ${fmtDate(dd.date)}`} onPress={() => { setMoving(false); call(() => api.updateStop(trip.trip.id, stop.id, { dayId: dd.id })); }} />)}
-            <Chip label="− 30 min" onPress={() => call(() => api.updateStop(trip.trip.id, stop.id, { dwellMinutes: Math.max(15, stop.dwellMinutes - 30) }))} />
-            <Chip label="+ 30 min" onPress={() => call(() => api.updateStop(trip.trip.id, stop.id, { dwellMinutes: stop.dwellMinutes + 30 }))} />
+            {(['morning', 'afternoon', 'evening'] as const).map((sl) => <Chip key={sl} label={SLOT_LABEL[sl]} icon="forward" onPress={() => { setMoving(false); call(() => api.updateStop(trip.trip.id, stop.id, { slot: sl })); }} />)}
+            {trip.days.filter((dd) => dd.id !== day.id).map((dd) => <Chip key={dd.id} label={fmtDate(dd.date)} icon="forward" onPress={() => { setMoving(false); call(() => api.updateStop(trip.trip.id, stop.id, { dayId: dd.id })); }} />)}
+            <Chip label="30 min" icon="minus" onPress={() => call(() => api.updateStop(trip.trip.id, stop.id, { dwellMinutes: Math.max(15, stop.dwellMinutes - 30) }))} />
+            <Chip label="30 min" icon="add" onPress={() => call(() => api.updateStop(trip.trip.id, stop.id, { dwellMinutes: stop.dwellMinutes + 30 }))} />
           </Wrap>
         ) : null}
         {rating ? (
@@ -597,7 +597,7 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
 
       <Row>
         <TextInput value={input} onChangeText={setInput} placeholder="e.g. somewhere upmarket for dinner, no chains, more for Phoenix" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} onSubmitEditing={() => say(input)} />
-        {speech.supported ? <Pressable onPress={speech.toggle} style={[styles.mic, speech.listening && styles.micOn]} accessibilityLabel={speech.listening ? 'Stop' : 'Speak'}><Text style={{ fontSize: 18 }}>{speech.listening ? '■' : '🎙'}</Text></Pressable> : null}
+        {speech.supported ? <Pressable onPress={speech.toggle} style={[styles.mic, speech.listening && styles.micOn]} accessibilityLabel={speech.listening ? 'Stop' : 'Speak'}><Icon name={speech.listening ? 'stop' : 'mic'} size={18} color={colors.ink} /></Pressable> : null}
         <Button label="Send" onPress={() => say(input)} disabled={!input.trim() || !!busy} />
       </Row>
 
@@ -611,8 +611,8 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
             baseLabel={baseLabel}
             pinned={onDay}
             busy={!!busy}
-            addLabel="+ Add to the day"
-            addedLabel="✓ On the day"
+            addLabel="Add to the day"
+            addedLabel="On the day"
             onAdd={(b) => setAdding(b)}
             onDislike={(b) => act({ type: 'dislike', stopId: b.id })}
             shortlistedRefs={shortlisted}
@@ -666,7 +666,7 @@ function ShortlistPanel({ d, onChanged }: { d: TripDetail; onChanged: () => Prom
     <View style={{ gap: spacing.md }}>
       <Segmented value={tab} options={[{ value: 'activity', label: `Things to do (${shortlist.filter((s) => s.kind === 'activity').length})` }, { value: 'food', label: `Restaurants (${shortlist.filter((s) => s.kind === 'food').length})` }, { value: 'other', label: `Other (${shortlist.filter((s) => s.kind === 'other').length})` }]} onChange={setTab} />
       <Row>
-        <Button label={searching ? 'Close search' : `+ Find ${tab === 'food' ? 'restaurants' : tab === 'activity' ? 'things to do' : 'places'} near ${near?.label ?? trip.base?.label ?? 'the centre'}`} kind={searching ? 'ghost' : 'primary'} onPress={() => setSearching((s) => !s)} />
+        <Button icon={searching ? 'close' : 'add'} label={searching ? 'Close search' : `Find ${tab === 'food' ? 'restaurants' : tab === 'activity' ? 'things to do' : 'places'} near ${near?.label ?? trip.base?.label ?? 'the centre'}`} kind={searching ? 'ghost' : 'primary'} onPress={() => setSearching((s) => !s)} />
       </Row>
       {searching ? (
         <Card>
@@ -681,7 +681,7 @@ function ShortlistPanel({ d, onChanged }: { d: TripDetail; onChanged: () => Prom
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
           {sf.chips}
           {res ? <Text style={type.small}>{sf.filtered.length === res.length ? `${res.length} places` : `${sf.filtered.length} of ${res.length} places`}</Text> : null}
-          {res ? sf.filtered.slice(0, 40).map((v) => <VenueRow key={v.venueRef} venue={v} action={v.onShortlist ? <Chip label="On list" tone="accent" /> : <Row><Button label="Add" kind="secondary" onPress={() => add(v)} /><Button label="★" kind="ghost" onPress={() => add(v, true)} /></Row>} />) : null}
+          {res ? sf.filtered.slice(0, 40).map((v) => <VenueRow key={v.venueRef} venue={v} action={v.onShortlist ? <Chip label="On list" tone="accent" /> : <Row><Button label="Add" kind="secondary" onPress={() => add(v)} /><Button label="Must-do" icon="favourite" kind="ghost" onPress={() => add(v, true)} /></Row>} />) : null}
         </Card>
       ) : null}
 
@@ -691,7 +691,7 @@ function ShortlistPanel({ d, onChanged }: { d: TripDetail; onChanged: () => Prom
           <Text style={type.tiny}>Places you've been to or saved here before, not yet on this trip's list.</Text>
           {fromAtlas.map((p) => (
             <Row key={p.venueRef} style={{ justifyContent: 'space-between' }}>
-              <Text style={[type.body, { flex: 1 }]}>{p.status === 'been' ? '✓ ' : p.status === 'special' ? '★ ' : ''}{p.name}</Text>
+              {p.status === 'been' ? <Icon name="check" size={14} color={colors.like} /> : p.status === 'special' ? <Icon name="favourite" size={14} color={colors.rating} fill /> : null}<Text style={[type.body, { flex: 1 }]}>{p.name}</Text>
               <Button label="Add" kind="secondary" onPress={async () => { await api.addToShortlist(trip.id, { venueRef: p.venueRef, venueLabel: p.name, kind: p.kind ?? undefined, category: p.category, lat: p.lat, lng: p.lng, venue: p.venue ?? undefined }); await onChanged(); }} />
             </Row>
           ))}
@@ -712,10 +712,10 @@ function ShortlistRow({ item, trip, days, onChanged }: { item: ShortlistItem; tr
     <Card style={{ gap: 6 }}>
       <Row>
         <Pressable onPress={async () => { await api.updateShortlist(trip.trip.id, item.id, { mustDo: !item.mustDo }); await onChanged(); }} style={styles.star} accessibilityLabel={item.mustDo ? 'Must do' : 'Mark must do'}>
-          <Text style={{ fontSize: 20, color: item.mustDo ? '#B0771E' : colors.inkFaint }}>{item.mustDo ? '★' : '☆'}</Text>
+          <Icon name="favourite" size={20} color={item.mustDo ? colors.rating : colors.inkFaint} fill={item.mustDo} />
         </Pressable>
         <View style={{ flex: 1 }}>
-          <Text style={type.h3}>{CATEGORY_ICON[item.category ?? ''] ?? ''} {item.name}</Text>
+          <Row><CategoryIcon category={item.category} size={16} color={colors.ink} /><Text style={[type.h3, { flexShrink: 1 }]}>{item.name}</Text></Row>
           <Text style={type.tiny}>{[item.category, ...((item.venue?.experiences as string[]) ?? []), ...((item.venue?.cuisines as string[]) ?? [])].filter(Boolean).join(' · ')}{item.scheduled ? ' · on the plan' : ''}</Text>
         </View>
         <Button label="Remove" kind="ghost" onPress={async () => { await api.removeFromShortlist(trip.trip.id, item.id); await onChanged(); }} />

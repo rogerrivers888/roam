@@ -61,12 +61,12 @@ export function TimeBar({
       </View>
       {!compact ? (
         <View style={styles.legend}>
-          <Text style={type.tiny}>■ travel {minutes(budget.travelMinutes)}</Text>
-          <Text style={[type.tiny, { color: colors.dwell }]}>■ stops {minutes(budget.dwellMinutes)}</Text>
+          <View style={styles.key}><View style={[styles.swatch, { backgroundColor: colors.travel }]} /><Text style={type.tiny}>travel {minutes(budget.travelMinutes)}</Text></View>
+          <View style={styles.key}><View style={[styles.swatch, { backgroundColor: colors.dwell }]} /><Text style={[type.tiny, { color: colors.dwell }]}>stops {minutes(budget.dwellMinutes)}</Text></View>
           <Text style={type.tiny}>
             {budget.remainingMinutes >= 0 ? `free ${minutes(budget.remainingMinutes)}` : `over by ${minutes(-budget.remainingMinutes)}`}
           </Text>
-          <Text style={type.tiny}>│ target {Math.round(budget.targetFill * 100)}%</Text>
+          <View style={styles.key}><View style={styles.swatchLine} /><Text style={type.tiny}>target {Math.round(budget.targetFill * 100)}%</Text></View>
         </View>
       ) : null}
       {budget.overrun && budget.overrunStop ? (
@@ -95,5 +95,8 @@ const styles = StyleSheet.create({
   },
   target: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: colors.ink, opacity: 0.6 },
   overflow: { position: 'absolute', top: 0, bottom: 0, backgroundColor: colors.overrun, opacity: 0.75 },
-  legend: { flexDirection: 'row', gap: spacing.md, flexWrap: 'wrap' },
+  legend: { flexDirection: 'row', gap: spacing.md, flexWrap: 'wrap', alignItems: 'center' },
+  key: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  swatch: { width: 10, height: 10, borderRadius: 2 },
+  swatchLine: { width: 2, height: 12, backgroundColor: colors.ink },
 });

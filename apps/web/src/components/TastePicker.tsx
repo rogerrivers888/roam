@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { api } from '../api';
 import { colors, radius, spacing, type } from '../theme';
 import { Button, Row, Wrap } from './ui';
+import { Icon } from './Icon';
 
 type Leaf = { key: string; label: string };
 type Item = Leaf & { children: Leaf[] };
@@ -52,7 +53,7 @@ export function TastePicker({
       <Row style={{ justifyContent: 'space-between' }}>
         <View style={{ flex: 1 }}>
           <Text style={type.h3}>{mode === 'like' ? 'Tap what they like' : "Tap what they'd rather not"}</Text>
-          <Text style={type.tiny}>Each tap adds it. Open ▸ for the specifics under a broad one.</Text>
+          <Text style={type.tiny}>Each tap adds it. Tap the arrow beside a broad one for its specifics.</Text>
         </View>
         <Button label="Close" kind="ghost" onPress={onClose} />
       </Row>
@@ -80,7 +81,7 @@ export function TastePicker({
                   )}
                   {kids.length ? (
                     <Pressable onPress={() => setOpen((s) => { const n = new Set(s); n.has(it.key) ? n.delete(it.key) : n.add(it.key); return n; })} style={[styles.pill, have ? null : styles.pillRight, expanded && styles.pillExpanded]} accessibilityLabel={`${expanded ? 'Hide' : 'Show'} ${it.label} dishes`}>
-                      <Text style={styles.pillText}>{have ? `${it.label} ` : ''}{expanded ? '▾' : '▸'}</Text>
+                      {have ? <Text style={styles.pillText}>{it.label}</Text> : null}<Icon name={expanded ? 'expand' : 'more'} size={14} color={colors.ink} />
                     </Pressable>
                   ) : null}
                 </View>
@@ -112,7 +113,7 @@ export function TastePicker({
 
 const styles = StyleSheet.create({
   panel: { gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.line },
-  pill: { minHeight: 36, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, justifyContent: 'center' },
+  pill: { minHeight: 36, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, justifyContent: 'center' },
   pillLeft: { borderTopRightRadius: 0, borderBottomRightRadius: 0 },
   pillRight: { borderTopLeftRadius: 0, borderBottomLeftRadius: 0, paddingHorizontal: 8 },
   pillExpanded: { backgroundColor: colors.accentSoft },

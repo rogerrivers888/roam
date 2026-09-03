@@ -18,10 +18,12 @@
     "expo-image-picker": "~57.0.15",
     "expo-status-bar": "~57.0.1",
     "leaflet": "^1.9.4",
+    "lucide-react-native": "^1.40.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-leaflet": "^5.0.0",
     "react-native": "0.86.3",
+    "react-native-svg": "15.15.4",
     "react-native-web": "^0.21.2",
     "serve": "^14.2.6"
   },

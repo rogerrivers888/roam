@@ -155,7 +155,7 @@ const listOf = (cs: Constraint[], max = 4) => {
 /** One line that says what this person is about, for the list. */
 function summarise(m: Member): string {
   const parts: string[] = [];
-  if (m.allergens.length) parts.push(`⚠ ${listOf(m.allergens)}`);
+  if (m.allergens.length) parts.push(`allergic to ${listOf(m.allergens)}`);
   if (m.diets.length) parts.push(m.diets.map((c) => c.value).join(', '));
   const likes = [...m.likes].sort(byFavourite);
   if (likes.length) parts.push(`likes ${listOf(likes)}`);
@@ -221,7 +221,7 @@ function MemberDetail({ member, index, managedBy, relationships, allergens, lear
       {detailFor.kind === 'like' ? (
         <>
           <Wrap>
-            <Chip label={detailFor.favourite ? '★ A favourite' : '☆ Make it a favourite'} tone="like" selected={Boolean(detailFor.favourite)} onPress={() => setFavourite(detailFor, !detailFor.favourite)} />
+            <Chip label={detailFor.favourite ? 'A favourite' : 'Make it a favourite'} icon="favourite" iconFill={Boolean(detailFor.favourite)} tone="like" selected={Boolean(detailFor.favourite)} onPress={() => setFavourite(detailFor, !detailFor.favourite)} />
           </Wrap>
           <Text style={type.tiny}>A favourite is the one {member.name} would generally pick over the other things they like. It ranks higher; it never hides anything.</Text>
         </>
@@ -243,7 +243,7 @@ function MemberDetail({ member, index, managedBy, relationships, allergens, lear
   ) : null;
 
   const likeChip = (c: Constraint) => (
-    <Chip key={c.id} label={prefLabel(c)} tone="like" icon={c.favourite ? '★' : undefined} selected={detailFor?.id === c.id} onPress={() => setDetailFor(detailFor?.id === c.id ? null : c)} onRemove={() => remove(c)} />
+    <Chip key={c.id} label={prefLabel(c)} tone="like" icon={c.favourite ? 'favourite' : undefined} iconFill selected={detailFor?.id === c.id} onPress={() => setDetailFor(detailFor?.id === c.id ? null : c)} onRemove={() => remove(c)} />
   );
   const picker = (s: Section, mode: Mode) => (browse?.section === s && browse.mode === mode ? (
     <TastePicker section={s} mode={mode} already={haveKeys} onPick={(p) => add(mode, p.label, p.key)} onClose={() => setBrowse(null)} />
@@ -378,7 +378,7 @@ function AllergenGroup({ member, common, add, remove, notice }: {
   return (
     <Group title="Allergens — will exclude places" hint="Safety, not preference. A place that can't avoid it is hidden, not ranked lower.">
       {member.allergens.length ? (
-        <Wrap>{member.allergens.map((c) => <Chip key={c.id} label={c.value} tone="allergen" icon="⚠" onRemove={() => remove(c)} />)}</Wrap>
+        <Wrap>{member.allergens.map((c) => <Chip key={c.id} label={c.value} tone="allergen" icon="allergen" onRemove={() => remove(c)} />)}</Wrap>
       ) : <Text style={type.tiny}>None recorded.</Text>}
       <Row>
         <TextInput value={v} onChangeText={setV} placeholder="e.g. peanuts, milk, carrots" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} onSubmitEditing={() => commit(matches.length === 1 ? matches[0] : v)} returnKeyType="done" autoCapitalize="none" />
@@ -413,7 +413,7 @@ function LearnedList({ items }: { items: Learned[] }) {
     <Group title="Learned from visits" hint={items.length ? 'Counts toward recommendations once it has happened enough times.' : 'Nothing yet — rate a few visits in Places.'}>
       <Wrap>
         {sorted.map((l) => (
-          <Chip key={l.conceptKey} label={`${l.kind === 'like' ? '♥' : '✕'} ${l.label} · ${l.count}/${l.threshold}${l.confirmed ? '' : ' learning'}`} tone={l.confirmed ? (l.kind === 'like' ? 'like' : 'dislike') : 'neutral'} />
+          <Chip key={l.conceptKey} icon={l.kind === 'like' ? 'keep' : 'close'} label={`${l.label} · ${l.count}/${l.threshold}${l.confirmed ? '' : ' learning'}`} tone={l.confirmed ? (l.kind === 'like' ? 'like' : 'dislike') : 'neutral'} />
         ))}
       </Wrap>
     </Group>

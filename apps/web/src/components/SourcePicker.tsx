@@ -50,7 +50,7 @@ export function SourcePicker({ value, onChange, title = 'Sources' }: { value: st
       <Text style={type.tiny}>{title}{isDefault ? ' (default)' : selected.length === 1 ? ` — only ${status.enabled.find((s) => s.key === selected[0])?.label ?? selected[0]}` : ''}</Text>
       <Wrap>
         {status.enabled.map((s) => (
-          <Chip key={s.key} label={`${selected.includes(s.key) ? '✓ ' : ''}${s.label}${priceTag(status.cost?.[s.key])}`} selected={selected.includes(s.key)} tone={selected.includes(s.key) ? (status.cost?.[s.key]?.perSearchUsd ? 'accent' : 'like') : 'neutral'} onPress={() => toggle(s.key)} />
+          <Chip key={s.key} icon={selected.includes(s.key) ? 'check' : undefined} label={`${s.label}${priceTag(status.cost?.[s.key])}`} selected={selected.includes(s.key)} tone={selected.includes(s.key) ? (status.cost?.[s.key]?.perSearchUsd ? 'accent' : 'like') : 'neutral'} onPress={() => toggle(s.key)} />
         ))}
         {!isDefault ? <Chip label="Reset to default" onPress={() => onChange(null)} /> : null}
       </Wrap>

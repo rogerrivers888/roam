@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Linking, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { api, HouseholdResponse, Place, SourcesStatus, SpendLine, SpendPeriod, SpendResponse } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Meter, Row, Segmented, SectionTitle, StatusLine, Stepper, Wrap, minutes } from '../components/ui';
 import { PlacePicker } from '../components/PlacePicker';
 import { DateRangePicker } from '../components/DateRangePicker';
 import { isAdmin, setAdmin } from '../admin';
+import { Icon } from '../components/Icon';
 
 export const SPEAK_KEY = 'roam.speakReplies';
 export const getSpeakPref = () => (Platform.OS === 'web' && typeof localStorage !== 'undefined' ? localStorage.getItem(SPEAK_KEY) !== 'off' : true);
@@ -230,9 +231,10 @@ function AllowanceLine({ line, showLabel }: { line: SpendLine; showLabel?: boole
 
 function ConsoleLink({ console: c }: { console: { label: string; url: string } }) {
   return (
-    <Text style={[type.tiny, { color: colors.accent, textDecorationLine: 'underline' }]} onPress={() => Linking.openURL(c.url)} accessibilityRole="link">
-      {c.label} ↗
-    </Text>
+    <Pressable onPress={() => Linking.openURL(c.url)} accessibilityRole="link" style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+      <Text style={[type.tiny, { color: colors.accent, textDecorationLine: 'underline' }]}>{c.label}</Text>
+      <Icon name="external" size={11} color={colors.accent} />
+    </Pressable>
   );
 }
 

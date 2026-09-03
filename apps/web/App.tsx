@@ -10,14 +10,15 @@ import { HouseholdScreen } from './src/screens/HouseholdScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { Brand, BRAND_GROUND } from './src/components/Brand';
 import { useViewport, ViewportProvider } from './src/hooks/useViewport';
+import { Icon, IconName } from './src/components/Icon';
 
 type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings';
-const TABS: { key: Tab; label: string; icon: string }[] = [
-  { key: 'plan', label: 'Plan', icon: '✦' },
-  { key: 'places', label: 'Places', icon: '◎' },
-  { key: 'trips', label: 'Trips', icon: '⇢' },
-  { key: 'household', label: 'Household', icon: '☺' },
-  { key: 'settings', label: 'Settings', icon: '⚙' },
+const TABS: { key: Tab; label: string; icon: IconName }[] = [
+  { key: 'plan', label: 'Plan', icon: 'plan' },
+  { key: 'places', label: 'Places', icon: 'places' },
+  { key: 'trips', label: 'Trips', icon: 'trips' },
+  { key: 'household', label: 'Household', icon: 'household' },
+  { key: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
 // Mobile-first (V1 is the installed web app on a phone), but on a wide screen
@@ -66,7 +67,10 @@ export default function App() {
               accessibilityState={{ checked: mode === m }}
               style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
             >
-              <Text style={[styles.modeText, mode === m && styles.modeTextActive]}>{m === 'web' ? '🖥 Web' : '📱 Mobile'}</Text>
+              <View style={styles.modeInner}>
+                <Icon name={m} size={14} color={mode === m ? colors.surface : colors.inkMuted} />
+                <Text style={[styles.modeText, mode === m && styles.modeTextActive]}>{m === 'web' ? 'Web' : 'Mobile'}</Text>
+              </View>
             </Pressable>
           ))}
         </View>
@@ -146,7 +150,7 @@ function Shell() {
             <Text style={[type.tiny, { marginBottom: spacing.lg }]}>Remember every place you love</Text>
             {TABS.map((t) => (
               <Pressable key={t.key} onPress={() => setTab(t.key)} style={[styles.navItem, tab === t.key && styles.navItemActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }}>
-                <Text style={[styles.navIcon, tab === t.key && { color: colors.accent }]}>{t.icon}</Text>
+                <View style={styles.navIcon}><Icon name={t.icon} size={18} color={tab === t.key ? colors.accent : colors.inkMuted} /></View>
                 <Text style={[styles.navLabel, tab === t.key && { color: colors.accent }]}>{t.label}</Text>
               </Pressable>
             ))}
@@ -166,7 +170,7 @@ function Shell() {
           <View style={styles.tabs} accessibilityRole="tablist">
             {TABS.map((t) => (
               <Pressable key={t.key} onPress={() => setTab(t.key)} style={styles.tab} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }}>
-                <Text style={[styles.tabIcon, tab === t.key && { color: colors.accent }]}>{t.icon}</Text>
+                <Icon name={t.icon} size={20} color={tab === t.key ? colors.accent : colors.inkMuted} />
                 <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
               </Pressable>
             ))}
@@ -187,6 +191,7 @@ const styles = StyleSheet.create({
   modeSwitch: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, padding: 2 },
   modeBtn: { minHeight: 28, paddingHorizontal: spacing.md, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   modeBtnActive: { backgroundColor: colors.accent },
+  modeInner: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   modeText: { fontSize: 12, fontWeight: '600', color: colors.inkMuted },
   modeTextActive: { color: colors.surface },
   stage: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E9E6DE', padding: spacing.xl },
@@ -201,14 +206,13 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', backgroundColor: BRAND_GROUND, borderBottomWidth: 1, borderBottomColor: colors.line },
   navItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET, paddingHorizontal: spacing.sm, borderRadius: 10 },
   navItemActive: { backgroundColor: colors.accentSoft },
-  navIcon: { width: 22, fontSize: 16, color: colors.inkMuted, textAlign: 'center' },
+  navIcon: { width: 22, alignItems: 'center' },
   navLabel: { fontSize: 15, fontWeight: '600', color: colors.ink },
   content: { flex: 1 },
   banner: { padding: spacing.sm, backgroundColor: colors.accentSoft, alignItems: 'center' },
   bannerDown: { backgroundColor: colors.overrunSoft },
   tabs: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.surface, paddingBottom: 4 },
   tab: { flex: 1, minHeight: TARGET + 10, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  tabIcon: { fontSize: 16, color: colors.inkMuted },
   tabText: { fontSize: 11, fontWeight: '600', color: colors.inkMuted },
   tabTextActive: { color: colors.accent },
   status: { fontSize: 10, color: colors.inkFaint },

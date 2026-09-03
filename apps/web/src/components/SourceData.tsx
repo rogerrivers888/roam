@@ -155,7 +155,7 @@ function TraceRow({ v, open, onToggle }: { v: SourceTraceVenue; open: boolean; o
             {[v.category, ...v.experiences, ...v.cuisines].filter(Boolean).join(' · ')}
           </Text>
           <Text style={type.small}>
-            {v.rating != null ? `★ ${v.rating.toFixed(1)}${v.ratingCount ? ` (${v.ratingCount.toLocaleString()})` : ''} from ${v.ratingSource}` : 'no rating'} · {v.distanceKm} km{v.travelMinutes != null ? `, ${v.travelMinutes} min${v.travelEstimated ? ' est.' : ''}` : ''}{v.score != null ? ` · score ${Math.round(v.score)}` : ''}{v.photoCount ? ` · ${v.photoCount} photo` : ''}
+            {v.rating != null ? `Rated ${v.rating.toFixed(1)}${v.ratingCount ? ` (${v.ratingCount.toLocaleString()})` : ''} from ${v.ratingSource}` : 'no rating'} · {v.distanceKm} km{v.travelMinutes != null ? `, ${v.travelMinutes} min${v.travelEstimated ? ' est.' : ''}` : ''}{v.score != null ? ` · score ${Math.round(v.score)}` : ''}{v.photoCount ? ` · ${v.photoCount} photo` : ''}
           </Text>
           <Text style={[type.tiny, { color: colors.want }]}>via {v.contributingSources.join(' + ')}{v.conflicts.length ? ` · ${v.conflicts.length} disagreement${v.conflicts.length === 1 ? '' : 's'}` : ''}</Text>
           {v.justification ? <Text style={type.tiny}>{v.justification}</Text> : null}
@@ -164,7 +164,7 @@ function TraceRow({ v, open, onToggle }: { v: SourceTraceVenue; open: boolean; o
         <View style={{ gap: 4, alignItems: 'flex-end' }}>
           <Chip label={STAGE_LABEL[v.stage]} tone={STAGE_TONE[v.stage]} />
           <Chip label={open ? 'Hide raw' : 'Raw'} onPress={onToggle} />
-          {v.externalUrl ? <Chip label="Open ↗" onPress={() => Linking.openURL(v.externalUrl!)} /> : null}
+          {v.externalUrl ? <Chip label="Open" icon="external" onPress={() => Linking.openURL(v.externalUrl!)} /> : null}
         </View>
       </Row>
       {open ? (

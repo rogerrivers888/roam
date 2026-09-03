@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
+import { CategoryIcon, Icon } from '../components/Icon';
 import { api, AtlasCity, AtlasCountry, AtlasPlace, BrowseItem, HouseholdResponse, Place, Take, Venue, Visit, VisitTake } from '../api';
 import { MapView, MapPin } from '../components/MapView';
 import { VenueDrawer } from '../components/VenueDrawer';
@@ -14,7 +15,6 @@ import { FaceRow } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
 import { TakePicker, TakeRow } from '../components/TakePicker';
 
-const CATEGORY_ICON: Record<string, string> = { restaurant: '🍽', cafe: '☕', pub: '🍺', bar: '🍸', attraction: '🏛', event: '🎟' };
 const today = () => new Date().toISOString().slice(0, 10);
 const uuid = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
@@ -118,7 +118,7 @@ function AtlasPanel({ household, wide, refreshHousehold, onPlanTrip }: { househo
   if (!city) {
     return (
       <View style={{ gap: spacing.md }}>
-        <Button label={`← All countries`} kind="ghost" onPress={() => setCountry(null)} style={{ alignSelf: 'flex-start' }} />
+        <Button label="All countries" icon="back" kind="ghost" onPress={() => setCountry(null)} style={{ alignSelf: 'flex-start' }} />
         <Text style={type.h2}>{country.name}</Text>
         {country.cities.map((ci) => (
           <Pressable key={ci.name} onPress={() => setCity(ci.name)}>
@@ -135,7 +135,7 @@ function AtlasPanel({ household, wide, refreshHousehold, onPlanTrip }: { househo
   return (
     <View style={{ gap: spacing.md }}>
       <Row>
-        <Button label={`← ${country.name}`} kind="ghost" onPress={() => { setCity(null); setOpen(null); }} />
+        <Button label={country.name} icon="back" kind="ghost" onPress={() => { setCity(null); setOpen(null); }} />
         <View style={{ flex: 1 }} />
         <Button label={`Plan a trip to ${city}`} onPress={() => onPlanTrip?.({ placeText: `${city}, ${country.name}`, countryCode: country.code })} />
       </Row>
@@ -253,10 +253,10 @@ function PlaceList({ places, household, wide, openRef, onOpen, map }: {
         <Chip label={`All (${inKind.length})`} selected={status === ''} onPress={() => setStatus('')} />
         <Chip label={`Been (${n((p) => p.status === 'been')})`} tone="like" selected={status === 'been'} onPress={() => setStatus(status === 'been' ? '' : 'been')} />
         <Chip label={`To try (${n((p) => p.status !== 'been')})`} tone="want" selected={status === 'saved'} onPress={() => setStatus(status === 'saved' ? '' : 'saved')} />
-        <Chip label={`★ Special (${n((p) => p.special)})`} tone="accent" selected={status === 'special'} onPress={() => setStatus(status === 'special' ? '' : 'special')} />
+        <Chip icon="favourite" iconFill label={`Special (${n((p) => p.special)})`} tone="accent" selected={status === 'special'} onPress={() => setStatus(status === 'special' ? '' : 'special')} />
         <View style={styles.vr} />
-        <Chip label={`♥ Loved (${n((p) => p.loved > 0, afterStatus)})`} tone="like" selected={verdict === 'loved'} onPress={() => setVerdict(verdict === 'loved' ? '' : 'loved')} />
-        <Chip label={`✕ Not for us (${n((p) => p.notForMe > 0, afterStatus)})`} tone="dislike" selected={verdict === 'not_for_me'} onPress={() => setVerdict(verdict === 'not_for_me' ? '' : 'not_for_me')} />
+        <Chip icon="keep" iconFill label={`Loved (${n((p) => p.loved > 0, afterStatus)})`} tone="like" selected={verdict === 'loved'} onPress={() => setVerdict(verdict === 'loved' ? '' : 'loved')} />
+        <Chip icon="close" label={`Not for us (${n((p) => p.notForMe > 0, afterStatus)})`} tone="dislike" selected={verdict === 'not_for_me'} onPress={() => setVerdict(verdict === 'not_for_me' ? '' : 'not_for_me')} />
       </Wrap>
       {facetList.length ? (
         <Wrap>
@@ -303,7 +303,7 @@ function PlaceRow({ place, members, selected, narrow, onPress }: { place: AtlasP
       {takes.map((t) => (
         <View key={t.member} style={[styles.verdict, { backgroundColor: t.take === 'loved' ? colors.likeSoft : t.take === 'not_for_me' ? colors.dislikeSoft : colors.surfaceMuted }]}>
           <View style={[styles.verdictDot, { backgroundColor: memberColor(t.index) }]} />
-          <Text style={[styles.verdictText, { color: t.take === 'loved' ? colors.like : t.take === 'not_for_me' ? colors.dislike : colors.inkMuted }]}>{t.member.split(' ')[0]} {t.take === 'loved' ? '♥' : t.take === 'fine' ? '–' : '✕'}</Text>
+          <Text style={[styles.verdictText, { color: t.take === 'loved' ? colors.like : t.take === 'not_for_me' ? colors.dislike : colors.inkMuted }]}>{t.member.split(' ')[0]}</Text>{t.take !== 'fine' ? <Icon name={t.take === 'loved' ? 'keep' : 'close'} size={11} color={t.take === 'loved' ? colors.like : colors.dislike} fill={t.take === 'loved'} /> : null}
         </View>
       ))}
     </View>
@@ -316,11 +316,12 @@ function PlaceRow({ place, members, selected, narrow, onPress }: { place: AtlasP
   );
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`Open ${place.name}`} style={({ pressed }) => [styles.placeRow, selected && styles.placeRowOn, pressed && { opacity: 0.8 }]}>
-      <Text style={{ fontSize: 18, width: 26, textAlign: 'center' }}>{CATEGORY_ICON[place.category ?? ''] ?? '📍'}</Text>
+      <View style={{ width: 26, alignItems: 'center' }}><CategoryIcon category={place.category} size={18} /></View>
       <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
-        <Text style={[type.h3, place.unnamed && { fontStyle: 'italic', color: colors.inkMuted }]} numberOfLines={1}>
-          {place.special ? <Text style={{ color: '#B0771E' }}>★ </Text> : null}{place.unnamed ? 'Unnamed place — open for its name' : place.name}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          {place.special ? <Icon name="favourite" size={13} color={colors.rating} fill /> : null}
+          <Text style={[type.h3, { flexShrink: 1 }, place.unnamed && { fontStyle: 'italic', color: colors.inkMuted }]} numberOfLines={1}>{place.unnamed ? 'Unnamed place — open for its name' : place.name}</Text>
+        </View>
         <Text style={type.small} numberOfLines={1}>
           {[CATEGORY_LABEL[place.category ?? ''] ?? (place.category ? cap(place.category) : null), ...tags.map(cap)].filter(Boolean).join(' · ')}
           {place.note ? <Text style={{ color: colors.inkFaint }}> · “{place.note}”</Text> : null}
@@ -366,7 +367,7 @@ function OursPanel({ place, household, country, cityName, onChanged }: { place: 
       <Row style={{ flexWrap: 'wrap' }}>
         <Text style={type.h3}>Ours</Text>
         {place.visits ? <Chip label={`Been ${place.visits}×${place.lastOn ? ` · last ${place.lastOn}` : ''}`} tone="like" /> : <Chip label="To try" tone="want" />}
-        {place.special ? <Chip label="★ Special" tone="accent" /> : null}
+        {place.special ? <Chip label="Special" tone="accent" icon="favourite" iconFill /> : null}
         {place.onTrips.map((t) => <Chip key={t} label={`On: ${t}`} />)}
       </Row>
       <Wrap>
@@ -505,12 +506,12 @@ export function VenueRow({ venue, onPress, action }: { venue: Venue; onPress?: (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined}>
       <Card style={{ gap: 4 }}>
         <Row>
-          {venue.photos?.length ? <VenuePhoto photos={venue.photos} size={56} credit={false} /> : <Text style={{ fontSize: 20 }}>{CATEGORY_ICON[venue.category] ?? '📍'}</Text>}
+          {venue.photos?.length ? <VenuePhoto photos={venue.photos} size={56} credit={false} /> : <View style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' }}><CategoryIcon category={venue.category} size={22} /></View>}
           <View style={{ flex: 1 }}>
             <Text style={type.h3}>{venue.name}</Text>
             <Text style={type.small}>
               {[venue.category, ...venue.experiences, ...venue.cuisines].filter(Boolean).join(' · ')}
-              {venue.rating != null ? ` · ★ ${venue.rating.toFixed(1)}${venue.ratingCount ? ` (${venue.ratingCount.toLocaleString()})` : ''}` : ''}
+              {venue.rating != null ? ` · rated ${venue.rating.toFixed(1)}${venue.ratingCount ? ` (${venue.ratingCount.toLocaleString()})` : ''}` : ''}
               {venue.distanceKm != null ? ` · ${venue.distanceKm} km` : ''}
             </Text>
             <Text style={type.tiny}>via {(venue.contributingSources?.length ? venue.contributingSources : [venue.source]).join(' + ')}</Text>
@@ -519,10 +520,10 @@ export function VenueRow({ venue, onPress, action }: { venue: Venue; onPress?: (
         </Row>
         <Wrap>
           {h?.visits ? <Chip label={`Been ${h.visits}×${h.lastOn ? ` · last ${h.lastOn}` : ''}`} tone="accent" /> : null}
-          {h?.loved ? <Chip label={`♥ ${h.loved}`} tone="like" /> : null}
-          {h?.notForMe ? <Chip label={`✕ ${h.notForMe}`} tone="dislike" /> : null}
+          {h?.loved ? <Chip label={`${h.loved}`} tone="like" icon="keep" iconFill /> : null}
+          {h?.notForMe ? <Chip label={`${h.notForMe}`} tone="dislike" icon="close" /> : null}
           {h?.ledger === 'saved' && !h?.visits ? <Chip label="Saved" /> : null}
-          {h?.ledger === 'special' ? <Chip label="★ Special" tone="accent" /> : null}
+          {h?.ledger === 'special' ? <Chip label="Special" tone="accent" icon="favourite" iconFill /> : null}
           {(venue.dietaryOptions ?? []).map((d) => <Chip key={d} label={d} />)}
           {venue.goodForChildren ? <Chip label="Good for children" /> : null}
         </Wrap>
@@ -548,7 +549,7 @@ function PlaceDetail({ venue, household, onClose, onChanged }: { venue: Venue; h
   return (
     <Card style={{ borderColor: colors.accent }}>
       <Row>
-        <Text style={{ fontSize: 24 }}>{CATEGORY_ICON[venue.category] ?? '📍'}</Text>
+        <CategoryIcon category={venue.category} size={24} color={colors.ink} />
         <View style={{ flex: 1 }}>
           <Text style={type.h2}>{venue.name}</Text>
           <Text style={type.small}>{[venue.category, ...venue.experiences, ...venue.cuisines].join(' · ')}{venue.address ? ` · ${venue.address}` : ''}</Text>
@@ -567,8 +568,8 @@ function PlaceDetail({ venue, household, onClose, onChanged }: { venue: Venue; h
 
       <Row>
         <Button label="We've been here" onPress={() => setAdding(true)} />
-        <Button label={saved === 'yes' ? 'Saved ✓' : 'Save for later'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'saved', { label: venue.name, venue, category: venue.category, lat: venue.lat, lng: venue.lng }); setSaved('yes'); await onChanged(); }} />
-        <Button label={saved === 'special' ? 'Special ✓' : 'Mark as special'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'special', { label: venue.name, venue, category: venue.category, lat: venue.lat, lng: venue.lng }); setSaved('special'); await onChanged(); }} />
+        <Button label={saved === 'yes' ? 'Saved' : 'Save for later'} icon={saved === 'yes' ? 'check' : 'shortlist'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'saved', { label: venue.name, venue, category: venue.category, lat: venue.lat, lng: venue.lng }); setSaved('yes'); await onChanged(); }} />
+        <Button label={saved === 'special' ? 'Special' : 'Mark as special'} icon={saved === 'special' ? 'check' : 'favourite'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'special', { label: venue.name, venue, category: venue.category, lat: venue.lat, lng: venue.lng }); setSaved('special'); await onChanged(); }} />
       </Row>
       <Text style={type.tiny}>Special places are worth going further for — the planner uses your "if it's special" travel limit for them.</Text>
 
@@ -746,11 +747,11 @@ function BeenPanel({ household, wide, refreshHousehold }: { household: Household
               <Pressable key={v.id} onPress={async () => { const d = await api.visit(v.id); setOpen(d.visit); setEditing(false); }}>
                 <Card style={{ gap: 4 }}>
                   <Row style={{ justifyContent: 'space-between' }}>
-                    <Text style={type.h3}>{CATEGORY_ICON[v.category ?? ''] ?? '📍'} {v.venueLabel}</Text>
+                    <Row><CategoryIcon category={v.category} size={16} color={colors.ink} /><Text style={type.h3}>{v.venueLabel}</Text></Row>
                     <Text style={type.tiny}>{v.visitedOn}</Text>
                   </Row>
                   <Wrap>
-                    {(v.visitTakes ?? []).map((t, i) => <Chip key={i} label={`${t.member}: ${t.take === 'loved' ? '♥' : t.take === 'fine' ? '–' : '✕'}`} tone={t.take === 'loved' ? 'like' : t.take === 'not_for_me' ? 'dislike' : 'neutral'} />)}
+                    {(v.visitTakes ?? []).map((t, i) => <Chip key={i} label={`${t.member}${t.take === 'fine' ? ': fine' : ''}`} icon={t.take === 'loved' ? 'keep' : t.take === 'fine' ? undefined : 'close'} iconFill={t.take === 'loved'} tone={t.take === 'loved' ? 'like' : t.take === 'not_for_me' ? 'dislike' : 'neutral'} />)}
                     {(v.attendees as string[]).length ? <Chip label={(v.attendees as string[]).join(', ')} /> : null}
                   </Wrap>
                 </Card>

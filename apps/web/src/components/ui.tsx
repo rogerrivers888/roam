@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, StyleProp, Text, View, ViewStyle, ActivityIndicator } from 'react-native';
 import { colors, radius, spacing, type, TARGET } from '../theme';
+import { Icon, IconName } from './Icon';
 
 export function Card({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   return <View style={[styles.card, style]}>{children}</View>;
@@ -32,22 +33,26 @@ export function Chip({
   onRemove,
   selected,
   icon,
+  iconFill,
 }: {
   label: string;
   tone?: ChipTone;
   onPress?: () => void;
   onRemove?: () => void;
   selected?: boolean;
-  icon?: string;
+  /** An icon from the set, drawn in the chip's own colour before the label. */
+  icon?: IconName;
+  /** Fill the icon (a kept heart, a favourite star). */
+  iconFill?: boolean;
 }) {
   const t = chipTones[tone];
   const body = (
     <View style={[styles.chip, { backgroundColor: t.bg, borderColor: selected ? colors.ink : t.border }]}>
-      {icon ? <Text style={[styles.chipText, { color: t.fg }]}>{icon} </Text> : null}
+      {icon ? <View style={{ marginRight: 5 }}><Icon name={icon} size={14} color={t.fg} fill={iconFill} /></View> : null}
       <Text style={[styles.chipText, { color: t.fg, flexShrink: 1 }]}>{label}</Text>
       {onRemove ? (
-        <Pressable onPress={onRemove} hitSlop={10} accessibilityLabel={`Remove ${label}`}>
-          <Text style={[styles.chipText, { color: t.fg, marginLeft: 6 }]}>✕</Text>
+        <Pressable onPress={onRemove} hitSlop={10} accessibilityLabel={`Remove ${label}`} style={{ marginLeft: 6 }}>
+          <Icon name="close" size={14} color={t.fg} />
         </Pressable>
       ) : null}
     </View>
@@ -67,6 +72,8 @@ export function Button({
   disabled,
   loading,
   style,
+  icon,
+  iconFill,
 }: {
   label: string;
   onPress: () => void;
@@ -74,6 +81,9 @@ export function Button({
   disabled?: boolean;
   loading?: boolean;
   style?: ViewStyle;
+  /** An icon from the set before the label, in the button's text colour. */
+  icon?: IconName;
+  iconFill?: boolean;
 }) {
   const bg = kind === 'primary' ? colors.accent : kind === 'danger' ? colors.overrunSoft : kind === 'secondary' ? colors.surfaceMuted : 'transparent';
   const fg = kind === 'primary' ? '#fff' : kind === 'danger' ? colors.overrun : colors.ink;
@@ -84,7 +94,12 @@ export function Button({
       accessibilityRole="button"
       style={({ pressed }) => [styles.button, { backgroundColor: bg, opacity: disabled ? 0.5 : pressed ? 0.85 : 1 }, style]}
     >
-      {loading ? <ActivityIndicator color={fg} /> : <Text style={[styles.buttonText, { color: fg }]}>{label}</Text>}
+      {loading ? <ActivityIndicator color={fg} /> : (
+        <View style={styles.buttonInner}>
+          {icon ? <Icon name={icon} size={16} color={fg} fill={iconFill} /> : null}
+          <Text style={[styles.buttonText, { color: fg }]}>{label}</Text>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -139,11 +154,11 @@ export function Stepper({
     <View style={styles.stepper}>
       <Text style={[type.small, { flex: 1 }]}>{label}</Text>
       <Pressable onPress={() => onChange(Math.max(min, value - step))} style={styles.stepBtn} accessibilityLabel={`Decrease ${label}`}>
-        <Text style={styles.stepBtnText}>−</Text>
+        <Icon name="minus" size={18} color={colors.ink} />
       </Pressable>
       <Text style={[type.h3, { minWidth: 56, textAlign: 'center' }]}>{format ? format(value) : value}</Text>
       <Pressable onPress={() => onChange(Math.min(max, value + step))} style={styles.stepBtn} accessibilityLabel={`Increase ${label}`}>
-        <Text style={styles.stepBtnText}>+</Text>
+        <Icon name="add" size={18} color={colors.ink} />
       </Pressable>
     </View>
   );
@@ -204,6 +219,7 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  buttonInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   buttonText: { fontSize: 15, fontWeight: '700' },
   segmented: {
     flexDirection: 'row',

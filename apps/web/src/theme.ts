@@ -24,6 +24,7 @@ export const colors = {
   dislikeSoft: '#F6EFD8',
   want: '#4A4A8A',
   wantSoft: '#E6E6F5',
+  rating: '#B0771E',
 };
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
