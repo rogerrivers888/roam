@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Roam · Inspire me — a cleaner form, three ways</title>
+<style>
+  :root{--bg:#F7F6F2;--surface:#fff;--muted:#F0EEE8;--ink:#1D1B16;--ink2:#6B675E;--ink3:#A8A399;--line:#E4E0D6;--accent:#1F5F5B;--accentSoft:#DCEBE9;--want:#4A4A8A;--wantSoft:#E6E6F5;--over:#C0392B;--gold:#B0771E;--goldSoft:#F6EBD5;--budget:#15803D;--budgetSoft:#D9F0DE;--sun:#D97706;--sunSoft:#FDEBCF;--plum:#5B21B6;--plumSoft:#E9E0FA}
+  *{box-sizing:border-box}
+  body{margin:0;background:#E9E6DF;font:14px/1.45 -apple-system,Inter,Segoe UI,Helvetica,Arial,sans-serif;color:var(--ink);padding:32px}
+  h1{font-size:26px;margin:0 0 4px}
+  .lede{color:var(--ink2);max-width:900px;margin:0 0 28px}
+  section{margin:0 0 56px}
+  h2{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 16px;max-width:900px}
+  .row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+  .notes{width:300px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13px}
+  .notes h4{margin:0 0 6px;font-size:13px}
+  .notes ul{margin:0 0 10px;padding-left:18px}
+  .notes li{margin:0 0 4px}
+  .cap{font-size:12px;color:var(--ink2);text-align:center;margin:8px 0 0;max-width:390px}
+  .phone{width:390px;height:844px;background:var(--bg);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column}
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700}
+  .screen{flex:1;overflow:hidden;padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+  .screen > *{flex-shrink:0}
+  .tabbar{height:64px;border-top:1px solid var(--line);background:var(--surface);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--ink3)}
+  .tabbar div{text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px}.tabbar .on{color:var(--accent);font-weight:700}
+  .title{font-size:22px;font-weight:700;letter-spacing:-.3px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 16px;border-radius:12px;font-weight:700;font-size:14px;background:var(--accent);color:#fff;white-space:nowrap}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+  .btn.dim{background:#9BB8B5}
+  .btn.wide{flex:1}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .small{font-size:13px;color:var(--ink2)}
+  .tiny{font-size:11px;color:var(--ink3)}
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:13px;font-weight:600}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .chip.acc{background:var(--accentSoft);color:var(--accent);border-color:transparent}
+  .seg{display:flex;background:var(--muted);border-radius:10px;padding:3px}
+  .seg div{flex:1;text-align:center;padding:8px 4px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink2)}
+  .seg .on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  /* header with the assumptions line */
+  .hero{margin:-14px -14px 0;padding:16px 18px 14px;background:linear-gradient(135deg,#DCEBE9 0%,#FCEFD6 60%,#FCE4DF 100%);border-bottom:1px solid var(--line)}
+  .hero .title{font-size:24px}
+  .assume{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:13px;margin-top:10px}
+  .assume b{font-weight:600}
+  .assume .chev{margin-left:auto;color:var(--ink3)}
+  .faces{display:flex}
+  .faces i{width:22px;height:22px;border-radius:50%;border:2px solid #fff;margin-left:-6px;display:inline-block}
+  .faces i:first-child{margin-left:0}
+  /* the brief */
+  .box{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;font-size:15px;line-height:1.4;min-height:64px;color:var(--ink3)}
+  .ctrl{display:flex;gap:8px;align-items:center}
+  .mic{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:var(--muted);font-weight:600;font-size:13px}
+  /* rows */
+  .frow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-top:1px solid var(--line)}
+  .frow:first-child{border-top:0}
+  .frow .ico{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:none;background:var(--accentSoft);color:var(--accent)}
+  .frow .ico.mood{background:var(--plumSoft);color:var(--plum)}
+  .frow .ico.far{background:var(--sunSoft);color:var(--sun)}
+  .frow .ico.money{background:var(--budgetSoft);color:var(--budget)}
+  .frow .t{flex:1;min-width:0}
+  .frow .lab{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3)}
+  .frow .val{font-size:14px;font-weight:600}
+  .frow .val.empty{font-weight:400;color:var(--ink3)}
+  .frow .chev{color:var(--ink3)}
+  .frow.open{background:var(--accentSoft);margin:0 -8px;padding:10px 12px;border-radius:10px;border-top:0}
+  .panel{border:1px solid var(--accent);border-radius:12px;padding:12px;background:var(--surface);display:flex;flex-direction:column;gap:10px}
+  .panel .h{font-weight:600;font-size:13px}
+  .pick{display:flex;flex-direction:column}
+  .pick div{display:flex;align-items:center;justify-content:space-between;padding:9px 4px;border-top:1px solid var(--line);font-size:14px}
+  .pick div:first-child{border-top:0}
+  .pick .on{font-weight:700;color:var(--accent)}
+  .pick .n{font-size:12px;color:var(--ink3);font-weight:400}
+  /* sliders */
+  .slide{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+  .slide .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--ink2)}
+  .slide .lab b{color:var(--ink);font-weight:700}
+  .track{height:6px;border-radius:3px;background:var(--line);position:relative;margin:10px 8px 6px}
+  .track i{position:absolute;top:0;height:100%;background:var(--accent);border-radius:3px}
+  .track b{position:absolute;top:50%;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.2)}
+  .track.money i{background:var(--budget)}.track.money b{border-color:var(--budget)}
+  .track.far i{background:var(--sun)}.track.far b{border-color:var(--sun)}
+  .ticks{display:flex;justify-content:space-between;font-size:10px;color:var(--ink3);padding:0 4px}
+  .bars{display:flex;align-items:flex-end;gap:2px;height:28px;padding:0 8px}
+  .bars i{flex:1;background:var(--line);border-radius:2px 2px 0 0}
+  .bars i.in{background:var(--budgetSoft);border-top:2px solid var(--budget)}
+  .two{display:flex;gap:14px}
+  /* stepper */
+  .dots{display:flex;gap:6px;align-items:center;justify-content:center}
+  .dots i{width:8px;height:8px;border-radius:50%;background:var(--line)}
+  .dots i.on{background:var(--accent);width:22px;border-radius:4px}
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .tile{border:1px solid var(--line);border-radius:14px;padding:14px 12px;background:var(--surface);min-height:96px;display:flex;flex-direction:column;justify-content:flex-end;gap:2px}
+  .tile.on{border:2px solid var(--accent);background:var(--accentSoft)}
+  .tile .n{font-weight:700;font-size:15px}
+  .tile .w{font-size:12px;color:var(--ink2)}
+  .tile .ic{width:28px;height:28px;border-radius:8px;background:var(--muted);display:flex;align-items:center;justify-content:center;margin-bottom:auto;color:var(--ink2)}
+  .tile.on .ic{background:#fff;color:var(--accent)}
+  .sofar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--ink2)}
+  .sofar .chip{padding:3px 9px;font-size:12px}
+  .q{font-size:18px;font-weight:700;letter-spacing:-.2px}
+  /* sentence */
+  .sentence{font-size:20px;line-height:1.7;font-weight:500}
+  .sentence .dd{display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:8px;background:var(--accentSoft);color:var(--accent);font-weight:700;border-bottom:2px solid var(--accent);white-space:nowrap}
+  .sentence .dd.mood{background:var(--plumSoft);color:var(--plum);border-color:var(--plum)}
+  .sentence .dd.far{background:var(--sunSoft);color:var(--sun);border-color:var(--sun)}
+  .sentence .dd.money{background:var(--budgetSoft);color:var(--budget);border-color:var(--budget)}
+  .menu{position:absolute;left:24px;right:24px;top:300px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.18);padding:6px 0;z-index:2}
+  .menu div{padding:10px 16px;font-size:15px;display:flex;justify-content:space-between}
+  .menu .on{background:var(--plumSoft);color:var(--plum);font-weight:700}
+  .menu .n{color:var(--ink3);font-size:12px}
+  .menu .hd{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink3);padding:8px 16px 2px}
+  .dimmed{position:absolute;inset:0;background:rgba(29,27,22,.25);z-index:1;border-radius:28px}
+  /* web */
+  .web{width:100%;max-width:1100px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:18px 24px;display:flex;gap:24px}
+  .web .side{width:160px;color:var(--ink3);font-size:13px;display:flex;flex-direction:column;gap:12px}
+  .web .side .on{color:var(--accent);font-weight:700}
+  .web .main{flex:1;max-width:680px;display:flex;flex-direction:column;gap:10px}
+  table{border-collapse:collapse;font-size:13px;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  th,td{padding:8px 12px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+  th{background:var(--muted);border-top:0}
+</style>
+</head>
+<body>
+<h1>Inspire me — a cleaner form, three ways</h1>
+<p class="lede">The form today is nine mood pills, four travel pills, five budget pills, a Who line, a box and two buttons: twenty-two things to look at before you ask. Three ways to cut it down. In all three, who is coming moves up into the header as an assumption ("The family · from home"), the moods that cannot go together (Easygoing / Intensive / Relaxing) become one pick, budget is a slider, and travel gets its own line so "from home" is not buried among pills. The rows and pills that stay are the ones from <a href="/mockups/plan-v3.html">the third-pass Plan screen</a>, so Tell me and Inspire me read as one screen.</p>
+
+<section>
+<h2>A · Three rows, like Tell me</h2>
+<p class="sub">Inspire me is the same shape as Tell me: a header with the assumption line, a short box, and rows you tap. Mood is one row (a single pick, with an optional "and…"), Travel and Budget share a row as two halves, each opening a slider. One button.</p>
+<div class="row">
+  <div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen">
+    <div class="hero"><div class="title">Where should we go?</div><div class="small">Not sure where. Say a little, or just tap.</div>
+      <div class="assume"><span class="faces"><i style="background:#1F5F5B"></i><i style="background:#D97706"></i><i style="background:#5B21B6"></i><i style="background:#B91C1C"></i></span><span><b>The family</b> · from home</span><span class="chev">›</span></div></div>
+    <div class="seg"><div>Tell me</div><div class="on">Inspire me</div></div>
+    <div class="box">Anything you fancy — "somewhere with climbing", "a proper pub lunch"…</div>
+    <div class="card" style="padding:4px 8px">
+      <div class="frow"><div class="ico mood"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg></div><div class="t"><div class="lab">Mood</div><div class="val">Fun <span class="tiny">and</span> Outdoors</div></div><span class="chev">›</span></div>
+      <div class="frow" style="gap:0;padding:0">
+        <div style="flex:1;display:flex;align-items:center;gap:10px;padding:10px 4px;border-right:1px solid var(--line)"><div class="ico far"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><div class="t"><div class="lab">Travel</div><div class="val">Up to 2 h</div></div></div>
+        <div style="flex:1;display:flex;align-items:center;gap:10px;padding:10px 4px 10px 12px"><div class="ico money"><svg viewBox="0 0 24 24"><path d="M6 20h12M8 12h7M9 20c2-3 1-9-1-16h9"/></svg></div><div class="t"><div class="lab">Budget</div><div class="val">£40–£120</div></div><span class="chev">›</span></div>
+      </div>
+    </div>
+    <div class="ctrl"><span class="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Speak</span><span class="btn wide"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg> Inspire me</span></div>
+    <div class="tiny" style="text-align:center">Ideas come from your atlas first, then the sources.</div>
+  </div><div class="tabbar"><div class="on"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg>Plan</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 2 2-5z"/></svg>Places</div><div><svg viewBox="0 0 24 24"><path d="M4 18h10a4 4 0 0 0 0-8H8a3 3 0 0 1 0-6h9"/></svg>Trips</div><div><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20a6 6 0 0 1 12 0M15 20a4 4 0 0 1 7 0"/></svg>Household</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Settings</div></div></div>
+  <p class="cap">Filled. Nine things on screen instead of twenty-two; the mood reads as words, not a wall of pills.</p></div>
+
+  <div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen">
+    <div class="hero"><div class="title">Where should we go?</div><div class="small">Not sure where. Say a little, or just tap.</div>
+      <div class="assume"><span class="faces"><i style="background:#1F5F5B"></i><i style="background:#D97706"></i><i style="background:#5B21B6"></i><i style="background:#B91C1C"></i></span><span><b>The family</b> · from home</span><span class="chev">›</span></div></div>
+    <div class="seg"><div>Tell me</div><div class="on">Inspire me</div></div>
+    <div class="card" style="padding:4px 8px">
+      <div class="frow"><div class="ico mood"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg></div><div class="t"><div class="lab">Mood</div><div class="val">Fun <span class="tiny">and</span> Outdoors</div></div><span class="chev">›</span></div>
+      <div class="frow open" style="gap:0">
+        <div style="flex:1;display:flex;align-items:center;gap:10px"><div class="ico far"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><div class="t"><div class="lab">Travel</div><div class="val">Up to 2 h</div></div></div>
+        <div style="flex:1;display:flex;align-items:center;gap:10px;padding-left:12px"><div class="ico money"><svg viewBox="0 0 24 24"><path d="M6 20h12M8 12h7M9 20c2-3 1-9-1-16h9"/></svg></div><div class="t"><div class="lab">Budget</div><div class="val">£40–£120</div></div><span class="chev">⌄</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="slide"><div class="lab"><span>How far, by car from home</span><b>up to 2 h</b></div><div class="track far"><i style="left:0;width:45%"></i><b style="left:45%"></b></div><div class="ticks"><span>30 min</span><span>1 h</span><span>2 h</span><span>3 h</span><span>anywhere</span></div></div>
+      <div class="slide"><div class="lab"><span>For the day, everyone</span><b>£40 – £120</b></div><div class="bars"><i style="height:20%"></i><i style="height:35%"></i><i class="in" style="height:60%"></i><i class="in" style="height:90%"></i><i class="in" style="height:100%"></i><i class="in" style="height:75%"></i><i class="in" style="height:55%"></i><i style="height:35%"></i><i style="height:20%"></i><i style="height:10%"></i></div><div class="track money"><i style="left:18%;width:44%"></i><b style="left:18%"></b><b style="left:62%"></b></div><div class="ticks"><span>Free</span><span>£50</span><span>£100</span><span>£150</span><span>£200+</span></div></div>
+      <div class="seg"><div class="on">For everyone</div><div>Per person</div></div>
+    </div>
+    <div class="ctrl"><span class="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Speak</span><span class="btn wide">Inspire me</span></div>
+  </div><div class="tabbar"><div class="on"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg>Plan</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 2 2-5z"/></svg>Places</div><div><svg viewBox="0 0 24 24"><path d="M4 18h10a4 4 0 0 0 0-8H8a3 3 0 0 1 0-6h9"/></svg>Trips</div><div><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20a6 6 0 0 1 12 0M15 20a4 4 0 0 1 7 0"/></svg>Household</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Settings</div></div></div>
+  <p class="cap">Travel &amp; Budget open. The two sliders sit together: distance on one, a from–to on the other with the spread of what days like this cost, the same control as the Plan screen's Budget row.</p></div>
+
+  <div class="notes"><h4>What changes</h4><ul>
+    <li><b>Who's coming</b> moves into the header as "The family · from home" with the faces; tap to untick someone or start elsewhere. It is the same line Tell me has.</li>
+    <li><b>Mood is one row.</b> Tapping it opens a list: Easygoing / Fun / Relaxing / Full-on as the pace (pick one), then Outdoors / Culture / Food / Somewhere new as the kind (pick one, optional). The row reads "Fun and Outdoors".</li>
+    <li><b>Travel and Budget share a row</b>, split in two, and open a panel with two sliders: distance from home, and a from–to for the day (For everyone / Per person). "From home" is in the slider's own label, not floating after the pills.</li>
+    <li><b>The box is shorter</b> and optional. Speak and one button.</li>
+  </ul><h4>Trade-off</h4><p style="margin:0">Two taps to set a mood instead of one, but the screen is calm and it matches Tell me row for row.</p></div>
+</div>
+</section>
+
+<section>
+<h2>B · The little planner — three questions, then ideas</h2>
+<p class="sub">Nothing on screen but one question at a time, three or four big tiles each, and a strip of what you have picked so far. Three steps: how the day should feel, what kind, then how far and how much (the two sliders). Ideas come straight after the third.</p>
+<div class="row">
+  <div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen">
+    <div class="hero"><div class="title">Where should we go?</div><div class="small">Three quick picks, then ideas.</div>
+      <div class="assume"><span class="faces"><i style="background:#1F5F5B"></i><i style="background:#D97706"></i><i style="background:#5B21B6"></i><i style="background:#B91C1C"></i></span><span><b>The family</b> · from home</span><span class="chev">›</span></div></div>
+    <div class="dots"><i class="on"></i><i></i><i></i></div>
+    <div class="q">How should the day feel?</div>
+    <div class="tiles">
+      <div class="tile"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 15c3-4 6-4 9 0s6 4 9 0"/><path d="M3 9c3-4 6-4 9 0s6 4 9 0"/></svg></div><div class="n">Easygoing</div><div class="w">Short walks, long lunch</div></div>
+      <div class="tile on"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg></div><div class="n">Fun</div><div class="w">Rides, animals, water</div></div>
+      <div class="tile"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 20c4-8 12-8 16 0"/><circle cx="12" cy="7" r="3"/></svg></div><div class="n">Relaxing</div><div class="w">Gardens, views, a spa</div></div>
+      <div class="tile"><div class="ic"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div><div class="n">Full-on</div><div class="w">Pack it in, on our feet</div></div>
+    </div>
+    <div class="tiny" style="text-align:center">Or skip this and just say it.</div>
+    <div class="ctrl" style="margin-top:auto"><span class="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Speak</span><span class="btn wide">Next</span></div>
+  </div><div class="tabbar"><div class="on"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg>Plan</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 2 2-5z"/></svg>Places</div><div><svg viewBox="0 0 24 24"><path d="M4 18h10a4 4 0 0 0 0-8H8a3 3 0 0 1 0-6h9"/></svg>Trips</div><div><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20a6 6 0 0 1 12 0M15 20a4 4 0 0 1 7 0"/></svg>Household</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Settings</div></div></div>
+  <p class="cap">Step 1 of 3. Four tiles with a line each on what they mean; the ones that cannot go together are one choice.</p></div>
+
+  <div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen">
+    <div class="hero"><div class="title">Where should we go?</div><div class="small">Three quick picks, then ideas.</div>
+      <div class="assume"><span class="faces"><i style="background:#1F5F5B"></i><i style="background:#D97706"></i><i style="background:#5B21B6"></i><i style="background:#B91C1C"></i></span><span><b>The family</b> · from home</span><span class="chev">›</span></div></div>
+    <div class="dots"><i></i><i></i><i class="on"></i></div>
+    <div class="sofar">So far <span class="chip acc">Fun</span><span class="chip acc">Outdoors</span><span class="tiny">· tap to change</span></div>
+    <div class="q">How far, and how much?</div>
+    <div class="panel" style="border-color:var(--line)">
+      <div class="slide"><div class="lab"><span>By car from home</span><b>up to 2 h</b></div><div class="track far"><i style="left:0;width:45%"></i><b style="left:45%"></b></div><div class="ticks"><span>30 min</span><span>1 h</span><span>2 h</span><span>3 h</span><span>anywhere</span></div></div>
+      <div class="slide"><div class="lab"><span>For the day, everyone</span><b>£40 – £120</b></div><div class="bars"><i style="height:20%"></i><i style="height:35%"></i><i class="in" style="height:60%"></i><i class="in" style="height:90%"></i><i class="in" style="height:100%"></i><i class="in" style="height:75%"></i><i class="in" style="height:55%"></i><i style="height:35%"></i><i style="height:20%"></i><i style="height:10%"></i></div><div class="track money"><i style="left:18%;width:44%"></i><b style="left:18%"></b><b style="left:62%"></b></div><div class="ticks"><span>Free</span><span>£50</span><span>£100</span><span>£150</span><span>£200+</span></div></div>
+      <div class="seg"><div class="on">For everyone</div><div>Per person</div></div>
+    </div>
+    <div class="box" style="min-height:52px;font-size:14px">Anything else? "with climbing", "not another castle"…</div>
+    <div class="ctrl" style="margin-top:auto"><span class="btn ghost">Back</span><span class="btn wide"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg> Inspire me</span></div>
+  </div><div class="tabbar"><div class="on"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg>Plan</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 2 2-5z"/></svg>Places</div><div><svg viewBox="0 0 24 24"><path d="M4 18h10a4 4 0 0 0 0-8H8a3 3 0 0 1 0-6h9"/></svg>Trips</div><div><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20a6 6 0 0 1 12 0M15 20a4 4 0 0 1 7 0"/></svg>Household</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Settings</div></div></div>
+  <p class="cap">Step 3 of 3. The strip shows what was picked; the sliders and an optional line of words; the button is Inspire me. Step 2 (not shown) is four kinds: Outdoors · Culture · Food · Somewhere new.</p></div>
+
+  <div class="notes"><h4>What changes</h4><ul>
+    <li><b>One question per screen</b>, three or four tiles each, so nothing competes. On the phone each step fits without scrolling.</li>
+    <li><b>The strip</b> carries the picks forward; tapping one goes back to that step.</li>
+    <li><b>Step 3</b> is the two sliders and an optional line of words, then the button. Speak is on every step and skips the rest.</li>
+    <li>Coming back to Inspire me later starts at step 3 with the last picks in the strip, so a second go is one tap.</li>
+  </ul><h4>Trade-off</h4><p style="margin:0">Three taps before ideas. The least cluttered, and the most guided; on the web the three steps can sit side by side in one row instead.</p></div>
+</div>
+</section>
+
+<section>
+<h2>C · A sentence with blanks</h2>
+<p class="sub">The form is a sentence you finish: "Something <b>fun</b> and <b>outdoors</b>, up to <b>2 h</b> from home, for about <b>£40–£120</b>." Each bold word is a dropdown; the budget one opens the slider. It reads the way you would say it, so Speak and tap produce the same words.</p>
+<div class="row">
+  <div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen">
+    <div class="hero"><div class="title">Where should we go?</div><div class="small">Finish the sentence, or just say it.</div>
+      <div class="assume"><span class="faces"><i style="background:#1F5F5B"></i><i style="background:#D97706"></i><i style="background:#5B21B6"></i><i style="background:#B91C1C"></i></span><span><b>The family</b> · from home</span><span class="chev">›</span></div></div>
+    <div class="seg"><div>Tell me</div><div class="on">Inspire me</div></div>
+    <div class="card"><div class="sentence">Something <span class="dd mood">fun ⌄</span> and <span class="dd mood">outdoors ⌄</span>, up to <span class="dd far">2 h ⌄</span> from home, for about <span class="dd money">£40–£120 ⌄</span> for the day.</div></div>
+    <div class="box" style="min-height:52px;font-size:14px">Anything else? "with climbing", "somewhere new"…</div>
+    <div class="ctrl"><span class="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Speak</span><span class="btn wide"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg> Inspire me</span></div>
+    <div class="tiny" style="text-align:center">Ideas come from your atlas first, then the sources.</div>
+  </div><div class="tabbar"><div class="on"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg>Plan</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 2 2-5z"/></svg>Places</div><div><svg viewBox="0 0 24 24"><path d="M4 18h10a4 4 0 0 0 0-8H8a3 3 0 0 1 0-6h9"/></svg>Trips</div><div><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20a6 6 0 0 1 12 0M15 20a4 4 0 0 1 7 0"/></svg>Household</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Settings</div></div></div>
+  <p class="cap">The whole form is four words in a sentence and one box. The emptiest of the three.</p></div>
+
+  <div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen" style="position:relative">
+    <div class="hero"><div class="title">Where should we go?</div><div class="small">Finish the sentence, or just say it.</div>
+      <div class="assume"><span class="faces"><i style="background:#1F5F5B"></i><i style="background:#D97706"></i><i style="background:#5B21B6"></i><i style="background:#B91C1C"></i></span><span><b>The family</b> · from home</span><span class="chev">›</span></div></div>
+    <div class="seg"><div>Tell me</div><div class="on">Inspire me</div></div>
+    <div class="card"><div class="sentence">Something <span class="dd mood">fun ⌃</span> and <span class="dd mood">outdoors ⌄</span>, up to <span class="dd far">2 h ⌄</span> from home, for about <span class="dd money">£40–£120 ⌄</span> for the day.</div></div>
+    <div class="dimmed"></div>
+    <div class="menu"><div class="hd">How it should feel · pick one</div><div>Easygoing <span class="n">short walks, long lunch</span></div><div class="on">Fun <span class="n">rides, animals, water</span></div><div>Relaxing <span class="n">gardens, views, a spa</span></div><div>Full-on <span class="n">pack it in</span></div></div>
+    <div class="box" style="min-height:52px;font-size:14px">Anything else?</div>
+    <div class="ctrl"><span class="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Speak</span><span class="btn wide dim">Inspire me</span></div>
+  </div><div class="tabbar"><div class="on"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/></svg>Plan</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-4 2 2-5z"/></svg>Places</div><div><svg viewBox="0 0 24 24"><path d="M4 18h10a4 4 0 0 0 0-8H8a3 3 0 0 1 0-6h9"/></svg>Trips</div><div><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20a6 6 0 0 1 12 0M15 20a4 4 0 0 1 7 0"/></svg>Household</div><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Settings</div></div></div>
+  <p class="cap">The first blank open: one pick from four, each with a line on what it means. The second blank (outdoors / culture / food / somewhere new) works the same; the budget blank opens the slider panel from A.</p></div>
+
+  <div class="notes"><h4>What changes</h4><ul>
+    <li><b>Four dropdowns in a sentence</b> replace eighteen pills. Each is a single pick, so the ones that clash cannot both be on.</li>
+    <li><b>"From home" is part of the sentence</b>, next to the distance where it belongs; tapping it is the same as tapping the header line.</li>
+    <li><b>Budget</b> opens the from–to slider; the blank shows the range.</li>
+    <li>What you said aloud lands in the same blanks: "somewhere fun, cheap, within an hour" fills three of them.</li>
+  </ul><h4>Trade-off</h4><p style="margin:0">Dropdowns hide the choices until tapped, so a first-time user sees less of what is possible. Reads best in English; the wording has to be written for each blank.</p></div>
+</div>
+</section>
+
+<section>
+<h2>On the web</h2>
+<p class="sub">The same controls at 680 wide. In A and C the row and the sentence simply have more room; in B the three steps sit in one line as three columns, no stepping.</p>
+<div class="web"><div class="side"><div class="on">Plan</div><div>Places</div><div>Trips</div><div>Household</div><div>Settings</div><div>Prototypes</div></div><div class="main">
+  <div class="title">Where should we go?</div>
+  <div class="assume" style="margin-top:0"><span class="faces"><i style="background:#1F5F5B"></i><i style="background:#D97706"></i><i style="background:#5B21B6"></i><i style="background:#B91C1C"></i></span><span><b>The family</b> · from home</span><span class="chev">›</span></div>
+  <div class="seg"><div>Tell me</div><div class="on">Inspire me</div></div>
+  <div class="card"><div class="sentence">Something <span class="dd mood">fun ⌄</span> and <span class="dd mood">outdoors ⌄</span>, up to <span class="dd far">2 h ⌄</span> from home, for about <span class="dd money">£40–£120 ⌄</span> for the day.</div></div>
+  <div class="two">
+    <div class="panel" style="flex:1;border-color:var(--line)"><div class="slide"><div class="lab"><span>By car from home</span><b>up to 2 h</b></div><div class="track far"><i style="left:0;width:45%"></i><b style="left:45%"></b></div><div class="ticks"><span>30 min</span><span>1 h</span><span>2 h</span><span>3 h</span><span>anywhere</span></div></div></div>
+    <div class="panel" style="flex:1;border-color:var(--line)"><div class="slide"><div class="lab"><span>For the day, everyone</span><b>£40 – £120</b></div><div class="track money"><i style="left:18%;width:44%"></i><b style="left:18%"></b><b style="left:62%"></b></div><div class="ticks"><span>Free</span><span>£50</span><span>£100</span><span>£150</span><span>£200+</span></div></div></div>
+  </div>
+  <div class="ctrl"><div class="box" style="flex:1;min-height:44px;font-size:14px;padding:10px 12px">Anything else?</div><span class="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg> Speak</span><span class="btn">Inspire me</span></div>
+</div></div>
+<p class="cap" style="max-width:none;text-align:left">C on the web, with both sliders shown open side by side because there is room.</p>
+</section>
+
+<section>
+<h2>Side by side</h2>
+<table>
+<tr><th></th><th>A · Three rows</th><th>B · Little planner</th><th>C · Sentence</th></tr>
+<tr><td>Things on screen before you ask</td><td>9</td><td>6 per step</td><td>7</td></tr>
+<tr><td>Taps to a full brief</td><td>3–4</td><td>3 + sliders</td><td>3–4</td></tr>
+<tr><td>Matches Tell me</td><td>Row for row</td><td>Different shape</td><td>Same header, different body</td></tr>
+<tr><td>Moods that clash</td><td>One pick in a list</td><td>One tile of four</td><td>One dropdown</td></tr>
+<tr><td>Budget</td><td>Slider in a panel with Travel</td><td>Slider on step 3</td><td>Slider behind the blank</td></tr>
+<tr><td>Who's coming</td><td colspan="3">In the header, as "The family · from home" with faces — all three</td></tr>
+<tr><td>Best for</td><td>Keeping Plan one screen with two modes</td><td>A first-time or hands-off user</td><td>The fewest things on screen</td></tr>
+</table>
+</section>
+</body>
+</html>
