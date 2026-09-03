@@ -51,7 +51,7 @@ export function publicTrip(t) {
   };
 }
 
-async function ensureDays(client, trip) {
+export async function ensureDays(client, trip) {
   if (!trip.start_date || !trip.end_date) return;
   for (const date of datesBetween(trip.start_date, trip.end_date)) {
     await client.query('insert into trip_days (trip_id, date) values ($1, $2) on conflict do nothing', [trip.id, date]);
@@ -60,7 +60,7 @@ async function ensureDays(client, trip) {
   await client.query('delete from trip_days where trip_id = $1 and (date < $2 or date > $3)', [trip.id, trip.start_date, trip.end_date]);
 }
 
-async function placeTrip(client, tripId, point) {
+export async function placeTrip(client, tripId, point) {
   try {
     const r = await reverseGeocode(point.lat, point.lng);
     if (r) await client.query('update trips set country = $2, country_code = $3, locality = $4 where id = $1', [tripId, r.country, r.countryCode, r.locality]);

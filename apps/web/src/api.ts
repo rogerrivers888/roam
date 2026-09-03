@@ -158,7 +158,7 @@ export type TripDay = { id: string; date: string; intensity: 'relaxed' | 'balanc
 export type ShortlistItem = { id: string; venueRef: string; name: string; kind: 'food' | 'activity' | 'other'; category: string | null; lat: number | null; lng: number | null; venue: Partial<Venue> | null; note: string | null; mustDo: boolean; preferredDayId: string | null; scheduled: boolean };
 export type AtlasCity = { name: string; places: number; been: number; special: number; trips: number; lastSeen: string | null; lat: number | null; lng: number | null; created: boolean };
 export type AtlasCountry = { code: string; name: string; places: number; been: number; cities: AtlasCity[] };
-export type AtlasPlace = { venueRef: string; name: string; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number };
+export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number };
 
 export type Trip = {
   kind?: TripKind; place?: { label: string } | null; startDate?: string | null; endDate?: string | null; dayStart?: string; dayEnd?: string;
@@ -194,7 +194,13 @@ export type PlanResponse = {
   attending?: { id: string; name: string }[]; reach?: { maxTravelMinutes: number; estimated: boolean };
   applied?: any; ambiguous?: string | null; transcript?: { role: 'user' | 'assistant'; text: string }[];
   browse?: BrowseItem[]; eventsSource?: string | null; resumed?: boolean;
+  // A question the planner is asking instead of guessing; each choice is tapped or said in the same words.
+  question?: PlanQuestion | null;
+  // An overnight stay was set up as a dated trip: open it in Trips.
+  handoff?: { tripId: string; title: string } | null;
 };
+
+export type PlanQuestion = { kind: 'place' | 'stay' | 'attending' | 'open'; field?: string | null; text: string; choices: { label: string; say: string }[] };
 
 export type PlanAction =
   | { type: 'like' | 'unlike' | 'dislike' | 'restore'; stopId: string }
@@ -265,6 +271,8 @@ export const api = {
     request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[]; sourceError?: string | null }>(`/api/places/detail${qs({ ref: venueRef })}`),
   savePlace: (venueRef: string, status: 'saved' | 'dismissed' | 'special' = 'saved', context?: { label?: string; venue?: Partial<Venue>; category?: string | null; lat?: number; lng?: number; note?: string; country?: string | null; countryCode?: string | null; locality?: string | null }) =>
     post<{ venueRef: string; status: string }>('/api/places/save', { ref: venueRef, status, ...(context ?? {}) }),
+  /** A place the atlas held only by its identifier learns its name once the source has been asked. */
+  nameAtlasPlace: (venueRef: string, label: string) => patch<{ venueRef: string; label: string }>('/api/atlas/places', { venueRef, label }),
   createAtlasCity: (body: { placeText?: string; place?: Place }) => post<{ city: { name: string; country: string; countryCode: string; lat: number; lng: number } }>('/api/atlas/cities', body),
   deleteAtlasCity: (countryCode: string, locality: string) => del<void>('/api/atlas/cities', { countryCode, locality }),
   createVisit: (body: Partial<Visit> & { venueRef: string; venueLabel: string; attendeeIds?: string[]; takes?: VisitTake[]; clientId?: string; venue?: Partial<Venue> }) =>

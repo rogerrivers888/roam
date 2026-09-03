@@ -21,7 +21,7 @@ const fmtRange = (a?: string | null, b?: string | null) => (a && b ? (a === b ? 
 const SLOT_LABEL = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' } as const;
 const CATEGORY_ICON: Record<string, string> = { restaurant: '🍽', cafe: '☕', pub: '🍺', bar: '🍸', attraction: '🏛', event: '🎟' };
 
-export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string };
+export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string };
 
 // ---------------------------------------------------------------------------
 // List
@@ -40,7 +40,10 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
   const [openId, setOpenId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { if (prefill) setCreating(true); }, [prefill]);
+  useEffect(() => {
+    if (prefill?.openTripId) { setOpenId(prefill.openTripId); setCreating(false); onPrefillConsumed?.(); }
+    else if (prefill) setCreating(true);
+  }, [prefill]);
 
   const load = useCallback(async () => {
     try { setData(await api.trips({ country: country || undefined, kind: kind || undefined, when: when || undefined })); } catch (e: any) { setError(e.message); }

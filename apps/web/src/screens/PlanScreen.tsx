@@ -35,10 +35,11 @@ let remembered: { sessionId: string; turns: Turn[]; viewing: string | null } | n
 
 const MISSING_LABEL: Record<string, string> = {
   origin: 'where from', origin_unknown: "where from (couldn't place it)", duration: 'how long', destination_unknown: "where to (couldn't place it)",
-  anchor_place: 'which venue', attending: "who's coming",
+  anchor_place: 'which venue', attending: "who's coming", origin_which: 'which place (from)', destination_which: 'which place (to)',
+  stay: 'trip or day out', question: 'one more thing',
 };
 
-export function PlanScreen({ household }: { household: HouseholdResponse | null }) {
+export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResponse | null; onOpenTrip?: (tripId: string) => void }) {
   const { width } = useWindowDimensions();
   const cardWidth = Math.min(width, 760) - spacing.lg * 2;
 
@@ -78,12 +79,15 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
         ? await api.planRefine(sessionId!, utterance, viewing)
         : await api.planStart(utterance, sessionId, sources);
       setSessionId(next.sessionId);
-      setPlan((prev) => ({ ...(prev ?? {} as PlanResponse), ...next }));
+      // A question is only ever the latest one: an answered one must not linger.
+      setPlan((prev) => ({ ...(prev ?? {} as PlanResponse), ...next, question: next.question ?? null }));
       if (next.reply) {
         setTurns((t) => [...t, { role: 'assistant', text: next.reply! }]);
         if (viaVoice) speak(next.reply);
       }
       if (!viewing && next.options?.[0]) setViewing(next.options[0].id);
+      // An overnight stay was set up as a dated trip: carry on in Trips.
+      if (next.handoff) onOpenTrip?.(next.handoff.tripId);
     } catch (e: any) {
       const msg = e instanceof ApiError ? e.message : String(e?.message || e);
       setError(msg);
@@ -91,7 +95,7 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
     } finally {
       setBusy(false);
     }
-  }, [busy, plan?.trip, sessionId, viewing]);
+  }, [busy, plan?.trip, sessionId, viewing, onOpenTrip]);
 
   const speech = useSpeech({ onFinal: (text) => send(text, true) });
 
@@ -187,6 +191,12 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
         {busy === 'thinking' ? (
           <Row><ActivityIndicator color={colors.accent} /><Text style={type.small}>Working it out…</Text></Row>
         ) : null}
+        {/* The planner asks rather than guesses: each answer can be tapped or said in the same words. */}
+        {plan?.question && !busy ? (
+          <Wrap>
+            {plan.question.choices.map((c) => <Chip key={c.say} label={c.label} tone="accent" onPress={() => send(c.say)} />)}
+          </Wrap>
+        ) : null}
         {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
         {speech.error ? <StatusLine tone="warn">{speech.error}</StatusLine> : null}
 
@@ -231,10 +241,10 @@ export function PlanScreen({ household }: { household: HouseholdResponse | null 
           <Text style={type.h3}>Still need</Text>
           <Wrap>{plan.missing.map((m) => <Chip key={m} label={MISSING_LABEL[m] ?? m.replace(/_/g, ' ')} tone="accent" />)}</Wrap>
           {/* Every question has a tap answer that sends the same words as saying them. */}
-          {plan.missing.includes('origin') && household?.household.home ? (
+          {plan.missing.includes('origin') && household?.household.home && !plan.question ? (
             <Wrap><Chip label="From home" onPress={() => send('From home')} /></Wrap>
           ) : null}
-          {plan.missing.includes('attending') ? (
+          {plan.missing.includes('attending') && !plan.question ? (
             <Wrap>
               <Chip label="Yes, everyone" tone="accent" onPress={() => send('Yes, everyone is coming')} />
               {members.map((m) => <Chip key={m.id} label={`Without ${m.name}`} onPress={() => send(`Everyone except ${m.name}`)} />)}

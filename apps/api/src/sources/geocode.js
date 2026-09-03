@@ -25,22 +25,40 @@ async function politeFetch(url) {
 function formatAddress(a, row) {
   const line1 = [a.house_name, a.house_number, a.road].filter(Boolean).join(' ').trim() || row.name || '';
   const area = a.suburb || a.neighbourhood || a.village || a.hamlet || null;
-  const town = a.city || a.town || a.county || null;
+  const town = localityOf(a, row.display_name) || a.county || null;
   const parts = [line1, area, town, a.state, a.postcode, a.country].filter((p, i, arr) => p && arr.indexOf(p) === i);
   return parts.join(', ');
 }
 
+/**
+ * The city a place files under in the atlas. Nominatim names London's 33
+ * boroughs as cities ("City of Westminster", "London Borough of Camden") and
+ * the whole as "Greater London", so a musical in Westminster and a museum in
+ * Camden landed in different cities (owner, 3 Sep 2026: "which one is which?
+ * they should be self-organising"). Anything inside Greater London is London;
+ * "Greater X" elsewhere is X.
+ */
+export function localityOf(a, displayName = '') {
+  const raw = a.city || a.town || a.village || a.suburb || a.county || a.state || null;
+  if (!raw) return null;
+  const inLondon = String(a.country_code || '').toLowerCase() === 'gb'
+    && (/greater london/i.test(displayName) || /^greater london$/i.test(raw) || /^(city of london|city of westminster|london borough of )/i.test(raw) || /^london borough of /i.test(a.city_district || ''));
+  if (inLondon) return 'London';
+  return raw.replace(/^Greater\s+/i, '');
+}
+
 function shape(row) {
   const a = row.address || {};
-  const locality = a.city || a.town || a.village || a.suburb || a.county || a.state || null;
+  const locality = localityOf(a, row.display_name);
   return {
     label: shortLabel(row, locality),
+    name: row.name || null,
     displayName: row.display_name,
     formatted: formatAddress(a, row),
     address: {
       line1: [a.house_name, a.house_number, a.road].filter(Boolean).join(' ') || row.name || null,
       area: a.suburb || a.neighbourhood || a.village || null,
-      town: a.city || a.town || null,
+      town: localityOf(a, row.display_name),
       region: a.state || a.county || null,
       postcode: a.postcode || null,
       country: a.country || null,
