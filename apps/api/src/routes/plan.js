@@ -17,6 +17,7 @@ import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, TRAVEL_MODES, kmBetween } from '../domain/travel.js';
 import { applyConstraints } from '../domain/ranking.js';
 import { composeOptions, PRICE_POINTS, eventInsideWindow } from '../domain/options.js';
+import { lineByKey } from '../sources/pricing.js';
 import { paceOf, travelLimitFor, maxReachMinutes } from '../domain/pace.js';
 import { dayAsTrip, slotFor } from '../domain/days.js';
 import { ensureDays, placeTrip } from './trips.js';
@@ -525,7 +526,7 @@ async function retrievePool({ household, trip, attendees, intent, sessionId, sou
   return {
     candidates, excluded, degraded, maxTravelMinutes, sourcesQueried, wantsText,
     // Every stage, so the admin source view can say where each record was lost.
-    stages: { venues, reached, inReach }, rawCounts, resolvedCounts, radiusKm: hopRadiusKm, window: { from: trip.depart_at, to: trip.return_at }, origin: originPoint,
+    stages: { venues, reached, inReach }, rawCounts, resolvedCounts, radiusKm: hopRadiusKm, window: { from: trip.depart_at, to: trip.return_at }, origin: originPoint, units,
   };
 }
 
@@ -570,7 +571,14 @@ router.get('/trips/:tripId/sources', async (req, res, next) => {
     const includeScout = String(req.query.scout || '') === '1';
     const set = (picked.length ? picked : (Array.isArray(real.sources) && real.sources.length ? real.sources : defaultSourceKeys())).filter((k) => includeScout || k !== 'scout');
 
+    const startedAt = new Date();
     const pool = await retrievePool({ household, trip, attendees, intent: { wants: [], special: false }, sessionId: null, sourcesOverride: set });
+    // What this fetch cost: units at list price per provider, and the actual
+    // Claude spend recorded while it ran (the scout), so a single-source
+    // refresh says what it just spent.
+    const { rows: [spent] } = await query('select coalesce(sum(estimated_cost_usd), 0)::float as usd from provider_calls where household_id = $1 and created_at >= $2', [household.id, startedAt]);
+    const listPrice = Object.entries(pool.units || {}).map(([k, n]) => ({ key: k, units: n, usd: (lineByKey(k)?.allowance?.beyondUsd ?? 0) * n }));
+    const spend = { units: pool.units || {}, listPriceUsd: listPrice.reduce((a, l) => a + l.usd, 0), byProvider: listPrice, actualUsd: spent.usd };
     const keyOf = (v) => v.key ?? `${v.source}:${v.sourcePlaceId}`;
     const reached = new Map(pool.stages.reached.map((v) => [keyOf(v), v]));
     const inReach = new Map(pool.stages.inReach.map((v) => [keyOf(v), v]));
@@ -615,7 +623,7 @@ router.get('/trips/:tripId/sources', async (req, res, next) => {
       trip: { id: real.id, title: real.title, dayId: day.id, date: day.date, base: { label: trip.origin_label, ...base }, window: pool.window, mode: trip.travel_mode, timezone: trip.timezone },
       days: days.map((d) => ({ id: d.id, date: d.date })),
       sourcesQueried: pool.sourcesQueried, requested: set, includeScout, degraded: pool.degraded, radiusKm: pool.radiusKm, maxTravelMinutes: pool.maxTravelMinutes,
-      stages, venues,
+      stages, venues, spend,
     });
   } catch (err) {
     next(err);

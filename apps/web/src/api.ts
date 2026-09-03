@@ -226,6 +226,7 @@ export type SourceTrace = {
   sourcesQueried: string[]; requested: string[]; includeScout: boolean; degraded: { source: string; error: string }[]; radiusKm: number; maxTravelMinutes: number;
   stages: { key: string; label: string; bySource: Record<string, number>; total: number }[];
   venues: SourceTraceVenue[];
+  spend?: { units: Record<string, number>; listPriceUsd: number; byProvider: { key: string; units: number; usd: number }[]; actualUsd: number };
 };
 
 // Settings › Usage: what the household's calls have used and cost, by provider.

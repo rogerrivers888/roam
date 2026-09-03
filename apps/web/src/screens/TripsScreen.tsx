@@ -114,6 +114,7 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
                       {t.visitCount ? <Chip label={`${t.visitCount} visited`} tone="accent" /> : null}
                       {t.ratingCount ? <Chip label={`${t.ratingCount} takes`} tone="like" /> : null}
                       {t.attendees.length ? <Chip label={t.attendees.join(', ')} /> : null}
+                      <DeleteTrip id={t.id} onDeleted={load} />
                     </Wrap>
                   </Card>
                 </Pressable>
@@ -275,6 +276,19 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
 
 type Section = 'overview' | 'days' | 'shortlist' | 'stay' | 'map' | 'data';
 
+/** Two taps to delete a trip: its days, stops and shortlist go with it; visits and ratings stay (they lose the link). */
+function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<void> }) {
+  const [arm, setArm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!arm) return <Chip label="Delete" onPress={() => setArm(true)} />;
+  return (
+    <Row>
+      <Chip label={busy ? 'Deleting…' : 'Delete this trip'} tone="allergen" onPress={async () => { if (busy) return; setBusy(true); try { await api.deleteTrip(id); await onDeleted(); } finally { setBusy(false); } }} />
+      <Chip label="Keep" onPress={() => setArm(false)} />
+    </Row>
+  );
+}
+
 function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: string; household: HouseholdResponse | null; onBack: () => Promise<void>; refreshHousehold: () => Promise<void>; wide: boolean }) {
   const [d, setD] = useState<TripDetail | null>(null);
   const [section, setSection] = useState<Section>('days');
@@ -309,8 +323,8 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
   const sections: { value: Section; label: string }[] = [
     { value: 'overview', label: 'Overview' }, { value: 'days', label: isTrip ? `Days (${days.length})` : 'The day' },
     { value: 'shortlist', label: `Shortlist (${shortlist.length})` }, { value: 'stay', label: 'Stay' }, { value: 'map', label: 'Map' },
-    // Admin only (Settings › Sources): what each source returned for a day and where the plan lost it.
-    ...(isAdmin() ? [{ value: 'data' as Section, label: 'Data' }] : []),
+    // Admin only (Settings › Sources), web layout only (owner): what each source returned for a day and where the plan lost it.
+    ...(isAdmin() && wide ? [{ value: 'data' as Section, label: 'Data' }] : []),
   ];
 
   const body = (
@@ -338,7 +352,7 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
       ) : null}
       {section === 'shortlist' ? <ShortlistPanel d={d} onChanged={load} /> : null}
       {section === 'stay' ? <StayPanel d={d} onChanged={load} onFindNear={() => setSection('shortlist')} /> : null}
-      {section === 'data' ? <SourceDataPanel d={d} /> : null}
+      {section === 'data' && wide ? <SourceDataPanel d={d} /> : null}
       {section === 'map' ? <Card><MapView pins={pins} height={wide ? 560 : 380} /><Text style={type.tiny}>Black: where you're staying · colours: each day's stops · purple: shortlist not yet placed</Text></Card> : null}
     </>
   );

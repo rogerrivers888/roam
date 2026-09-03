@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { api, SourceTrace, SourceTraceVenue, TripDetail } from '../api';
+import { api, SourcesStatus, SourceTrace, SourceTraceVenue, TripDetail } from '../api';
 import { colors, radius, spacing, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap, clock } from './ui';
 import { isAdmin } from '../admin';
@@ -50,7 +50,11 @@ const STAGE_TONE: Record<string, 'like' | 'dislike' | 'allergen' | 'neutral'> = 
 export function SourceDataPanel({ d }: { d: TripDetail }) {
   const { trip, days } = d;
   const [dayId, setDayId] = useState<string | null>(days[0]?.id ?? null);
-  const [scout, setScout] = useState(false);
+  // One source at a time (owner): "view just the Tripadvisor data or just the Google data". null = the plan's own set.
+  const [only, setOnly] = useState<string | null>(null);
+  const [status, setStatus] = useState<SourcesStatus | null>(null);
+  useEffect(() => { api.sources().then(setStatus).catch(() => null); }, []);
+  const scout = only === 'scout';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trace, setTrace] = useState<SourceTrace | null>(null);
@@ -61,9 +65,12 @@ export function SourceDataPanel({ d }: { d: TripDetail }) {
 
   const run = async () => {
     setBusy(true); setError(null);
-    try { setTrace(await api.tripSources(trip.id, { dayId: dayId ?? undefined, scout: scout ? '1' : undefined })); setShown(40); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    try { setTrace(await api.tripSources(trip.id, { dayId: dayId ?? undefined, sources: only ?? undefined, scout: scout ? '1' : undefined })); setShown(40); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
-  useEffect(() => { setTrace(null); }, [dayId]);
+  useEffect(() => { setTrace(null); }, [dayId, only]);
+  const priceOf = (k: string) => status?.cost?.[k]?.perSearchUsd ?? 0;
+  const onlyLabel = only ? (status?.enabled.find((s) => s.key === only)?.label ?? only) : null;
+  const fetchPrice = only ? priceOf(only) : (status?.defaults ?? []).reduce((n, k) => n + priceOf(k), 0);
 
   const byKind = useMemo(() => (trace?.venues ?? []).filter((v) => kind === 'all' || (kind === 'events') === (v.category === 'event')), [trace, kind]);
   const byStage = useMemo(() => byKind.filter((v) => stage === 'all' || (stage === 'shown') === (v.stage === 'shown')), [byKind, stage]);
@@ -77,9 +84,14 @@ export function SourceDataPanel({ d }: { d: TripDetail }) {
         <Text style={type.h3}>Source data for a day</Text>
         <Text style={type.small}>Runs the plan's own search around {trip.base?.label ?? trip.origin.label} for the day, with no Claude call, and shows what every source returned and where the plan lost it. Searches are free except Tripadvisor (only if this trip names it) and the scout.</Text>
         {days.length > 1 ? <Wrap>{days.map((dd, i) => <Chip key={dd.id} label={`Day ${i + 1} · ${dd.date.slice(5)}`} selected={dd.id === dayId} onPress={() => setDayId(dd.id)} />)}</Wrap> : null}
+        <Wrap>
+          <Text style={[type.tiny, { alignSelf: 'center' }]}>Fetch from</Text>
+          <Chip label="The plan's own set" selected={only === null} tone={only === null ? 'accent' : 'neutral'} onPress={() => setOnly(null)} />
+          {(status?.enabled ?? []).map((s) => <Chip key={s.key} label={`${s.label} only${priceOf(s.key) ? ` · $${priceOf(s.key).toFixed(2)}` : ''}`} selected={only === s.key} tone={only === s.key ? 'accent' : 'neutral'} onPress={() => setOnly(s.key)} />)}
+        </Wrap>
+        <Text style={type.tiny}>{fetchPrice > 0 ? `About $${fetchPrice.toFixed(2)} per fetch${only ? ` (${status?.cost?.[only]?.note ?? ''})` : ' with this set'}.` : 'This fetch is free.'}{only === 'tripadvisor' ? ' Alone, Tripadvisor returns one page around the base; with others it looks their venues up by name.' : ''}</Text>
         <Row style={{ flexWrap: 'wrap' }}>
-          <Button label={trace ? 'Run again' : 'Fetch source data'} onPress={run} loading={busy} />
-          <Chip label={scout ? '✓ Include local scout (paid)' : 'Include local scout (paid)'} selected={scout} tone={scout ? 'accent' : 'neutral'} onPress={() => setScout((v) => !v)} />
+          <Button label={`${trace ? 'Refresh' : 'Fetch'}${onlyLabel ? ` ${onlyLabel} only` : ''}`} onPress={run} loading={busy} />
         </Row>
         {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       </Card>
@@ -92,6 +104,12 @@ export function SourceDataPanel({ d }: { d: TripDetail }) {
               {trace.trip.date} · {trace.radiusKm} km around {trace.trip.base.label} · window {clock(trace.trip.window.from)}–{clock(trace.trip.window.to)} · reach {trace.maxTravelMinutes} min {trace.trip.mode} · asked: {trace.sourcesQueried.join(', ') || 'none'}
             </Text>
             {trace.degraded.length ? trace.degraded.map((g) => <StatusLine key={g.source} tone="warn">{g.source} failed: {g.error}</StatusLine>) : null}
+            {trace.spend ? (
+              <Text style={[type.small, { color: colors.ink }]}>
+                This fetch cost {trace.spend.actualUsd > 0 ? `$${trace.spend.actualUsd.toFixed(2)} (Claude)` : 'nothing'}
+                {trace.spend.byProvider.length ? ` · ${trace.spend.byProvider.map((p) => `${p.key} ${p.units} ${p.units === 1 ? 'unit' : 'units'}${p.usd ? ` (~$${p.usd.toFixed(2)} list price, free inside the allowance)` : ''}`).join(', ')}` : ' · no provider requests'}
+              </Text>
+            ) : null}
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={[styles.table, { minWidth: 160 + 64 * (sources.length + 1) }]}>
               <View style={styles.tr}>
