@@ -27,8 +27,11 @@ export const emptyFind = (): FindState => ({ q: '', radiusKm: 3, sources: null, 
 const dwellFor = (category: string) => (['restaurant', 'pub'].includes(category) ? 75 : ['cafe', 'bar'].includes(category) ? 45 : category === 'event' ? 150 : 90);
 const sourcesOf = (v: FindResult) => [...new Set([v.source, ...(v.contributingSources ?? [])].filter(Boolean))];
 
-export function BrowseNear({ d, onChanged, find, setFind, onShortlist }: {
-  d: TripDetail; onChanged: () => Promise<void>; find: FindState; setFind: (f: FindState | ((cur: FindState) => FindState)) => void; onShortlist?: () => void;
+export function BrowseNear({ d, onChanged, find, setFind, initialPrices, onShortlist }: {
+  d: TripDetail; onChanged: () => Promise<void>; find: FindState; setFind: (f: FindState | ((cur: FindState) => FindState)) => void;
+  /** Price chips to start with ("Free to enter" when the day was asked for on a free budget). */
+  initialPrices?: string[];
+  onShortlist?: () => void;
 }) {
   const { trip, shortlist } = d;
   const [atlas, setAtlas] = useState<AtlasPlace[]>([]);
@@ -139,7 +142,7 @@ export function BrowseNear({ d, onChanged, find, setFind, onShortlist }: {
       {find.res ? (
         <Card style={{ paddingTop: spacing.sm }}>
           <BrowsePool
-            items={items} eventsSource={null} baseLabel={baseLabel} pinned={shortlisted} busy={find.loading}
+            items={items} eventsSource={null} baseLabel={baseLabel} pinned={shortlisted} busy={find.loading} initialPrices={initialPrices}
             addLabel="Shortlist" addedLabel="Shortlisted"
             onAdd={add}
             onDislike={(b) => setFind((cur) => ({ ...cur, res: (cur.res ?? []).filter((v) => v.venueRef !== b.venueRef) }))}

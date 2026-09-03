@@ -46,7 +46,7 @@ export function admissionOf(b: Pick<BrowseItem, 'category' | 'experiences' | 'pr
 const PRICE_ORDER = ['Free', '£', '££', '£££', '££££', 'No price given'];
 const priceBand = (b: BrowseItem) => priceMarks(b.priceLevel) ?? 'No price given';
 
-export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLabel = 'Add to plan', addedLabel = 'In the plan', onAdd, onRemove, onDislike, onShortlist, shortlistedRefs }: {
+export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLabel = 'Add to plan', addedLabel = 'In the plan', initialPrices, onAdd, onRemove, onDislike, onShortlist, shortlistedRefs }: {
   items: BrowseItem[];
   eventsSource: string | null | undefined;
   baseLabel: string;
@@ -54,6 +54,8 @@ export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLa
   busy: boolean;
   addLabel?: string;
   addedLabel?: string;
+  /** Price chips selected to begin with, on the first tab. */
+  initialPrices?: string[];
   onAdd: (item: BrowseItem) => void;
   onRemove?: (item: BrowseItem) => void;
   onDislike: (item: BrowseItem) => void;
@@ -64,7 +66,7 @@ export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLa
   const [tab, setTab] = useState<BrowseTab>('things');
   const [sort, setSort] = useState<Sort>('best');
   const [facets, setFacets] = useState<Set<string>>(new Set());
-  const [prices, setPrices] = useState<Set<string>>(new Set());
+  const [prices, setPrices] = useState<Set<string>>(() => new Set(initialPrices ?? []));
   const [shown, setShown] = useState(15);
   const [open, setOpen] = useState<BrowseItem | null>(null);
 

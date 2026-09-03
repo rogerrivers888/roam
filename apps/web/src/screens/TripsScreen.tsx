@@ -25,9 +25,9 @@ const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLoca
 const fmtRange = (a?: string | null, b?: string | null) => (a && b ? (a === b ? fmtDate(a) : `${fmtDate(a)} – ${fmtDate(b)}`) : '');
 const SLOT_LABEL = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' } as const;
 
-export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string; section?: 'find' | 'shortlist' | 'day'; findRadiusKm?: number };
+export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string; section?: 'find' | 'shortlist' | 'day'; findRadiusKm?: number; findPrices?: string[] };
 /** How a trip opened from elsewhere should start: which tab, how far Find looks. */
-type OpenWith = { section?: Section; findRadiusKm?: number };
+type OpenWith = { section?: Section; findRadiusKm?: number; findPrices?: string[] };
 
 // ---------------------------------------------------------------------------
 // List
@@ -46,7 +46,7 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (prefill?.openTripId) { setOpenWith({ section: prefill.section, findRadiusKm: prefill.findRadiusKm }); setOpenId(prefill.openTripId); setCreating(false); onPrefillConsumed?.(); }
+    if (prefill?.openTripId) { setOpenWith({ section: prefill.section, findRadiusKm: prefill.findRadiusKm, findPrices: prefill.findPrices }); setOpenId(prefill.openTripId); setCreating(false); onPrefillConsumed?.(); }
     else if (prefill) setCreating(true);
   }, [prefill]);
 
@@ -368,7 +368,7 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
     <>
       {section === 'find' ? (
         <View style={{ gap: spacing.md }}>
-          <BrowseNear d={d} onChanged={load} find={find} setFind={setFind} onShortlist={() => setSection('shortlist')} />
+          <BrowseNear d={d} onChanged={load} find={find} setFind={setFind} initialPrices={openWith?.findPrices} onShortlist={() => setSection('shortlist')} />
           {household && day ? (
             <View style={{ gap: spacing.sm }}>
               <Button label={planning ? 'Hide the planner' : 'Plan it for me'} icon="plan" kind="ghost" onPress={() => setPlanning((v) => !v)} />

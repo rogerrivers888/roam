@@ -1019,23 +1019,51 @@ const INSPIRE_SYSTEM = `You suggest days out — or a night away only if the bri
 
 You are given the household (people, likes, dislikes, allergens), their atlas (places they have saved, loved, listed or visited, with notes), today's date, a brief in their words, the moods they picked, a travel cap in minutes by car, and who is coming. Give three to five real, specific places in their own country within the cap. Match the moods. Prefer places from the atlas they loved or listed, and say so. Never suggest anything a coming member dislikes or cannot eat. Each idea's "why" names the person or the fact it rests on. Each idea has named things to do and, where food matters, meals. The reply is spoken aloud: one plain sentence, no lists.`;
 
+// How much the day should cost, in the model's ear. "free" also opens the trip's
+// Find tab on the places that are free to enter.
+const BUDGETS = {
+  any: null,
+  free: 'Free or nearly free: parks, walks, beaches, free museums and galleries, a picnic or a cheap lunch — no admission tickets, no restaurant bill to speak of',
+  cheap: 'Cheap and cheerful: modest entry prices at most, inexpensive places to eat',
+  mid: 'Middling: normal admission prices and a proper sit-down meal are fine',
+  treat: 'A treat: worth paying for — the best-rated attractions and somewhere special to eat',
+};
+
+/**
+ * Inspire me runs in the background (owner, 3 Sep 2026: "Failed to fetch"
+ * when a redeploy or a slow model call outlived the request). The request
+ * answers at once with the session; the screen polls GET /inspire/:sessionId
+ * until the ideas are on it. Body: { query, moods, maxTravelMinutes, budget, attendingMemberIds }.
+ */
 router.post('/inspire', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const members = await loadMembers(household.id);
-    const { query: brief = '', moods = [], maxTravelMinutes = null, attendingMemberIds } = req.body || {};
+    const { query: brief = '', moods = [], maxTravelMinutes = null, budget = 'any', attendingMemberIds } = req.body || {};
     const attending = Array.isArray(attendingMemberIds) && attendingMemberIds.length ? members.filter((m) => attendingMemberIds.includes(m.id)) : members;
+    const input = { brief: String(brief || '').trim() || null, moods, maxTravelMinutes: maxTravelMinutes ?? null, budget: budget in BUDGETS ? budget : 'any' };
+    const state = { transcript: [], kind: 'inspire', input, running: true, runStartedAt: new Date().toISOString(), ideas: null, reply: null, error: null };
+    const { rows: srows } = await query('insert into plan_sessions (household_id, state) values ($1, $2) returning *', [household.id, JSON.stringify(state)]);
+    const session = srows[0];
+    res.json({ sessionId: session.id, running: true });
+    runInspire({ household, attending, session, state }).catch(() => { /* recorded on the session */ });
+  } catch (err) {
+    next(err);
+  }
+});
+
+async function runInspire({ household, attending, session, state }) {
+  try {
     const { rows: atlas } = await query(
       `select hp.label, hp.kind, hp.category, hp.locality, hp.note,
               (select string_agg(distinct l.status::text, ',') from place_ledger l where l.household_id = hp.household_id and l.source || ':' || l.source_place_id = hp.venue_ref) as statuses
          from household_places hp where hp.household_id = $1 order by hp.last_seen desc limit 40`,
       [household.id],
     );
-    const { rows: srows } = await query('insert into plan_sessions (household_id, state) values ($1, $2) returning *', [household.id, JSON.stringify({ transcript: [], kind: 'inspire' })]);
-    const session = srows[0];
+    const { input } = state;
     const out = await parseStructured({
       system: INSPIRE_SYSTEM,
-      messages: [{ role: 'user', content: JSON.stringify({ ...householdContext(household, attending), atlas, brief: String(brief || '').trim() || null, moods, maxTravelMinutes: maxTravelMinutes ?? null, attending: attending.map((m) => m.name) }) }],
+      messages: [{ role: 'user', content: JSON.stringify({ ...householdContext(household, attending), atlas, brief: input.brief, moods: input.moods, maxTravelMinutes: input.maxTravelMinutes, budget: BUDGETS[input.budget], attending: attending.map((m) => m.name) }) }],
       schema: Ideas,
       householdId: household.id,
       sessionId: session.id,
@@ -1052,17 +1080,28 @@ router.post('/inspire', async (req, res, next) => {
       const travelMinutes = place && home ? estimateTravelMinutes(home, place, 'driving') : (idea.travel_minutes ?? null);
       ideas.push({ id: `idea-${i}`, title: idea.title, why: idea.why, placeText: idea.place_text, place, travelMinutes, overnight: idea.overnight, do: idea.do, eat: idea.eat });
     }
-    const state = { ...session.state, ideas };
+    Object.assign(state, { ideas, reply: out.reply, running: false });
     await saveSession(session.id, state, null);
-    res.json({ ideas, reply: out.reply, sessionId: session.id });
     // What there is at each idea is gathered now, in the background and in
     // order, so opening one is a read rather than a search (owner, 3 Sep 2026).
-    (async () => {
-      for (const idea of ideas) {
-        if (!idea.place) continue;
-        try { await thingsAround({ household, session, place: idea.place }); } catch { /* the tap will try again */ }
-      }
-    })();
+    for (const idea of ideas) {
+      if (!idea.place) continue;
+      try { await thingsAround({ household, session, place: idea.place }); } catch { /* the tap will try again */ }
+    }
+  } catch (err) {
+    Object.assign(state, { running: false, error: err?.message || String(err) });
+    await saveSession(session.id, state, null);
+  }
+}
+
+/** Where Inspire me has got to: running, or the ideas, or what went wrong. A run lost to a restart reports so after three minutes. */
+router.get('/inspire/:sessionId', async (req, res, next) => {
+  try {
+    const session = await loadSession(req.params.sessionId);
+    const s = session.state || {};
+    if (s.kind !== 'inspire') return res.status(404).json({ error: 'session_not_found' });
+    const stale = s.running && s.runStartedAt && Date.now() - new Date(s.runStartedAt).getTime() > 3 * 60_000;
+    res.json({ sessionId: session.id, running: Boolean(s.running) && !stale, ideas: s.ideas ?? null, reply: s.reply ?? null, budget: s.input?.budget ?? 'any', error: stale ? 'That run was interrupted — try Inspire me again.' : s.error ?? null });
   } catch (err) {
     next(err);
   }

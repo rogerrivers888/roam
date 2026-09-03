@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, Idea, IdeaThing } from '../api';
+import { api, IdeaBudget, Idea, IdeaThing } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, StatusLine, Wrap, minutes } from './ui';
 import { Icon } from './Icon';
@@ -10,6 +10,12 @@ const MOODS = ['Easygoing', 'Intensive', 'Fun', 'Relaxing', 'Food-focused', 'Act
 const CAPS: { label: string; value: number | null }[] = [{ label: '1 h', value: 60 }, { label: '2 h', value: 120 }, { label: '3 h', value: 180 }, { label: 'Anywhere', value: null }];
 /** Find looks the same distance around the place as the ideas did, so the trip opens on what was already fetched. */
 const THINGS_RADIUS_KM = 5;
+// How much the day should cost (owner, 3 Sep 2026): told to the model, and a
+// free day opens the trip's Find tab on the places that are free to enter.
+const BUDGETS: { value: IdeaBudget; label: string }[] = [
+  { value: 'any', label: 'Any' }, { value: 'free', label: 'Free things' }, { value: 'cheap', label: 'Cheap and cheerful' }, { value: 'mid', label: 'Middling' }, { value: 'treat', label: 'A treat' },
+];
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // What is there, in a few words: kinds of thing first, then where to eat.
 const KIND_LABELS: [string, string][] = [
@@ -53,6 +59,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
 }) {
   const [moods, setMoods] = useState<Set<string>>(new Set());
   const [cap, setCap] = useState<number | null>(120);
+  const [budget, setBudget] = useState<IdeaBudget>('any');
   const [ideas, setIdeas] = useState<Idea[] | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [reply, setReply] = useState<string | null>(null);
@@ -63,11 +70,26 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
   const [opened, setOpened] = useState<Record<string, { tripId: string; title: string; seeded: string[] }>>({});
   const run = useRef(0);
 
+  // Inspire me runs on the server in the background: the request is retried
+  // through a redeploy, then the session is polled until the ideas are on it,
+  // so a slow model call or a restart mid-way never ends in "Failed to fetch".
   const inspire = async () => {
     setBusy(true); setError(null);
     try {
-      const r = await api.inspire({ query, moods: [...moods], maxTravelMinutes: cap, attendingMemberIds: attendingIds });
-      setIdeas(r.ideas); setReply(r.reply); setSessionId(r.sessionId); setThings({}); setOpened({});
+      let started: { sessionId: string } | null = null;
+      for (let attempt = 0; attempt < 4 && !started; attempt += 1) {
+        try { started = await api.inspire({ query, moods: [...moods], maxTravelMinutes: cap, budget, attendingMemberIds: attendingIds }); }
+        catch (e: any) { if (attempt === 3 || !/fetch|network/i.test(String(e?.message))) throw e; await wait(5000); }
+      }
+      const startedAt = Date.now();
+      for (;;) {
+        await wait(2500);
+        let s: Awaited<ReturnType<typeof api.inspireStatus>> | null = null;
+        try { s = await api.inspireStatus(started!.sessionId); } catch { /* a dropped poll is harmless; the next one asks again */ }
+        if (!s) { if (Date.now() - startedAt > 4 * 60_000) throw new Error('Roam has not answered for four minutes — try Inspire me again in a moment.'); continue; }
+        if (s.error) throw new Error(s.error);
+        if (!s.running && s.ideas) { setIdeas(s.ideas); setReply(s.reply); setSessionId(s.sessionId); setThings({}); setOpened({}); break; }
+      }
     } catch (e: any) { setError(e?.message || String(e)); } finally { setBusy(false); }
   };
 
@@ -90,16 +112,19 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
     })();
   }, [ideas]);
 
+  // The trip opens on Find at the look-around's radius; a free day starts on the places that are free to enter.
+  const openOpts = (): OpenTripOptions => ({ section: 'find', findRadiusKm: THINGS_RADIUS_KM, findPrices: budget === 'free' ? ['Free to enter'] : undefined });
+
   // The idea becomes a day out in Trips; a second tap opens the same day.
   const openTrip = async (idea: Idea) => {
     if (!sessionId || opening) return;
     const already = opened[idea.id];
-    if (already) { onOpenTrip?.(already.tripId, { section: 'find', findRadiusKm: THINGS_RADIUS_KM }); return; }
+    if (already) { onOpenTrip?.(already.tripId, openOpts()); return; }
     setOpening(idea.id); setError(null);
     try {
       const r = await api.inspireTrip({ sessionId, ideaId: idea.id, attendingMemberIds: attendingIds });
       setOpened((s) => ({ ...s, [idea.id]: { tripId: r.tripId, title: r.title, seeded: r.seeded } }));
-      onOpenTrip?.(r.tripId, { section: 'find', findRadiusKm: THINGS_RADIUS_KM });
+      onOpenTrip?.(r.tripId, openOpts());
     } catch (e: any) { setError(e?.message || String(e)); } finally { setOpening(null); }
   };
 
@@ -146,6 +171,10 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
           <Text style={type.tiny}>Up to</Text>
           {CAPS.map((c) => <Chip key={c.label} label={c.label} selected={cap === c.value} onPress={() => setCap(c.value)} />)}
           <Text style={type.tiny}>from home</Text>
+        </Row>
+        <Row style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <Text style={type.tiny}>Budget</Text>
+          {BUDGETS.map((b) => <Chip key={b.value} label={b.label} selected={budget === b.value} icon={budget === b.value && b.value !== 'any' ? 'check' : undefined} onPress={() => setBudget(b.value)} />)}
         </Row>
         {who}
         {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
