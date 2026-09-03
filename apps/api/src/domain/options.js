@@ -368,11 +368,17 @@ export function composeOptions({
     .filter((c) => !excludedSet.has(c.key) && !c.fixed && eventInsideWindow(c, trip))
     .filter((c) => c.shortlisted || pinnedSet.has(c.key) || ((includeChains || !c.chain) && priceOk(c, pricePoint)))
     .sort((a, b) => (isEvent(a) && isEvent(b) ? new Date(a.startsAt) - new Date(b.startsAt) : (b.score ?? 0) - (a.score ?? 0)))
-    .slice(0, 120)
     .map((c) => ({ ...richFields(c, base), dwellMinutes: dwellFor(c, household, attendees).minutes, pinned: pinnedSet.has(c.key), score: c.score ?? null }));
+  // Capped per group, so a city centre's hundreds of cafés never crowd out the things to do.
+  const browseCapped = [
+    ...browse.filter((b) => b.category === 'event').slice(0, 40),
+    ...browse.filter((b) => isActivity(b) && b.category !== 'event').slice(0, 60),
+    ...browse.filter((b) => isFood(b)).slice(0, 60),
+    ...browse.filter((b) => !isActivity(b) && !isFood(b)).slice(0, 20),
+  ];
 
   const hiddenChains = pool.filter((c) => c.chain && !c.fixed && !c.shortlisted && !pinnedSet.has(c.key) && !excludedSet.has(c.key) && !includeChains).length;
-  return { options, browse, poolSize: usable.length, target, hiddenChains, pricePoint, includeChains };
+  return { options, browse: browseCapped, poolSize: usable.length, target, hiddenChains, pricePoint, includeChains };
 }
 
 /** The facts a card needs, in one shape for plan stops and for browsing. */

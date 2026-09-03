@@ -152,25 +152,32 @@ export const osmSource = {
    * @param categories ['food','things'] groups; empty = both
    * @param query      optional name filter (case-insensitive)
    */
-  async search({ center, radiusKm = 3, categories = [], query = '', limit = 400 } = {}) {
+  async search({ center, radiusKm = 3, categories = [], query = '', limit = 900 } = {}) {
     if (!center || center.lat == null) return [];
     const groups = new Set();
     for (const c of categories || []) {
       if (['restaurant', 'cafe', 'pub', 'bar', 'food'].includes(c)) groups.add('food');
       if (['attraction', 'event', 'things'].includes(c)) groups.add('things');
     }
+    // One query per group: a single union with one limit returns the cafés
+    // first and truncates the museums, which read as "no things to do".
     // Dense cities time out at large radii; shrink and retry rather than return nothing.
-    let data = null;
-    let r = Math.min(radiusKm, 25);
-    let lastErr = null;
-    // Always try at least once: a 600 m search must not be skipped for being small.
-    do {
-      try {
-        data = await overpass(buildQuery({ center, radiusM: r * 1000, categories: [...groups], query: query?.trim(), limit }));
-      } catch (err) { lastErr = err; r /= 2; }
-    } while (!data && r >= 0.75);
-    if (!data) throw lastErr ?? new Error('Overpass unavailable');
-    const venues = (data.elements || []).map(toVenue).filter(Boolean);
+    const want = groups.size ? [...groups] : ['food', 'things'];
+    const elements = [];
+    for (const group of want) {
+      let data = null;
+      let r = Math.min(radiusKm, 25);
+      let lastErr = null;
+      // Always try at least once: a 600 m search must not be skipped for being small.
+      do {
+        try {
+          data = await overpass(buildQuery({ center, radiusM: r * 1000, categories: [group], query: query?.trim(), limit: Math.ceil(limit / want.length) }));
+        } catch (err) { lastErr = err; r /= 2; }
+      } while (!data && r >= 0.75);
+      if (!data) throw lastErr ?? new Error('Overpass unavailable');
+      elements.push(...(data.elements || []));
+    }
+    const venues = elements.map(toVenue).filter(Boolean);
     // Dedupe identical names at the same spot (a node and its building way),
     // then keep the nearest — Overpass's own order is arbitrary.
     const seen = new Map();
@@ -179,7 +186,12 @@ export const osmSource = {
       if (!seen.has(k)) seen.set(k, v);
     }
     const d2 = (v) => (v.lat - center.lat) ** 2 + ((v.lng - center.lng) * Math.cos((center.lat * Math.PI) / 180)) ** 2;
-    return [...seen.values()].sort((a, b) => d2(a) - d2(b)).slice(0, 250);
+    // Nearest first, capped PER GROUP: in a city centre the 250 nearest places
+    // are nearly all cafés and restaurants, and the museums never made the cut
+    // — which read as "Roam has no ideas for things to do".
+    const sorted = [...seen.values()].sort((a, b) => d2(a) - d2(b));
+    const isFoodCat = (v) => ['restaurant', 'cafe', 'pub', 'bar'].includes(v.category);
+    return [...sorted.filter(isFoodCat).slice(0, 200), ...sorted.filter((v) => !isFoodCat(v)).slice(0, 200)];
   },
 };
 
