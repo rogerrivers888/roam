@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Roam · Plan screen — four colour palettes</title>
+<style>
+  :root{--bg:#F7F6F2;--surface:#fff;--muted:#F0EEE8;--ink:#1D1B16;--ink2:#6B675E;--ink3:#A8A399;--line:#E4E0D6;--accent:#1F5F5B;--accentSoft:#DCEBE9;--want:#4A4A8A;--wantSoft:#E6E6F5;--over:#C0392B;--overSoft:#F8E1DE;--like:#2E7D32;--gold:#B0771E;--goldSoft:#F6EBD5}
+  *{box-sizing:border-box}
+  body{margin:0;background:#E9E6DF;font:14px/1.45 -apple-system,Inter,Segoe UI,Helvetica,Arial,sans-serif;color:var(--ink);padding:32px}
+  h1{font-size:26px;margin:0 0 4px}
+  .lede{color:var(--ink2);max-width:900px;margin:0 0 28px}
+  section{margin:0 0 48px}
+  h2{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--ink2);margin:0 0 16px;max-width:900px}
+  .row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+  .notes{width:300px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13px}
+  .notes h4{margin:0 0 6px;font-size:13px}
+  .notes ul{margin:0 0 10px;padding-left:18px}
+  .notes li{margin:0 0 4px}
+  .cap{font-size:12px;color:var(--ink2);text-align:center;margin:8px 0 0;max-width:390px}
+  .phone{width:390px;height:844px;background:var(--bg);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column}
+  .status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700}
+  .screen{flex:1;overflow:hidden;padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+  .tabbar{height:64px;border-top:1px solid var(--line);background:var(--surface);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--ink3)}
+  .tabbar div{text-align:center}.tabbar .on{color:var(--accent);font-weight:700}
+  .tabbar span{display:block;font-size:18px}
+  .title{font-size:22px;font-weight:700;letter-spacing:-.3px}
+  .hdr{display:flex;justify-content:space-between;align-items:center}
+  .btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:10px;font-weight:700;font-size:13px;background:var(--accent);color:#fff;white-space:nowrap}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+  .btn.sec{background:var(--accentSoft);color:var(--accent)}
+  .btn.sm{min-height:30px;padding:0 10px;font-size:12px}
+  .btn.dim{background:#9BB8B5}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .card
+  .h3{font-weight:600;font-size:15px}
+  .small{font-size:13px;color:var(--ink2)}
+  .tiny{font-size:11px;color:var(--ink3)}
+  .chip{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:12px;font-weight:600;margin:2px 4px 0 0}
+  .chip.want{background:var(--wantSoft);color:var(--want);border-color:transparent}
+  .chip.acc{background:var(--accentSoft);color:var(--accent);border-color:transparent}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .chip.ghost{color:var(--ink2)}
+  .seg{display:flex;background:var(--muted);border-radius:10px;padding:3px}
+  .seg div{flex:1;text-align:center;padding:8px 4px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink2)}
+  .seg .on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  /* the box */
+  .box{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;font-size:15px;line-height:1.4;min-height:120px;color:var(--ink)}
+  .box.empty{color:var(--ink3)}
+  .box.live{border-color:var(--accent);background:var(--accentSoft)}
+  .box .heard{color:var(--ink3)}
+  .under{display:flex;justify-content:space-between;align-items:center}
+  .mic{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--muted);font-weight:600;font-size:13px}
+  .mic.on{background:var(--over);color:#fff;border-color:var(--over)}
+  .who{display:flex;justify-content:space-between;align-items:center;height:30px;padding:0 4px;font-size:13px}
+  .who b{font-weight:600}
+  .who .tiny{margin-right:auto;margin-left:8px}
+  /* criteria rows */
+  .crit{display:flex;flex-direction:column}
+  .cr{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:13px}
+  .cr:first-child{border-top:0}
+  .cr .k{width:64px;color:var(--ink3);font-size:11px;text-transform:uppercase;letter-spacing:.3px;flex:none}
+  .cr .v{flex:1;min-width:0;font-weight:600}
+  .cr .v.empty{font-weight:400;color:var(--ink3)}
+  .st{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:none}
+  .st.ok{background:var(--accentSoft);color:var(--accent)}
+  .st.q{background:var(--goldSoft);color:var(--gold)}
+  .st.no{border:1px dashed var(--line);color:var(--ink3)}
+  .cr.new{background:var(--accentSoft);margin:0 -8px;padding:7px 8px;border-radius:8px;border-top:0}
+  /* bubbles */
+  .bub{padding:10px 12px;border-radius:12px;max-width:92%;font-size:14px}
+  .bub.me{background:var(--accent);color:#fff;align-self:flex-end}
+  .bub.ai{background:var(--muted);align-self:flex-start}
+  .conv{display:flex;flex-direction:column;gap:8px}
+  /* ideas */
+  .idea{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+  .idea:first-child{border-top:0}
+  .ph{width:64px;height:64px;border-radius:10px;background:linear-gradient(135deg,#d9d3c4,#bfb8a6);flex:none}
+  .idea .t{flex:1;min-width:0}
+  .idea .name{font-weight:600;font-size:14px}
+  .idea .why{font-size:12px;color:var(--ink2)}
+  .moods{display:flex;flex-wrap:wrap;gap:6px}
+  .moods .chip{margin:0;font-size:13px;padding:7px 12px}
+  .slider{height:6px;border-radius:3px;background:var(--line);position:relative;margin:14px 6px 6px}
+  .slider i{position:absolute;left:0;top:0;height:100%;width:55%;background:var(--accent);border-radius:3px}
+  .slider b{position:absolute;left:55%;top:50%;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid var(--accent)}
+  .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--ink3);padding:0 4px}
+  /* journey list (trip page) */
+  .stop{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
+  .stop:first-child{border-top:0}
+  .num{width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px}
+  .num.fix{background:var(--ink)}
+  .stop .t{flex:1;min-width:0}
+  .stop .name{font-weight:600;font-size:14px}
+  .time{font-variant-numeric:tabular-nums;font-size:12px;color:var(--ink2);width:44px;flex:none;padding-top:3px}
+  .ok{background:var(--accentSoft);color:var(--accent);font-size:12px;padding:6px 10px;border-radius:8px;font-weight:600}
+  .arrow{align-self:center;font-size:28px;color:var(--ink3);padding:0 4px}
+  .days{display:flex;gap:8px}
+  .day{flex:1;border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--surface)}
+  .day.on{border:2px solid var(--accent)}
+  .day .d{font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase}
+  .day .n{font-weight:700}
+  .day .s{font-size:11px;color:var(--ink3)}
+  .setup li{margin:0 0 4px}
+  .setup ul{margin:6px 0 0;padding-left:18px;font-size:13px}
+  .q{border-left:3px solid var(--gold);padding-left:8px}
+
+  :root{--sun:#E9A23B;--sunSoft:#FCEFD6;--coral:#EC3013;--coralSoft:#FCE4DF;--leaf:#2E7D32;--leafSoft:#DDEFDD;--sky:#2F6F9F;--skySoft:#DCE9F3;--plum:#6B4E9B;--plumSoft:#E8E1F3}
+  .screen > *{flex-shrink:0}
+  .hero{margin:-14px -14px 0;padding:18px 18px 16px;flex-shrink:0;background:linear-gradient(135deg,#DCEBE9 0%,#FCEFD6 60%,#FCE4DF 100%);border-bottom:1px solid var(--line);position:relative;overflow:hidden}
+  .hero .title{font-size:24px}
+  .hero .small{margin-top:2px}
+  .hero .trail{position:absolute;right:14px;top:10px;width:120px;height:44px;opacity:.7}
+  .hero .pin{position:absolute;right:20px;top:14px;width:22px;height:22px;background:var(--coral);transform:rotate(-45deg)}
+  .hero .pin span{transform:rotate(45deg)}
+  .assume{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:13px;margin-top:10px}
+  .assume b{font-weight:600}
+  .assume .dot{width:26px;height:26px;border-radius:50%;background:var(--accentSoft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:13px;flex:none}
+  .assume .chev{margin-left:auto;color:var(--ink3)}
+  .frow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-top:1px solid var(--line)}
+  .frow:first-child{border-top:0}
+  .ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;flex:none;font-weight:700}
+  
+  .frow .lab{font-size:11px;letter-spacing:.3px;text-transform:uppercase;color:var(--ink3)}
+  .frow .val{font-weight:600;font-size:14px}
+  .frow .val.empty{font-weight:400;color:var(--ink3)}
+  .frow .t{flex:1;min-width:0}
+  .frow .chev{color:var(--ink3);font-size:14px}
+  .frow.open{background:var(--accentSoft);margin:0 -4px;padding-left:8px;padding-right:8px;border-radius:10px;border-top:0}
+  .panel{border:2px solid var(--accent);border-radius:12px;padding:10px;margin:2px 0 8px;background:var(--surface);display:flex;flex-direction:column;gap:8px}
+  .panel .h{font-size:12px;color:var(--ink2);font-weight:600}
+  .srch{height:40px;border-radius:10px;border:1px solid var(--line);background:var(--surface);display:flex;align-items:center;padding:0 10px;gap:8px;font-size:14px}
+  .srch b{font-weight:500}
+  .srch .caret{width:1px;height:18px;background:var(--ink)}
+  .hit{display:flex;gap:10px;align-items:center;padding:8px 4px;border-top:1px solid var(--line)}
+  .hit:first-child{border-top:0}
+  .hit .k{width:26px;height:26px;border-radius:8px;background:var(--muted);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--ink2);flex:none}
+  .hit .n{font-weight:600;font-size:13px}
+  .hit .w{font-size:11px;color:var(--ink3)}
+  .hit.sel{background:var(--accentSoft);margin:0 -6px;padding:8px 10px;border-radius:8px;border-top:0}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:11px;text-align:center}
+  .cal .dh{color:var(--ink3);font-weight:600;padding:2px 0}
+  .cal .d{padding:6px 0;border-radius:6px}
+  .cal .d.mute{color:var(--ink3)}
+  .cal .d.on{background:var(--accent);color:#fff;font-weight:700}
+  .cal .d.range{background:var(--accentSoft)}
+  .cal .d.today{box-shadow:inset 0 0 0 1px var(--accent)}
+  .mo{display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px}
+  .mo span{color:var(--ink3)}
+  .pills{display:flex;flex-wrap:wrap;gap:6px}
+  .pills .chip{margin:0}
+  .chip.plum.on{background:var(--plum);border-color:var(--plum)} .chip.coral.on{background:var(--coral);border-color:var(--coral)} .chip.sun.on{background:var(--sun);border-color:var(--sun)} .chip.leaf.on{background:var(--leaf);border-color:var(--leaf)}
+  .seg.sm div{padding:5px 4px;font-size:12px}
+  .range{position:relative;height:56px;margin:6px 4px 0}
+  .range .bars{position:absolute;left:0;right:0;bottom:22px;height:30px;display:flex;align-items:flex-end;gap:2px}
+  .range .bars i{flex:1;background:var(--line);border-radius:2px 2px 0 0}
+  .range .bars i.in{background:var(--leaf);opacity:.55}
+  .range .track{position:absolute;left:0;right:0;bottom:16px;height:4px;background:var(--line);border-radius:2px}
+  .range .fill{position:absolute;bottom:16px;height:4px;background:var(--leaf);border-radius:2px}
+  .range .knob{position:absolute;bottom:6px;width:24px;height:24px;border-radius:50%;background:#fff;border:2px solid var(--leaf);box-shadow:0 1px 3px rgba(0,0,0,.2);transform:translateX(-50%)}
+  .range .lbl{position:absolute;bottom:-4px;font-size:11px;color:var(--ink2);transform:translateX(-50%);font-weight:600}
+  .amount{display:flex;justify-content:space-between;font-size:13px}
+  .amount b{font-size:15px}
+  .ctrl{display:flex;gap:8px;align-items:center}
+  .ctrl .btn{flex:1;justify-content:center;min-height:44px;font-size:15px}
+  .ctrl .mic{flex:none;height:44px}
+  .tile{width:calc(50% - 4px);border-radius:12px;overflow:hidden;background:var(--surface);border:1px solid var(--line)}
+  .tile .img{height:64px;background:linear-gradient(135deg,#cfd8c4,#9fb59a)}
+  .tile .img.b{background:linear-gradient(135deg,#f3c6a5,#e08a5a)} .tile .img.c{background:linear-gradient(135deg,#bcd3e6,#7ea6c9)} .tile .img.d{background:linear-gradient(135deg,#e6d3ee,#b89ad2)}
+  .tile .n{font-size:12px;font-weight:600;padding:6px 8px 2px}
+  .tile .w{font-size:10px;color:var(--ink3);padding:0 8px 8px}
+  .tiles{display:flex;flex-wrap:wrap;gap:8px}
+  .summ{display:flex;gap:6px;flex-wrap:wrap}
+  .summ .chip{margin:0}
+  .desk{width:1180px;height:760px;background:var(--bg);border-radius:14px;border:1px solid #cfcabd;overflow:hidden;position:relative;display:flex;box-shadow:0 20px 40px rgba(0,0,0,.14)}
+  .desk .side{width:200px;background:var(--surface);border-right:1px solid var(--line);padding:18px 14px;font-weight:600;color:var(--ink2);display:flex;flex-direction:column;gap:14px}
+  .desk .side .on{color:var(--accent);background:var(--accentSoft);border-radius:8px;padding:6px 8px;margin:-6px -8px}
+  .desk .main{flex:1;padding:0 26px 22px;display:flex;gap:22px}
+  .desk .col{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .desk .hero{margin:0 -26px 12px;padding:22px 26px 18px;flex-shrink:0}
+  .desk .col{overflow:hidden}
+  .desk .col > *{flex-shrink:0}
+  .desk .col .mapbox{flex-shrink:1}
+  .mapbox{border-radius:12px;background:linear-gradient(160deg,#EEF0EA,#DDE5D8);flex:1;position:relative;min-height:260px;border:1px solid var(--line)}
+  .mapbox .pin{position:absolute;width:28px;height:28px;background:var(--accent);transform:rotate(-45deg);border-radius:50% 50% 50% 0}
+  .mapbox .pin span{transform:rotate(45deg)}
+
+  .pal{--heroInk:var(--ink);--heroSub:var(--ink2)}
+  .hero{margin:-14px -14px 0;padding:18px 18px 16px;background:var(--heroBg);border-bottom:1px solid var(--line);position:relative;overflow:hidden;flex-shrink:0}
+  .hero .title{font-size:24px;color:var(--heroInk)} .hero .small{color:var(--heroSub);margin-top:2px}
+  .hero .trail path{stroke:var(--heroInk)}
+  .hero .pin{background:var(--pinBg);color:var(--pinInk)}
+  .assume{background:var(--assumeBg);border-color:var(--assumeLine);color:var(--assumeInk)}
+  .assume .dot{background:var(--accentSoft);color:var(--accent)}
+  .assume .chev{color:var(--assumeInk);opacity:.6}
+  .ico.to{background:var(--toSoft);color:var(--to)} .ico.when{background:var(--whenSoft);color:var(--when)} .ico.do{background:var(--doSoft);color:var(--do)} .ico.eat{background:var(--eatSoft);color:var(--eat)} .ico.budget{background:var(--budgetSoft);color:var(--budget)}
+  .btn{background:var(--btn);color:var(--btnInk)} .btn.dim{background:var(--btn);opacity:.45}
+  .chip.leaf.on{background:var(--budget);border-color:var(--budget);color:#fff}
+  .range .fill,.range .bars i.in{background:var(--budget)} .range .knob{border-color:var(--budget)}
+  .frow.open{background:var(--accentSoft)}
+  .panel{border-color:var(--accent)}
+  .tabbar .on{color:var(--accent)}
+  .seg .on{color:var(--ink)}
+  .tile .img{background:var(--tileA)} .tile .img.b{background:var(--tileB)}
+  .mic{background:var(--muted)}
+  .pal{margin:0 0 36px;padding:18px;border-radius:16px;background:var(--pageBg,transparent)}
+  .swatches{display:flex;gap:8px;margin:6px 0 14px;flex-wrap:wrap}
+  .sw{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;color:var(--ink2)}
+  .sw i{display:block;width:44px;height:44px;border-radius:10px;border:1px solid rgba(0,0,0,.08)}
+  .palhead{display:flex;gap:24px;align-items:flex-start}
+  .palhead .notes{width:340px}
+</style>
+</head>
+<body>
+<h1>Four palettes for the third-pass Plan screen</h1>
+<p class="lede">Same screens, same controls, four colour schemes — each a good deal stronger than the pastel wash. The header, the pin and trail, the row icons, the primary button and the picture tiles change; the rows and pills stay as they were. <a href="plan-v3.html">The third pass</a> for the layout itself.</p>
+<section class="pal pal-a" style="--accent:#EC3013;--accentSoft:#FDE3DE;--heroBg:#201E1D;--heroInk:#F3F2F2;--heroSub:#B8B4AD;--pinBg:#EC3013;--pinInk:#fff;--assumeBg:#2B2926;--assumeLine:#3A3733;--assumeInk:#F3F2F2;--to:#EC3013;--toSoft:#FDE3DE;--when:#D97706;--whenSoft:#FDEBCF;--do:#5B21B6;--doSoft:#E9E0FA;--eat:#B91C1C;--eatSoft:#FADCDC;--budget:#15803D;--budgetSoft:#D9F0DE;--btn:#EC3013;--btnInk:#fff;--tileA:linear-gradient(135deg,#F59E0B,#EC3013);--tileB:linear-gradient(135deg,#201E1D,#5B21B6)"><div class="palhead"><div><h2>A · Roam red</h2><div class="swatches"><div class="sw"><i style="background:#EC3013"></i>#EC3013</div><div class="sw"><i style="background:#201E1D"></i>#201E1D</div><div class="sw"><i style="background:#F3F2F2"></i>#F3F2F2</div><div class="sw"><i style="background:#D97706"></i>#D97706</div><div class="sw"><i style="background:#5B21B6"></i>#5B21B6</div><div class="sw"><i style="background:#15803D"></i>#15803D</div></div></div><div class="notes"><h4>The feel</h4><p style="margin:0;font-size:13px">The brand mark’s own red does the work: an ink header, the red pin and trail, red for Plan it and the open row. Row icons in strong, saturated tones. Bold, graphic, unmistakably Roam.</p></div></div><div class="row"><div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen"><div class="hero"><div class="title">Where should we go?</div><div class="small">Tap a row, or just say it.</div>
+  <svg class="trail" viewBox="0 0 120 44"><path d="M4 36 C 30 10, 60 44, 96 14" stroke-width="2" stroke-dasharray="1 5" fill="none" stroke-linecap="round"/></svg><div class="pin"><span>♥</span></div>
+  <div class="assume"><div class="dot">⌂</div><span>Travelling <b>from home with the family</b></span><span class="chev">›</span></div></div><div class="card" style="gap:0"><div class="frow"><div class="ico to">⌖</div><div class="t"><div class="lab">To</div><div class="val empty">Search a place or a city</div></div><span class="chev">›</span></div><div class="frow"><div class="ico when">▦</div><div class="t"><div class="lab">When</div><div class="val empty">Pick a date · day out or a stay</div></div><span class="chev">›</span></div><div class="frow"><div class="ico do">✦</div><div class="t"><div class="lab">Do</div><div class="val empty">Pick what you fancy</div></div><span class="chev">›</span></div><div class="frow"><div class="ico eat">◒</div><div class="t"><div class="lab">Eat</div><div class="val empty">Meals and what kind</div></div><span class="chev">›</span></div><div class="frow"><div class="ico budget">£</div><div class="t"><div class="lab">Budget</div><div class="val empty">Any · set a range</div></div><span class="chev">›</span></div></div><div class="ctrl"><span class="mic">🎙 Speak</span><span class="btn dim">Plan it</span></div><div class="tiles"><div class="tile"><div class="img"></div><div class="n">Kew + Treetop Walkway</div><div class="w">50 min · Gina liked the Palm House</div></div><div class="tile"><div class="img b"></div><div class="n">Bath for a night</div><div class="w">1 h 45 · on your list</div></div></div></div><div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div></div><p class="cap">Empty</p></div><div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen"><div class="hero"><div class="title">Where should we go?</div><div class="small">Tap a row, or just say it.</div>
+  <svg class="trail" viewBox="0 0 120 44"><path d="M4 36 C 30 10, 60 44, 96 14" stroke-width="2" stroke-dasharray="1 5" fill="none" stroke-linecap="round"/></svg><div class="pin"><span>♥</span></div>
+  <div class="assume"><div class="dot">⌂</div><span>Travelling <b>from home with the family</b></span><span class="chev">›</span></div></div><div class="card" style="gap:0"><div class="frow"><div class="ico to">⌖</div><div class="t"><div class="lab">To</div><div class="val">Bath · 1 h 45 by car</div></div><span class="chev">›</span></div><div class="frow"><div class="ico when">▦</div><div class="t"><div class="lab">When</div><div class="val">Fri 11 → Sat 12 Sept · 1 night</div></div><span class="chev">›</span></div><div class="frow"><div class="ico do">✦</div><div class="t"><div class="lab">Do</div><div class="val">Roman Baths · Outdoors · +1</div></div><span class="chev">›</span></div><div class="frow"><div class="ico eat">◒</div><div class="t"><div class="lab">Eat</div><div class="val">Lunch: pub · Dinner: Italian</div></div><span class="chev">›</span></div><div class="frow open"><div class="ico budget">£</div><div class="t"><div class="lab">Budget</div><div class="val">Mid-range · £60–£140 a day</div></div><span class="chev">⌄</span></div><div class="panel"><div class="pills"><span class="chip">Any</span><span class="chip">Affordable</span><span class="chip leaf on">Mid-range</span><span class="chip">Upmarket</span></div><div class="amount"><span>For the day, everyone</span><b>£60 – £140</b></div><div class="range"><div class="bars"><i style="height:4px" class=""></i><i style="height:7px" class=""></i><i style="height:12px" class=""></i><i style="height:16px" class=""></i><i style="height:22px" class=""></i><i style="height:28px" class="in"></i><i style="height:30px" class="in"></i><i style="height:26px" class="in"></i><i style="height:22px" class="in"></i><i style="height:18px" class="in"></i><i style="height:14px" class="in"></i><i style="height:10px" class="in"></i><i style="height:8px" class="in"></i><i style="height:6px" class=""></i><i style="height:4px" class=""></i><i style="height:3px" class=""></i><i style="height:2px" class=""></i><i style="height:2px" class=""></i></div><div class="track"></div><div class="fill" style="left:28%;right:32%"></div><div class="knob" style="left:28%"></div><div class="knob" style="left:68%"></div><span class="lbl" style="left:28%">£60</span><span class="lbl" style="left:68%">£140</span></div><div class="seg sm"><div class="on">For everyone</div><div>Per person</div></div></div></div><div class="ctrl"><span class="mic">🎙 Speak</span><span class="btn">Plan it</span></div></div><div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div></div><p class="cap">Filled, Budget open</p></div></div></section>
+<section class="pal pal-b" style="--accent:#0F5C5A;--accentSoft:#D6EBEA;--heroBg:#0F3D3E;--heroInk:#FBF7EE;--heroSub:#BCD3D0;--pinBg:#F59E0B;--pinInk:#1D1B16;--assumeBg:#155152;--assumeLine:#1E6667;--assumeInk:#FBF7EE;--to:#0F5C5A;--toSoft:#D6EBEA;--when:#D97706;--whenSoft:#FDEBCF;--do:#7C3AED;--doSoft:#EADDFD;--eat:#C2410C;--eatSoft:#FADFD2;--budget:#166534;--budgetSoft:#D8EEDD;--btn:#F59E0B;--btnInk:#1D1B16;--tileA:linear-gradient(135deg,#0F5C5A,#3AA69B);--tileB:linear-gradient(135deg,#F59E0B,#C2410C)"><div class="palhead"><div><h2>B · Deep teal & saffron</h2><div class="swatches"><div class="sw"><i style="background:#0F3D3E"></i>#0F3D3E</div><div class="sw"><i style="background:#0F5C5A"></i>#0F5C5A</div><div class="sw"><i style="background:#F59E0B"></i>#F59E0B</div><div class="sw"><i style="background:#C2410C"></i>#C2410C</div><div class="sw"><i style="background:#7C3AED"></i>#7C3AED</div><div class="sw"><i style="background:#166534"></i>#166534</div></div></div><div class="notes"><h4>The feel</h4><p style="margin:0;font-size:13px">A deep teal header with cream type, saffron for the pin, the trail and Plan it; rows in teal, saffron, terracotta, plum and moss. Calm base, warm accent. Reads as travel without shouting.</p></div></div><div class="row"><div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen"><div class="hero"><div class="title">Where should we go?</div><div class="small">Tap a row, or just say it.</div>
+  <svg class="trail" viewBox="0 0 120 44"><path d="M4 36 C 30 10, 60 44, 96 14" stroke-width="2" stroke-dasharray="1 5" fill="none" stroke-linecap="round"/></svg><div class="pin"><span>♥</span></div>
+  <div class="assume"><div class="dot">⌂</div><span>Travelling <b>from home with the family</b></span><span class="chev">›</span></div></div><div class="card" style="gap:0"><div class="frow"><div class="ico to">⌖</div><div class="t"><div class="lab">To</div><div class="val empty">Search a place or a city</div></div><span class="chev">›</span></div><div class="frow"><div class="ico when">▦</div><div class="t"><div class="lab">When</div><div class="val empty">Pick a date · day out or a stay</div></div><span class="chev">›</span></div><div class="frow"><div class="ico do">✦</div><div class="t"><div class="lab">Do</div><div class="val empty">Pick what you fancy</div></div><span class="chev">›</span></div><div class="frow"><div class="ico eat">◒</div><div class="t"><div class="lab">Eat</div><div class="val empty">Meals and what kind</div></div><span class="chev">›</span></div><div class="frow"><div class="ico budget">£</div><div class="t"><div class="lab">Budget</div><div class="val empty">Any · set a range</div></div><span class="chev">›</span></div></div><div class="ctrl"><span class="mic">🎙 Speak</span><span class="btn dim">Plan it</span></div><div class="tiles"><div class="tile"><div class="img"></div><div class="n">Kew + Treetop Walkway</div><div class="w">50 min · Gina liked the Palm House</div></div><div class="tile"><div class="img b"></div><div class="n">Bath for a night</div><div class="w">1 h 45 · on your list</div></div></div></div><div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div></div><p class="cap">Empty</p></div><div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen"><div class="hero"><div class="title">Where should we go?</div><div class="small">Tap a row, or just say it.</div>
+  <svg class="trail" viewBox="0 0 120 44"><path d="M4 36 C 30 10, 60 44, 96 14" stroke-width="2" stroke-dasharray="1 5" fill="none" stroke-linecap="round"/></svg><div class="pin"><span>♥</span></div>
+  <div class="assume"><div class="dot">⌂</div><span>Travelling <b>from home with the family</b></span><span class="chev">›</span></div></div><div class="card" style="gap:0"><div class="frow"><div class="ico to">⌖</div><div class="t"><div class="lab">To</div><div class="val">Bath · 1 h 45 by car</div></div><span class="chev">›</span></div><div class="frow"><div class="ico when">▦</div><div class="t"><div class="lab">When</div><div class="val">Fri 11 → Sat 12 Sept · 1 night</div></div><span class="chev">›</span></div><div class="frow"><div class="ico do">✦</div><div class="t"><div class="lab">Do</div><div class="val">Roman Baths · Outdoors · +1</div></div><span class="chev">›</span></div><div class="frow"><div class="ico eat">◒</div><div class="t"><div class="lab">Eat</div><div class="val">Lunch: pub · Dinner: Italian</div></div><span class="chev">›</span></div><div class="frow open"><div class="ico budget">£</div><div class="t"><div class="lab">Budget</div><div class="val">Mid-range · £60–£140 a day</div></div><span class="chev">⌄</span></div><div class="panel"><div class="pills"><span class="chip">Any</span><span class="chip">Affordable</span><span class="chip leaf on">Mid-range</span><span class="chip">Upmarket</span></div><div class="amount"><span>For the day, everyone</span><b>£60 – £140</b></div><div class="range"><div class="bars"><i style="height:4px" class=""></i><i style="height:7px" class=""></i><i style="height:12px" class=""></i><i style="height:16px" class=""></i><i style="height:22px" class=""></i><i style="height:28px" class="in"></i><i style="height:30px" class="in"></i><i style="height:26px" class="in"></i><i style="height:22px" class="in"></i><i style="height:18px" class="in"></i><i style="height:14px" class="in"></i><i style="height:10px" class="in"></i><i style="height:8px" class="in"></i><i style="height:6px" class=""></i><i style="height:4px" class=""></i><i style="height:3px" class=""></i><i style="height:2px" class=""></i><i style="height:2px" class=""></i></div><div class="track"></div><div class="fill" style="left:28%;right:32%"></div><div class="knob" style="left:28%"></div><div class="knob" style="left:68%"></div><span class="lbl" style="left:28%">£60</span><span class="lbl" style="left:68%">£140</span></div><div class="seg sm"><div class="on">For everyone</div><div>Per person</div></div></div></div><div class="ctrl"><span class="mic">🎙 Speak</span><span class="btn">Plan it</span></div></div><div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div></div><p class="cap">Filled, Budget open</p></div></div></section>
+<section class="pal pal-c" style="--accent:#1D1B16;--accentSoft:#FDF3B8;--heroBg:#1D1B16;--heroInk:#FFFFFF;--heroSub:#A8A399;--pinBg:#FACC15;--pinInk:#1D1B16;--assumeBg:#2A2823;--assumeLine:#3A3733;--assumeInk:#FFFFFF;--to:#0369A1;--toSoft:#DBEDF9;--when:#CA8A04;--whenSoft:#FDF3B8;--do:#7E22CE;--doSoft:#EDDCFB;--eat:#DC2626;--eatSoft:#FBDADA;--budget:#15803D;--budgetSoft:#D9F0DE;--btn:#1D1B16;--btnInk:#FACC15;--tileA:linear-gradient(135deg,#FACC15,#CA8A04);--tileB:linear-gradient(135deg,#0369A1,#7E22CE)"><div class="palhead"><div><h2>C · Ink & citrus</h2><div class="swatches"><div class="sw"><i style="background:#1D1B16"></i>#1D1B16</div><div class="sw"><i style="background:#FACC15"></i>#FACC15</div><div class="sw"><i style="background:#0369A1"></i>#0369A1</div><div class="sw"><i style="background:#7E22CE"></i>#7E22CE</div><div class="sw"><i style="background:#DC2626"></i>#DC2626</div><div class="sw"><i style="background:#15803D"></i>#15803D</div></div></div><div class="notes"><h4>The feel</h4><p style="margin:0;font-size:13px">Near-black header and buttons, one sharp citrus yellow for the pin, the trail and the open row, jewel icons on white. The most modern of the four; the yellow is the only shout.</p></div></div><div class="row"><div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen"><div class="hero"><div class="title">Where should we go?</div><div class="small">Tap a row, or just say it.</div>
+  <svg class="trail" viewBox="0 0 120 44"><path d="M4 36 C 30 10, 60 44, 96 14" stroke-width="2" stroke-dasharray="1 5" fill="none" stroke-linecap="round"/></svg><div class="pin"><span>♥</span></div>
+  <div class="assume"><div class="dot">⌂</div><span>Travelling <b>from home with the family</b></span><span class="chev">›</span></div></div><div class="card" style="gap:0"><div class="frow"><div class="ico to">⌖</div><div class="t"><div class="lab">To</div><div class="val empty">Search a place or a city</div></div><span class="chev">›</span></div><div class="frow"><div class="ico when">▦</div><div class="t"><div class="lab">When</div><div class="val empty">Pick a date · day out or a stay</div></div><span class="chev">›</span></div><div class="frow"><div class="ico do">✦</div><div class="t"><div class="lab">Do</div><div class="val empty">Pick what you fancy</div></div><span class="chev">›</span></div><div class="frow"><div class="ico eat">◒</div><div class="t"><div class="lab">Eat</div><div class="val empty">Meals and what kind</div></div><span class="chev">›</span></div><div class="frow"><div class="ico budget">£</div><div class="t"><div class="lab">Budget</div><div class="val empty">Any · set a range</div></div><span class="chev">›</span></div></div><div class="ctrl"><span class="mic">🎙 Speak</span><span class="btn dim">Plan it</span></div><div class="tiles"><div class="tile"><div class="img"></div><div class="n">Kew + Treetop Walkway</div><div class="w">50 min · Gina liked the Palm House</div></div><div class="tile"><div class="img b"></div><div class="n">Bath for a night</div><div class="w">1 h 45 · on your list</div></div></div></div><div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div></div><p class="cap">Empty</p></div><div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen"><div class="hero"><div class="title">Where should we go?</div><div class="small">Tap a row, or just say it.</div>
+  <svg class="trail" viewBox="0 0 120 44"><path d="M4 36 C 30 10, 60 44, 96 14" stroke-width="2" stroke-dasharray="1 5" fill="none" stroke-linecap="round"/></svg><div class="pin"><span>♥</span></div>
+  <div class="assume"><div class="dot">⌂</div><span>Travelling <b>from home with the family</b></span><span class="chev">›</span></div></div><div class="card" style="gap:0"><div class="frow"><div class="ico to">⌖</div><div class="t"><div class="lab">To</div><div class="val">Bath · 1 h 45 by car</div></div><span class="chev">›</span></div><div class="frow"><div class="ico when">▦</div><div class="t"><div class="lab">When</div><div class="val">Fri 11 → Sat 12 Sept · 1 night</div></div><span class="chev">›</span></div><div class="frow"><div class="ico do">✦</div><div class="t"><div class="lab">Do</div><div class="val">Roman Baths · Outdoors · +1</div></div><span class="chev">›</span></div><div class="frow"><div class="ico eat">◒</div><div class="t"><div class="lab">Eat</div><div class="val">Lunch: pub · Dinner: Italian</div></div><span class="chev">›</span></div><div class="frow open"><div class="ico budget">£</div><div class="t"><div class="lab">Budget</div><div class="val">Mid-range · £60–£140 a day</div></div><span class="chev">⌄</span></div><div class="panel"><div class="pills"><span class="chip">Any</span><span class="chip">Affordable</span><span class="chip leaf on">Mid-range</span><span class="chip">Upmarket</span></div><div class="amount"><span>For the day, everyone</span><b>£60 – £140</b></div><div class="range"><div class="bars"><i style="height:4px" class=""></i><i style="height:7px" class=""></i><i style="height:12px" class=""></i><i style="height:16px" class=""></i><i style="height:22px" class=""></i><i style="height:28px" class="in"></i><i style="height:30px" class="in"></i><i style="height:26px" class="in"></i><i style="height:22px" class="in"></i><i style="height:18px" class="in"></i><i style="height:14px" class="in"></i><i style="height:10px" class="in"></i><i style="height:8px" class="in"></i><i style="height:6px" class=""></i><i style="height:4px" class=""></i><i style="height:3px" class=""></i><i style="height:2px" class=""></i><i style="height:2px" class=""></i></div><div class="track"></div><div class="fill" style="left:28%;right:32%"></div><div class="knob" style="left:28%"></div><div class="knob" style="left:68%"></div><span class="lbl" style="left:28%">£60</span><span class="lbl" style="left:68%">£140</span></div><div class="seg sm"><div class="on">For everyone</div><div>Per person</div></div></div></div><div class="ctrl"><span class="mic">🎙 Speak</span><span class="btn">Plan it</span></div></div><div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div></div><p class="cap">Filled, Budget open</p></div></div></section>
+<section class="pal pal-d" style="--accent:#1D4ED8;--accentSoft:#DCE6FB;--heroBg:#0B2545;--heroInk:#FFFFFF;--heroSub:#9DB3D1;--pinBg:#FF6B4A;--pinInk:#fff;--assumeBg:#13315C;--assumeLine:#1C4079;--assumeInk:#FFFFFF;--to:#1D4ED8;--toSoft:#DCE6FB;--when:#D97706;--whenSoft:#FDEBCF;--do:#7C3AED;--doSoft:#EADDFD;--eat:#FF6B4A;--eatSoft:#FFE1D9;--budget:#0F766E;--budgetSoft:#D5EEEB;--btn:#FF6B4A;--btnInk:#fff;--tileA:linear-gradient(135deg,#0B2545,#1D4ED8);--tileB:linear-gradient(135deg,#FF6B4A,#D97706);--pageBg:#F5E9DA"><div class="palhead"><div><h2>D · Navy & coral</h2><div class="swatches"><div class="sw"><i style="background:#0B2545"></i>#0B2545</div><div class="sw"><i style="background:#FF6B4A"></i>#FF6B4A</div><div class="sw"><i style="background:#1D4ED8"></i>#1D4ED8</div><div class="sw"><i style="background:#F5E9DA"></i>#F5E9DA</div><div class="sw"><i style="background:#7C3AED"></i>#7C3AED</div><div class="sw"><i style="background:#0F766E"></i>#0F766E</div></div></div><div class="notes"><h4>The feel</h4><p style="margin:0;font-size:13px">A deep navy header, coral for the pin, the trail and Plan it, sky-blue To, sand ground. The classic travel-app pairing, warm and confident; coral is close to the brand red without being it.</p></div></div><div class="row"><div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen"><div class="hero"><div class="title">Where should we go?</div><div class="small">Tap a row, or just say it.</div>
+  <svg class="trail" viewBox="0 0 120 44"><path d="M4 36 C 30 10, 60 44, 96 14" stroke-width="2" stroke-dasharray="1 5" fill="none" stroke-linecap="round"/></svg><div class="pin"><span>♥</span></div>
+  <div class="assume"><div class="dot">⌂</div><span>Travelling <b>from home with the family</b></span><span class="chev">›</span></div></div><div class="card" style="gap:0"><div class="frow"><div class="ico to">⌖</div><div class="t"><div class="lab">To</div><div class="val empty">Search a place or a city</div></div><span class="chev">›</span></div><div class="frow"><div class="ico when">▦</div><div class="t"><div class="lab">When</div><div class="val empty">Pick a date · day out or a stay</div></div><span class="chev">›</span></div><div class="frow"><div class="ico do">✦</div><div class="t"><div class="lab">Do</div><div class="val empty">Pick what you fancy</div></div><span class="chev">›</span></div><div class="frow"><div class="ico eat">◒</div><div class="t"><div class="lab">Eat</div><div class="val empty">Meals and what kind</div></div><span class="chev">›</span></div><div class="frow"><div class="ico budget">£</div><div class="t"><div class="lab">Budget</div><div class="val empty">Any · set a range</div></div><span class="chev">›</span></div></div><div class="ctrl"><span class="mic">🎙 Speak</span><span class="btn dim">Plan it</span></div><div class="tiles"><div class="tile"><div class="img"></div><div class="n">Kew + Treetop Walkway</div><div class="w">50 min · Gina liked the Palm House</div></div><div class="tile"><div class="img b"></div><div class="n">Bath for a night</div><div class="w">1 h 45 · on your list</div></div></div></div><div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div></div><p class="cap">Empty</p></div><div><div class="phone"><div class="status"><span>9:41</span><span>●●● ⌔</span></div><div class="screen"><div class="hero"><div class="title">Where should we go?</div><div class="small">Tap a row, or just say it.</div>
+  <svg class="trail" viewBox="0 0 120 44"><path d="M4 36 C 30 10, 60 44, 96 14" stroke-width="2" stroke-dasharray="1 5" fill="none" stroke-linecap="round"/></svg><div class="pin"><span>♥</span></div>
+  <div class="assume"><div class="dot">⌂</div><span>Travelling <b>from home with the family</b></span><span class="chev">›</span></div></div><div class="card" style="gap:0"><div class="frow"><div class="ico to">⌖</div><div class="t"><div class="lab">To</div><div class="val">Bath · 1 h 45 by car</div></div><span class="chev">›</span></div><div class="frow"><div class="ico when">▦</div><div class="t"><div class="lab">When</div><div class="val">Fri 11 → Sat 12 Sept · 1 night</div></div><span class="chev">›</span></div><div class="frow"><div class="ico do">✦</div><div class="t"><div class="lab">Do</div><div class="val">Roman Baths · Outdoors · +1</div></div><span class="chev">›</span></div><div class="frow"><div class="ico eat">◒</div><div class="t"><div class="lab">Eat</div><div class="val">Lunch: pub · Dinner: Italian</div></div><span class="chev">›</span></div><div class="frow open"><div class="ico budget">£</div><div class="t"><div class="lab">Budget</div><div class="val">Mid-range · £60–£140 a day</div></div><span class="chev">⌄</span></div><div class="panel"><div class="pills"><span class="chip">Any</span><span class="chip">Affordable</span><span class="chip leaf on">Mid-range</span><span class="chip">Upmarket</span></div><div class="amount"><span>For the day, everyone</span><b>£60 – £140</b></div><div class="range"><div class="bars"><i style="height:4px" class=""></i><i style="height:7px" class=""></i><i style="height:12px" class=""></i><i style="height:16px" class=""></i><i style="height:22px" class=""></i><i style="height:28px" class="in"></i><i style="height:30px" class="in"></i><i style="height:26px" class="in"></i><i style="height:22px" class="in"></i><i style="height:18px" class="in"></i><i style="height:14px" class="in"></i><i style="height:10px" class="in"></i><i style="height:8px" class="in"></i><i style="height:6px" class=""></i><i style="height:4px" class=""></i><i style="height:3px" class=""></i><i style="height:2px" class=""></i><i style="height:2px" class=""></i></div><div class="track"></div><div class="fill" style="left:28%;right:32%"></div><div class="knob" style="left:28%"></div><div class="knob" style="left:68%"></div><span class="lbl" style="left:28%">£60</span><span class="lbl" style="left:68%">£140</span></div><div class="seg sm"><div class="on">For everyone</div><div>Per person</div></div></div></div><div class="ctrl"><span class="mic">🎙 Speak</span><span class="btn">Plan it</span></div></div><div class="tabbar"><div class="on"><span>✦</span>Plan</div><div><span>◎</span>Places</div><div><span>⇢</span>Trips</div><div><span>☺</span>Household</div><div><span>⚙</span>Settings</div></div></div><p class="cap">Filled, Budget open</p></div></div></section>
+</body>
+</html>
