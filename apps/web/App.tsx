@@ -113,7 +113,7 @@ function Shell() {
 
   const screen = (
     <>
-      {tab === 'plan' ? <PlanScreen household={household} /> : null}
+      {tab === 'plan' ? <PlanScreen household={household} onOpenTrip={(id) => { setTripPrefill({ openTripId: id }); setTab('trips'); }} /> : null}
       {tab === 'places' ? <PlacesScreen household={household} refreshHousehold={refreshHousehold} onPlanTrip={(p) => { setTripPrefill(p); setTab('trips'); }} /> : null}
       {tab === 'trips' ? <TripsScreen household={household} refreshHousehold={refreshHousehold} prefill={tripPrefill} onPrefillConsumed={() => setTripPrefill(null)} /> : null}
       {tab === 'household' ? <HouseholdScreen data={household} refresh={refreshHousehold} /> : null}

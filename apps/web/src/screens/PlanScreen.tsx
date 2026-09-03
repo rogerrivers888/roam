@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
@@ -7,12 +7,10 @@ import { api, ApiError, HouseholdResponse, PlanAction, PlanResponse } from '../a
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Stepper, Wrap, minutes, clock } from '../components/ui';
 import { TimeBar } from '../components/TimeBar';
-import { FaceRow } from '../components/Faces';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { BrowsePool } from '../components/BrowsePool';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
-import { SourcePicker } from '../components/SourcePicker';
 import { getSpeakPref } from './SettingsScreen';
 
 const speak = (text: string) => { if (getSpeakPref()) speakRaw(text); };
@@ -24,12 +22,7 @@ const SUGGESTIONS_START = [
   'Around home for two hours this afternoon, something relaxed with the kids',
   'From home to the British Museum, four hours, one activity and lunch, walking',
 ];
-const SUGGESTIONS_REFINE = [
-  'I like the museum but not the pub',
-  'Swap the café for a park',
-  'Make it more relaxed',
-  'Go with the first plan',
-];
+const firstName = (n: string) => n.split(' ')[0];
 
 // The Plan tab unmounts when another tab is shown; the session it was in is
 // remembered here so coming back shows the same conversation and options.
@@ -46,8 +39,8 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
   const cardWidth = Math.min(width, 760) - spacing.lg * 2;
 
   const [sessionId, setSessionId] = useState<string | null>(null);
-  // Which sources this outing may search — chosen before the first request; the trip keeps the set.
-  const [sources, setSources] = useState<string[] | null>(null);
+  // Who's coming: everyone until a tick is taken off. Ticking is the same statement as saying the names.
+  const [attendingIds, setAttendingIds] = useState<Set<string> | null>(null);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
@@ -79,7 +72,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
     try {
       const next = plan?.trip
         ? await api.planRefine(sessionId!, utterance, viewing)
-        : await api.planStart(utterance, sessionId, sources);
+        : await api.planStart(utterance, sessionId, null, attendingIds ? [...attendingIds] : null);
       setSessionId(next.sessionId);
       // A question is only ever the latest one: an answered one must not linger.
       setPlan((prev) => ({ ...(prev ?? {} as PlanResponse), ...next, question: next.question ?? null }));
@@ -97,7 +90,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
     } finally {
       setBusy(false);
     }
-  }, [busy, plan?.trip, sessionId, viewing, onOpenTrip]);
+  }, [busy, plan?.trip, sessionId, viewing, onOpenTrip, attendingIds]);
 
   const speech = useSpeech({ onFinal: (text) => send(text, true) });
 
@@ -137,13 +130,17 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
   };
 
   const members = household?.members ?? [];
+  // Everyone is ticked to begin with; the server's list wins once a plan exists.
+  useEffect(() => { if (members.length && !attendingIds) setAttendingIds(new Set(members.map((m) => m.id))); }, [members, attendingIds]);
+  useEffect(() => { if (plan?.attending?.length) setAttendingIds(new Set(plan.attending.map((m) => m.id))); }, [plan?.attending]);
+  const toggleMember = (id: string) => {
+    const next = new Set(attendingIds ?? members.map((m) => m.id));
+    if (next.has(id)) { if (next.size === 1) return; next.delete(id); } else next.add(id);
+    setAttendingIds(next);
+    if (plan?.trip) act({ type: 'set', attendingMemberIds: [...next] });
+  };
   const baseLabel = plan?.journey?.to ?? plan?.trip?.destination?.label ?? plan?.trip?.origin.label ?? 'here';
   const picks = plan?.options?.find((o) => o.id === 'pinned') ?? null;
-  const attending = useMemo(
-    () => new Set((plan?.attending ?? members).map((m) => m.id)),
-    [plan?.attending, members],
-  );
-
   // Keep "viewing" in step with the pager so "the first one" means what's on screen.
   const onPagerScroll = (e: any) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / (cardWidth + spacing.md));
@@ -172,29 +169,51 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={type.title}>Where should we go?</Text>
-          <Text style={type.small}>Say it or type it. React to what comes back the same way.</Text>
-        </View>
-        {hasOptions ? <Button label="Start over" kind="ghost" onPress={reset} /> : null}
+        <Text style={[type.title, { flex: 1 }]}>Where should we go?</Text>
+        {turns.length ? <Button label="Start over" kind="ghost" onPress={reset} /> : null}
       </View>
 
-      {members.length > 1 ? (
-        <Card style={{ gap: spacing.sm }}>
-          <Text style={type.h3}>Who's coming</Text>
-          <FaceRow members={members} attending={attending} />
-          <Text style={type.tiny}>Say "just me and {members.find((m) => m.isMinor)?.name ?? members[1]?.name}" to change who's coming. Allergens of everyone coming exclude places; dislikes only rank them.</Text>
-          {!household?.household.home ? <Text style={[type.tiny, { color: colors.dislike }]}>No home address yet — set it in Settings so you can just say "from home".</Text> : null}
-        </Card>
-      ) : null}
+      {/* The box comes first and is big: a whole spoken paragraph fits in it. Speak and Send sit under it. */}
+      <Card style={{ gap: spacing.sm }}>
+        <TextInput
+          value={input}
+          onChangeText={setInput}
+          multiline
+          placeholder={hasOptions ? 'I like this, but not that…' : 'Where, when, how long, who is coming, and anything you must fit in…'}
+          placeholderTextColor={colors.inkFaint}
+          style={styles.input}
+          editable={!speech.listening}
+          accessibilityLabel="What do you want to do"
+        />
+        <Row style={{ justifyContent: 'space-between' }}>
+          {speech.supported ? (
+            <Pressable onPress={speech.toggle} style={styles.mic} accessibilityRole="button" accessibilityLabel="Speak">
+              <Text style={{ fontSize: 18 }}>🎙</Text>
+              <Text style={[type.small, { fontWeight: '600' }]}>Speak</Text>
+            </Pressable>
+          ) : <View />}
+          <Button label="Send" onPress={() => send(input)} disabled={!input.trim() || !!busy} />
+        </Row>
+        {members.length > 1 ? (
+          <Row style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            <Text style={type.tiny}>Who's coming</Text>
+            {members.map((m) => {
+              const on = attendingIds?.has(m.id) ?? true;
+              return <Chip key={m.id} label={`${on ? '✓ ' : ''}${firstName(m.name)}`} selected={on} onPress={() => toggleMember(m.id)} />;
+            })}
+          </Row>
+        ) : null}
+        {!speech.supported ? <Text style={type.tiny}>Voice input isn't available in this browser — typing does exactly the same thing.</Text> : null}
+        {turns.length === 0 ? (
+          <Wrap>{SUGGESTIONS_START.map((s) => <Chip key={s} label={s} onPress={() => send(s)} />)}</Wrap>
+        ) : null}
+      </Card>
 
       {/* Conversation */}
-      <Card>
-        {turns.length === 0 ? (
-          <Text style={type.body}>Tell me where you're starting, where you're ending up if it's different, how long you've got, and anything you must fit in.</Text>
-        ) : (
+      {turns.length ? (
+        <Card>
           <View style={{ gap: spacing.sm }}>
-            {turns.slice(-6).map((t, i) => (
+            {turns.slice(-8).map((t, i) => (
               <View key={i} style={[styles.bubble, t.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant]}>
                 <Text style={[type.body, t.role === 'user' && { color: '#fff' }]}>
                   {t.voice ? '🎙 ' : ''}{t.text}
@@ -202,56 +221,22 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
               </View>
             ))}
           </View>
-        )}
-
-        {busy === 'thinking' ? (
-          <Row><ActivityIndicator color={colors.accent} /><Text style={type.small}>Working it out…</Text></Row>
-        ) : null}
-        {/* The planner asks rather than guesses: each answer can be tapped or said in the same words. */}
-        {plan?.question && !busy ? (
-          <Wrap>
-            {plan.question.choices.map((c) => <Chip key={c.say} label={c.label} tone="accent" onPress={() => send(c.say)} />)}
-          </Wrap>
-        ) : null}
-        {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-        {speech.error ? <StatusLine tone="warn">{speech.error}</StatusLine> : null}
-
-        {!plan?.trip ? <SourcePicker value={sources} onChange={setSources} title="Sources for this outing" /> : null}
-        <View style={styles.composer}>
-          <TextInput
-            value={input}
-            onChangeText={setInput}
-            placeholder={hasOptions ? 'I like this, but not that…' : 'Home to the opera house, three hours…'}
-            placeholderTextColor={colors.inkFaint}
-            style={styles.input}
-            onSubmitEditing={() => send(input)}
-            returnKeyType="send"
-            editable={!speech.listening}
-            accessibilityLabel="What do you want to do"
-          />
-          {speech.supported ? (
-            <Pressable
-              onPress={speech.toggle}
-              style={[styles.mic, speech.listening && styles.micOn]}
-              accessibilityRole="button"
-              accessibilityLabel={speech.listening ? 'Stop listening' : 'Speak'}
-            >
-              <Text style={{ fontSize: 20 }}>{speech.listening ? '■' : '🎙'}</Text>
-            </Pressable>
+          {busy === 'thinking' ? (
+            <Row><ActivityIndicator color={colors.accent} /><Text style={type.small}>Working it out…</Text></Row>
           ) : null}
-          <Button label="Send" onPress={() => send(input)} disabled={!input.trim() || !!busy} />
-        </View>
-        {!speech.supported ? <Text style={type.tiny}>Voice input isn't available in this browser — typing does exactly the same thing.</Text> : null}
-
-        <Wrap>
-          {(hasOptions ? SUGGESTIONS_REFINE : SUGGESTIONS_START).map((s) => (
-            <Chip key={s} label={s} onPress={() => send(s)} />
-          ))}
-        </Wrap>
-      </Card>
+          {/* The planner asks rather than guesses: each answer can be tapped or said in the same words. */}
+          {plan?.question && !busy ? (
+            <Wrap>
+              {plan.question.choices.map((c) => <Chip key={c.say} label={c.label} tone="accent" onPress={() => send(c.say)} />)}
+            </Wrap>
+          ) : null}
+          {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+          {speech.error ? <StatusLine tone="warn">{speech.error}</StatusLine> : null}
+        </Card>
+      ) : null}
 
       {/* Missing details */}
-      {plan && !plan.trip && plan.missing?.length ? (
+      {plan && !plan.trip && !plan.question && plan.missing?.length ? (
         <Card>
           <Text style={type.h3}>Still need</Text>
           <Wrap>{plan.missing.map((m) => <Chip key={m} label={MISSING_LABEL[m] ?? m.replace(/_/g, ' ')} tone="accent" />)}</Wrap>
@@ -414,16 +399,14 @@ const styles = StyleSheet.create({
   bubble: { padding: spacing.md, borderRadius: radius.md, maxWidth: '92%' },
   bubbleUser: { backgroundColor: colors.accent, alignSelf: 'flex-end' },
   bubbleAssistant: { backgroundColor: colors.surfaceMuted, alignSelf: 'flex-start' },
-  composer: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
   input: {
-    flex: 1, minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md,
-    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink,
+    minHeight: 150, padding: spacing.md, borderRadius: radius.md, textAlignVertical: 'top',
+    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 16, lineHeight: 22, color: colors.ink,
   },
   mic: {
-    width: TARGET, height: TARGET, borderRadius: TARGET / 2, alignItems: 'center', justifyContent: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.pill,
     backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.line,
   },
-  micOn: { backgroundColor: colors.overrunSoft, borderColor: colors.overrun },
   optionsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm },
   toggle: { minHeight: TARGET, justifyContent: 'center', paddingHorizontal: spacing.sm },
   optionCard: { gap: spacing.md },

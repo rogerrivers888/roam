@@ -426,6 +426,33 @@ async function createStayFromIntent({ household, members, intent, destination })
   });
 }
 
+// What was asked for, sorted: meals count toward places to eat; a named place
+// goes on the shortlist as a must-do; the rest ("one or two activities") is a number.
+const FOOD_WORDS = /\b(lunch|dinner|breakfast|brunch|supper|restaurant|caf[eé]|coffee|pub|bar|drinks?|eat|meal|tea)\b/i;
+const GENERIC_WANT = /\b(activit|things? to do|something|somewhere|anything|nice|relax|spa|walks?|shopping|explore|sightsee)/i;
+
+async function seedShortlistFromWants({ trip, destination, wants }) {
+  const seeded = [];
+  for (const want of wants) {
+    if (FOOD_WORDS.test(want) || GENERIC_WANT.test(want)) continue;
+    const text = want.replace(/^(the|a|an)\s+/i, '').trim();
+    if (!/[A-Z]/.test(text)) continue;
+    try {
+      const [hit] = await geocode(`${text}, ${destination.locality || destination.label}`, { limit: 1, near: destination, countryCode: destination.countryCode ?? null, within: true });
+      if (!hit || hit.approximate || kmBetween(hit, destination) > 25) continue;
+      const venueRef = `${hit.source}:${hit.sourcePlaceId}`;
+      const label = hit.name || text;
+      await query(
+        `insert into trip_shortlist (trip_id, venue_ref, venue_label, kind, category, lat, lng, note, must_do)
+         values ($1,$2,$3,'activity','attraction',$4,$5,$6,true) on conflict (trip_id, venue_ref) do nothing`,
+        [trip.id, venueRef, label, hit.lat, hit.lng, 'Asked for when the trip was planned'],
+      );
+      seeded.push({ label, venueRef });
+    } catch { /* not on the map: it stays in the notes */ }
+  }
+  return seeded;
+}
+
 /** Retrieve the candidate pool ONCE for a trip (Epic 5 C3). */
 async function retrievePool({ household, trip, attendees, intent, sessionId, sourcesOverride = null }) {
   const durationMinutes = Math.round((new Date(trip.return_at) - new Date(trip.depart_at)) / 60_000);
@@ -694,7 +721,7 @@ router.post('/start', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const members = await loadMembers(household.id);
-    const { utterance, sessionId: existingId, sources: pickedSources } = req.body || {};
+    const { utterance, sessionId: existingId, sources: pickedSources, attendingMemberIds } = req.body || {};
     if (!utterance?.trim()) return res.status(400).json({ error: 'utterance_required' });
 
     let session;
@@ -765,6 +792,11 @@ router.post('/start', async (req, res, next) => {
     merged.avoids = [...new Set([...(state.intent?.avoids || []), ...(intent.avoids || [])])];
     merged.attending = intent.attending?.length ? intent.attending : (state.intent?.attending || []);
     delete merged.question;
+    // Ticks on the Who's coming row are the same statement as saying the names.
+    if (Array.isArray(attendingMemberIds)) {
+      const chosen = members.filter((m) => attendingMemberIds.includes(m.id));
+      if (chosen.length) { merged.attending = chosen.map((m) => m.name); merged.attending_everyone = chosen.length === members.length; }
+    }
     state.intent = merged;
 
     // Places: home, a known place, a sure match — or the choices to put to them.
@@ -843,8 +875,42 @@ router.post('/start', async (req, res, next) => {
     }
 
     if (overnight && state.stayDecision === 'trip') {
-      const trip = await createStayFromIntent({ household, members, intent: merged, destination: destination ?? origin });
-      const reply = `Set up ${trip.title}, ${dayWords(trip.startDate)} to ${dayWords(trip.endDate)} — it's in Trips, with a day for each date and the shortlist to fill.`;
+      const where = destination ?? origin;
+      const trip = await createStayFromIntent({ household, members, intent: merged, destination: where });
+      // What was asked for goes with the trip: named places on the shortlist as
+      // must-dos, meals and activities as the day's minimums, and every day
+      // planned from one pool so the trip opens with places to choose from.
+      const wants = merged.wants || [];
+      const seeded = await seedShortlistFromWants({ trip, destination: where, wants });
+      const foodWants = wants.filter((w) => FOOD_WORDS.test(w)).length;
+      const minFood = Math.min(3, Math.max(merged.min_food_stops ?? 0, foodWants, 1));
+      const minActivities = Math.min(3, seeded.length + (merged.min_activities ?? 1));
+      const { rows: days } = await query('select * from trip_days where trip_id = $1 order by date', [trip.id]);
+      let pool = null;
+      let found = 0;
+      const filled = [];
+      for (const [i, d] of days.entries()) {
+        try {
+          const r = await planDayForTrip({ household, tripId: trip.id, dayId: d.id, minActivities, minFood, wants, pool });
+          pool = pool ?? r.pool;
+          found = r.session.state.pool.length;
+          // Every full day is filled with the first plan so the trip opens with
+          // stops, not a search box; the arrival day is left open (when they get
+          // there was not said) with the same places ready to add.
+          if (i > 0) {
+            const { options } = await recompose(r.session, household);
+            if (options[0]) { const opt = await commitOption({ household, session: r.session, optionId: options[0].id }); filled.push({ date: d.date, stops: opt.stops.map((x) => x.name) }); }
+          }
+        } catch { /* the trip stands; that day can be planned from Trips */ }
+      }
+      const city = where.locality || where.label;
+      const reply = [
+        `Set up ${trip.title}, ${dayWords(trip.startDate)} to ${dayWords(trip.endDate)}.`,
+        seeded.length ? `${seeded.map((x) => x.label).join(', ')} on the shortlist as a must.` : '',
+        ...filled.map((f) => `${dayWords(f.date)}: ${f.stops.join(', ')}.`),
+        found ? `${dayWords(days[0].date)} is left open for when you arrive, with the same places near ${city} ready to add.` : '',
+        'Opening it in Trips.',
+      ].filter(Boolean).join(' ');
       state.transcript.push({ role: 'assistant', text: reply });
       await saveSession(session.id, state, trip.id);
       return res.json({ sessionId: session.id, reply, intent: merged, missing: [], options: [], handoff: { tripId: trip.id, title: trip.title } });
@@ -1060,6 +1126,16 @@ router.post('/act', async (req, res, next) => {
         if (action.minFood != null) state.minFood = Number(action.minFood);
         if (action.includeChains != null) state.includeChains = Boolean(action.includeChains);
         if (action.pricePoint && PRICE_POINTS.includes(action.pricePoint)) state.pricePoint = action.pricePoint;
+        if (Array.isArray(action.attendingMemberIds)) {
+          // Who's coming changes whose tastes rank; allergen exclusions were applied when the pool was fetched.
+          const members = await loadMembers(household.id);
+          const chosen = members.filter((m) => action.attendingMemberIds.includes(m.id));
+          const attendees = toAttendees(chosen.length ? chosen : members);
+          state.attending = attendees.map((a) => ({ id: a.id, name: a.name }));
+          state.attendeePrefs = attendees;
+          await query('delete from trip_attendees where trip_id = $1', [session.trip_id]);
+          for (const a of attendees) await query('insert into trip_attendees (trip_id, member_id) values ($1, $2) on conflict do nothing', [session.trip_id, a.id]);
+        }
         await applyTripChanges(session, {
           intensity: action.intensity && INTENSITY_TARGETS[action.intensity] ? action.intensity : null,
           durationMinutes: action.durationMinutes != null ? Number(action.durationMinutes) : null,
@@ -1072,22 +1148,19 @@ router.post('/act', async (req, res, next) => {
 
     await saveSession(session.id, state, null);
     session.state = state;
-    await respond(res, { session, household, reply: null, extra: { applied: action } });
+    await respond(res, { session, household, reply: null, extra: { applied: action, attending: state.attending ?? [] } });
   } catch (err) {
     next(err);
   }
 });
 
 /** Make an option the active trip (Epic 5 C8). Body: { sessionId, optionId } */
-router.post('/commit', async (req, res, next) => {
-  try {
-    const household = await currentHousehold();
-    const { sessionId, optionId } = req.body || {};
-    const session = await loadSession(sessionId);
+/** Write an option onto its day (or the whole outing) as the plan. */
+async function commitOption({ household, session, optionId }) {
     const { options, trip: sessTrip } = await recompose(session, household);
     const tzOf = sessTrip.timezone || DEFAULT_TZ;
     const option = options.find((o) => o.id === optionId);
-    if (!option) return res.status(404).json({ error: 'option_not_found' });
+    if (!option) { const err = new Error('option_not_found'); err.status = 404; err.code = 'option_not_found'; throw err; }
 
     const dayId = session.state.dayId ?? null;
     if (dayId) {
@@ -1112,8 +1185,18 @@ router.post('/commit', async (req, res, next) => {
     session.state.chosenOptionId = optionId;
     session.state.committed = true;
     await saveSession(session.id, session.state, null);
+    return option;
+}
+
+router.post('/commit', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const { sessionId, optionId } = req.body || {};
+    const session = await loadSession(sessionId);
+    const option = await commitOption({ household, session, optionId });
     res.json({ tripId: session.trip_id, optionId, stops: option.stops.length });
   } catch (err) {
+    if (err.code === 'option_not_found') return res.status(404).json({ error: err.code });
     next(err);
   }
 });
@@ -1123,13 +1206,15 @@ router.post('/commit', async (req, res, next) => {
  * Options for one day of a trip, composed from the trip's shortlist plus what
  * is near the base — no model call; react afterwards by voice (/refine) or tap (/act).
  */
-router.post('/day', async (req, res, next) => {
-  try {
-    const household = await currentHousehold();
-    const { tripId, dayId, minActivities, minFood } = req.body || {};
+/**
+ * Plan one day of a trip: a fresh session with the pool (fetched once and
+ * shared across a trip's days when `pool` is given), the shortlist boosted and
+ * must-dos pinned. Returns the session and the pool it used.
+ */
+async function planDayForTrip({ household, tripId, dayId, minActivities, minFood, wants = [], pool: shared = null }) {
     const { rows: trips } = await query('select * from trips where id = $1 and household_id = $2', [tripId, household.id]);
     const { rows: days } = await query('select * from trip_days where id = $1 and trip_id = $2', [dayId, tripId]);
-    if (!trips[0] || !days[0]) return res.status(404).json({ error: 'trip_or_day_not_found' });
+    if (!trips[0] || !days[0]) { const err = new Error('trip_or_day_not_found'); err.status = 404; err.code = 'trip_or_day_not_found'; throw err; }
     const real = trips[0];
     const trip = dayAsTrip(real, days[0]);
 
@@ -1143,13 +1228,22 @@ router.post('/day', async (req, res, next) => {
     const state = session.state;
 
     // Pool: the shortlist (boosted; must-dos more so) plus places near the base.
-    const pool = await retrievePool({ household, trip, attendees, intent: { wants: [], special: false }, sessionId: session.id });
+    const pool = shared
+      ? { ...shared, candidates: JSON.parse(JSON.stringify(shared.candidates)), excluded: [...shared.excluded] }
+      : await retrievePool({ household, trip, attendees, intent: { wants, special: false }, sessionId: session.id });
     const { rows: shortlist } = await query('select * from trip_shortlist where trip_id = $1', [tripId]);
     const byRef = new Map(pool.candidates.map((c) => [`${c.source}:${c.sourcePlaceId}`, c]));
     const extra = [];
+    const mustKeys = [];
     for (const item of shortlist) {
       const ref = item.venue_ref;
       let cand = byRef.get(ref);
+      // The same place under another source's id (the geocoded Roman Baths and
+      // the pool's own) is one place: match by name within a couple of streets.
+      if (!cand && item.lat != null) {
+        const wanted = normName(item.venue_label);
+        cand = pool.candidates.find((c) => normName(c.name) === wanted && kmBetween(c, item) < 0.3) ?? null;
+      }
       if (!cand) {
         const [source, ...rest] = ref.split(':');
         const v = item.venue || {};
@@ -1164,6 +1258,7 @@ router.post('/day', async (req, res, next) => {
       cand.reasons = [...(cand.reasons || []), { kind: 'want', text: item.must_do ? 'Must do — on your shortlist' : 'On your shortlist' }];
       cand.shortlisted = true;
       cand.mustDo = item.must_do;
+      if (item.must_do) mustKeys.push(cand.key);
     }
     // A booking already on the day (the show said aloud when the trip was made)
     // is fixed: every option is built around it, and the pool treats it as the
@@ -1183,11 +1278,12 @@ router.post('/day', async (req, res, next) => {
 
     const defaults = { relaxed: [1, 0], balanced: [1, 1], packed: [2, 1] }[trip.intensity] ?? [1, 1];
     Object.assign(state, {
+      date: days[0].date,
       pool: candidates,
       excludedByAllergen: pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons })),
       minActivities: minActivities ?? defaults[0],
       minFood: minFood ?? defaults[1],
-      pinned: [...fixedStops.map((f) => f.key), ...shortlist.filter((i) => i.must_do).map((i) => i.venue_ref).filter((r) => candidates.some((c) => c.key === r))],
+      pinned: [...new Set([...fixedStops.map((f) => f.key), ...mustKeys.filter((k) => candidates.some((c) => c.key === k))])],
       excluded: [],
       includeChains: false,
       pricePoint: 'any',
@@ -1199,8 +1295,17 @@ router.post('/day', async (req, res, next) => {
     });
     await saveSession(session.id, state, tripId);
     session.state = state;
-    await respond(res, { session, household, reply: null, extra: { dayId, date: days[0].date, attending: state.attending, reach: { maxTravelMinutes: pool.maxTravelMinutes, estimated: true }, degradedSources: pool.degraded } });
+    return { session, pool, day: days[0] };
+}
+
+router.post('/day', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const { tripId, dayId, minActivities, minFood } = req.body || {};
+    const { session, pool, day } = await planDayForTrip({ household, tripId, dayId, minActivities, minFood });
+    await respond(res, { session, household, reply: null, extra: { dayId, date: day.date, attending: session.state.attending, reach: { maxTravelMinutes: pool.maxTravelMinutes, estimated: true }, degradedSources: pool.degraded } });
   } catch (err) {
+    if (err.code === 'trip_or_day_not_found') return res.status(404).json({ error: err.code });
     next(err);
   }
 });
