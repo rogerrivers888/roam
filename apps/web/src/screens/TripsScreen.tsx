@@ -511,18 +511,18 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [reply, setReply] = useState<string | null>(null);
-
   const [adding, setAdding] = useState<BrowseItem | null>(null);
   const [justAdded, setJustAdded] = useState<string | null>(null);
+
   const start = useCallback(async () => {
     setBusy('thinking'); setError(null);
     try { const p = await api.planDay(trip.trip.id, day.id); setPlan(p); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }, [trip.trip.id, day.id]);
   useEffect(() => { if (!initial) start(); }, [start, initial]);
   const baseLabel = trip.trip.base?.label ?? trip.trip.origin.label;
-
   const onDay = new Set(day.slots.flatMap((sl) => sl.stops.map((st) => st.venueRef)));
   const shortlisted = new Set(trip.shortlist.map((sh) => sh.venueRef));
+
   const say = async (text: string, viaVoice = false) => {
     if (!plan || !text.trim()) return;
     setBusy('thinking'); setInput('');
@@ -549,9 +549,8 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
       <Text style={type.tiny}>Filter or sort, open a place for its reviews, hours and photos, then add it to {fmtDate(day.date)} or shortlist it for any day of the trip.{plan?.resumed ? ' Picked up where you left off.' : ''}</Text>
       {busy === 'thinking' ? <StatusLine>Looking around {baseLabel}…</StatusLine> : null}
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-      {reply ? <View style={styles.bubble}><Text style={type.body}>{reply}</Text></View> : null}
       {justAdded ? <StatusLine tone="good">{justAdded} is on the day — see the slots above.</StatusLine> : null}
-      <Row>
+      {reply ? <View style={styles.bubble}><Text style={type.body}>{reply}</Text></View> : null}
 
       {adding ? (
         <View style={[styles.bubble, { gap: spacing.sm }]}>
@@ -563,12 +562,13 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
         </View>
       ) : null}
 
+      <Row>
         <TextInput value={speech.listening && speech.interim ? speech.interim : input} onChangeText={setInput} placeholder={speech.listening ? 'Listening…' : 'e.g. somewhere upmarket for dinner, no chains, more for Phoenix'} placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }, speech.listening && { borderColor: colors.accent }]} onSubmitEditing={() => say(input)} editable={!speech.listening} />
         {speech.supported ? <Pressable onPress={speech.toggle} style={[styles.mic, speech.listening && styles.micOn]} accessibilityLabel={speech.listening ? 'Stop' : 'Speak'}><Text style={{ fontSize: 18 }}>{speech.listening ? '■' : '🎙'}</Text></Pressable> : null}
         <Button label="Send" onPress={() => say(input)} disabled={!input.trim() || !!busy} />
       </Row>
-      {plan ? (
 
+      {plan ? (
         <>
           <PricePointControl value={plan.constraints?.pricePoint ?? 'any'} onChange={(v) => act({ type: 'set', pricePoint: v })} />
           <ChainsControl includeChains={plan.constraints?.includeChains ?? false} hidden={plan.pool?.hiddenChains ?? 0} onChange={(v) => act({ type: 'set', includeChains: v })} />
@@ -585,20 +585,20 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
             shortlistedRefs={shortlisted}
             onShortlist={async (b) => { await api.addToShortlist(trip.trip.id, { venueRef: b.venueRef, venueLabel: b.name, category: b.category, lat: b.lat, lng: b.lng, venue: { name: b.name, category: b.category, cuisines: b.cuisines, experiences: b.experiences, rating: b.rating, priceLevel: b.priceLevel, lat: b.lat, lng: b.lng, photos: b.photos } as any }); await onShortlisted(); }}
           />
-        </>
           <Row style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
             <Text style={[type.tiny, { flex: 1, minWidth: 200 }]}>Short of time? Roam can fill the day from the best matches around your must-dos and what's already on it.</Text>
             <Button label="Let Roam fill the day" kind="secondary" onPress={fillDay} disabled={!!busy || !plan.options.length} />
           </Row>
           {plan.selection?.excluded?.length ? <Text style={type.tiny}>Set aside: {plan.selection.excluded.length} place{plan.selection.excluded.length === 1 ? '' : 's'}.</Text> : null}
+        </>
       ) : null}
     </Card>
   );
 }
 
-// ---------------------------------------------------------------------------
 const clock24 = (iso: string) => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
+// ---------------------------------------------------------------------------
 // Shortlist
 // ---------------------------------------------------------------------------
 

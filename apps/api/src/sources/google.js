@@ -57,6 +57,7 @@ function cuisineFromTypes(types = []) {
     .filter((c) => !NOT_A_CUISINE.has(c));
 }
 
+const LODGING = new Set(['hotel', 'lodging', 'motel', 'resort_hotel', 'extended_stay_hotel', 'bed_and_breakfast', 'guest_house', 'hostel', 'inn']);
 // Somewhere you go to look, shop or do — even when Google also lists a café inside it.
 const THING_FIRST = new Set([...THING_TYPES, 'department_store', 'shopping_mall', 'market', 'book_store', 'performing_arts_theater', 'movie_theater', 'stadium', 'concert_hall', 'church', 'place_of_worship', 'library', 'visitor_center']);
 
@@ -178,7 +179,9 @@ export const googleSource = {
           locationRestriction: { circle: { center: { latitude: center.lat, longitude: center.lng }, radius } },
         },
       });
-      for (const p of data.places || []) out.push(toVenue(p));
+      // A hotel is where you sleep, not a place to eat or a thing to do — even
+      // when Google also types it as a restaurant because it has one.
+      for (const p of data.places || []) if (!LODGING.has(p.primaryType)) out.push(toVenue(p));
       if (out.length >= limit) break;
     }
     return out;
