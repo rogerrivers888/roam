@@ -38,6 +38,9 @@ app.use('/api/places', placeRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/atlas', atlasRoutes);
 
+/** Licensed review text must not be crawlable (Tripadvisor review implementation policy); the API is not a website. */
+app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
+
 /** Which sources are live — the Settings screen shows this. */
 app.get('/api/sources', (_req, res) => {
   res.json({

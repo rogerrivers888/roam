@@ -127,15 +127,18 @@ A separate **Yelp AI API** runs at $25 per 1,000 calls with a 1,000-call daily m
 
 ### 3.3 TripAdvisor Content API
 
-More open than commonly assumed, and the best value of the three for evaluation.
+Tripadvisor replaced the v1 Content API with the **Terra** platform in 2026 (docs.terra.tripadvisor.com). Roam integrates the self-serve **Discover** plan; the v1 terms below it are kept for the record.
 
-- Self-serve: register, set a maximum daily budget, provide billing details, get a key.
-- **First 5,000 calls per month free, renewing monthly.** Card required for overage.
-- Up to 50 calls per second. Pay monthly, cancel anytime.
-- Endpoints: Location Search, Location Details, Location Photos, Location Reviews.
-- Returns up to **5 reviews and 5 photos** per location.
+- Self-serve: sign up at Tripadvisor for Business, pick Discover, set a daily budget, get an `X-API-Key`.
+- **Billed per entity, not per call.** Every location ID returned by a search, nearby or details response counts once; a reviews or photos call counts once. Errors do not count.
+- **First 1,000 entities free, once per account — not monthly.** Then $0.015 per entity, falling to $0.009 above 5,000 in a billing cycle.
+- Discover: 10 requests/second, 10,000 calls/day per API (lower in the dashboard), up to **3 reviews and 5 photos** per location.
+- Endpoints: Catalog nearby and text search (rating, count, coordinates, address, URL only), Location Details, Reviews, Photos, batch Details.
+- Text search is not geo-bounded, so Roam applies a query to the nearby page by name rather than paying for a world-wide page.
+- Caching: only the location ID may be stored. Review text must be loaded via a call crawlers cannot index (robots.txt Disallow on the API).
 - Strong international coverage — the best of the three outside the US for attractions and tourist-facing venues.
-- Hotel Pricing API is separate and requires an email request describing the app and its traffic.
+
+*v1 Content API, superseded:* 5,000 calls per month free renewing, 50 calls/second, 5 reviews and 5 photos, `key` query parameter.
 
 ### 3.4 The combined review position
 
@@ -143,7 +146,7 @@ More open than commonly assumed, and the best value of the three for evaluation.
 |---|---|---|---|
 | Google Places | 5 | Standard key | None beyond IDs |
 | Yelp Premium | 7 + Review Highlights | $643/month | Historically 24h |
-| TripAdvisor | 5 | 5,000 free/month | Check terms |
+| TripAdvisor (Terra Discover) | 3 | 1,000 entities free once, then per entity | IDs only |
 | **Combined ceiling** | **~17 excerpts** | | |
 
 Even combined this is not a corpus. Sentiment analysis over hundreds of reviews per venue remains unavailable at any price. The workaround stays the same: push the analytical question into the search query and let each provider's index do the matching, then surface the evidence.
@@ -340,7 +343,7 @@ What each source gives before it costs anything. **The distinction between recur
 | Source | Free allowance | Type | Card required |
 |---|---|---|---|
 | Google Places | Per-SKU monthly: 10,000 Essentials, 5,000 Pro, 1,000 Enterprise. Place Details IDs-Only and Autocomplete Session Usage unlimited | **Recurring monthly** | Yes |
-| TripAdvisor Content API | 5,000 calls | **Recurring monthly** | Yes |
+| TripAdvisor Terra (Discover) | 1,000 entities (location IDs returned) | **One-time** | Yes |
 | Yelp Places API | 5,000 calls over a 30-day window | **One-time trial** | Business email |
 | Ticketmaster Discovery | Free key, no charge for discovery | **Ongoing** | No |
 | Eventbrite | Free key | **Ongoing** | No |
@@ -349,12 +352,12 @@ What each source gives before it costs anything. **The distinction between recur
 | TravelTime | Trial only, sales-led | **One-time** | Contact sales |
 | Speech providers | Pay-as-you-go from ~$0.21/hr | N/A — cost negligible | Yes |
 
-**Operational consequence:** Google, TripAdvisor, Ticketmaster and Eventbrite can be left running indefinitely at zero cost during a four-person private beta. **Yelp and TravelTime cannot.** Their trials burn on a clock whether used or not, so they should be switched on only when there is a specific comparison to run and someone available to judge the results.
+**Operational consequence:** Google, Ticketmaster and Eventbrite can be left running indefinitely at zero cost during a four-person private beta. Tripadvisor's 1,000 free entities do not renew, so it runs at low single-figure dollars a month once they are spent (a browse costs about 20 entities). **Yelp and TravelTime cannot.** Their trials burn on a clock whether used or not, so they should be switched on only when there is a specific comparison to run and someone available to judge the results.
 
 **Recommended evaluation sequence:**
 
 1. Google alone — validate the isochrone and dish-search assumptions (§16 items 3 and 4). Costs nothing.
-2. Add TripAdvisor — free, recurring, tests the entity resolution logic with a second source.
+2. Add TripAdvisor — 1,000 free entities then pennies per page, tests the entity resolution logic with a second source.
 3. Add Ticketmaster and Eventbrite — free, adds the activities dimension.
 4. **Then** open the Yelp trial with a defined comparison and a defined window.
 5. **Then** approach TravelTime with usage figures in hand, which also improves the negotiating position.

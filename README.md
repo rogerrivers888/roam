@@ -67,7 +67,7 @@ Postgres is a Railway Postgres service in the same project; the `api` needs its 
 | `ANTHROPIC_WORKSPACE_ID` | if the key is identity-linked | The Anthropic workspace the key acts in (`wrkspc_…`). Console-issued keys that are linked to a person require it; a legacy workspace key does not. |
 | `RAILPACK_START_CMD` | yes | see table above (non-secret) |
 | `GOOGLE_MAPS_API_KEY` | recommended | Google Places API (New) + Routes API: ratings, reviews, photos, hours, family flags, dish-search evidence, **real travel times**. Restrict the key to those APIs; set a budget and per-API quota in Cloud Console. Switches on automatically. |
-| `TRIPADVISOR_API_KEY` | optional | Tripadvisor Content API: ratings, 5 reviews + 5 photos per place, strong for attractions outside the US. 5,000 calls/month free. Switches on automatically. |
+| `TRIPADVISOR_API_KEY` | optional | Tripadvisor Terra Content API, Discover plan (`X-API-Key`): ratings, 3 reviews + 5 photos per place, strong for attractions outside the US. Billed per location ID returned, first 1,000 free once, then from $0.015; set a daily budget in the Terra dashboard. `ROAM_TRIPADVISOR_PAGE` (default 10, max 20) caps IDs per nearby call. Switches on automatically. |
 | `TICKETMASTER_API_KEY` | optional | Ticketmaster Discovery v2: real timed events inside an outing window. Free. Switches on automatically. |
 | `ROAM_SOURCES` | no | comma-separated enabled place sources; default `fixtures,osm,google,tripadvisor,ticketmaster` (each licensed source is only live when its key exists) |
 | `ROAM_OVERPASS_URLS` / `ROAM_NOMINATIM_URL` | no | override the OpenStreetMap endpoints (e.g. a self-hosted mirror) |
