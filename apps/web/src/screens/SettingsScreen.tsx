@@ -8,13 +8,29 @@ import { PlacePicker } from '../components/PlacePicker';
 export const SPEAK_KEY = 'roam.speakReplies';
 export const getSpeakPref = () => (Platform.OS === 'web' && typeof localStorage !== 'undefined' ? localStorage.getItem(SPEAK_KEY) !== 'off' : true);
 
+const PURPOSE_LABEL: Record<string, string> = {
+  'scout.events': 'Local scout search (web)',
+  'plan.interpret': 'Planner: understood what you said',
+  'plan.refine': 'Planner: refined the plan',
+  'plan.retrieve': 'Looked up places nearby',
+  'places.search': 'Places search',
+  'places.geocode': 'Address lookup',
+  photo: 'Photo',
+};
+
 export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | null; refresh: () => Promise<void> }) {
   const [name, setName] = useState(data?.household.name ?? '');
   const [speak, setSpeak] = useState(getSpeakPref());
   const [confirm, setConfirm] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [homeMsg, setHomeMsg] = useState<string | null>(null);
-  const [spend, setSpend] = useState<{ month: { calls: number; costUsd: number; bound: number }; byProvider: { provider: string; calls: number; cost_usd: number }[] } | null>(null);
+  const [spend, setSpend] = useState<{
+    month: { calls: number; costUsd: number; bound: number };
+    byProvider: { provider: string; calls: number; cost_usd: number }[];
+    recent?: { id: string; at: string; provider: string; purpose: string | null; cost_usd: number }[];
+    scout?: { runs: number; costUsd: number; cap: number; on: boolean };
+  } | null>(null);
+  const [showActivity, setShowActivity] = useState(false);
 
   useEffect(() => { setName(data?.household.name ?? ''); }, [data?.household.name]);
   useEffect(() => { fetch(`${api.exportUrl().replace('/export', '/spend')}`).then((r) => r.json()).then(setSpend).catch(() => null); }, [data]);
@@ -93,6 +109,21 @@ export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | nu
           <>
             <Text style={type.body}>{spend.month.calls} provider calls · ~${spend.month.costUsd.toFixed(2)} · bound {spend.month.bound} calls</Text>
             {spend.byProvider.map((p) => <Text key={p.provider} style={type.small}>{p.provider}: {p.calls} calls{p.cost_usd ? ` · $${p.cost_usd.toFixed(3)}` : ''}</Text>)}
+            {spend.scout ? (
+              <Text style={type.small}>
+                Local scout: {spend.scout.on ? 'on' : 'off'} · {spend.scout.runs} of {spend.scout.cap} searches this month{spend.scout.costUsd ? ` · $${spend.scout.costUsd.toFixed(2)}` : ''}. It pauses at the cap; the Anthropic workspace limit is the hard stop.
+              </Text>
+            ) : null}
+            {spend.recent?.length ? (
+              <>
+                <Button label={showActivity ? 'Hide activity' : `Activity (${spend.recent.length} most recent)`} kind="ghost" onPress={() => setShowActivity((v) => !v)} />
+                {showActivity ? spend.recent.map((c) => (
+                  <Text key={c.id} style={type.tiny}>
+                    {new Date(c.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {PURPOSE_LABEL[c.purpose ?? ''] ?? c.purpose ?? c.provider} · {c.cost_usd ? `$${c.cost_usd.toFixed(3)}` : 'free'}
+                  </Text>
+                )) : null}
+              </>
+            ) : null}
           </>
         ) : <Text style={type.small}>—</Text>}
       </Card>

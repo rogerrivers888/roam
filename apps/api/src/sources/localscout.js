@@ -17,6 +17,7 @@
 //     pinned and dismissed exactly like any other stop — no new UI path.
 
 import { searchWeb } from '../claude.js';
+import { query } from '../db.js';
 import { geocode } from './geocode.js';
 import { wallClock, wallToUtc, DEFAULT_TZ } from '../domain/time.js';
 
@@ -27,6 +28,20 @@ const CACHE_TTL_MS = 6 * 3600_000;
 // A plan must not wait on the open web: past this the plan goes ahead without
 // the scout, whose search carries on and fills the cache for the next request.
 const DEADLINE_MS = Number(process.env.ROAM_SCOUT_DEADLINE_MS || 90_000);
+// The scout's own purse: at most this many runs per household per month
+// (each ≈ $0.6), separate from the planner's bounds and from the Anthropic
+// workspace limit, which remains the hard stop. Counted from provider_calls.
+export const SCOUT_MONTHLY_RUNS = Number(process.env.ROAM_SCOUT_MONTHLY_RUNS || 60);
+
+async function assertScoutBudget(householdId) {
+  const { rows: [{ n }] } = await query(
+    `select count(*)::int as n from provider_calls
+      where household_id = $1 and purpose = 'scout.events' and created_at >= date_trunc('month', now())`,
+    [householdId],
+  );
+  if (n >= SCOUT_MONTHLY_RUNS) throw new Error(`local scout paused: ${n} of ${SCOUT_MONTHLY_RUNS} runs used this month (ROAM_SCOUT_MONTHLY_RUNS)`);
+  return n;
+}
 const cache = new Map();
 const inflight = new Map();
 
@@ -85,6 +100,7 @@ export const localScoutSource = {
     if (inflight.has(cacheKey)) return inflight.get(cacheKey);
 
     const run = (async () => {
+      await assertScoutBudget(householdId);
       const prompt = `Place: ${placeLabel} (lat ${center.lat.toFixed(4)}, lng ${center.lng.toFixed(4)}).\nDate: ${day.dateStr} (${new Date(start).toLocaleDateString('en-GB', { weekday: 'long', timeZone: tz })}). The family is there roughly ${day.hhmm}–${wallClock(end, tz).hhmm} local time; events that overlap that window are best, others on the day are fine.\nRadius: ${radius} km.`;
       const { text } = await searchWeb({ system: SYSTEM, prompt, householdId, sessionId, purpose: 'scout.events' });
       const items = extractJson(text).slice(0, MAX_EVENTS);

@@ -5,6 +5,7 @@ import { ALLERGENS, matchConcepts, resolveConcept, conceptByKey, isNegated } fro
 const NEGATION_PREFIX = /^(not|no|never|without|anything but|nothing)\s+/i;
 import { geocode } from '../sources/geocode.js';
 import { spendSummary } from '../claude.js';
+import { localScoutSource, SCOUT_MONTHLY_RUNS } from '../sources/localscout.js';
 import { paceOf, DEFAULT_PACE } from '../domain/pace.js';
 import { isValidTimezone } from '../domain/time.js';
 
@@ -370,7 +371,25 @@ router.get('/spend', async (_req, res, next) => {
         group by provider order by calls desc`,
       [household.id],
     );
-    res.json({ month: { calls: summary.month_calls, costUsd: summary.month_cost_usd, bound: summary.householdMonthlyBound }, byProvider: rows });
+    // An activity feed: every call this month with what it was for and what it
+    // cost, newest first — so a scout search shows its price beside it.
+    const { rows: recent } = await query(
+      `select id, created_at as at, provider, purpose, coalesce(estimated_cost_usd, 0)::float as cost_usd
+         from provider_calls where household_id = $1 and created_at >= date_trunc('month', now())
+        order by created_at desc limit 40`,
+      [household.id],
+    );
+    const { rows: [scout] } = await query(
+      `select count(*)::int as runs, coalesce(sum(estimated_cost_usd), 0)::float as cost_usd
+         from provider_calls where household_id = $1 and purpose = 'scout.events' and created_at >= date_trunc('month', now())`,
+      [household.id],
+    );
+    res.json({
+      month: { calls: summary.month_calls, costUsd: summary.month_cost_usd, bound: summary.householdMonthlyBound },
+      byProvider: rows,
+      recent,
+      scout: { runs: scout.runs, costUsd: scout.cost_usd, cap: SCOUT_MONTHLY_RUNS, on: localScoutSource.enabled() },
+    });
   } catch (err) {
     next(err);
   }
