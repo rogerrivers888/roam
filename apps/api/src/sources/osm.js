@@ -62,6 +62,9 @@ function toVenue(el) {
   const lat = el.lat ?? el.center?.lat;
   const lng = el.lon ?? el.center?.lon;
   if (lat == null || !t.name) return null;
+  // Street furniture someone tagged as an attraction (a lamp, a plaque, a
+  // bollard) is not a stop; nor is a sight with no name worth planning around.
+  if (t.man_made || ['plaque', 'boundary_stone', 'milestone', 'wayside_cross'].includes(t.historic) || /\b(lamp|plaque|bollard|post box|manhole|drinking fountain)\b/i.test(t.name)) return null;
 
   let category = 'attraction';
   const experiences = [];
@@ -105,7 +108,7 @@ function toVenue(el) {
     dishes: [],
     styles: t.amenity === 'fast_food' ? ['fast-food'] : [],
     // A cinema or theatre needs a booking and a showtime; it is not a wander-in stop.
-    ticketed: ['cinema', 'theatre'].includes(t.amenity) || t.tourism === 'theme_park',
+    ticketed: ['cinema', 'theatre'].includes(t.amenity) || t.tourism === 'theme_park' || /\b(theatre|theater|opera house|playhouse|cinema|concert hall)\b/i.test(t.name),
     justification: null,
     matchedDish: null,
     website: t.website || t['contact:website'] || null,
