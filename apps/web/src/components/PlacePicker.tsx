@@ -68,12 +68,15 @@ export function PlacePicker({
           ))}
         </View>
       ) : null}
-      <TextInput value={text} onChangeText={setText} placeholder={placeholder} placeholderTextColor={colors.inkFaint} style={styles.input} autoCapitalize="words" />
+      <TextInput value={text} onChangeText={setText} placeholder={placeholder} placeholderTextColor={colors.inkFaint} style={styles.input} autoCapitalize="words" onSubmitEditing={() => { if (items[0]) { onPick(items[0]); setText(''); setItems([]); } }} returnKeyType="search" />
       {busy ? <Text style={type.tiny}>Looking…</Text> : null}
       {items.map((p, i) => (
         <Pressable key={`${p.lat},${p.lng},${i}`} onPress={() => { onPick(p); setText(''); setItems([]); }} style={styles.result} accessibilityRole="button">
-          <Text style={type.h3}>{p.formatted ?? p.label}</Text>
-          <Text style={type.tiny} numberOfLines={2}>{p.approximate ? p.displayName : [p.address?.town, p.address?.postcode, p.country].filter(Boolean).join(' · ')}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={type.h3}>{p.formatted ?? p.label}</Text>
+            <Text style={type.tiny} numberOfLines={2}>{p.approximate ? p.displayName : [p.address?.town, p.address?.postcode, p.country].filter(Boolean).join(' · ')}</Text>
+          </View>
+          <View style={styles.use}><Text style={styles.useText}>Use this</Text></View>
         </Pressable>
       ))}
       {!busy && searched && searched === text && items.length === 0 ? (
@@ -91,7 +94,9 @@ const styles = StyleSheet.create({
     minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink,
   },
-  result: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: 2 },
+  result: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
+  use: { minHeight: 36, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: colors.accent, justifyContent: 'center' },
+  useText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   chosen: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.accentSoft },
   change: { minHeight: TARGET, justifyContent: 'center', paddingHorizontal: spacing.sm },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

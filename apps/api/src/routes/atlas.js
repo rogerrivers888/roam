@@ -9,7 +9,7 @@
 
 import { Router } from 'express';
 import { query } from '../db.js';
-import { reverseGeocode } from '../sources/geocode.js';
+import { reverseGeocode, geocode } from '../sources/geocode.js';
 import { recallVenue } from '../sources/index.js';
 import { currentHousehold } from './household.js';
 
@@ -81,13 +81,26 @@ atlas.get('/', async (_req, res, next) => {
         order by p.country, p.locality`,
       [household.id],
     );
+    // Cities the household created on purpose, and cities its trips are in,
+    // appear even before they have places.
+    const [{ rows: created }, { rows: tripCities }] = await Promise.all([
+      query('select country, country_code, locality, lat, lng from atlas_cities where household_id = $1', [household.id]),
+      query(`select country, country_code, locality, count(*)::int as trips, max(coalesce(base_lat, origin_lat)) as lat, max(coalesce(base_lng, origin_lng)) as lng
+               from trips where household_id = $1 and country_code is not null group by country, country_code, locality`, [household.id]),
+    ]);
     const countries = new Map();
+    const ensure = (code, name) => { if (!countries.has(code)) countries.set(code, { code, name, places: 0, been: 0, cities: [] }); return countries.get(code); };
+    const cityOf = (c, name) => { let ci = c.cities.find((x) => x.name === name); if (!ci) { ci = { name, places: 0, been: 0, special: 0, trips: 0, lastSeen: null, lat: null, lng: null, created: false }; c.cities.push(ci); } return ci; };
     for (const r of rows) {
-      if (!countries.has(r.country_code)) countries.set(r.country_code, { code: r.country_code, name: r.country, places: 0, been: 0, cities: [] });
-      const c = countries.get(r.country_code);
+      const c = ensure(r.country_code, r.country);
       c.places += r.places; c.been += r.been;
-      c.cities.push({ name: r.locality ?? 'Elsewhere', places: r.places, been: r.been, special: r.special, trips: r.trips, lastSeen: r.last_seen });
+      Object.assign(cityOf(c, r.locality ?? 'Elsewhere'), { places: r.places, been: r.been, special: r.special, trips: r.trips, lastSeen: r.last_seen });
     }
+    for (const r of created) { const ci = cityOf(ensure(r.country_code, r.country), r.locality); ci.created = true; ci.lat ??= r.lat; ci.lng ??= r.lng; }
+    for (const r of tripCities) { const ci = cityOf(ensure(r.country_code, r.country), r.locality ?? 'Elsewhere'); ci.trips = Math.max(ci.trips, r.trips); ci.lat ??= r.lat; ci.lng ??= r.lng; }
+    // Give place-derived cities a centre from their places, for "add a place here".
+    const { rows: centres } = await query('select country_code, coalesce(locality, \'Elsewhere\') as locality, avg(lat) as lat, avg(lng) as lng from household_places where household_id = $1 and lat is not null group by country_code, locality', [household.id]);
+    for (const r of centres) { const c = countries.get(r.country_code); const ci = c?.cities.find((x) => x.name === r.locality); if (ci) { ci.lat ??= Number(r.lat); ci.lng ??= Number(r.lng); } }
     const { rows: unplaced } = await query('select count(*)::int as n from household_places where household_id = $1 and country_code is null', [household.id]);
     res.json({ countries: [...countries.values()].sort((a, b) => b.places - a.places), unplaced: unplaced[0].n });
   } catch (err) { next(err); }
@@ -129,5 +142,35 @@ atlas.get('/places', async (req, res, next) => {
     }));
     if (status) places = places.filter((p) => (status === 'special' ? p.special : p.status === status));
     res.json({ places });
+  } catch (err) { next(err); }
+});
+
+
+/** POST /api/atlas/cities { placeText | place } — create a city on purpose. */
+atlas.post('/cities', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const b = req.body || {};
+    let place = b.place?.lat != null ? b.place : null;
+    if (!place && b.placeText) [place] = await geocode(b.placeText, { limit: 1 });
+    if (!place) return res.status(404).json({ error: 'city_not_found', message: `Couldn't find "${b.placeText}". Try the city and country, e.g. "Lisbon, Portugal".` });
+    // A city search returns the city itself; its locality is its own name.
+    const locality = place.locality || place.label.split(',')[0];
+    if (!place.countryCode) return res.status(400).json({ error: 'country_unknown', message: 'That place has no country in the map data.' });
+    await query(
+      `insert into atlas_cities (household_id, country, country_code, locality, lat, lng) values ($1,$2,$3,$4,$5,$6)
+       on conflict (household_id, country_code, locality) do update set lat = coalesce(excluded.lat, atlas_cities.lat), lng = coalesce(excluded.lng, atlas_cities.lng)`,
+      [household.id, place.country, place.countryCode, locality, place.lat, place.lng],
+    );
+    res.status(201).json({ city: { name: locality, country: place.country, countryCode: place.countryCode, lat: place.lat, lng: place.lng } });
+  } catch (err) { next(err); }
+});
+
+atlas.delete('/cities', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const { countryCode, locality } = req.body || {};
+    await query('delete from atlas_cities where household_id = $1 and country_code = $2 and locality = $3', [household.id, countryCode, locality]);
+    res.status(204).end();
   } catch (err) { next(err); }
 });

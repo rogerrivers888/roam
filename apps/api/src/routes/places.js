@@ -213,7 +213,7 @@ places.post('/save', async (req, res, next) => {
     if (!source || !id) return res.status(400).json({ error: 'ref_required' });
     const status = ['saved', 'dismissed', 'special'].includes(req.body?.status) ? req.body.status : 'saved';
     await query('insert into place_ledger (household_id, source, source_place_id, status) values ($1, $2, $3, $4)', [household.id, source, id, status]);
-    if (status !== 'dismissed') await upsertHouseholdPlace({ query }, household.id, { venueRef: `${source}:${id}`, label: req.body?.label, venue: req.body?.venue, category: req.body?.category, lat: req.body?.lat, lng: req.body?.lng, note: req.body?.note });
+    if (status !== 'dismissed') await upsertHouseholdPlace({ query }, household.id, { venueRef: `${source}:${id}`, label: req.body?.label, venue: req.body?.venue, category: req.body?.category, lat: req.body?.lat, lng: req.body?.lng, note: req.body?.note, country: req.body?.country, countryCode: req.body?.countryCode, locality: req.body?.locality });
     res.json({ venueRef: `${source}:${id}`, status });
   } catch (err) {
     next(err);

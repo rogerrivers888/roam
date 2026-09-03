@@ -77,31 +77,9 @@ async function main() {
       }
     }
 
-    // One trip to open on, shaped like the motivating example in §1: a fixed
-    // commitment with time either side of it.
-    const saturday = nextSaturday();
-    const departAt = new Date(saturday);
-    departAt.setHours(11, 0, 0, 0);
-    const returnAt = new Date(saturday);
-    returnAt.setHours(18, 30, 0, 0);
+    void memberIds; // trips are created by the household, not seeded
 
-    const { rows: trip } = await client.query(
-      `insert into trips (household_id, title, origin_label, origin_lat, origin_lng,
-                          destination_label, destination_lat, destination_lng,
-                          depart_at, return_at, travel_mode, intensity)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning id`,
-      [householdId, 'Saturday matinée', 'Home', 42.3529, -71.0621,
-       'Tidewater Maritime Museum', 42.3548, -71.0480,
-       departAt.toISOString(), returnAt.toISOString(), 'transit', 'balanced'],
-    );
-
-    for (const memberId of memberIds) {
-      await client.query('insert into trip_attendees (trip_id, member_id) values ($1, $2)', [
-        trip[0].id, memberId,
-      ]);
-    }
-
-    console.log(`seeded household ${householdId} with ${MEMBERS.length} members and 1 trip`);
+    console.log(`seeded household ${householdId} with ${MEMBERS.length} members`);
   });
 
   await pool.end();

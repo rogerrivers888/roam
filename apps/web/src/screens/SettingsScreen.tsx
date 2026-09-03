@@ -13,6 +13,7 @@ export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | nu
   const [speak, setSpeak] = useState(getSpeakPref());
   const [confirm, setConfirm] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
+  const [homeMsg, setHomeMsg] = useState<string | null>(null);
   const [spend, setSpend] = useState<{ month: { calls: number; costUsd: number; bound: number }; byProvider: { provider: string; calls: number; cost_usd: number }[] } | null>(null);
 
   useEffect(() => { setName(data?.household.name ?? ''); }, [data?.household.name]);
@@ -22,9 +23,8 @@ export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | nu
   const { household } = data;
 
   const setHome = async (p: Place | null) => {
-    if (!p) return;
-    await api.updateHousehold({ home: p });
-    await refresh();
+    if (!p) { setHomeMsg(null); return; }
+    try { await api.updateHousehold({ home: p }); await refresh(); setHomeMsg(`Home saved: ${p.formatted ?? p.label}`); } catch (e: any) { setHomeMsg(e.message); }
   };
 
   return (
@@ -34,7 +34,8 @@ export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | nu
       <SectionTitle hint="Used whenever you say 'from home' or search near home.">Home</SectionTitle>
       <Card>
         <PlacePicker value={household.home} onPick={setHome} placeholder="House name or number, street, town, postcode" />
-        {!household.home ? <StatusLine>Not set. Roam can't plan "from home" until it knows where that is.</StatusLine> : null}
+        {!household.home ? <StatusLine>Not set. Type your address, then tap <Text style={{ fontWeight: '700' }}>Use this</Text> on the match.</StatusLine> : null}
+        {homeMsg ? <StatusLine tone="good">{homeMsg}</StatusLine> : null}
       </Card>
 
       <SectionTitle>Household</SectionTitle>

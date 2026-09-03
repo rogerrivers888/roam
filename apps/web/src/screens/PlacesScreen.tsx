@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import { api, AtlasCountry, AtlasPlace, HouseholdResponse, Place, Take, Venue, Visit, VisitTake } from '../api';
+import { api, AtlasCity, AtlasCountry, AtlasPlace, HouseholdResponse, Place, Take, Venue, Visit, VisitTake } from '../api';
 import { MapView, MapPin } from '../components/MapView';
 import type { TripPrefill } from './TripsScreen';
 import { colors, radius, spacing, TARGET, type } from '../theme';
@@ -59,6 +59,8 @@ function AtlasPanel({ household, wide, refreshHousehold, onPlanTrip }: { househo
   const [kind, setKind] = useState<'' | 'food' | 'activity'>('');
   const [open, setOpen] = useState<Venue | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [addingCity, setAddingCity] = useState(false);
+  const [addingPlace, setAddingPlace] = useState(false);
 
   const loadAtlas = useCallback(async () => { try { setData(await api.atlas()); } catch (e: any) { setError(e.message); } }, []);
   useEffect(() => { loadAtlas(); }, [loadAtlas]);
@@ -76,7 +78,23 @@ function AtlasPanel({ household, wide, refreshHousehold, onPlanTrip }: { househo
   if (!country) {
     return (
       <View style={{ gap: spacing.md }}>
-        {data.countries.length === 0 ? <Card><Text style={type.body}>Your atlas is empty so far.</Text><Text style={type.small}>It fills itself: every place you visit, save, mark special or shortlist on a trip lands here under its country and city. Start with "Find places", or create a trip.</Text></Card> : null}
+        <Card style={{ borderColor: colors.accent }}>
+          <Row style={{ justifyContent: 'space-between' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={type.h3}>Add a country or city</Text>
+              <Text style={type.tiny}>Somewhere you've been or are going — then add the places you know there.</Text>
+            </View>
+            {!addingCity ? <Button label="+ Add" onPress={() => setAddingCity(true)} /> : null}
+          </Row>
+          {addingCity ? (
+            <>
+              <PlacePicker value={null} onPick={async (p) => { if (!p) return; try { const r = await api.createAtlasCity({ place: p }); await loadAtlas(); setAddingCity(false); const c = (await api.atlas()).countries.find((x) => x.code === r.city.countryCode); if (c) { setCountry(c); setCity(r.city.name); } } catch (e: any) { setError(e.message); } }} placeholder="City and country — Lisbon, Portugal · Lake District · New York" />
+              <Button label="Cancel" kind="ghost" onPress={() => setAddingCity(false)} style={{ alignSelf: 'flex-start' }} />
+            </>
+          ) : null}
+          {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+        </Card>
+        {data.countries.length === 0 ? <Card><Text style={type.body}>Your atlas is empty so far.</Text><Text style={type.small}>Add a city above, then add the places you've been to or want to try. Visits, saves and trip shortlists also land here automatically.</Text></Card> : null}
         <View style={[styles.grid, wide && { flexDirection: 'row', flexWrap: 'wrap' }]}>
           {data.countries.map((c) => (
             <Pressable key={c.code} onPress={() => { setCountry(c); setCity(c.cities.length === 1 ? c.cities[0].name : null); }} style={wide ? { width: '49%' } : undefined}>
@@ -102,7 +120,7 @@ function AtlasPanel({ household, wide, refreshHousehold, onPlanTrip }: { househo
           <Pressable key={ci.name} onPress={() => setCity(ci.name)}>
             <Card style={{ gap: 4 }}>
               <Text style={type.h3}>{ci.name}</Text>
-              <Text style={type.small}>{ci.places} places · {ci.been} been · {ci.special} special · {ci.trips} trip{ci.trips === 1 ? '' : 's'}</Text>
+              <Text style={type.small}>{ci.places} place{ci.places === 1 ? '' : 's'} · {ci.been} been · {ci.special} special · {ci.trips} trip{ci.trips === 1 ? '' : 's'}</Text>
             </Card>
           </Pressable>
         ))}
@@ -121,6 +139,12 @@ function AtlasPanel({ household, wide, refreshHousehold, onPlanTrip }: { househo
         <Button label={`Plan a trip to ${city}`} onPress={() => onPlanTrip?.({ placeText: `${city}, ${country.name}`, countryCode: country.code })} />
       </Row>
       <Text style={type.title}>{city}</Text>
+      <Row>
+        <Button label={addingPlace ? 'Close' : `+ Add a place in ${city}`} kind={addingPlace ? 'ghost' : 'secondary'} onPress={() => setAddingPlace((a) => !a)} />
+      </Row>
+      {addingPlace ? (
+        <AddPlaceHere household={household} country={country} city={country.cities.find((c) => c.name === city) ?? null} cityName={city} onAdded={async () => { await refreshAll(); }} />
+      ) : null}
       <Row>
         <Segmented value={status} options={[{ value: '', label: 'All' }, { value: 'been', label: 'Been' }, { value: 'saved', label: 'To try' }, { value: 'special', label: '★ Special' }]} onChange={setStatus} />
       </Row>
@@ -146,6 +170,50 @@ function AtlasPanel({ household, wide, refreshHousehold, onPlanTrip }: { househo
         </View>
       </View>
     </View>
+  );
+}
+
+/** Search near a city and file a place under it — as somewhere we've been (rate it) or want to try. */
+function AddPlaceHere({ household, country, city, cityName, onAdded }: { household: HouseholdResponse | null; country: AtlasCountry; city: AtlasCity | null; cityName: string; onAdded: () => Promise<void> }) {
+  const [near, setNear] = useState<Place | null>(city?.lat != null ? { label: cityName, lat: city.lat!, lng: city.lng! } : null);
+  const [cat, setCat] = useState<'things' | 'food' | ''>('things');
+  const [q, setQ] = useState('');
+  const [radius, setRadius] = useState(3);
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<Venue[] | null>(null);
+  const [rating, setRating] = useState<Venue | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const ctx = { country: country.name, countryCode: country.code, locality: cityName };
+  const search = async () => {
+    if (!near) { setMsg('Pick where in the city to look.'); return; }
+    setBusy(true); setMsg(null);
+    try { setRes((await api.searchPlaces({ near: `${near.lat},${near.lng}`, categories: cat || undefined, q: q || undefined, radiusKm: radius })).results); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <Card style={{ borderColor: colors.accent }}>
+      <Text style={type.h3}>Add a place in {cityName}</Text>
+      <Text style={type.tiny}>Near</Text>
+      <PlacePicker value={near} onPick={setNear} placeholder={`A neighbourhood, landmark or address in ${cityName}`} />
+      <Segmented value={cat} options={[{ value: 'things', label: 'Things to do' }, { value: 'food', label: 'Food & drink' }, { value: '', label: 'Everything' }]} onChange={setCat} />
+      <Row>
+        <TextInput value={q} onChangeText={setQ} placeholder="Name contains… (optional)" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} onSubmitEditing={search} />
+        <Button label="Search" onPress={search} loading={busy} />
+      </Row>
+      <Wrap>{[1, 3, 5, 10].map((r) => <Chip key={r} label={`${r} km`} selected={radius === r} onPress={() => setRadius(r)} />)}</Wrap>
+      {msg ? <StatusLine tone={msg.startsWith('Added') || msg.startsWith('Saved') ? 'good' : 'warn'}>{msg}</StatusLine> : null}
+      {rating && household ? (
+        <VisitForm venue={rating} household={household} onDone={async () => { setRating(null); setMsg(`Added ${rating.name} as somewhere you've been.`); await onAdded(); }} onCancel={() => setRating(null)}
+          createVia={async (body) => { await api.createVisit({ venueRef: rating.venueRef, venueLabel: rating.name, category: rating.category, lat: rating.lat, lng: rating.lng, visitedOn: body.visitedOn, note: body.note, attendeeIds: body.attendeeIds, takes: body.takes, venue: body.venue, ...ctx }); }} />
+      ) : null}
+      {res?.slice(0, 40).map((v) => (
+        <VenueRow key={v.venueRef} venue={v} action={
+          <Row>
+            <Button label="Been" kind="secondary" onPress={() => setRating(v)} />
+            <Button label="Want to try" kind="ghost" onPress={async () => { await api.savePlace(v.venueRef, 'saved', { label: v.name, venue: v, category: v.category, lat: v.lat, lng: v.lng, ...ctx }); setMsg(`Saved ${v.name} to try.`); await onAdded(); }} />
+          </Row>
+        } />
+      ))}
+    </Card>
   );
 }
 
