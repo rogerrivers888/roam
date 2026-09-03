@@ -15,6 +15,7 @@ import { predicthqSource } from './predicthq.js';
 import { datathistleSource } from './datathistle.js';
 import { localScoutSource } from './localscout.js';
 import { detectChain } from '../domain/chains.js';
+import { query } from '../db.js';
 
 // Licensed sources register here and switch on when their key exists;
 // ROAM_SOURCES still narrows the set (Epic 2 C10: no code change to enable/disable).
@@ -35,12 +36,37 @@ export const eventSources = () => enabledSources().filter((s) => s.events);
  * Tripadvisor is opt-in: billed per location returned, 1,000 free for the
  * account's lifetime.
  */
+// Sources the owner has switched off in Settings › Providers (app_settings
+// 'sources.off'). Loaded once at start and kept in memory: enabledSources()
+// is synchronous and called on every search.
+let offKeys = new Set();
+export async function loadSourceSettings() {
+  try {
+    const { rows } = await query("select value from app_settings where key = 'sources.off'");
+    offKeys = new Set(Array.isArray(rows[0]?.value) ? rows[0].value.map(String) : []);
+  } catch (err) {
+    console.warn(`source settings not loaded: ${err.message}`);
+  }
+  return [...offKeys];
+}
+export async function setSourceOff(key, off) {
+  const next = new Set(offKeys);
+  if (off) next.add(key); else next.delete(key);
+  await query("insert into app_settings (key, value, updated_at) values ('sources.off', $1, now()) on conflict (key) do update set value = excluded.value, updated_at = now()", [JSON.stringify([...next])]);
+  offKeys = next;
+  return [...offKeys];
+}
+/** Whether a source has what it needs to run (its key or flag), regardless of the owner's switch. */
+export const sourceHasKey = (key) => { const s = REGISTRY.find((x) => x.key === key); return Boolean(s && (typeof s.enabled !== 'function' || s.enabled())); };
+export const sourceOff = (key) => offKeys.has(key);
+export const sourceKeys = () => REGISTRY.map((s) => s.key);
+
 export function enabledSources({ only = null, includeOptIn = false } = {}) {
   const configured = (process.env.ROAM_SOURCES || 'fixtures,osm,google,tripadvisor,ticketmaster,seatgeek,predicthq,datathistle,scout')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const live = REGISTRY.filter((s) => configured.includes(s.key) && (typeof s.enabled !== 'function' || s.enabled()));
+  const live = REGISTRY.filter((s) => configured.includes(s.key) && !offKeys.has(s.key) && (typeof s.enabled !== 'function' || s.enabled()));
   if (Array.isArray(only) && only.length) return live.filter((s) => only.includes(s.key));
   if (includeOptIn) return live;
   return live.filter((s) => !s.optIn);

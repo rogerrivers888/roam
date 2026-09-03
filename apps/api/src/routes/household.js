@@ -4,7 +4,7 @@ import { ALLERGENS, matchConcepts, resolveConcept, conceptByKey, isNegated } fro
 
 const NEGATION_PREFIX = /^(not|no|never|without|anything but|nothing)\s+/i;
 import { geocode } from '../sources/geocode.js';
-import { LINES } from '../sources/pricing.js';
+import { LINES, legacyLines, perSearchCost } from '../sources/pricing.js';
 import { usageBetween, allowanceUsage } from '../sources/usage.js';
 import { enabledSources } from '../sources/index.js';
 import { routingEnabled } from '../sources/routing.js';
@@ -383,7 +383,12 @@ router.get('/spend', async (req, res, next) => {
     else { from = w.month_start; to = w.next_month_start; }
 
     const { lines: stats, total } = await usageBetween(household.id, from, to);
+    // Every period per line, so the Providers table switches period without a refetch.
+    const [pm, pl, pa] = await Promise.all([usageBetween(household.id, w.month_start, w.next_month_start), usageBetween(household.id, w.last_month_start, w.month_start), usageBetween(household.id)]);
+    const periodsFor = (key) => Object.fromEntries([['month', pm], ['last-month', pl], ['all', pa]].map(([k, u]) => { const x = u.lines[key] ?? { calls: 0, units: 0, costUsd: 0, estimated: false }; return [k, { calls: x.calls, units: Math.round(x.units), costUsd: x.costUsd, estimated: x.estimated }]; }));
+    const totalsByPeriod = { month: pm.total, 'last-month': pl.total, all: pa.total };
     const live = new Set(enabledSources({ includeOptIn: true }).map((s) => s.key));
+    const perSearch = perSearchCost({ scoutAvgUsd: pm.lines.scout?.calls ? pm.lines.scout.costUsd / pm.lines.scout.calls : null });
     const isOn = (line) => (line.key === 'claude' ? Boolean(process.env.ANTHROPIC_API_KEY) : line.key === 'google-routes' ? routingEnabled() : live.has(line.source));
     let paidTotal = 0;
     const lines = LINES.map((line) => {
@@ -401,18 +406,23 @@ router.get('/spend', async (req, res, next) => {
         calls: s.calls, units: Math.round(s.units), costUsd: s.costUsd, paidUsd, estimated: s.estimated,
         allowance: line.allowance ? { ...line.allowance, ...a } : null,
         cap: line.cap ? { ...line.cap, ...a } : null,
+        periods: periodsFor(line.key),
+        perSearchUsd: line.key === 'claude' ? null : (perSearch[line.source]?.perSearchUsd ?? 0),
       };
     }).filter((l) => l.on || l.calls > 0 || (l.allowance?.used ?? 0) > 0);
 
     const { rows: recent } = await query(
       `select id, created_at as at, provider, purpose, coalesce(estimated_cost_usd, 0)::float as cost_usd, units
-         from provider_calls where household_id = $1 and created_at >= $2 and created_at < $3
-        order by created_at desc limit 80`,
-      [household.id, from, to],
+         from provider_calls where household_id = $1
+        order by created_at desc limit 300`,
+      [household.id],
     );
+    // Which table rows each call belongs to, so a provider's drawer can list its own activity.
+    for (const r of recent) r.lines = r.units ? Object.keys(r.units) : legacyLines(r.provider, r.purpose).map((l) => l.key);
     res.json({
       period: { key, from, to, label: key === 'month' ? 'This month' : key === 'last-month' ? 'Last month' : key === 'all' ? 'All time' : 'Custom' },
       totals: { calls: total.calls, costUsd: total.costUsd, paidUsd: paidTotal },
+      totalsByPeriod,
       lines,
       recent,
       generatedAt: w.now,

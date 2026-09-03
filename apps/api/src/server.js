@@ -13,7 +13,7 @@ import { atlas as atlasRoutes } from './routes/atlas.js';
 import { fetchPhoto } from './sources/google.js';
 import { currentHousehold } from './routes/household.js';
 import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
-import { enabledSources, defaultSourceKeys } from './sources/index.js';
+import { enabledSources, defaultSourceKeys, loadSourceSettings, setSourceOff, sourceHasKey, sourceOff, sourceKeys } from './sources/index.js';
 import { routingEnabled } from './sources/routing.js';
 
 const app = express();
@@ -71,8 +71,26 @@ app.get('/api/sources', async (_req, res, next) => {
       { key: 'predicthq', label: 'PredictHQ events (incl. community)', env: 'PREDICTHQ_API_KEY' },
       { key: 'datathistle', label: 'Data Thistle UK listings', env: 'DATATHISTLE_API_KEY' },
       { key: 'scout', label: 'Local scout (Claude reads local what\'s-on pages)', env: 'ROAM_LOCAL_SCOUT=on' },
-    ].map((a) => ({ ...a, on: live.some((s) => s.key === a.key), optIn: Boolean(live.find((s) => s.key === a.key)?.optIn) })),
+    ].map((a) => ({ ...a, on: live.some((s) => s.key === a.key), hasKey: sourceHasKey(a.key), off: sourceOff(a.key), optIn: Boolean(live.find((s) => s.key === a.key)?.optIn) })),
   });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Switch a live source off or back on from Settings › Providers. Non-secret
+ * configuration: the key stays where it is; a source without one cannot be
+ * switched on from here.
+ */
+app.patch('/api/sources/:key', async (req, res, next) => {
+  try {
+    const key = String(req.params.key);
+    if (!sourceKeys().includes(key)) return res.status(404).json({ error: 'unknown_source' });
+    const on = Boolean(req.body?.on);
+    if (on && !sourceHasKey(key)) return res.status(409).json({ error: 'no_key', message: 'This source has no key yet; the owner adds it through Doppler.' });
+    const off = await setSourceOff(key, !on);
+    res.json({ key, on: on && sourceHasKey(key), off });
   } catch (err) {
     next(err);
   }
@@ -104,6 +122,7 @@ app.use((err, _req, res, _next) => {
 
 const port = Number(process.env.PORT) || 4000;
 // 0.0.0.0 rather than localhost: the container/platform decides the interface.
+await loadSourceSettings();
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`roam-api listening on 0.0.0.0:${port}`);
 });

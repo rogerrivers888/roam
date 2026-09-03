@@ -208,7 +208,7 @@ export type PlanAction =
   | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number; travelMode?: Trip['travelMode']; includeChains?: boolean; pricePoint?: PricePoint; attendingMemberIds?: string[] };
 
 export type SourceCost = { perSearchUsd: number; note: string };
-export type SourcesStatus = { cost?: Record<string, SourceCost>; enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; defaults?: string[]; available: { key: string; label: string; env: string; on: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number; locationsAllTime?: number; locationsFree?: number } } };
+export type SourcesStatus = { cost?: Record<string, SourceCost>; enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; defaults?: string[]; available: { key: string; label: string; env: string; on: boolean; hasKey?: boolean; off?: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number; locationsAllTime?: number; locationsFree?: number } } };
 
 // Admin: what each source returned for a day of a trip and where the plan lost it.
 export type SourceStage = 'catchment' | 'reach' | 'allergen' | 'window' | 'shown';
@@ -240,12 +240,15 @@ export type SpendLine = {
   console: { label: string; url: string } | null;
   calls: number; units: number; costUsd: number; paidUsd: number; estimated: boolean;
   allowance: SpendAllowance | null; cap: SpendAllowance | null;
+  periods?: Record<'month' | 'last-month' | 'all', { calls: number; units: number; costUsd: number; estimated: boolean }>;
+  perSearchUsd?: number | null;
 };
 export type SpendResponse = {
   period: { key: SpendPeriod; from: string; to: string; label: string };
   totals: { calls: number; costUsd: number; paidUsd: number };
+  totalsByPeriod?: Record<'month' | 'last-month' | 'all', { calls: number; costUsd: number }>;
   lines: SpendLine[];
-  recent: { id: string; at: string; provider: string; purpose: string | null; cost_usd: number; units: Record<string, number> | null }[];
+  recent: { id: string; at: string; provider: string; purpose: string | null; cost_usd: number; units: Record<string, number> | null; lines?: string[] }[];
   generatedAt: string;
 };
 
@@ -256,6 +259,7 @@ export type SpendResponse = {
 export const api = {
   health: () => request<{ ok: boolean; db: string }>('/health'),
   sources: () => request<SourcesStatus>('/api/sources'),
+  setSourceOn: (key: string, on: boolean) => patch<{ key: string; on: boolean; off: string[] }>(`/api/sources/${key}`, { on }),
 
   // household
   household: () => request<HouseholdResponse>('/api/household'),
