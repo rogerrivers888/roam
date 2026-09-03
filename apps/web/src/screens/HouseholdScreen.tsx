@@ -304,7 +304,7 @@ function AllergenGroup({ member, common, add, remove, notice }: {
         <Wrap>{member.allergens.map((c) => <Chip key={c.id} label={c.value} tone="allergen" icon="⚠" onRemove={() => remove(c)} />)}</Wrap>
       ) : <Text style={type.tiny}>None recorded.</Text>}
       <Row>
-        <TextInput value={v} onChangeText={setV} placeholder="Type an allergen, e.g. peanuts, milk, carrots" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} onSubmitEditing={() => commit(matches.length === 1 ? matches[0] : v)} returnKeyType="done" autoCapitalize="none" />
+        <TextInput value={v} onChangeText={setV} placeholder="e.g. peanuts, milk, carrots" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} onSubmitEditing={() => commit(matches.length === 1 ? matches[0] : v)} returnKeyType="done" autoCapitalize="none" />
         <Button label="Add" kind="secondary" onPress={() => commit()} disabled={!q} />
         <Button label={showCommon ? 'Hide' : 'Common ones'} kind="secondary" onPress={() => setShowCommon((s) => !s)} />
       </Row>
