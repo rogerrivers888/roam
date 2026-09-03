@@ -14,7 +14,7 @@ import { parseStructured, spendSummary, SpendBoundError, MODEL } from '../claude
 
 // Rows fill while the household is still talking: a smaller, quicker model reads the words so far.
 const PREVIEW_MODEL = process.env.ROAM_PREVIEW_MODEL || 'claude-sonnet-5';
-import { searchAllSources, eventSources, optInFrom, defaultSourceKeys } from '../sources/index.js';
+import { searchAllSources, eventSources, optInFrom, defaultSourceKeys, enabledSources } from '../sources/index.js';
 import { resolvePlace, KNOWN_PLACES } from '../sources/fixtures.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, TRAVEL_MODES, kmBetween } from '../domain/travel.js';
@@ -23,7 +23,8 @@ import { composeOptions, PRICE_POINTS, eventInsideWindow } from '../domain/optio
 import { lineByKey } from '../sources/pricing.js';
 import { paceOf, travelLimitFor, maxReachMinutes } from '../domain/pace.js';
 import { dayAsTrip, slotFor } from '../domain/days.js';
-import { ensureDays, placeTrip } from './trips.js';
+import { ensureDays, placeTrip, addShortlistItem } from './trips.js';
+import { searchCached, searchKept } from '../sources/cache.js';
 import { routingEnabled, travelMatrixMinutes, routeBetween } from '../sources/routing.js';
 import { wallToUtc, wallClock, DEFAULT_TZ } from '../domain/time.js';
 import { INTENSITY_TARGETS } from '../domain/budget.js';
@@ -410,7 +411,7 @@ async function outingTitle({ origin, destination, anchorPlace, anchor }) {
 }
 
 /** Turn an intent into a trip row in the database. */
-async function createTripFromIntent({ household, members, intent, origin, destination, anchorPlace, sources = null }) {
+async function createTripFromIntent({ household, members, intent, origin, destination, anchorPlace, sources = null, title: givenTitle = null }) {
   const tz = household.timezone || DEFAULT_TZ;
   const dateStr = intent.date && /^\d{4}-\d{2}-\d{2}$/.test(intent.date) ? intent.date : wallClock(new Date(), tz).dateStr;
   const at = (hhmm) => wallToUtc(dateStr, hhmm, tz);
@@ -441,7 +442,7 @@ async function createTripFromIntent({ household, members, intent, origin, destin
   const intensity = intent.intensity && INTENSITY_TARGETS[intent.intensity] ? intent.intensity : household.default_intensity;
   // Where the day happens: the anchor's venue, else the destination, else the origin.
   const base = anchorPlace ?? destination ?? origin;
-  const title = await outingTitle({ origin, destination, anchorPlace, anchor });
+  const title = givenTitle ?? await outingTitle({ origin, destination, anchorPlace, anchor });
 
   const { rows } = await query(
     `insert into trips (household_id, kind, title, origin_label, origin_lat, origin_lng,
@@ -1051,32 +1052,156 @@ router.post('/inspire', async (req, res, next) => {
       const travelMinutes = place && home ? estimateTravelMinutes(home, place, 'driving') : (idea.travel_minutes ?? null);
       ideas.push({ id: `idea-${i}`, title: idea.title, why: idea.why, placeText: idea.place_text, place, travelMinutes, overnight: idea.overnight, do: idea.do, eat: idea.eat });
     }
+    const state = { ...session.state, ideas };
+    await saveSession(session.id, state, null);
     res.json({ ideas, reply: out.reply, sessionId: session.id });
+    // What there is at each idea is gathered now, in the background and in
+    // order, so opening one is a read rather than a search (owner, 3 Sep 2026).
+    (async () => {
+      for (const idea of ideas) {
+        if (!idea.place) continue;
+        try { await thingsAround({ household, session, place: idea.place }); } catch { /* the tap will try again */ }
+      }
+    })();
   } catch (err) {
     next(err);
   }
 });
 
-/** What there is to do, eat and see around an idea — the ordinary place search, no model call. */
+// The look around an idea: the same search a trip's Find tab runs at 5 km —
+// the place sources, no event listings, no scout — so the two share one cache
+// entry and the trip opens on what was already seen.
+const THINGS_RADIUS_KM = 5;
+const placeSourceKeys = () => enabledSources().filter((src) => !src.events && src.key !== 'scout').map((src) => src.key);
+const thingsSearch = (place) => ({ center: { lat: place.lat, lng: place.lng }, radiusKm: THINGS_RADIUS_KM, categories: [], query: '', includeEvents: false, sources: placeSourceKeys(), locality: place.locality ?? null });
+async function thingsAround({ household, session, place }) {
+  const r = await searchCached(thingsSearch(place));
+  if (r.fetched) await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, session?.id ?? null, r.sourcesQueried.join('+') || 'none', 'plan.inspire.things', r.units]);
+  return r;
+}
+
+/** What there is to do, eat and see around an idea — the ordinary place search, cached, no model call. */
 router.get('/inspire/things', async (req, res, next) => {
   try {
+    const started = Date.now();
     const household = await currentHousehold();
     const members = await loadMembers(household.id);
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'lat_lng_required' });
     const center = { lat, lng };
-    const { venues, sourcesQueried, units } = await searchAllSources({ center, radiusKm: 6, categories: [], query: '', includeEvents: false, sources: [], locality: null });
-    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'plan.inspire.things', units]);
-    const withTravel = deriveCatchment({ origin: center, maxTravelMinutes: 10_000, mode: 'driving', venues });
-    const { candidates } = applyConstraints({ venues: withTravel, attendees: toAttendees(members), learned: await loadLearnedPreferences(household.id) });
+    const { venues, cached } = await thingsAround({ household, session: null, place: { lat, lng, locality: req.query.locality ?? null } });
+    // No taste ranking here (it takes seconds over hundreds of venues): this list
+    // says what is there; the trip's Find tab is where it is browsed and judged.
     const kindOf = (c) => (['restaurant', 'cafe', 'pub', 'bar'].includes(c.category) ? 'eat' : ['attraction', 'event', 'activity'].includes(c.category) ? 'do' : 'see');
-    const items = [...candidates].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 18).map((c) => ({
-      venueRef: `${c.source}:${c.sourcePlaceId}`, name: c.name, category: c.category, kind: kindOf(c),
+    const weight = (c) => (c.rating ?? 0) * Math.log10((c.ratingCount ?? 0) + 2);
+    const items = [...venues].sort((a, b) => weight(b) - weight(a)).map((c) => ({
+      venueRef: `${c.source}:${c.sourcePlaceId}`, name: c.name, category: c.category, kind: kindOf(c), experiences: c.experiences ?? [],
       rating: c.rating ?? null, ratingCount: c.ratingCount ?? null, priceLevel: c.priceLevel ?? null,
-      distanceKm: Number(kmBetween(center, c).toFixed(1)), lat: c.lat, lng: c.lng, reasons: (c.reasons || []).map((r) => r.text),
+      distanceKm: Number(kmBetween(center, c).toFixed(1)), lat: c.lat, lng: c.lng, reasons: [],
     }));
-    res.json({ items, label: req.query.label ?? null });
+    res.json({ items, label: req.query.label ?? null, cached, tookMs: Date.now() - started });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// The places an idea names, found among what is around it and in the atlas,
+// go on the new trip's shortlist as must-dos ("St James's Park", "Circolo
+// Popolare"); a shorter name inside a longer one ("Tate" in "Tate Modern")
+// means the longer.
+async function seedShortlistFromIdea({ household, session, trip, idea }) {
+  const lines = [idea.title, ...(idea.do || []), ...(idea.eat || [])];
+  const text = ` ${lines.map(normName).join(' . ')} `;
+  const { venues } = searchKept(thingsSearch(idea.place)) ?? await thingsAround({ household, session, place: idea.place });
+  const { rows: atlas } = await query('select venue_ref, label, kind, category, lat, lng, venue from household_places where household_id = $1 and lat is not null and lng is not null', [household.id]);
+  const candidates = [
+    ...venues.map((v) => ({ venueRef: `${v.source}:${v.sourcePlaceId}`, venueLabel: v.name, kind: null, category: v.category, lat: v.lat, lng: v.lng, venue: v, weight: v.ratingCount ?? 0 })),
+    ...atlas.filter((p) => kmBetween(p, idea.place) <= THINGS_RADIUS_KM + 1).map((p) => ({ venueRef: p.venue_ref, venueLabel: p.label, kind: p.kind, category: p.category, lat: p.lat, lng: p.lng, venue: p.venue, weight: Number.MAX_SAFE_INTEGER })),
+  ];
+  const matched = new Map();
+  for (const c of candidates) {
+    const n = normName(c.venueLabel);
+    if (n.length < 4 || !text.includes(` ${n} `)) continue;
+    const cur = matched.get(n);
+    if (!cur || c.weight > cur.weight) matched.set(n, c);
+  }
+  const names = [...matched.keys()];
+  const seeded = [];
+  const seededNorm = [];
+  for (const n of names) {
+    if (names.some((o) => o !== n && o.includes(n))) continue;
+    const c = matched.get(n);
+    const line = lines.slice(1).find((l) => normName(l).includes(n)) ?? null;
+    await addShortlistItem(trip, household, { ...c, note: line ? `Roam suggested: ${line}` : 'Roam suggested it', mustDo: true });
+    seeded.push(c.venueLabel);
+    seededNorm.push(n);
+  }
+  // A named place the look-around did not return (a park the sources list
+  // poorly) is put on the map by name: the capitalised phrases of each line,
+  // two words or more, geocoded close to the place — nothing approximate.
+  // The map answers one name a second, so at most three are looked up, the
+  // ones the title names first.
+  const phrases = new Set();
+  for (const l of lines) for (const m of String(l).matchAll(/\b([A-Z][\w'’.]*(?:\s+(?:of|the|and|de|du|la|le|[A-Z][\w'’.]*))+)/g)) phrases.add(m[1].replace(/^(The|At|In)\s+/, '').trim());
+  let lookedUp = 0;
+  for (const phrase of phrases) {
+    const n = normName(phrase);
+    if (lookedUp >= 3 || n.split(' ').length < 2 || seededNorm.some((s) => s.includes(n) || n.includes(s))) continue;
+    lookedUp += 1;
+    try {
+      const [hit] = await geocode(`${phrase}, ${idea.place.locality || idea.place.label}`, { limit: 1, near: idea.place, countryCode: idea.place.countryCode ?? null, within: true });
+      if (!hit || hit.approximate || kmBetween(hit, idea.place) > THINGS_RADIUS_KM * 2) continue;
+      const hitNorm = normName(hit.name || hit.label.split(',')[0]);
+      if (!hitNorm.includes(n) && !n.includes(hitNorm)) continue;
+      const label = hit.name || phrase;
+      const line = lines.slice(1).find((l) => normName(l).includes(n)) ?? null;
+      await addShortlistItem(trip, household, { venueRef: `${hit.source}:${hit.sourcePlaceId}`, venueLabel: label, kind: 'activity', category: 'attraction', lat: hit.lat, lng: hit.lng, note: line ? `Roam suggested: ${line}` : 'Roam suggested it', mustDo: true });
+      seeded.push(label);
+      seededNorm.push(hitNorm);
+    } catch { /* not on the map: it stays in the idea's words */ }
+  }
+  return seeded;
+}
+
+/**
+ * Things to do and see (owner, 3 Sep 2026): an idea opens as a day out in
+ * Trips — home to the place and back, what Roam named already on the
+ * shortlist, the Find tab showing everything around it from the same look
+ * the ideas took. Body: { sessionId, ideaId, attendingMemberIds? }.
+ */
+router.post('/inspire/trip', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const members = await loadMembers(household.id);
+    const { sessionId, ideaId, attendingMemberIds } = req.body || {};
+    const session = await loadSession(sessionId);
+    const state = session.state || {};
+    const idea = (state.ideas || []).find((i) => i.id === ideaId);
+    if (!idea) return res.status(404).json({ error: 'idea_not_found', message: 'That idea is no longer on this session — ask for ideas again.' });
+    if (!idea.place) return res.status(400).json({ error: 'idea_unpinned', message: "Roam couldn't pin this one on the map, so there is no day to open — Plan this still works from the idea itself." });
+    if (household.home_lat == null) return res.status(400).json({ error: 'home_required', message: 'Set a home address in Settings first.' });
+    // Tapped twice: the same day opens again, nothing is duplicated.
+    if (idea.tripId) {
+      const { rows } = await query('select id, title, start_date from trips where id = $1 and household_id = $2', [idea.tripId, household.id]);
+      if (rows[0]) return res.json({ tripId: rows[0].id, title: rows[0].title, date: rows[0].start_date, seeded: idea.seeded ?? [], reply: `${rows[0].title} is already set up — opening it.`, existing: true });
+    }
+    const home = { label: household.home_label, lat: household.home_lat, lng: household.home_lng, how: 'home' };
+    const attending = Array.isArray(attendingMemberIds) && attendingMemberIds.length ? members.filter((m) => attendingMemberIds.includes(m.id)) : members;
+    const tz = household.timezone || DEFAULT_TZ;
+    // Today while the morning lasts, otherwise tomorrow; the date is changed on the trip.
+    const now = wallClock(new Date(), tz);
+    const date = now.hhmm < '11:00' ? now.dateStr : addDays(now.dateStr, 1);
+    const city = idea.place.locality || String(idea.place.label).split(',')[0].trim();
+    const title = new RegExp(`^${city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(idea.title) ? idea.title : `${city} · ${idea.title}`;
+    const intent = { date, duration_minutes: 600, travel_mode: 'driving', intensity: null, anchor: null, depart_time: null, attending: attending.map((m) => m.name), wants: idea.do || [] };
+    const { trip } = await createTripFromIntent({ household, members, intent, origin: home, destination: idea.place, anchorPlace: null, title });
+    const seeded = await seedShortlistFromIdea({ household, session, trip, idea });
+    idea.tripId = trip.id;
+    idea.seeded = seeded;
+    await saveSession(session.id, state, trip.id);
+    const reply = `${title} set up for ${dayWords(date)}${seeded.length ? `, with ${seeded.join(', ')} on the shortlist` : ''}. Opening it in Trips.`;
+    res.status(201).json({ tripId: trip.id, title, date, seeded, reply, existing: false });
   } catch (err) {
     next(err);
   }

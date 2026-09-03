@@ -7,9 +7,13 @@
 import { searchAllSources, optInFrom } from './index.js';
 
 const TTL_MS = 12 * 3600_000;
+// A search a source did not answer (Overpass timing out) is kept only briefly,
+// so the next look asks again rather than showing half a picture for hours.
+const DEGRADED_TTL_MS = 10 * 60_000;
 const MAX = 300;
 const kept = new Map();
 const inFlight = new Map();
+const fresh = (hit) => hit && Date.now() - hit.at < (hit.result.degraded?.length ? DEGRADED_TTL_MS : TTL_MS);
 
 /** The same area, radius, kind, words and sources are the same search; the label is not part of it. */
 export function searchKey(p) {
@@ -24,7 +28,7 @@ export function searchKey(p) {
 /** What is already known for these parameters, or null. */
 export function searchKept(params) {
   const hit = kept.get(searchKey(params));
-  return hit && Date.now() - hit.at < TTL_MS ? hit.result : null;
+  return fresh(hit) ? hit.result : null;
 }
 
 /**
@@ -35,7 +39,7 @@ export function searchKept(params) {
 export async function searchCached(params, { refresh = false } = {}) {
   const key = searchKey(params);
   const hit = kept.get(key);
-  if (hit && !refresh && Date.now() - hit.at < TTL_MS) return { ...hit.result, cached: true, fetchedAt: new Date(hit.at).toISOString(), fetched: false };
+  if (fresh(hit) && !refresh) return { ...hit.result, cached: true, fetchedAt: new Date(hit.at).toISOString(), fetched: false };
   if (inFlight.has(key) && !refresh) return { ...(await inFlight.get(key)), cached: true, fetchedAt: new Date().toISOString(), fetched: false };
   const run = searchAllSources(params)
     .then((result) => {

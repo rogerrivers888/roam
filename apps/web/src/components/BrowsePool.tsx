@@ -23,6 +23,29 @@ const FOOD = new Set(['restaurant', 'cafe', 'pub', 'bar']);
 export const tabOf = (b: BrowseItem): BrowseTab => (b.category === 'event' ? 'events' : FOOD.has(b.category) ? 'food' : 'things');
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/-/g, ' ');
 
+// What it costs to get in (owner, 3 Sep 2026: free against paid must be a
+// filter). The sources give a price level for places to eat but not for
+// admission, so a thing to do goes by its kind: a park, a walk, a market or a
+// landmark is free to enter; a theme park, a zoo, a show or a pool sells
+// tickets; a museum or gallery may do either, so it says "check".
+const FREE_KINDS = new Set(['park', 'walk', 'beach', 'viewpoint', 'history', 'market', 'playground', 'shopping', 'bookshop']);
+// Always a ticket, whatever else the place is typed as.
+const TICKETED_KINDS = new Set(['theme-park', 'zoo', 'aquarium', 'cinema', 'theatre', 'swimming', 'sports-game']);
+// A ticket for the activity itself, unless the place is free to be in (a rink in a landmark's grounds).
+const PAID_ACTIVITY_KINDS = new Set(['bowling', 'ice-skating', 'climbing', 'boat-trip']);
+type Admission = 'free' | 'ticketed' | 'check';
+const ADMISSION_LABEL: Record<Admission, string> = { free: 'Free to enter', ticketed: 'Ticketed', check: 'Check price' };
+export function admissionOf(b: Pick<BrowseItem, 'category' | 'experiences' | 'priceLevel'>): Admission {
+  if (b.priceLevel === 0) return 'free';
+  const kinds = b.experiences ?? [];
+  if (b.category === 'event' || kinds.some((k) => TICKETED_KINDS.has(k))) return 'ticketed';
+  if (kinds.some((k) => FREE_KINDS.has(k))) return 'free';
+  if (kinds.some((k) => PAID_ACTIVITY_KINDS.has(k))) return 'ticketed';
+  return 'check';
+}
+const PRICE_ORDER = ['Free', '£', '££', '£££', '££££', 'No price given'];
+const priceBand = (b: BrowseItem) => priceMarks(b.priceLevel) ?? 'No price given';
+
 export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLabel = 'Add to plan', addedLabel = 'In the plan', onAdd, onRemove, onDislike, onShortlist, shortlistedRefs }: {
   items: BrowseItem[];
   eventsSource: string | null | undefined;
@@ -41,6 +64,7 @@ export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLa
   const [tab, setTab] = useState<BrowseTab>('things');
   const [sort, setSort] = useState<Sort>('best');
   const [facets, setFacets] = useState<Set<string>>(new Set());
+  const [prices, setPrices] = useState<Set<string>>(new Set());
   const [shown, setShown] = useState(15);
   const [open, setOpen] = useState<BrowseItem | null>(null);
 
@@ -53,11 +77,21 @@ export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLa
     for (const b of inTab) for (const f of (tab === 'food' ? b.cuisines : b.experiences) ?? []) c.set(f, (c.get(f) ?? 0) + 1);
     return [...c.entries()].sort((a, b) => b[1] - a[1]).slice(0, 14);
   }, [inTab, tab]);
+  // Price: bands for places to eat, free / ticketed / check for things to do.
+  const priceOf = (b: BrowseItem) => (tab === 'food' ? priceBand(b) : ADMISSION_LABEL[admissionOf(b)]);
+  const priceList = useMemo(() => {
+    if (tab === 'events') return [] as [string, number][];
+    const c = new Map<string, number>();
+    for (const b of inTab) { const p = priceOf(b); c.set(p, (c.get(p) ?? 0) + 1); }
+    const order = tab === 'food' ? PRICE_ORDER : Object.values(ADMISSION_LABEL);
+    return [...c.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
+  }, [inTab, tab]);
 
   const sf = useSourceFilter(inTab);
   const list = useMemo(() => {
     let l = sf.filtered;
     if (facets.size) l = l.filter((b) => ((tab === 'food' ? b.cuisines : b.experiences) ?? []).some((f) => facets.has(f)));
+    if (prices.size) l = l.filter((b) => prices.has(priceOf(b)));
     const by: Record<Sort, (a: BrowseItem, b: BrowseItem) => number> = {
       best: (a, b) => (b.score ?? 0) - (a.score ?? 0),
       rating: (a, b) => (b.rating ?? 0) - (a.rating ?? 0) || (b.ratingCount ?? 0) - (a.ratingCount ?? 0),
@@ -66,10 +100,11 @@ export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLa
       time: (a, b) => new Date(a.startsAt ?? 0).getTime() - new Date(b.startsAt ?? 0).getTime(),
     };
     return [...l].sort(by[sort]);
-  }, [sf.filtered, facets, sort, tab]);
+  }, [sf.filtered, facets, prices, sort, tab]);
 
-  const switchTab = (t: BrowseTab) => { setTab(t); setFacets(new Set()); setShown(15); setSort(t === 'events' ? 'time' : 'best'); };
+  const switchTab = (t: BrowseTab) => { setTab(t); setFacets(new Set()); setPrices(new Set()); setShown(15); setSort(t === 'events' ? 'time' : 'best'); };
   const toggleFacet = (f: string) => setFacets((s) => { const n = new Set(s); n.has(f) ? n.delete(f) : n.add(f); return n; });
+  const togglePrice = (p: string) => setPrices((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
   const sortOptions: { value: Sort; label: string }[] = tab === 'events'
     ? [{ value: 'time', label: 'By time' }, { value: 'nearest', label: 'Nearest' }, { value: 'best', label: 'Best match' }]
     : [{ value: 'best', label: 'Best match' }, { value: 'rating', label: 'Top rated' }, { value: 'reviews', label: 'Most reviewed' }, { value: 'nearest', label: 'Nearest' }];
@@ -88,6 +123,16 @@ export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLa
           {facets.size ? <Chip label="Clear" onPress={() => setFacets(new Set())} /> : null}
         </Wrap>
       ) : null}
+      {priceList.length > 1 ? (
+        <View style={{ gap: 4 }}>
+          <Wrap>
+            <Text style={[type.tiny, { alignSelf: 'center' }]}>{tab === 'food' ? 'Price' : 'Entry'}</Text>
+            {priceList.map(([p, n]) => <Chip key={p} label={`${p} (${n})`} selected={prices.has(p)} onPress={() => togglePrice(p)} />)}
+            {prices.size ? <Chip label="Clear" onPress={() => setPrices(new Set())} /> : null}
+          </Wrap>
+          {tab === 'things' ? <Text style={type.tiny}>Entry goes by the kind of place, not a checked price: parks, walks, markets and landmarks are free; theme parks, zoos and shows are ticketed; museums and galleries vary, so check.</Text> : null}
+        </View>
+      ) : null}
       {sf.chips}
       {sort === 'best' ? <Text style={type.tiny}>Best match weighs the rating and how many people gave it most, then what you like, whether it suits children, and distance from {baseLabel}.</Text> : null}
 
@@ -98,7 +143,7 @@ export function BrowsePool({ items, eventsSource, baseLabel, pinned, busy, addLa
         </View>
       ) : null}
       {tab === 'events' && eventsSource && !list.length ? <Text style={type.small}>Nothing listed by {eventsSource} inside this day's window and reach.</Text> : null}
-      {tab !== 'events' && !list.length ? <Text style={type.small}>{facets.size ? 'Nothing matches that filter — clear it to see everything.' : 'Nothing in this group within reach.'}</Text> : null}
+      {tab !== 'events' && !list.length ? <Text style={type.small}>{facets.size || prices.size ? 'Nothing matches that filter — clear it to see everything.' : 'Nothing in this group within reach.'}</Text> : null}
 
       {list.slice(0, shown).map((b) => (
         <BrowseRow key={b.id} item={b} isPinned={pinned.has(b.id)} isShortlisted={!!shortlistedRefs?.has(b.venueRef) || !!b.shortlisted} busy={busy}

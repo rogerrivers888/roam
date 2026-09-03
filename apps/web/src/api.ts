@@ -236,7 +236,7 @@ export type PlanCheck = PlanQuestion & { id: string; skippable: boolean };
 export type PlanRowKey = 'from' | 'to' | 'when' | 'who' | 'stay' | 'do' | 'eat' | 'budget';
 export type PlanRow = { key: PlanRowKey; label: string; value: string | null; detail: string | null; state: 'plain' | 'check' | 'empty' };
 export type Idea = { id: string; title: string; why: string; placeText: string; place: Place | null; travelMinutes: number | null; overnight: boolean; do: string[]; eat: string[] };
-export type IdeaThing = { venueRef: string; name: string; category: string; kind: 'do' | 'eat' | 'see'; rating: number | null; ratingCount: number | null; priceLevel: number | null; distanceKm: number | null; lat: number | null; lng: number | null; reasons: string[] };
+export type IdeaThing = { venueRef: string; name: string; category: string; kind: 'do' | 'eat' | 'see'; experiences: string[]; rating: number | null; ratingCount: number | null; priceLevel: number | null; distanceKm: number | null; lat: number | null; lng: number | null; reasons: string[] };
 
 export type PlanAction =
   | { type: 'like' | 'unlike' | 'dislike' | 'restore'; stopId: string }
@@ -387,8 +387,10 @@ export const api = {
     post<PlanResponse>('/api/plan/start', { utterance, sessionId: sessionId ?? undefined, sources: sources ?? undefined, attendingMemberIds: attendingMemberIds ?? undefined, field: extra.field ?? undefined, skip: extra.skip ?? undefined }),
   planGo: (sessionId: string) => post<PlanResponse>('/api/plan/go', { sessionId }),
   planPreview: (utterance: string, sessionId?: string | null) => post<{ sessionId: string; rows: PlanRow[] }>('/api/plan/preview', { utterance, sessionId: sessionId ?? undefined }),
-  inspire: (body: { query: string; moods: string[]; maxTravelMinutes: number | null; attendingMemberIds?: string[] | null }) => post<{ ideas: Idea[]; reply: string | null }>('/api/plan/inspire', body),
-  inspireThings: (q: { lat: number; lng: number; label: string }) => request<{ items: IdeaThing[] }>(`/api/plan/inspire/things${qs(q)}`),
+  inspire: (body: { query: string; moods: string[]; maxTravelMinutes: number | null; attendingMemberIds?: string[] | null }) => post<{ ideas: Idea[]; reply: string | null; sessionId: string }>('/api/plan/inspire', body),
+  inspireThings: (q: { lat: number; lng: number; label: string; locality?: string }) => request<{ items: IdeaThing[]; cached?: boolean; tookMs?: number }>(`/api/plan/inspire/things${qs(q)}`),
+  /** Things to do and see: the idea becomes a day out in Trips, what Roam named already shortlisted. */
+  inspireTrip: (body: { sessionId: string; ideaId: string; attendingMemberIds?: string[] | null }) => post<{ tripId: string; title: string; date: string; seeded: string[]; reply: string; existing: boolean }>('/api/plan/inspire/trip', body),
   tripSources: (id: string, p: { dayId?: string; sources?: string; scout?: '1' }) => request<SourceTrace>(`/api/plan/trips/${id}/sources${qs(p)}`),
   tripSpend: (id: string) => request<{ calls: number; costUsd: number; byProvider: { provider: string; calls: number; cost_usd: number }[] }>(`/api/trips/${id}/spend`),
   planRefine: (sessionId: string, utterance: string, viewingOptionId?: string | null) => post<PlanResponse>('/api/plan/refine', { sessionId, utterance, viewingOptionId }),

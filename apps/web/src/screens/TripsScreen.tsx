@@ -25,7 +25,9 @@ const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLoca
 const fmtRange = (a?: string | null, b?: string | null) => (a && b ? (a === b ? fmtDate(a) : `${fmtDate(a)} – ${fmtDate(b)}`) : '');
 const SLOT_LABEL = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' } as const;
 
-export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string };
+export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string; section?: 'find' | 'shortlist' | 'day'; findRadiusKm?: number };
+/** How a trip opened from elsewhere should start: which tab, how far Find looks. */
+type OpenWith = { section?: Section; findRadiusKm?: number };
 
 // ---------------------------------------------------------------------------
 // List
@@ -39,11 +41,12 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
   const [data, setData] = useState<Awaited<ReturnType<typeof api.trips>> | null>(null);
   const [creating, setCreating] = useState(!!prefill);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [openWith, setOpenWith] = useState<OpenWith | null>(null);
   const [fold, setFold] = useState<'later' | 'past' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (prefill?.openTripId) { setOpenId(prefill.openTripId); setCreating(false); onPrefillConsumed?.(); }
+    if (prefill?.openTripId) { setOpenWith({ section: prefill.section, findRadiusKm: prefill.findRadiusKm }); setOpenId(prefill.openTripId); setCreating(false); onPrefillConsumed?.(); }
     else if (prefill) setCreating(true);
   }, [prefill]);
 
@@ -67,7 +70,7 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
     };
   }, [data]);
 
-  if (openId) return <TripPage id={openId} household={household} onBack={async () => { setOpenId(null); await load(); }} refreshHousehold={refreshHousehold} wide={wide} />;
+  if (openId) return <TripPage id={openId} openWith={openWith} household={household} onBack={async () => { setOpenId(null); setOpenWith(null); await load(); }} refreshHousehold={refreshHousehold} wide={wide} />;
 
   const daysAway = (t: TripSummary) => {
     const n = Math.round((+buckets.startOf(t) - +new Date(new Date().toDateString())) / 86400000);
@@ -298,13 +301,13 @@ function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<vo
   );
 }
 
-function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: string; household: HouseholdResponse | null; onBack: () => Promise<void>; refreshHousehold: () => Promise<void>; wide: boolean }) {
+function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: { id: string; openWith?: OpenWith | null; household: HouseholdResponse | null; onBack: () => Promise<void>; refreshHousehold: () => Promise<void>; wide: boolean }) {
   const [d, setD] = useState<TripDetail | null>(null);
   const [section, setSection] = useState<Section>('shortlist');
   const [dayId, setDayId] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
   // What Find fetched lives with the trip page, so tabbing away and back shows the same list without another fetch.
-  const [find, setFind] = useState<FindState>(() => emptyFind());
+  const [find, setFind] = useState<FindState>(() => ({ ...emptyFind(), radiusKm: openWith?.findRadiusKm ?? emptyFind().radiusKm }));
   const [error, setError] = useState<string | null>(null);
   const first = useRef(true);
   const load = useCallback(async () => {
@@ -315,7 +318,7 @@ function TripPage({ id, household, onBack, refreshHousehold, wide }: { id: strin
       if (first.current) {
         first.current = false;
         const running = t.shortlist.some((s) => ['to_call', 'booked', 'no_booking'].includes(s.status));
-        setSection(t.days[0]?.slots.some((sl) => sl.stops.length) ? 'day' : running ? 'shortlist' : 'find');
+        setSection(openWith?.section ?? (t.days[0]?.slots.some((sl) => sl.stops.length) ? 'day' : running ? 'shortlist' : 'find'));
       }
     } catch (e: any) { setError(e.message); }
   }, [id]);
