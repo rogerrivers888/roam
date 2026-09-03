@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <title>Roam</title>
+    <!-- viewport-fit=cover + safe-area insets: the installed web app draws under the notch (research §2) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1.00001, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Roam" />
+    <meta name="theme-color" content="#1F5F5B" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <style>
+      html, body, #root { height: 100%; }
+      body { margin: 0; overflow: hidden; background: #F7F6F2; -webkit-text-size-adjust: 100%; }
+      /* 100vh includes Safari's bar; fill-available does not */
+      #root { min-height: 100vh; min-height: -webkit-fill-available; display: flex; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

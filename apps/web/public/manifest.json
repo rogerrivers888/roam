@@ -1,0 +1,12 @@
+{
+  "name": "Roam",
+  "short_name": "Roam",
+  "description": "Remember every place you love",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F6F2",
+  "theme_color": "#1F5F5B",
+  "icons": [
+    { "src": "/favicon.ico", "sizes": "48x48", "type": "image/x-icon" }
+  ]
+}

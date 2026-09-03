@@ -1,0 +1,21 @@
+{
+  "name": "roam",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Roam — remember every place you love",
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d && sleep 3 && npm run migrate && npm run seed",
+    "migrate": "npm run migrate -w @roam/api",
+    "seed": "npm run seed -w @roam/api",
+    "api": "npm run dev -w @roam/api",
+    "web": "npm run web -w @roam/web"
+  }
+}

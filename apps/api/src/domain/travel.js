@@ -1,0 +1,68 @@
+// Travel time and catchment.
+//
+// PROTOTYPE IMPLEMENTATION. Requirements §5 is explicit that a catchment is the
+// area *genuinely reachable* by the transport network, not a radius — and
+// Technical Constraints §6.2 records that TravelTime is the only provider
+// returning transit isochrones from timetabled data. Neither an account nor a
+// price exists yet (§16 item 2), so this module approximates travel time from
+// straight-line distance and a per-mode speed, with a detour factor.
+//
+// It is deliberately isolated behind estimateTravelMinutes/deriveCatchment so
+// that swapping in a real isochrone provider touches this file only. Every
+// response that uses it is flagged `estimated: true` so the UI can say so.
+
+export const TRAVEL_MODES = ['walking', 'cycling', 'driving', 'transit'];
+
+// Effective door-to-door speeds in km/h, including the usual overheads.
+const MODE_PROFILE = {
+  walking: { kmh: 4.8, detourFactor: 1.15, fixedOverheadMinutes: 0 },
+  cycling: { kmh: 15, detourFactor: 1.2, fixedOverheadMinutes: 2 },
+  driving: { kmh: 28, detourFactor: 1.25, fixedOverheadMinutes: 5 },
+  // Wait time is why a transit isochrone is lumpy rather than circular. A real
+  // provider derives this from the timetable at the outing time (Epic 3 C2).
+  transit: { kmh: 22, detourFactor: 1.35, fixedOverheadMinutes: 8 },
+};
+
+export function kmBetween(a, b) {
+  const R = 6371;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+export function estimateTravelMinutes(from, to, mode = 'driving') {
+  const profile = MODE_PROFILE[mode] || MODE_PROFILE.driving;
+  const km = kmBetween(from, to) * profile.detourFactor;
+  return Math.round((km / profile.kmh) * 60 + profile.fixedOverheadMinutes);
+}
+
+/**
+ * Restrict candidates to those reachable within maxTravelMinutes of the origin.
+ * Returns each candidate annotated with its estimated travel time.
+ */
+export function deriveCatchment({ origin, maxTravelMinutes, mode, venues }) {
+  return venues
+    .map((venue) => ({
+      ...venue,
+      travelMinutes: estimateTravelMinutes(origin, venue, mode),
+    }))
+    .filter((venue) => venue.travelMinutes <= maxTravelMinutes);
+}
+
+/**
+ * Additional travel time a stop adds between origin and destination (Epic 4 C2).
+ * The corridor is a bias, not a restriction, so this cost is always displayed
+ * rather than used to silently filter (Requirements §4).
+ */
+export function detourMinutes({ origin, destination, venue, mode }) {
+  if (!destination) return null;
+  const direct = estimateTravelMinutes(origin, destination, mode);
+  const viaVenue =
+    estimateTravelMinutes(origin, venue, mode) + estimateTravelMinutes(venue, destination, mode);
+  return Math.max(0, viaVenue - direct);
+}
