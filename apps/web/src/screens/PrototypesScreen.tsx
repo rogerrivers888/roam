@@ -26,6 +26,17 @@ const STATUSES: { key: PrototypeStatus; label: string; icon: IconName; verb: str
   { key: 'archived', label: 'Archived', icon: 'archived', verb: 'Archive' },
 ];
 const VERDICTS = STATUSES.filter((s) => s.key !== 'new');
+
+// A verdict is a decision, so it reads as one: green for approved, red for
+// rejected, ink for archived. Red is the heart's colour in the style guide, but
+// the guide keeps a warning red for meaning that must still read, and a
+// rejection is that (owner, 4 Sep 2026). Every colour is a palette token, so
+// both come out right in dark mode.
+const TONES: Record<'approved' | 'rejected' | 'archived', { fg: string; on: string; onFg: string; soft: string }> = {
+  approved: { fg: colors.like, on: colors.like, onFg: colors.bg, soft: colors.likeSoft },
+  rejected: { fg: colors.overrun, on: colors.overrun, onFg: colors.bg, soft: colors.overrunSoft },
+  archived: { fg: colors.inkMuted, on: colors.primary, onFg: colors.primaryFg, soft: colors.surfaceMuted },
+};
 // The served mock-up pages, newest first within each section. Each is a static page
 // under /mockups (apps/web/public/mockups) so it deploys with the app and opens in its own tab.
 const PROTOTYPES: { file: string; section: Section; title: string; when: string; what: string }[] = [
@@ -151,10 +162,11 @@ export function PrototypesScreen() {
                     </Row>
                     <Wrap>
                       {VERDICTS.map((v) => (
-                        <Tab
+                        <Verdict
                           key={v.key}
                           label={statusOf(p.file) === v.key ? v.label : v.verb}
                           icon={v.icon}
+                          tone={TONES[v.key as 'approved' | 'rejected' | 'archived']}
                           selected={statusOf(p.file) === v.key}
                           onPress={() => rule(p.file, v.key)}
                         />
@@ -180,17 +192,42 @@ export function PrototypesScreen() {
 /** "4 Sep 2026", the way the rest of the app writes a date. */
 const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
-/** A menu item: an ink pill when it is the one you are in, an outline when it is not. */
+/** A menu item: an ink pill when it is the one you are in, an outline when it is not; it fills on hover so it reads as something you can press. */
 function Tab({ label, icon, selected, onPress, wide }: { label: string; icon?: IconName; selected: boolean; onPress: () => void; wide?: boolean }) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="tab"
       accessibilityState={{ selected }}
-      style={[styles.tab, wide && styles.tabWide, selected && styles.tabOn]}
+      style={({ hovered, pressed }: any) => [styles.tab, wide && styles.tabWide, hovered && !selected && styles.tabHover, selected && styles.tabOn, pressed && { opacity: 0.85 }]}
     >
       {icon ? <Icon name={icon} size={14} color={selected ? colors.primaryFg : colors.inkMuted} /> : null}
       <Text style={[styles.tabText, selected && { color: colors.primaryFg }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/**
+ * A verdict on a mock-up: an outlined button in its own colour, filled the
+ * moment you hover it, solid once it is the verdict this prototype holds.
+ * Pressing the one it holds puts it back to review.
+ */
+function Verdict({ label, icon, tone, selected, onPress }: {
+  label: string; icon: IconName; tone: { fg: string; on: string; onFg: string; soft: string }; selected: boolean; onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      style={({ hovered, pressed }: any) => [
+        styles.verdict,
+        { borderColor: selected ? tone.on : tone.fg, backgroundColor: selected ? tone.on : hovered ? tone.soft : 'transparent' },
+        pressed && { opacity: 0.85 },
+      ]}
+    >
+      <Icon name={icon} size={15} color={selected ? tone.onFg : tone.fg} />
+      <Text style={[styles.verdictText, { color: selected ? tone.onFg : tone.fg }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -208,6 +245,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
   },
   tabWide: { justifyContent: 'flex-start', minHeight: 38, borderRadius: radius.md, borderColor: 'transparent', backgroundColor: 'transparent' },
+  tabHover: { backgroundColor: colors.surfaceMuted, borderColor: colors.line },
   tabOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  verdict: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, minHeight: 36,
+    borderRadius: radius.md, borderWidth: 1,
+  },
+  verdictText: { fontFamily: fonts.body, fontSize: 13, fontWeight: '700' },
   tabText: { fontFamily: fonts.body, fontSize: 13, fontWeight: '600', color: colors.ink, flexShrink: 1 },
 });

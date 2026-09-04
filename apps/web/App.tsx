@@ -3,6 +3,9 @@ import { Platform, Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDim
 import { StatusBar } from 'expo-status-bar';
 import { api, API_URL, HouseholdResponse } from './src/api';
 import { colors, radius, spacing, TARGET, type } from './src/theme';
+import { useTheme } from './src/hooks/useTheme';
+import { getViewer, onViewerChange } from './src/viewer';
+import { Avatar } from './src/components/Faces';
 import { PlanScreen } from './src/screens/PlanScreen';
 import { PlacesScreen } from './src/screens/PlacesScreen';
 import { TripsScreen, TripPrefill } from './src/screens/TripsScreen';
@@ -134,12 +137,6 @@ function Shell() {
     </>
   );
 
-  const status = (
-    <Text style={styles.status} testID="api-health">
-      API {health === 'ok' ? 'connected' : health} · {API_URL.replace(/^https?:\/\//, '')}
-    </Text>
-  );
-
   const banner = (
     <View style={[styles.banner, health === 'down' && styles.bannerDown]}>
       <Text style={type.small}>{health === 'checking' ? `Reaching API at ${API_URL}…` : `Can't reach the API at ${API_URL}. Is it running?`}</Text>
@@ -169,8 +166,9 @@ function Shell() {
               <Text style={[styles.navLabel, tab === 'prototypes' && { color: colors.ink }]}>Prototypes</Text>
             </Pressable>
             <View style={{ flex: 1 }} />
-            {household ? <Text style={type.tiny}>{household.household.name} · {household.members.length} people</Text> : null}
-            {status}
+            {/* The corner is who you are and how the app looks — not the API's address (owner, 4 Sep 2026). */}
+            <You household={household} onOpen={() => setTab('settings')} />
+            <ThemeSwitch />
           </View>
         ) : (
           <View style={styles.header}><Wordmark height={34} /></View>
@@ -195,6 +193,62 @@ function Shell() {
   );
 }
 
+/**
+ * The bottom of the sidebar: who is using the app, and how it looks. Tapping the
+ * person opens Settings for now; this is where a profile and sign-in will live
+ * once there is one (owner, 4 Sep 2026). There is no sign-in yet, so "you" is
+ * whoever the device is set to — Settings › Ratings shown as.
+ */
+function You({ household, onOpen }: { household: HouseholdResponse | null; onOpen: () => void }) {
+  const members = household?.members ?? [];
+  const [id, setId] = useState<string | null>(null);
+  useEffect(() => onViewerChange(setId), []);
+  const viewer = id && members.some((m) => m.id === id) ? id : getViewer(members);
+  const index = Math.max(0, members.findIndex((m) => m.id === viewer));
+  const me = members[index];
+  return (
+    <Pressable
+      onPress={onOpen}
+      accessibilityRole="button"
+      accessibilityLabel={me ? `${me.name} — your profile and settings` : 'Your profile and settings'}
+      style={({ hovered }: any) => [styles.you, hovered && styles.youHover]}
+    >
+      {me ? <Avatar name={me.name} index={index} size={28} url={me.avatarUrl} /> : <Icon name="person" size={20} color={colors.inkMuted} />}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={styles.youName} numberOfLines={1}>{me ? me.name : 'Sign in'}</Text>
+        <Text style={type.tiny} numberOfLines={1}>Your profile</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/** Light or dark, in the corner rather than three screens away. Settings keeps "Device". */
+function ThemeSwitch() {
+  const { theme, setPref } = useTheme();
+  return (
+    <View style={styles.modeSwitch} accessibilityRole="radiogroup" testID="theme-switch">
+      {(['light', 'dark'] as const).map((t) => {
+        const on = theme === t;
+        return (
+          <Pressable
+            key={t}
+            onPress={() => setPref(t)}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: on }}
+            accessibilityLabel={t === 'light' ? 'Light mode' : 'Dark mode'}
+            style={({ hovered }: any) => [styles.modeBtn, { flex: 1 }, hovered && !on && styles.modeBtnHover, on && styles.modeBtnActive]}
+          >
+            <View style={styles.modeInner}>
+              <Icon name={t} size={14} color={on ? colors.primaryFg : colors.inkMuted} />
+              <Text style={[styles.modeText, on && styles.modeTextActive]}>{t === 'light' ? 'Light' : 'Dark'}</Text>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   fill: { flex: 1 },
@@ -205,10 +259,14 @@ const styles = StyleSheet.create({
   modeSwitch: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, padding: 2 },
   modeBtn: { minHeight: 28, paddingHorizontal: spacing.md, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   modeBtnActive: { backgroundColor: colors.primary },
+  modeBtnHover: { backgroundColor: colors.surfaceMuted },
+  you: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: 10, marginBottom: spacing.sm },
+  youHover: { backgroundColor: colors.accentSoft },
+  youName: { fontSize: 14, fontWeight: '700', color: colors.ink },
   modeInner: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   modeText: { fontSize: 12, fontWeight: '600', color: colors.inkMuted },
   modeTextActive: { color: colors.primaryFg },
-  stage: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E9E6DE', padding: spacing.xl },
+  stage: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceMuted, padding: spacing.xl },
   bezel: {
     padding: BEZEL, borderRadius: 36, backgroundColor: '#1D1B16',
     boxShadow: '0 12px 30px rgba(0,0,0,0.25)',
@@ -231,5 +289,4 @@ const styles = StyleSheet.create({
   tab: { flex: 1, minHeight: TARGET + 10, alignItems: 'center', justifyContent: 'center', gap: 2 },
   tabText: { fontSize: 11, fontWeight: '600', color: colors.inkMuted },
   tabTextActive: { color: colors.ink },
-  status: { fontSize: 10, color: colors.inkFaint },
 });

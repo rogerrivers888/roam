@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import {
   Archive, ArrowLeft, ArrowRight, Baby, Ban, BedDouble, Beer, Bookmark, BookmarkCheck, Calendar, Camera, Car, CarTaxiFront, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck,
   Clock, Coffee, Compass, ExternalLink, Footprints, GripVertical, Heart, House, Info, Landmark, List, Lock, Map, MapPin, Mic, Minus, Monitor, Navigation, Pencil, Phone, Pin, Plus, Route, Search, Settings, Smartphone,
-  Sparkles, Square, Star, StarHalf, Ticket, TrainFront, TriangleAlert, Users, Utensils, Wine, X,
+  Moon, Sparkles, Square, Star, StarHalf, Sun, Ticket, TrainFront, TriangleAlert, User, Users, Utensils, Wine, X,
 } from 'lucide-react-native';
 import { colors, spacing, type } from '../theme';
 
@@ -16,7 +16,9 @@ import { colors, spacing, type } from '../theme';
 const ICONS = {
   // navigation
   plan: Sparkles, places: Compass, trips: Route, household: Users, settings: Settings,
-  web: Monitor, mobile: Smartphone,
+  web: Monitor, mobile: Smartphone, person: User,
+  // Light and dark mode, on the theme switch
+  light: Sun, dark: Moon,
   // actions and states
   mic: Mic, stop: Square, check: Check, close: X, add: Plus, minus: Minus,
   back: ArrowLeft, forward: ArrowRight, external: ExternalLink,
