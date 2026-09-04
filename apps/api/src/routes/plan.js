@@ -1441,7 +1441,7 @@ const deadline = (promise, ms, message) => Promise.race([
   new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
 ]);
 
-async function runInspire({ household, attending, session, state }) {
+async function runInspire({ household, attending, session, state, append = false }) {
   // Each stage is written to the session as it starts, so the screen can say
   // what is happening instead of spinning, and the ideas themselves are saved
   // before they are pinned to the map — titles first, pins as they land.
@@ -1454,14 +1454,21 @@ async function runInspire({ household, attending, session, state }) {
       [household.id],
     );
     const { input } = state;
+    // Five more means five it has not said yet (owner, 4 Sep 2026: "I shouldn't
+    // need to refresh the list because you should be storing that data. I guess
+    // the option should be 'Show me 5 more'").
+    const already = append ? (state.ideas || []) : [];
+    const seen = already.length
+      ? `\n\nYou have already suggested these to them today, so do not offer them again or anything at the same place: ${already.map((i) => `${i.title} (${i.placeText})`).join('; ')}.`
+      : '';
     await publish({ stage: 'thinking' });
     const ask = () => parseStructured({
       system: INSPIRE_SYSTEM,
-      messages: [{ role: 'user', content: JSON.stringify({ ...householdContext(household, attending), atlas, brief: input.brief, moods: input.moods, maxTravelMinutes: input.maxTravelMinutes, budget: BUDGETS[input.budget], attending: attending.map((m) => m.name) }) }],
+      messages: [{ role: 'user', content: `${JSON.stringify({ ...householdContext(household, attending), atlas, brief: input.brief, moods: input.moods, maxTravelMinutes: input.maxTravelMinutes, budget: BUDGETS[input.budget], attending: attending.map((m) => m.name) })}${seen}` }],
       schema: Ideas,
       householdId: household.id,
       sessionId: session.id,
-      purpose: 'plan.inspire',
+      purpose: append ? 'plan.inspire.more' : 'plan.inspire',
       model: INSPIRE_MODEL,
       thinking: 'off',
     });
@@ -1489,19 +1496,20 @@ async function runInspire({ household, attending, session, state }) {
     const home = household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null;
     // On screen at once, unpinned: the titles and the reasons are the answer,
     // the map pin only decides whether "Things to do and see" can open.
-    const ideas = out.ideas.map((idea, i) => ({
-      id: `idea-${i}`, title: idea.title, why: idea.why, placeText: idea.place_text, place: null,
+    const fresh = out.ideas.map((idea, i) => ({
+      id: `idea-${already.length + i}-${Date.now().toString(36)}`, title: idea.title, why: idea.why, placeText: idea.place_text, place: null,
       travelMinutes: idea.travel_minutes ?? null, overnight: idea.overnight, do: idea.do, eat: idea.eat, placing: true,
     }));
-    await publish({ ideas, reply: out.reply, stage: 'placing', placed: 0 });
+    const ideas = [...already, ...fresh];
+    await publish({ ideas, reply: out.reply, stage: 'placing', placed: already.length });
 
     // The map answers about one name a second, so each pin is published as it
     // lands rather than the whole list waiting for the slowest.
-    for (const idea of ideas) {
+    for (const idea of fresh) {
       try {
         const [hit] = await geocode(idea.placeText, { limit: 1, near: home });
         if (hit) {
-          idea.place = { label: hit.label, lat: hit.lat, lng: hit.lng, locality: hit.locality ?? null, countryCode: hit.countryCode ?? null };
+          idea.place = { label: hit.label, lat: hit.lat, lng: hit.lng, locality: hit.locality ?? null, countryCode: hit.countryCode ?? null, ref: `${hit.source}:${hit.sourcePlaceId}` };
           if (home) idea.travelMinutes = estimateTravelMinutes(home, idea.place, 'driving');
         }
       } catch { /* the idea stands without a pin */ }
@@ -1513,7 +1521,7 @@ async function runInspire({ household, attending, session, state }) {
 
     // What there is at each idea is gathered now, in the background and in
     // order, so opening one is a read rather than a search (owner, 3 Sep 2026).
-    for (const idea of ideas) {
+    for (const idea of fresh) {
       if (!idea.place) continue;
       try { await thingsAround({ household, session, place: idea.place }); } catch { /* the tap will try again */ }
     }
@@ -1522,6 +1530,31 @@ async function runInspire({ household, attending, session, state }) {
     await saveSession(session.id, state, null);
   }
 }
+
+/**
+ * Five more, on the same session (owner, 4 Sep 2026: "I shouldn't need to
+ * refresh the list because you should be storing that data. I guess the option
+ * should be 'Show me 5 more'"). The ones already given stay where they are and
+ * are named to the model so it does not repeat itself. Body: { sessionId }.
+ */
+router.post('/inspire/more', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const members = await loadMembers(household.id);
+    const { sessionId, attendingMemberIds } = req.body || {};
+    const session = await loadSession(sessionId);
+    const state = session.state || {};
+    if (state.kind !== 'inspire') return res.status(404).json({ error: 'session_not_found' });
+    if (state.running) return res.json({ sessionId: session.id, ref: runRef(session.id), running: true, stage: state.stage ?? 'thinking' });
+    const attending = Array.isArray(attendingMemberIds) && attendingMemberIds.length ? members.filter((m) => attendingMemberIds.includes(m.id)) : members;
+    Object.assign(state, { running: true, stage: 'thinking', error: null, runStartedAt: new Date().toISOString() });
+    await saveSession(session.id, state, null);
+    res.json({ sessionId: session.id, ref: runRef(session.id), running: true, stage: 'thinking' });
+    runInspire({ household, attending, session, state, append: true }).catch(() => { /* recorded on the session */ });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // The look around an idea: the same search a trip's Find tab runs at 5 km —
 // the place sources, no event listings, no scout — so the two share one cache
