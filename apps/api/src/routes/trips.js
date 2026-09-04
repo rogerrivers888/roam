@@ -455,7 +455,14 @@ router.get('/:id/shortlist/search/stream', async (req, res) => {
     'x-accel-buffering': 'no',
   });
   const send = (type, data) => { if (!res.writableEnded) res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`); };
-  const beat = setInterval(() => send('waiting', { at: Date.now() }), 15_000);
+  // Two kilobytes of comment before anything else. Something between here and
+  // the browser holds a small first chunk back: a stream whose opening event is
+  // thirty bytes — "this search is riding on one already running" — arrived at
+  // curl at once and at Chrome not at all, while a stream that opens with a
+  // kilobyte of sources arrived immediately in both. Padding is the usual cure
+  // and costs one packet. The heartbeat is the belt to that pair of braces.
+  res.write(`:${' '.repeat(2048)}\n\n`);
+  const beat = setInterval(() => send('waiting', { at: Date.now() }), 5_000);
   try {
     const payload = await runShortlistSearch(req, { onProgress: (e) => send(e.type, e) });
     send('done', payload);
