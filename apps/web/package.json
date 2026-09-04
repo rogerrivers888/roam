@@ -9,7 +9,8 @@
     "ios": "expo start --ios",
     "android": "expo start --android",
     "typecheck": "node --stack-size=8000 ../../node_modules/typescript/lib/tsc.js --noEmit",
-    "build": "expo export --platform web --output-dir dist"
+    "build": "expo export --platform web --output-dir dist",
+    "test": "node --test \"test/*.test.ts\""
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.15",

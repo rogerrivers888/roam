@@ -11,7 +11,8 @@ import { estimateTravelMinutes, kmBetween } from './travel.js';
 import { paceOf, dwellAllowance } from './pace.js';
 import { wallClock, DEFAULT_TZ } from './time.js';
 
-export const FOOD_CATEGORIES = new Set(['restaurant', 'cafe', 'pub', 'bar']);
+import { FOOD_CATEGORIES } from '../constants.js';
+export { FOOD_CATEGORIES };
 export const ACTIVITY_CATEGORIES = new Set(['attraction', 'event']);
 
 export const isFood = (c) => FOOD_CATEGORIES.has(c.category);

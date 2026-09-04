@@ -6,3 +6,8 @@ dist/
 web-build/
 *.log
 .DS_Store
+
+# Working folders and scratch scripts: the root should show the app, not the
+# history of building it (the estate's engineering standard, rule 11).
+Supporting docs/
+*-tmp.mjs

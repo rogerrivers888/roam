@@ -26,6 +26,7 @@ import sessionRoutes, { devices as deviceRoutes } from './routes/session.js';
 import { authConfigured, deployed, originAllowed, requireSession } from './auth.js';
 import { generalLimit, signInLimit, spendLimit } from './limits.js';
 import { sweepDeadSessions } from './repositories/sessions.js';
+import { sweepExpiredPlanSessions } from './repositories/planSessions.js';
 
 const app = express();
 
@@ -200,11 +201,19 @@ if (authConfigured()) {
 } else {
   console.warn('roam-api: ROAM_PASSCODE is not set. Every /api request will answer 503 until the owner adds it in Doppler.');
 }
-// Expired and revoked sessions are a hash and two dates, but they are not
-// needed either. Once on start, then daily.
-const sweepSessions = () => { void sweepDeadSessions().catch(() => null); };
-sweepSessions();
-setInterval(sweepSessions, 24 * 3600_000).unref?.();
+// Two sweeps, once on start and then daily.
+//
+// Expired and revoked API sessions are a hash and two dates, but they are not
+// needed either. Expired *planning* sessions matter more: their state holds the
+// provider's venue names and ratings, migration 026 gave them ten hours for
+// that reason, and until now nothing ever actually deleted one.
+const sweep = async () => {
+  await sweepDeadSessions().catch(() => null);
+  const plans = await sweepExpiredPlanSessions().catch(() => null);
+  if (plans) console.log(`roam-api: swept ${plans} expired planning session(s)`);
+};
+void sweep();
+setInterval(() => { void sweep(); }, 24 * 3600_000).unref?.();
 
 // The owned place layer researches in the background: anything a household has
 // claimed but that has not been looked at yet, and the sweep that discards any

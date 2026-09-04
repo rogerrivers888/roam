@@ -27,11 +27,10 @@ import { createTripFromIntent, seedShortlistFromIdea, thingsAround, THINGS_RADIU
 import { addShortlistItem } from './trips.js';
 import { reverseGeocode } from '../sources/geocode.js';
 import { wallClock, DEFAULT_TZ } from '../domain/time.js';
+import { FOOD_CATEGORY_LIST as FOOD_CATEGORIES, FOOD_CATEGORIES as FOOD } from '../constants.js';
 
 const router = Router();
 
-const FOOD_CATEGORIES = ['restaurant', 'cafe', 'pub', 'bar'];
-const FOOD = new Set(FOOD_CATEGORIES);
 // How many foods get their own table, and how many places each table shows.
 const MAX_TABLES = Number(process.env.ROAM_TASTE_TABLES || 4);
 const PLACES_PER_TABLE = 3;

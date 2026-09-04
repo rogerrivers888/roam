@@ -20,6 +20,9 @@ import { currentHousehold, loadMembers } from './household.js';
 import { upsertHouseholdPlace } from './atlas.js';
 import { googleSource } from '../sources/google.js';
 import { claimPlace, ownedRecord, ownedRecords, enrich } from '../sources/own.js';
+// Somewhere you eat, where the menu is the thing you want on the way in; and
+// the three words a take may be.
+import { FOOD_CATEGORIES as EATING, TAKES } from '../constants.js';
 
 // ---------------------------------------------------------------------------
 // A ride is not a day out (owner, 4 Sep 2026: "Saw the Ride… is a ride in
@@ -81,10 +84,6 @@ places.get('/inside', async (req, res, next) => {
 });
 export const visits = Router();
 
-const TAKES = ['loved', 'fine', 'not_for_me'];
-
-// Somewhere you eat, where the menu is the thing you want on the way in.
-const EATING = new Set(['restaurant', 'cafe', 'bar', 'pub']);
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -167,14 +166,27 @@ const cleanScore = (v) => {
   if (!Number.isFinite(n) || n < 0.5 || n > 5 || Math.round(n * 2) !== n * 2) return null;
   return n;
 };
-/** The planner still learns from a three-way take; when only a score was given, the take follows it. */
-const takeFromScore = (score) => (score >= 4 ? 'loved' : score <= 2 ? 'not_for_me' : 'fine');
+/**
+ * The two directions of the same scale, and the only place either is decided.
+ *
+ * The browser used to work both of these out and send the answer, which meant
+ * the rule lived in two codebases and would drift the first time either moved.
+ * Business logic belongs in the backend (the estate's engineering standard,
+ * rule 7), so the app now sends what the person actually did — the stars they
+ * tapped, or the word they chose — and this decides the rest.
+ */
+export const takeFromScore = (score) => (score >= 4 ? 'loved' : score <= 2 ? 'not_for_me' : 'fine');
+const SCORE_FOR_TAKE = { loved: 5, fine: 3, not_for_me: 1 };
+export const scoreFromTake = (take) => SCORE_FOR_TAKE[take] ?? null;
 
 async function writeTakes(client, visitId, takes, venue) {
   for (const t of takes || []) {
-    const score = cleanScore(t.score);
-    const take = TAKES.includes(t.take) ? t.take : score != null ? takeFromScore(score) : null;
+    const given = cleanScore(t.score);
+    const take = TAKES.includes(t.take) ? t.take : given != null ? takeFromScore(given) : null;
     if (!take) continue;
+    // A word on its own still gives the row a number, so a one-tap "everyone
+    // loved it" ranks beside a visit somebody gave four stars.
+    const score = given ?? scoreFromTake(take);
     const subject = (t.subject || 'visit').trim();
     let concept = null;
     if (subject === 'visit') concept = visitConcept(venue);

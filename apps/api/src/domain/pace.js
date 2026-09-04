@@ -1,3 +1,4 @@
+
 // Pace by kind of stop, with a "special" exception (owner feedback, 3 Sep 2026).
 //
 // Eating and doing have different rhythms: a restaurant is an hour and worth a
@@ -6,8 +7,10 @@
 // long way for. A preference can also cap a stop ("walks, up to 40 minutes").
 
 import { conceptByKey, venueHasConcept } from './concepts.js';
+import { FOOD_CATEGORIES } from '../constants.js';
 
-export const FOOD_CATEGORIES = new Set(['restaurant', 'cafe', 'pub', 'bar']);
+export { FOOD_CATEGORIES };
+
 export const kindOf = (venue) => (FOOD_CATEGORIES.has(venue?.category) ? 'food' : 'activity');
 
 export const DEFAULT_PACE = {

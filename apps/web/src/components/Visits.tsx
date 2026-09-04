@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, HouseholdResponse, Take, Venue, Visit, VisitTake } from '../api';
+import { api, HouseholdResponse, Take, Venue, Visit, VisitTake, VisitTakeInput } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, StatusLine, Wrap } from './ui';
 import { CategoryIcon, Icon } from './Icon';
 import { VenuePhoto } from './VenuePhoto';
 import { FaceRow } from './Faces';
-import { TakePicker, TakeRow, takeFromScore } from './TakePicker';
+import { TakePicker, TakeRow } from './TakePicker';
 
 // The pieces of "we went here" that Places and Trips share: a search-result
 // row, one visit in a history, and the form that records a visit.
@@ -73,10 +73,8 @@ export function VisitSummary({ visit, onPress }: { visit: Visit; onPress?: () =>
   );
 }
 
-export type VisitCreateBody = { visitedOn: string; note: string; attendeeIds: string[]; takes: VisitTake[]; venue: Partial<Venue> };
+export type VisitCreateBody = { visitedOn: string; note: string; attendeeIds: string[]; takes: VisitTakeInput[]; venue: Partial<Venue> };
 
-/** The number behind a word, so a one-tap answer still gives the row a score. */
-const SCORE_FOR: Record<Take, number> = { loved: 5, fine: 3, not_for_me: 1 };
 const WORD_FOR: Record<Take, string> = { loved: 'Loved it', fine: 'It was fine', not_for_me: 'Not for us' };
 
 /**
@@ -106,7 +104,8 @@ export function BeenCapture({ venue, household, onCreate, onSaved, onMore }: {
     try {
       await onCreate({
         visitedOn: today(), note: '', attendeeIds: members.map((m) => m.id),
-        takes: members.map((m) => ({ memberId: m.id, subject: 'visit', take: what[m.id], comment: null, score: SCORE_FOR[what[m.id]] })),
+        // The word is what they tapped; the number behind it is the API's to decide (routes/places.js).
+        takes: members.map((m) => ({ memberId: m.id, subject: 'visit', take: what[m.id], comment: null, score: null })),
         venue: {},
       });
       await onSaved();
@@ -194,9 +193,10 @@ export function VisitForm({ venue, household, onDone, onCancel, initial, createV
   const [clientId] = useState(uuid());
 
   const visible = rows.filter((r) => attending.has(r.memberId));
-  // A score alone is enough: the take it implies is sent so the planner keeps learning.
-  const toTakes = (): VisitTake[] => visible.filter((r) => r.take || r.score != null)
-    .map((r) => ({ memberId: r.memberId, subject: 'visit', take: r.take ?? takeFromScore(r.score as number), comment: r.comment || null, score: r.score ?? null }));
+  // A score alone is enough: the API works out the take it implies, so the
+  // planner keeps learning without the rule being written down twice.
+  const toTakes = (): VisitTakeInput[] => visible.filter((r) => r.take || r.score != null)
+    .map((r) => ({ memberId: r.memberId, subject: 'visit', take: r.take ?? null, comment: r.comment || null, score: r.score ?? null }));
 
   const submit = async () => {
     setBusy(true); setError(null);

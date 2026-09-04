@@ -2,7 +2,7 @@
   "name": "roam",
   "private": true,
   "version": "0.1.0",
-  "description": "Roam — remember every place you love",
+  "description": "Roam \u2014 remember every place you love",
   "workspaces": [
     "apps/*"
   ],
@@ -16,6 +16,9 @@
     "migrate": "npm run migrate -w @roam/api",
     "seed": "npm run seed -w @roam/api",
     "api": "npm run dev -w @roam/api",
-    "web": "npm run web -w @roam/web"
+    "web": "npm run web -w @roam/web",
+    "test": "npm run test -w @roam/api && npm run test -w @roam/web",
+    "test:api": "npm run test -w @roam/api",
+    "test:web": "npm run test -w @roam/web"
   }
 }

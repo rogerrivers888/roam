@@ -297,6 +297,16 @@ export type Order = {
 
 export type Take = 'loved' | 'fine' | 'not_for_me';
 export type VisitTake = { id?: string; memberId: string; member?: string; subject: string; take: Take; comment: string | null; conceptKey?: string | null; concept?: string | null; /** Out of 5, in halves (owner, 3 Sep 2026). */ score?: number | null };
+
+/**
+ * What the app sends when somebody rates something — which is not the same
+ * shape as what comes back.
+ *
+ * A stored take always has a word. What is *sent* may have only stars, and the
+ * API works the word out from them (routes/places.js): the rule lives there
+ * rather than in two places that can drift apart.
+ */
+export type VisitTakeInput = { memberId: string; subject: string; take: Take | null; comment: string | null; conceptKey?: string | null; score?: number | null };
 export type Visit = {
   id: string; venueRef: string; venueLabel: string; category: string | null; lat: number | null; lng: number | null;
   visitedOn: string; note: string | null; country: string | null; countryCode: string | null; locality: string | null;
@@ -782,13 +792,13 @@ export const api = {
   nameAtlasPlace: (venueRef: string, label: string) => patch<{ venueRef: string; label: string }>('/api/atlas/places', { venueRef, label }),
   createAtlasCity: (body: { placeText?: string; place?: Place }) => post<{ city: { name: string; country: string; countryCode: string; lat: number; lng: number } }>('/api/atlas/cities', body),
   deleteAtlasCity: (countryCode: string, locality: string) => del<void>('/api/atlas/cities', { countryCode, locality }),
-  createVisit: (body: Partial<Visit> & { venueRef: string; venueLabel: string; attendeeIds?: string[]; takes?: VisitTake[]; clientId?: string; venue?: Partial<Venue> }) =>
+  createVisit: (body: Omit<Partial<Visit>, 'takes'> & { venueRef: string; venueLabel: string; attendeeIds?: string[]; takes?: VisitTakeInput[]; clientId?: string; venue?: Partial<Venue> }) =>
     post<{ visit: Visit; deduplicated?: boolean }>('/api/visits', body),
   visits: (p: { country?: string; q?: string; memberId?: string; take?: Take } = {}) =>
     request<{ visits: Visit[]; countries: { code: string; name: string; visits: number }[] }>(`/api/visits${qs(p)}`),
   visit: (id: string) => request<{ visit: Visit }>(`/api/visits/${id}`),
   updateVisit: (id: string, body: { note?: string; visitedOn?: string; venueLabel?: string }) => patch<{ visit: Visit }>(`/api/visits/${id}`, body),
-  setTakes: (id: string, takes: VisitTake[], venue?: Partial<Venue>) => put<{ visit: Visit }>(`/api/visits/${id}/takes`, { takes, venue }),
+  setTakes: (id: string, takes: VisitTakeInput[], venue?: Partial<Venue>) => put<{ visit: Visit }>(`/api/visits/${id}/takes`, { takes, venue }),
   deleteVisit: (id: string) => del<void>(`/api/visits/${id}`),
 
   // group trips

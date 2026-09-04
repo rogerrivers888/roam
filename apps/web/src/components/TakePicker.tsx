@@ -13,8 +13,14 @@ const OPTIONS: { value: Take; label: string }[] = [
   { value: 'not_for_me', label: 'Not for me' },
 ];
 
-/** The three-way take a score implies, so the planner keeps learning when only stars were given. */
-export const takeFromScore = (score: number): Take => (score >= 4 ? 'loved' : score <= 2 ? 'not_for_me' : 'fine');
+/**
+ * The chip to light up the instant a star is tapped.
+ *
+ * Display only. What is *stored* is decided by the API (routes/places.js),
+ * which is sent the stars and works the take out itself — the rule has one
+ * home, and this is a hint on the way to it.
+ */
+const takeFromScore = (score: number): Take => (score >= 4 ? 'loved' : score <= 2 ? 'not_for_me' : 'fine');
 
 /**
  * Per person: a score out of 5 (tap a star; tap the same star again for a
