@@ -32,6 +32,12 @@ const MATRIX = '/distanceMatrix/v2:computeRouteMatrix';
 const ROUTE = '/directions/v2:computeRoutes';
 const exhausted = new Map();
 
+// A refusal does not say which quota was hit. A per-minute one passes in
+// moments; a daily one lasts until midnight Pacific. So the wait starts short
+// and lengthens each time it is refused again — a minute's limit costs one
+// wasted call, a day's costs a handful — and never runs past the daily reset.
+const BACKOFF_MINUTES = (process.env.ROAM_ROUTES_BACKOFF || '5,15,60,240').split(',').map((n) => Number(n.trim())).filter((n) => n > 0);
+
 /** When a daily quota next resets, as an instant. */
 function nextQuotaReset(now = new Date()) {
   const there = wallClock(now, QUOTA_TZ);
@@ -46,10 +52,12 @@ function nextQuotaReset(now = new Date()) {
  */
 export function routingPaused(method = 'matrix') {
   const path = method === 'route' ? ROUTE : MATRIX;
-  const until = exhausted.get(path);
-  if (!until) return null;
-  if (Date.now() >= until.getTime()) { exhausted.delete(path); return null; }
-  return { until: until.toISOString(), reason: 'quota', method };
+  const state = exhausted.get(path);
+  if (!state) return null;
+  // The wait is over: the next call tries, and its outcome decides whether the
+  // wait starts again longer or the count goes back to nothing.
+  if (Date.now() >= state.until.getTime()) return null;
+  return { until: state.until.toISOString(), reason: 'quota', method, refusals: state.refusals };
 }
 
 /** For an owner who has raised the quota and wants it tried again now. */
@@ -57,11 +65,18 @@ export const resumeRouting = () => exhausted.clear();
 
 const isExhausted = (status, body) => status === 429 || /RESOURCE_EXHAUSTED/.test(String(body));
 function pause(path) {
-  const until = nextQuotaReset();
-  exhausted.set(path, until);
-  console.warn(`Google Routes: no quota left for ${path}; not asking again until ${until.toISOString()}`);
-  return new Error('Google Routes has no quota left today — travel times are worked out from the distance until it resets.');
+  const previous = exhausted.get(path);
+  const refusals = (previous && Date.now() < previous.until.getTime() + 3600_000 ? previous.refusals : 0) + 1;
+  const wait = BACKOFF_MINUTES[Math.min(refusals - 1, BACKOFF_MINUTES.length - 1)];
+  const reset = nextQuotaReset();
+  const until = new Date(Math.min(Date.now() + wait * 60_000, reset.getTime()));
+  exhausted.set(path, { until, refusals });
+  console.warn(`Google Routes: quota refused ${path} (${refusals} in a row); not asking again for ${wait} min, until ${until.toISOString()}`);
+  return new Error('Google Routes has no quota left just now — travel times are worked out from the distance until it lets us back in.');
 }
+
+/** A call that worked means the quota is back: the wait starts from nothing again. */
+const clearPause = (path) => { if (exhausted.has(path)) exhausted.delete(path); };
 
 /** Whether Routes is configured at all. Quota is a separate question: routingPaused(). */
 export const routingEnabled = () => Boolean(KEY());
@@ -83,6 +98,7 @@ async function post(path, body, fieldMask) {
   // A spent quota also arrives as a 200 whose rows carry an error instead of a
   // route, so the body has to be read as well as the status.
   if (Array.isArray(data) && data.length && data.every((r) => r?.error) && isExhausted(null, JSON.stringify(data.slice(0, 3)))) throw pause(path);
+  clearPause(path);
   return data;
 }
 

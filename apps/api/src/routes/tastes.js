@@ -137,7 +137,7 @@ async function buildTable({ household, attending, attendees, session, taste, hom
   const finalists = scored.slice(0, PLACES_PER_TABLE + 1);
   const paused = routingPaused('matrix');
   let travelNote = !routingEnabled() ? 'Google Routes is not switched on here, so the drive is worked out from the distance.'
-    : paused ? `Google Routes has no quota left today, so these are worked out from the distance — a road is longer than a straight line. It comes back at ${new Date(paused.until).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', timeZone: 'Europe/London' })}.`
+    : paused ? `Google Routes is out of quota just now, so these are worked out from the distance — a road is longer than a straight line. Roam tries it again at ${new Date(paused.until).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })}.`
     : routing.note;
   // One refusal from Routes stands for the whole run: the next table does not
   // ask again to be told the same thing (and billed for asking).
