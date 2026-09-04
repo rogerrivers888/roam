@@ -72,6 +72,8 @@ offline.get('/manifest', async (_req, res, next) => {
         described: owned.described ?? 0,
         waiting: owned.waiting ?? 0,
         failed: owned.failed ?? 0,
+        // Researched by an older version of the researcher, and due to be done again.
+        behind: owned.behind ?? 0,
         lastChange: owned.last_change ?? null,
       },
     });

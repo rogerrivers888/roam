@@ -60,6 +60,22 @@ const CONCURRENCY = 1;
 // phone number is not wrong for ever.
 const REFRESH_AFTER_DAYS = 180;
 
+/**
+ * What the research can do, as a number.
+ *
+ * Bumped whenever the researcher learns something the records already made
+ * would have benefited from. The background pass picks up anything made by an
+ * older version and does it again, so improving the research is all it takes to
+ * improve every record — rather than the improvement only ever reaching places
+ * claimed after it shipped.
+ *
+ *   1  the first version: the open map, the venue's own page, the encyclopedias
+ *   2  asks the place ID what a place is when nothing of ours says; takes the
+ *      street address from the point alone; reads a phone number printed
+ *      without markup; lets what we already know decide if there is a menu
+ */
+const RESEARCH_VERSION = 2;
+
 const LICENCE = {
   osm: { licence: 'ODbL 1.0', retention: 'indefinite', attribution: OSM_ATTRIBUTION },
   site: { licence: "the venue's own published page", retention: 'indefinite', attribution: null },
@@ -263,9 +279,11 @@ const logCall = (householdId, provider, purpose) =>
 export async function enrich(venueRef, { householdId = null, seed: given = {}, force = false } = {}) {
   await query('insert into place_records (venue_ref) values ($1) on conflict do nothing', [venueRef]);
   if (!force) {
-    const { rows } = await query('select enrich_state, enriched_at, provenance from place_records where venue_ref = $1', [venueRef]);
+    const { rows } = await query('select enrich_state, enriched_at, provenance, research_version from place_records where venue_ref = $1', [venueRef]);
     const row = rows[0];
-    const fresh = row?.enriched_at && Date.now() - new Date(row.enriched_at).getTime() < REFRESH_AFTER_DAYS * 86_400_000;
+    const fresh = row?.enriched_at && Date.now() - new Date(row.enriched_at).getTime() < REFRESH_AFTER_DAYS * 86_400_000
+      // A record made by an older researcher is not fresh, however recent it is.
+      && (row?.research_version ?? 0) >= RESEARCH_VERSION;
     // "Already researched" has to mean something was found. A record that came
     // back empty is not done with, and this guard was quietly cancelling the
     // catch-up that had just queued it: one said ask again, the other said we
@@ -433,9 +451,9 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   const { rows } = await query(
     `update place_records set
        enrich_state = $2, enriched_at = now(), enrich_attempts = enrich_attempts + 1,
-       enrich_error = $3, matched = $4, updated_at = now()
+       enrich_error = $3, matched = $4, research_version = $5, updated_at = now()
      where venue_ref = $1 returning enrich_attempts`,
-    [venueRef, state, problems.length ? problems.join('; ') : null, JSON.stringify(matched)],
+    [venueRef, state, problems.length ? problems.join('; ') : null, JSON.stringify(matched), RESEARCH_VERSION],
   );
   const attempts = rows[0]?.enrich_attempts ?? 1;
   const schedule = state === 'failed' ? BACKOFF_MIN : state === 'partial' ? EMPTY_BACKOFF_MIN : null;
@@ -551,8 +569,10 @@ export async function catchUp({ limit = 25 } = {}) {
          -- time it found nothing. Those never had a second chance and would
          -- have stayed empty for good.
          or (enrich_state = 'done' and provenance = '{}'::jsonb and enrich_attempts < $2)
-      order by enrich_attempts, first_owned limit $1`,
-    [limit, MAX_ATTEMPTS],
+         -- Made by an older researcher than the one running now.
+         or research_version < $3
+      order by research_version, enrich_attempts, first_owned limit $1`,
+    [limit, MAX_ATTEMPTS, RESEARCH_VERSION],
   );
   for (const r of rows) queueEnrichment(r.venue_ref);
   return rows.length;
@@ -567,6 +587,7 @@ export async function ownedSummary(householdId) {
             count(*) filter (where r.summary is not null)::int as described,
             count(*) filter (where r.enrich_state in ('pending', 'partial'))::int as waiting,
             count(*) filter (where r.enrich_state = 'failed')::int as failed,
+            count(*) filter (where r.research_version < 2)::int as behind,
             max(r.updated_at) as last_change
        from (select distinct venue_ref from place_claims where household_id = $1) c
        join place_records r on r.venue_ref = c.venue_ref`,
