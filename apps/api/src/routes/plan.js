@@ -617,7 +617,10 @@ async function retrievePool({ household, trip, attendees, intent, sessionId, sou
   // The pool is what's around the base within a comfortable hop, not the whole
   // reach: a day in central London is a 2–3 km affair; a driving day a bit more.
   const hopRadiusKm = Math.min(reachRadiusKm(trip.travel_mode, maxTravelMinutes), trip.travel_mode === 'driving' ? 10 : trip.travel_mode === 'cycling' ? 5 : 3);
-  const { venues, degraded, sourcesQueried, units, rawCounts, resolvedCounts } = await searchAllSources({
+  // Through the cache, not straight at the sources: the same point, radius,
+  // window and source set is the same search, and the Find tab or a second
+  // plan for the same day must not ask the providers again (sources/cache.js).
+  const { venues, degraded, sourcesQueried, units, rawCounts, resolvedCounts, cached, fetched } = await searchCached({
     center: originPoint,
     radiusKm: hopRadiusKm,
     categories: [],
@@ -634,10 +637,13 @@ async function retrievePool({ household, trip, attendees, intent, sessionId, sou
     householdId: household.id,
     sessionId,
   });
-  await query(
-    `insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)`,
-    [household.id, sessionId, sourcesQueried.join('+') || 'none', 'plan.retrieve', units],
-  );
+  // Only the caller that actually asked the providers is billed for it.
+  if (fetched) {
+    await query(
+      `insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)`,
+      [household.id, sessionId, sourcesQueried.join('+') || 'none', 'plan.retrieve', units],
+    );
+  }
 
   // Places the household has marked special may be further than the usual limit.
   const { rows: specials } = await query(`select source || ':' || source_place_id as ref from place_ledger where household_id = $1 and status = 'special'`, [household.id]);
@@ -686,6 +692,7 @@ async function retrievePool({ household, trip, attendees, intent, sessionId, sou
     candidates, excluded, degraded, maxTravelMinutes, sourcesQueried, wantsText,
     // Every stage, so the admin source view can say where each record was lost.
     stages: { venues, reached, inReach }, rawCounts, resolvedCounts, radiusKm: hopRadiusKm, window: { from: trip.depart_at, to: trip.return_at }, origin: originPoint, units,
+    cached: Boolean(cached),
   };
 }
 
@@ -716,8 +723,8 @@ async function retrieveCorridor({ household, trip, dayTrip, attendees, sessionId
     from: trip.origin_label, to: trip.base_label, mode, minutes: journey.minutes, estimated: journey.estimated !== false,
     stops: [], picked: [], limitMinutes: limit, windowStart: dayTrip.depart_at, windowEnd: dayTrip.return_at, ...extra,
   });
-  const { venues, degraded, sourcesQueried } = await searchCorridor({ encodedPolyline: polyline, origin, destination, sources, meter });
-  if (sourcesQueried.length) {
+  const { venues, degraded, sourcesQueried, fetched } = await searchCorridor({ encodedPolyline: polyline, origin, destination, sources, meter });
+  if (fetched && sourcesQueried.length) {
     await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)',
       [household.id, sessionId, sourcesQueried.join('+'), 'plan.corridor', meter]).catch(() => null);
   }
@@ -1586,6 +1593,13 @@ router.get('/places', async (req, res, next) => {
   }
 });
 
+// A restart (a deploy lands every few minutes while several sessions work)
+// kills any run in flight. Say so at once rather than after five minutes, and
+// the screen retries Plan it by itself.
+query(`update plan_sessions set state = state || '{"running": false, "outcome": {"kind": "error", "message": "the plan was interrupted by a restart"}}'::jsonb where state->>'running' = 'true'`)
+  .then((r) => { if (r.rowCount) console.log(`plan: ${r.rowCount} run(s) marked interrupted by the restart`); })
+  .catch(() => { /* nothing to tidy */ });
+
 /** Plan it: run the plan for what the rows say. Body: { sessionId } */
 router.post('/go', async (req, res, next) => {
   try {
@@ -1598,6 +1612,18 @@ router.post('/go', async (req, res, next) => {
     if (!state.intent) return res.status(409).json({ error: 'nothing_to_plan', message: 'Say where and when first.' });
     if (state.checks?.length) return res.json({ sessionId: session.id, reply: `Still to check: ${state.checks[0].text}`, rows: state.rows ?? [], checks: state.checks, answered: state.answered ?? [], ready: false, intent: state.intent, options: [] });
     if (state.running) return res.json({ sessionId: session.id, running: true, reply: 'Still working on it.', rows: state.rows ?? [], checks: [], answered: state.answered ?? [], ready: true, intent: state.intent, options: [] });
+    // The same day, asked for again: the places were found once and are still
+    // here (owner, 4 Sep 2026). Only what changes the shape of the day is
+    // applied, and no source is asked anything.
+    if (state.pool?.length && session.trip_id && state.retrievalKey && state.retrievalKey === retrievalKey(state)) {
+      await recomposeFromIntent(session, household);
+      await saveSession(session.id, state, null);
+      return respond(res, {
+        session, household,
+        reply: `Same day, same ${state.pool.length} places — nothing new to look up.`,
+        extra: { intent: state.intent, attending: state.attending ?? [], anchor: state.anchor ?? null, date: state.date ?? null, reused: true },
+      });
+    }
     return startRun({ household, members, session, state, res });
   } catch (err) {
     next(err);
@@ -1696,6 +1722,18 @@ async function executePlan({ household, members, session, state, res }) {
       return { kind: 'handoff', reply, handoff: { tripId: trip.id, title: trip.title, section: 'day' } };
     }
 
+    // Planning the same session somewhere else replaces the outing it made
+    // last time rather than leaving an empty one behind — but only while
+    // nothing has been done with it.
+    if (session.trip_id) {
+      await query(
+        `delete from trips t where t.id = $1
+           and not exists (select 1 from trip_stops s where s.trip_id = t.id)
+           and not exists (select 1 from trip_shortlist l where l.trip_id = t.id)
+           and not exists (select 1 from visits v where v.trip_id = t.id)`,
+        [session.trip_id],
+      ).catch(() => null);
+    }
     const { trip, attending } = await createTripFromIntent({ household, members, intent: merged, origin, destination, anchorPlace, sources: pickedSources });
     const attendees = toAttendees(attending);
     // Plan the day where it happens: the pool is what's around the base, and
@@ -1752,6 +1790,9 @@ async function executePlan({ household, members, session, state, res }) {
     session.state = state;
     await applyRouteToDay(session);
     state.pool = pool.candidates;
+    // What this pool was fetched for, so pressing Plan it again on the same day
+    // composes it afresh instead of asking every source the same question.
+    state.retrievalKey = retrievalKey(state);
     state.excludedByAllergen = pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons }));
     // Must-haves come from the time left once a fixed commitment is placed:
     // a 2½-hour show in a 5½-hour window leaves room for lunch and one thing,
@@ -1818,6 +1859,50 @@ async function executePlan({ household, members, session, state, res }) {
     state.transcript.push({ role: 'assistant', text: reply });
     await saveSession(session.id, state, trip.id);
     return { kind: 'handoff', reply, handoff: { tripId: trip.id, title: trip.title || trip.base_label, section: filled.length ? 'day' : 'shortlist' } };
+}
+
+/**
+ * What a retrieval actually depends on: where the day starts and happens, when
+ * it is, and which sources may be asked. Everything else the household can
+ * change — how long, how full, who is coming, how much to spend, how many
+ * things to do — only changes how the same pool is composed.
+ */
+function retrievalKey(state) {
+  const { origin, destination, anchorPlace } = state.places || {};
+  const at = (p) => (p?.lat == null ? '' : `${Number(p.lat).toFixed(3)},${Number(p.lng).toFixed(3)}`);
+  return [at(origin), at(anchorPlace ?? destination ?? origin), state.intent?.date ?? '', (state.sources ?? []).join(',')].join('|');
+}
+
+/**
+ * The household changed the shape of the day and pressed Plan it again. None of
+ * this needs a provider: the pool already found is composed differently.
+ */
+async function recomposeFromIntent(session, household) {
+  const state = session.state;
+  const intent = state.intent || {};
+  if (intent.min_activities != null) state.minActivities = Math.min(3, Number(intent.min_activities));
+  if (intent.min_food_stops != null) state.minFood = Math.min(3, Number(intent.min_food_stops));
+  if (intent.price_point) state.pricePoint = intent.price_point;
+  else if (intent.special) state.pricePoint = 'upmarket';
+  if (intent.avoid_chains != null) state.includeChains = intent.avoid_chains === false;
+  const duration = intent.duration_minutes != null ? Math.min(720, Math.max(60, Number(intent.duration_minutes))) : null;
+  const mode = intent.travel_mode && TRAVEL_MODES.includes(intent.travel_mode) ? intent.travel_mode : null;
+  const intensity = intent.intensity && INTENSITY_TARGETS[intent.intensity] ? intent.intensity : null;
+  if (duration != null || mode || intensity) {
+    // The window the household asked for is the one without stops on the way.
+    const applied = state.route?.applied ?? { out: 0, back: 0 };
+    await applyTripChanges(session, { durationMinutes: duration != null ? duration + applied.out + applied.back : null, intensity, travelMode: mode });
+    await syncRouteWindow(session);
+    await applyRouteToDay(session);
+  }
+  if (intent.attending?.length || intent.attending_everyone) {
+    const members = await loadMembers(household.id);
+    const named = new Set((intent.attending || []).map((n) => n.toLowerCase()));
+    const chosen = intent.attending_everyone || !named.size ? members : members.filter((m) => named.has(m.name.toLowerCase()));
+    const attendees = toAttendees(chosen.length ? chosen : members);
+    state.attending = attendees.map((a) => ({ id: a.id, name: a.name }));
+    state.attendeePrefs = attendees;
+  }
 }
 
 /**
@@ -2242,7 +2327,7 @@ router.get('/:sessionId', async (req, res, next) => {
     }
     if (st.running) return res.json({ ...base, running: true, reply: null });
     if (st.outcome?.kind === 'handoff') return res.json({ ...base, reply: st.outcome.reply, handoff: st.outcome.handoff });
-    if (st.outcome?.kind === 'error') return res.json({ ...base, reply: `That didn't work: ${st.outcome.message}. Try Plan it again.`, failed: true });
+    if (st.outcome?.kind === 'error') return res.json({ ...base, reply: `That didn't work: ${st.outcome.message}. Try Plan it again.`, failed: true, interrupted: /interrupted/.test(st.outcome.message) });
     if (!st.pool) return res.json(base);
     await respond(res, { session, household, reply: st.outcome?.kind === 'pool' ? st.outcome.reply : null, extra: { transcript: st.transcript ?? [], intent: st.intent, ...(st.outcome?.kind === 'pool' ? st.outcome.extra : {}) } });
   } catch (err) {

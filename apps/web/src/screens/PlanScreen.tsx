@@ -187,6 +187,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
     setBusy('thinking');
     try { take(await api.planGo(sessionId), false); } catch (e: any) { setError(e instanceof ApiError ? e.message : String(e?.message || e)); } finally { setBusy(false); }
   }, [sessionId, busy, take]);
+  const retriedRef = useRef(false);
   useEffect(() => {
     if (!plan?.running || !sessionId) return;
     let live = true;
@@ -197,7 +198,11 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
         if (!live) return;
         if (next.running) { if (Date.now() - started > 8 * 60_000) { setError('Still working after eight minutes — try Plan it again in a moment.'); setPlan((p) => (p ? { ...p, running: false } : p)); } return; }
         take({ ...next, sessionId }, false);
-        if (next.failed) setError(next.reply ?? 'That did not work.');
+        if (next.failed) {
+          // A deploy mid-run: try once more by itself before bothering anyone.
+          if ((next as any).interrupted && !retriedRef.current) { retriedRef.current = true; setError(null); try { take(await api.planGo(sessionId), false); } catch { /* the message below stands */ } return; }
+          setError(next.reply ?? 'That did not work.');
+        }
       } catch { /* a dropped poll is harmless; the next one asks again */ }
     };
     const h = setInterval(tick, 3000);
