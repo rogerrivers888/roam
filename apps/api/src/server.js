@@ -17,7 +17,7 @@ import { atlas as atlasRoutes } from './routes/atlas.js';
 import { menu as menuRoutes, orders as orderRoutes } from './routes/menus.js';
 import { offline as offlineRoutes } from './routes/offline.js';
 import { startOwnLoop } from './sources/own.js';
-import { fetchPhoto } from './sources/google.js';
+import { photoFor } from './sources/google.js';
 import { currentHousehold } from './routes/household.js';
 import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
 import { enabledSources, defaultSourceKeys, loadSourceSettings, setSourceOff, sourceHasKey, sourceOff, sourceKeys } from './sources/index.js';
@@ -116,15 +116,25 @@ app.patch('/api/sources/:key', async (req, res, next) => {
   }
 });
 
-/** Google photos are fetched here so the key never reaches the browser; nothing is stored. */
+/**
+ * Google photos are fetched here so the key never reaches the browser, and
+ * nothing is written down: a photo already fetched is held in memory for an
+ * hour (sources/google.js) and dies with the process.
+ *
+ * The provider call is recorded only when Google was actually asked. Billing
+ * for a picture we already had would misreport the spend, and the whole point
+ * of holding it is that we stopped asking.
+ */
 app.get('/api/photos/google', async (req, res) => {
   try {
     const name = String(req.query.name || '');
     if (!/^places\/[^/]+\/photos\/[^/]+$/.test(name)) return res.status(400).end();
     const household = await currentHousehold();
-    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, 'google-places', 'photo', { 'google-photos': 1 }]);
-    const photo = await fetchPhoto(name, Math.min(1200, Number(req.query.w) || 480));
+    const photo = await photoFor(name, Math.min(1200, Number(req.query.w) || 480));
     if (!photo) return res.status(404).end();
+    if (!photo.cached) {
+      await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, 'google-places', 'photo', { 'google-photos': 1 }]).catch(() => null);
+    }
     res.setHeader('content-type', photo.contentType);
     res.setHeader('cache-control', 'private, max-age=3600');
     res.send(photo.body);

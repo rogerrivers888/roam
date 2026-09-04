@@ -321,3 +321,44 @@ export async function fetchPhoto(name, maxWidthPx = 480) {
   if (!res.ok) return null;
   return { contentType: res.headers.get('content-type') || 'image/jpeg', body: Buffer.from(await res.arrayBuffer()) };
 }
+
+// Photos already fetched, held in memory for an hour (owner, 4 Sep 2026: the
+// same pictures were being downloaded again every time a tab was left and come
+// back to). Two reasons, and the second is the important one:
+//
+//   • It is slow. Every view was two hops — the browser to us, us to Google —
+//     for bytes we had in our hands a minute earlier.
+//   • Every view is a billed Place Photo request. Six ideas looked at three
+//     times in an afternoon was eighteen requests for six pictures.
+//
+// In memory only, and never written down: the same rule the search cache keeps
+// (sources/cache.js). A restart loses it, which is correct — licensed content
+// is not ours to keep, and this is a buffer between one household's screen and
+// the provider, not a store.
+const PHOTO_TTL_MS = 60 * 60_000;
+// About six megabytes at the sizes the app asks for (240px thumbnails, 480px
+// and 800px in the drawer). Oldest out first.
+const PHOTO_MAX = 200;
+const photos = new Map();
+
+/**
+ * A photo, from memory if we have it. Returns `{ contentType, body, cached }`
+ * — `cached` is false only when Google was actually asked, and that is the
+ * caller's signal to record the provider call.
+ */
+export async function photoFor(name, maxWidthPx = 480) {
+  const key = `${name}@${maxWidthPx}`;
+  const hit = photos.get(key);
+  if (hit && Date.now() - hit.at < PHOTO_TTL_MS) {
+    // Most recently wanted, last to be dropped.
+    photos.delete(key);
+    photos.set(key, hit);
+    return { ...hit.photo, cached: true };
+  }
+  const photo = await fetchPhoto(name, maxWidthPx);
+  if (!photo) return null;
+  photos.delete(key);
+  photos.set(key, { at: Date.now(), photo });
+  while (photos.size > PHOTO_MAX) photos.delete(photos.keys().next().value);
+  return { ...photo, cached: false };
+}

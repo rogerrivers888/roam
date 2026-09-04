@@ -55,6 +55,21 @@ const STEPS: { key: StepKey; question: string; options: { label: string; mood: s
   },
 ];
 const CAPS: { label: string; value: number | null }[] = [{ label: '1 h', value: 60 }, { label: '2 h', value: 120 }, { label: '3 h', value: 180 }, { label: 'Anywhere', value: null }];
+/**
+ * How many ideas are looked around at once (owner, 4 Sep 2026: "it loaded 1,
+ * and then about a minute later, it loaded the second 1, which is very, very
+ * slow").
+ *
+ * The pictures were never the slow part — they are 240px thumbnails. The
+ * look-around was: one idea at a time, each a place search of several seconds,
+ * so the fifth idea's picture arrived five searches later. They are independent
+ * questions about different towns, so they are asked together, and a normal set
+ * of ideas is therefore one round rather than six. Six and not unbounded because
+ * each of these can turn into two provider searches behind the API, and there is
+ * no reason to let a long list arrive as a stampede.
+ */
+const LOOKS_AT_ONCE = 6;
+
 /** Find looks the same distance around the place as the ideas did, so the trip opens on what was already fetched. */
 const THINGS_RADIUS_KM = 5;
 // How much the day should cost (owner, 3 Sep 2026): told to the model, and a
@@ -136,6 +151,10 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [things, setThings] = useState<Record<string, Things>>({});
+  // What has already been looked around, readable without making the effect
+  // below depend on it — depending on it would restart the very loop that fills it.
+  const thingsRef = useRef<Record<string, Things>>({});
+  const putThings = (next: Record<string, Things>) => { thingsRef.current = next; setThings(next); };
   const [opening, setOpening] = useState<string | null>(null);
   const [opened, setOpened] = useState<Record<string, { tripId: string; title: string; seeded: string[] }>>({});
   // The family's table runs beside the ideas and lands first: it is a search,
@@ -216,7 +235,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   // The tables are started first and land long before it.
   const inspire = async () => {
     const id = ++inspireRun.current;
-    setBusy(true); setError(null); setIdeas(null); setStage('thinking'); setPlaced(0); setElapsed(0); setRunRef(null); setThings({}); setOpened({}); setFoundAt(null); setRestoring(false);
+    setBusy(true); setError(null); setIdeas(null); setStage('thinking'); setPlaced(0); setElapsed(0); setRunRef(null); putThings({}); setOpened({}); setFoundAt(null); setRestoring(false);
     findTables();
     const startedAt = Date.now();
     const ticking = setInterval(() => setElapsed(Math.round((Date.now() - startedAt) / 1000)), 1000);
@@ -333,20 +352,39 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
     // and this loop would start over every time.
     if (!ideas || busy) return;
     const id = ++run.current;
+    // Only the ideas that have not been looked around yet. The ideas arrive as
+    // a new array whenever anything about them is set, and this effect used to
+    // start the whole look-around again each time — five places became fifteen
+    // searches, at the provider's price (owner, 4 Sep 2026).
+    const queue = ideas.filter((i) => i.place && !thingsRef.current[i.id]);
+    if (!queue.length) return;
+    // Every idea says it is looking straight away, rather than each one waiting
+    // its turn to admit it has not started.
+    const starting = { ...thingsRef.current };
+    for (const idea of queue) starting[idea.id] = { status: 'loading', items: [] };
+    putThings(starting);
     (async () => {
-      for (const idea of ideas) {
-        if (!idea.place || run.current !== id) continue;
-        setThings((s) => ({ ...s, [idea.id]: { status: 'loading', items: [] } }));
-        try {
-          // The name to look the place up by is the one the idea used — the map
-          // often answers "London" for the National Gallery, and no picture of
-          // London is a picture of the National Gallery.
-          const r = await api.inspireThings({ lat: idea.place.lat, lng: idea.place.lng, label: idea.placeText.split(',')[0].trim() || idea.place.label, locality: idea.place.locality ?? undefined });
-          if (run.current === id) setThings((s) => ({ ...s, [idea.id]: { status: 'ready', items: r.items, headline: r.headline } }));
-        } catch {
-          if (run.current === id) setThings((s) => ({ ...s, [idea.id]: { status: 'error', items: [] } }));
+      let cursor = 0;
+      const look = async () => {
+        for (;;) {
+          const at = cursor;
+          cursor += 1;
+          if (at >= queue.length || run.current !== id) return;
+          const idea = queue[at];
+          try {
+            // The name to look the place up by is the one the idea used — the map
+            // often answers "London" for the National Gallery, and no picture of
+            // London is a picture of the National Gallery.
+            const r = await api.inspireThings({ lat: idea.place!.lat, lng: idea.place!.lng, label: idea.placeText.split(',')[0].trim() || idea.place!.label, locality: idea.place!.locality ?? undefined });
+            if (run.current === id) putThings({ ...thingsRef.current, [idea.id]: { status: 'ready', items: r.items, headline: r.headline } });
+          } catch {
+            // The entry stays, marked failed: without it the next render would
+            // queue the same failing look-around again, and again.
+            if (run.current === id) putThings({ ...thingsRef.current, [idea.id]: { status: 'error', items: [] } });
+          }
         }
-      }
+      };
+      await Promise.all(Array.from({ length: Math.min(LOOKS_AT_ONCE, queue.length) }, look));
     })();
   }, [ideas, busy]);
 
