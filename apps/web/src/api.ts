@@ -307,7 +307,7 @@ export type TastePlace = {
   fits: TasteFit[]; attribution: string | null; menu: MenuRead | null;
 };
 export type Taste = { key: string; label: string; title: string; loved: TasteWho[]; notFor: { memberId: string; name: string; value: string }[]; named: boolean };
-export type TasteTable = Taste & { because?: string; searched?: string; radiusKm?: number; places: TastePlace[]; excluded?: { name: string; reasons: string[] }[]; found?: number; error?: string };
+export type TasteTable = Taste & { because?: string; searched?: string; radiusKm?: number; travelNote?: string | null; places: TastePlace[]; excluded?: { name: string; reasons: string[] }[]; found?: number; error?: string };
 export type TastesResponse = { sessionId: string; running: boolean; tastes: Taste[]; tables: TasteTable[]; note: string | null; error: string | null; capMinutes?: number | null };
 export type AroundThing = IdeaThing & { why: { memberId: string; name: string; favourite: boolean; label: string; text: string }[] };
 
@@ -485,7 +485,9 @@ export const api = {
   tastes: (body: { brief: string; moods: string[]; maxTravelMinutes: number | null; budget?: IdeaBudget; attendingMemberIds?: string[] | null }) => post<TastesResponse>('/api/plan/tastes', body),
   tastesStatus: (sessionId: string) => request<TastesResponse>(`/api/plan/tastes/${sessionId}`),
   tastesAround: (q: { sessionId: string; tasteKey: string; venueRef: string; members?: string }) => request<{ items: AroundThing[]; forUs: AroundThing[]; cached: boolean; radiusKm: number }>(`/api/plan/tastes/around${qs(q)}`),
-  tastesMenu: (body: { sessionId: string; tasteKey: string; venueRef: string; attendingMemberIds?: string[] | null }) => post<{ menu: MenuRead; usage: { used: number; limit: number }; tasteKey: string; venueRef: string }>('/api/plan/tastes/menu', body),
+  /** Reading a menu takes a minute or two, so it runs in the background: start it, then poll tastesMenuStatus. */
+  tastesMenu: (body: { sessionId: string; tasteKey: string; venueRef: string; attendingMemberIds?: string[] | null }) => post<{ reading: boolean; menu: MenuRead | null; error: string | null }>('/api/plan/tastes/menu', body),
+  tastesMenuStatus: (q: { sessionId: string; tasteKey: string; venueRef: string }) => request<{ reading: boolean; menu: MenuRead | null; error: string | null; usage: { used: number; limit: number } }>(`/api/plan/tastes/menu${qs(q)}`),
   tastesTrip: (body: { sessionId: string; tasteKey: string; venueRef: string; attendingMemberIds?: string[] | null; around?: string[] }) => post<{ tripId: string; title: string; date: string; seeded: string[]; reply: string; existing: boolean }>('/api/plan/tastes/trip', body),
   tripSources: (id: string, p: { dayId?: string; sources?: string; scout?: '1' }) => request<SourceTrace>(`/api/plan/trips/${id}/sources${qs(p)}`),
   tripSpend: (id: string) => request<{ calls: number; costUsd: number; byProvider: { provider: string; calls: number; cost_usd: number }[] }>(`/api/trips/${id}/spend`),

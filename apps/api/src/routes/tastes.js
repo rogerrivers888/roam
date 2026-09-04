@@ -105,7 +105,7 @@ function fitLines(venue, attending) {
 }
 
 /** One food, and the best places for it within the cap. */
-async function buildTable({ household, attending, attendees, session, taste, home, capMinutes, budget, sources, dishSearch, meter }) {
+async function buildTable({ household, attending, attendees, session, taste, home, capMinutes, budget, sources, dishSearch, routing, meter }) {
   // Google's text search takes a dish by name and biases to a circle (50 km is
   // its widest). Without it there is no dish search at all, only the ordinary
   // nearby look, which must stay small or Overpass times out on a whole county.
@@ -133,8 +133,10 @@ async function buildTable({ household, attending, attendees, session, taste, hom
   // Real drive times for the finalists only — one matrix call, a handful of
   // elements, so "within an hour" is the road and not a straight line.
   const finalists = scored.slice(0, PLACES_PER_TABLE + 3);
-  let travelNote = routingEnabled() ? null : 'Google Routes is not switched on here, so the drive is worked out from the distance.';
-  if (routingEnabled() && finalists.length) {
+  let travelNote = routingEnabled() ? routing.note : 'Google Routes is not switched on here, so the drive is worked out from the distance.';
+  // One refusal from Routes stands for the whole run: the next table does not
+  // ask again to be told the same thing (and billed for asking).
+  if (routingEnabled() && !routing.off && finalists.length) {
     try {
       const rows = await travelMatrixMinutes({ origin: home, destinations: finalists, mode: 'driving', meter });
       if (!rows) travelNote = 'Google Routes returned nothing for these places.';
@@ -143,8 +145,12 @@ async function buildTable({ household, attending, attendees, session, taste, hom
     } catch (err) {
       // The estimate stands, but the reason is said out loud in the log and on
       // the table: an hour by road is not an hour as the crow flies.
-      travelNote = String(err?.message || err).slice(0, 200);
-      console.warn(`taste table drive times fell back to the estimate: ${travelNote}`);
+      travelNote = /429|RESOURCE_EXHAUSTED/.test(String(err?.message))
+        ? 'Google Routes has no quota left today, so these times are worked out from the distance and a road is longer than a straight line.'
+        : `Drive times are estimated: ${String(err?.message || err).slice(0, 160)}`;
+      routing.off = true;
+      routing.note = travelNote;
+      console.warn(`taste table drive times fell back to the estimate: ${err?.message || err}`);
     }
   }
 
@@ -205,6 +211,7 @@ async function runTables({ household, attending, attendees, session, input }) {
   const sources = googleOn ? ['google'] : defaultSourceKeys();
   const tastes = foodTastes(attendees, { brief: input.brief || '' }).slice(0, MAX_TABLES);
   const meter = {};
+  const routing = { off: false, note: null };
   const run = putRun(session.id, {
     running: true, tastes, tables: [], input, error: null,
     note: googleOn ? null : 'Google Places is off here, so the sources cannot be asked for a dish by name — these are the places nearby whose kind matches.',
@@ -216,7 +223,7 @@ async function runTables({ household, attending, attendees, session, input }) {
         // One slow source must not hold the whole screen: a table that takes
         // too long says so and the next one is looked up.
         run.tables.push(await Promise.race([
-          buildTable({ household, attending, attendees, session, taste, home, capMinutes, budget: input.budget, sources, dishSearch: googleOn, meter }),
+          buildTable({ household, attending, attendees, session, taste, home, capMinutes, budget: input.budget, sources, dishSearch: googleOn, routing, meter }),
           new Promise((_, reject) => setTimeout(() => reject(new Error(`The sources took more than ${TABLE_DEADLINE_MS / 1000}s over ${taste.label.toLowerCase()}.`)), TABLE_DEADLINE_MS)),
         ]));
       } catch (err) {
@@ -347,7 +354,12 @@ router.get('/tastes/around', async (req, res, next) => {
 /**
  * Read this place's menu (owner, 4 Sep 2026). One tap, one venue, one call:
  * does it do the dish, is there something for everyone's requirement, does the
- * allergen appear. Body: { sessionId, tasteKey, venueRef, attendingMemberIds? }.
+ * allergen appear.
+ *
+ * Reading takes a minute or two — Claude opens their site and looks — so it
+ * runs in the background like Inspire me does and the answer is polled off the
+ * place. A request held open that long is a 502 waiting to happen.
+ * Body: { sessionId, tasteKey, venueRef, attendingMemberIds? }.
  */
 router.post('/tastes/menu', async (req, res, next) => {
   try {
@@ -356,26 +368,43 @@ router.post('/tastes/menu', async (req, res, next) => {
     const { sessionId, tasteKey, venueRef, attendingMemberIds } = req.body || {};
     const found = findPlace(String(sessionId || ''), String(tasteKey || ''), String(venueRef || ''));
     if (found.error) return res.status(404).json({ error: found.error, message: 'That place is no longer on this session — tap Inspire me again.' });
-    if (!menuCheckEnabled()) return res.status(503).json({ error: 'menu_check_off', message: 'Reading a menu needs the planner’s Anthropic key, which is not set here.' });
-    const { run, table, place } = found;
+    if (!menuCheckEnabled()) return res.status(503).json({ error: 'menu_check_off', message: 'Reading a menu needs the planner\u2019s Anthropic key, which is not set here.' });
+    const { run, place } = found;
+    if (place.menuReading) return res.json({ reading: true, menu: null, error: null });
     const attending = Array.isArray(attendingMemberIds) && attendingMemberIds.length ? members.filter((m) => attendingMemberIds.includes(m.id)) : members;
     const taste = (run.tastes || []).find((t) => t.key === tasteKey);
 
-    const menu = await checkMenu({
+    place.menuReading = true;
+    place.menuError = null;
+    res.status(202).json({ reading: true, menu: null, error: null });
+
+    checkMenu({
       householdId: household.id,
       sessionId,
       venue: { venueRef: place.venueRef, name: place.name, address: place.address, website: place.website, mapsUrl: place.mapsUrl, cuisines: place.cuisines },
       dish: taste && ['dish', 'ingredient'].includes(taste.kind) ? { label: taste.label, aliases: taste.concept?.aliases ?? [] } : null,
-      people: attending.flatMap((m) => (m.diets || []).map((d) => ({ person: m.name, need: d.value }))),
-      allergens: attending.flatMap((m) => (m.allergens || []).map((a) => ({ person: m.name, allergen: a.value }))),
+      people: attending.flatMap((m) => (m.diets || []).map((d) => ({ person: firstName(m.name), need: d.value }))),
+      allergens: attending.flatMap((m) => (m.allergens || []).map((a) => ({ person: firstName(m.name), allergen: a.value }))),
       kidsMatter: attending.some((m) => m.isMinor),
-    });
-    // Kept with the place in memory only, so the card still shows it on the next poll.
-    place.menu = menu;
-    const usage = await menuCheckUsage(household.id);
-    res.json({ menu, usage, tasteKey, venueRef: place.venueRef });
+    })
+      // Kept with the place in memory only, never on the session row.
+      .then((menu) => { place.menu = menu; })
+      .catch((err) => { place.menuError = /paused:/.test(String(err?.message)) ? err.message : `Roam could not read that menu: ${err?.message || err}`; })
+      .finally(() => { place.menuReading = false; run.at = Date.now(); });
   } catch (err) {
-    if (/paused:/.test(String(err?.message))) return res.status(429).json({ error: 'menu_budget', message: err.message });
+    next(err);
+  }
+});
+
+/** What the menu reader has come back with, if anything yet. */
+router.get('/tastes/menu', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const found = findPlace(String(req.query.sessionId || ''), String(req.query.tasteKey || ''), String(req.query.venueRef || ''));
+    if (found.error) return res.status(404).json({ error: found.error, message: 'That place is no longer on this session — tap Inspire me again.' });
+    const { place } = found;
+    res.json({ reading: Boolean(place.menuReading), menu: place.menu ?? null, error: place.menuError ?? null, usage: await menuCheckUsage(household.id) });
+  } catch (err) {
     next(err);
   }
 });

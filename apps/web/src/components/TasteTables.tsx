@@ -78,6 +78,7 @@ function Place({ table, place, open, onToggle, sessionId, attendingIds, onOpenTr
 }) {
   const [menu, setMenu] = useState<MenuRead | null>(place.menu);
   const [reading, setReading] = useState(false);
+  const [usage, setUsage] = useState<{ used: number; limit: number } | null>(null);
   const [around, setAround] = useState<{ status: 'loading' | 'ready' | 'error'; forUs: AroundThing[]; count: number }>({ status: 'loading', forUs: [], count: 0 });
   const [trip, setTrip] = useState<{ id: string; title: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -95,11 +96,23 @@ function Place({ table, place, open, onToggle, sessionId, attendingIds, onOpenTr
     return () => { alive = false; };
   }, [open, sessionId, table.key, place.venueRef]);
 
+  // Reading a menu is a minute or two of somebody opening their website and
+  // looking, so the tap starts it and the answer is polled off the place.
   const readMenu = async () => {
     setReading(true); setError(null);
     try {
-      const r = await api.tastesMenu({ sessionId, tasteKey: table.key, venueRef: place.venueRef, attendingMemberIds: attendingIds });
-      setMenu(r.menu);
+      const started = await api.tastesMenu({ sessionId, tasteKey: table.key, venueRef: place.venueRef, attendingMemberIds: attendingIds });
+      if (started.menu) { setMenu(started.menu); return; }
+      const until = Date.now() + 5 * 60_000;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3000));
+        let s: Awaited<ReturnType<typeof api.tastesMenuStatus>> | null = null;
+        try { s = await api.tastesMenuStatus({ sessionId, tasteKey: table.key, venueRef: place.venueRef }); } catch { /* a dropped poll asks again */ }
+        if (s?.error) { setError(s.error); return; }
+        if (s?.menu) { setMenu(s.menu); setUsage(s.usage); return; }
+        if (s && !s.reading) { setError('The menu reader stopped without an answer — try again.'); return; }
+        if (Date.now() > until) { setError('Still reading after five minutes — try again in a moment.'); return; }
+      }
     } catch (e: any) { setError(e?.message || String(e)); } finally { setReading(false); }
   };
 
@@ -149,6 +162,7 @@ function Place({ table, place, open, onToggle, sessionId, attendingIds, onOpenTr
 
           {place.fits.filter((f) => f.kind !== 'rating').map((f, i) => <Fit key={`${f.kind}-${i}`} fit={f} />)}
           {menu ? <MenuLines menu={menu} /> : null}
+          {usage ? <Text style={type.tiny}>Menus read this month: {usage.used} of {usage.limit}.</Text> : null}
 
           {around.status === 'loading' ? (
             <Row style={{ gap: 6 }}><ActivityIndicator size="small" color={colors.accent} /><Text style={type.tiny}>Looking around {place.name}…</Text></Row>
@@ -196,6 +210,7 @@ function TableCard({ table, sessionId, attendingIds, onOpenTrip }: {
         {table.because ? <Text style={type.small}>{table.because}.</Text> : null}
       </View>
       {table.error ? <StatusLine tone="warn">{table.error}</StatusLine> : null}
+      {table.travelNote ? <Text style={type.tiny}>{table.travelNote}</Text> : null}
       {!table.error && !table.places.length ? <Text style={type.small}>Nothing within reach came back for {table.label.toLowerCase()} — try a wider travel cap.</Text> : null}
       {table.places.map((p) => (
         <Place key={p.venueRef} table={table} place={p} open={open === p.venueRef} onToggle={() => setOpen(open === p.venueRef ? null : p.venueRef)}
