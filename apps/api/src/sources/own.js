@@ -252,10 +252,15 @@ const logCall = (householdId, provider, purpose) =>
 export async function enrich(venueRef, { householdId = null, seed: given = {}, force = false } = {}) {
   await query('insert into place_records (venue_ref) values ($1) on conflict do nothing', [venueRef]);
   if (!force) {
-    const { rows } = await query('select enrich_state, enriched_at from place_records where venue_ref = $1', [venueRef]);
+    const { rows } = await query('select enrich_state, enriched_at, provenance from place_records where venue_ref = $1', [venueRef]);
     const row = rows[0];
     const fresh = row?.enriched_at && Date.now() - new Date(row.enriched_at).getTime() < REFRESH_AFTER_DAYS * 86_400_000;
-    if (row?.enrich_state === 'done' && fresh) return { state: 'done', skipped: 'already researched' };
+    // "Already researched" has to mean something was found. A record that came
+    // back empty is not done with, and this guard was quietly cancelling the
+    // catch-up that had just queued it: one said ask again, the other said we
+    // asked recently, and the empty record stayed empty (found 4 Sep 2026).
+    const found = Object.keys(row?.provenance ?? {}).length > 0;
+    if (row?.enrich_state === 'done' && fresh && found) return { state: 'done', skipped: 'already researched' };
   }
 
   const seed = await seedFor(venueRef, given, { householdId });
