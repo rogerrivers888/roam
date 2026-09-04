@@ -60,9 +60,16 @@ const FOOD_TYPE_WORDS = {
   ice_cream_shop: 'ice cream', dessert_shop: 'desserts', sandwich_shop: 'sandwiches', bagel_shop: 'bagels',
   donut_shop: 'doughnuts', juice_shop: 'juice', tea_house: 'tea', deli: 'deli', pizzeria: 'pizza',
 };
+// "Amalfi Ristorante" is Italian before it is vegan: a whole continent, and a
+// way of eating, both say less about the food than the country does.
+const BROAD_CUISINE = new Set(['european', 'mediterranean', 'asian', 'international', 'fusion', 'continental', 'modern']);
+const DIETARY_CUISINE = new Set(['vegan', 'vegetarian', 'halal', 'kosher', 'gluten free']);
+const cuisineRank = (c) => (DIETARY_CUISINE.has(c) ? 2 : BROAD_CUISINE.has(c) ? 1 : 0);
+
 function cuisineFromTypes(types = []) {
   const words = types.map((t) => (/_restaurant$/.test(t) ? t.replace(/_restaurant$/, '').replace(/_/g, ' ') : FOOD_TYPE_WORDS[t] ?? null));
-  return [...new Set(words.filter((c) => c && !NOT_A_CUISINE.has(c)))];
+  const kept = [...new Set(words.filter((c) => c && !NOT_A_CUISINE.has(c)))];
+  return kept.map((c, i) => ({ c, i })).sort((a, b) => cuisineRank(a.c) - cuisineRank(b.c) || a.i - b.i).map((x) => x.c);
 }
 
 const LODGING = new Set(['hotel', 'lodging', 'motel', 'resort_hotel', 'extended_stay_hotel', 'bed_and_breakfast', 'guest_house', 'hostel', 'inn']);

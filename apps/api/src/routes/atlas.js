@@ -12,7 +12,7 @@ import { query } from '../db.js';
 import { reverseGeocode, geocode } from '../sources/geocode.js';
 import { recallVenue } from '../sources/index.js';
 import { currentHousehold } from './household.js';
-import { cleanStation, fillWhere } from '../sources/where.js';
+import { fillWhere } from '../sources/where.js';
 import { fillTaxonomy, needsTaxonomy, taxonomyKept } from '../sources/taxonomy.js';
 
 export const atlas = Router();
@@ -155,7 +155,7 @@ atlas.get('/places', async (req, res, next) => {
       status: r.visits > 0 ? 'been' : r.ledger === 'special' ? 'special' : 'saved',
       special: r.ledger === 'special',
       scores: r.scores ?? [],
-      postcode: r.postcode ?? null, station: r.station ? cleanStation(r.station) : null, stationLines: r.station_lines ?? [], stationKind: r.station_kind ?? null,
+      postcode: r.postcode ?? null, station: r.station ?? null, stationLines: r.station_lines ?? [], stationKind: r.station_kind ?? null,
       stationDistanceM: r.station_distance_m ?? null, whereChecked: r.where_checked ?? null,
       loved: (r.takes ?? []).filter((t) => t.take === 'loved').length,
       notForMe: (r.takes ?? []).filter((t) => t.take === 'not_for_me').length,
