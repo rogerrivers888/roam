@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Linking, Modal, PanResponder, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Animated, Linking, Modal, PanResponder, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api, BrowseItem, Endpoint, HouseholdResponse, Journey, JourneyLeg, JourneyStop, LegMode, Place, ShortlistItem, ShortlistStatus, TripDay, TripDetail, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap, minutes as fmtMinutes } from './ui';
@@ -8,6 +8,7 @@ import { MapLine, MapPin, MapView } from './MapView';
 import { VenueDrawer } from './VenueDrawer';
 import { DirectionsDrawer, LegPoint, MODE_LABEL } from './DirectionsDrawer';
 import { PlacePicker } from './PlacePicker';
+import { accuracyWords, useHere } from '../hooks/useHere';
 
 /**
  * The shortlist as the working surface, and the day that comes out of it
@@ -156,6 +157,7 @@ function EndpointModal({ which, journey, trip, day, onClose, onChanged }: { whic
   const current = which === 'start' ? journey.start : journey.end;
   const [busy, setBusy] = useState(false);
   const [other, setOther] = useState(false);
+  const me = useHere();
   const set = async (p: Endpoint | Place | null) => {
     setBusy(true);
     try { await api.updateDay(trip.trip.id, day.id, which === 'start' ? { startPoint: p } : { endPoint: p }); await onChanged(); onClose(); } finally { setBusy(false); }
@@ -181,6 +183,14 @@ function EndpointModal({ which, journey, trip, day, onClose, onChanged }: { whic
             <Pressable onPress={() => set(journey.choices.base)} disabled={busy} style={[styles.opt, same(journey.choices.base) && styles.optOn]}>
               <View style={styles.optIcon}><Icon name="hotel" size={18} color={colors.ink} /></View>
               <View style={{ flex: 1 }}><Text style={[type.body, { fontWeight: '700' }]} numberOfLines={1}>{journey.choices.base.label}</Text><Text style={type.tiny}>Where you're staying</Text></View>
+            </Pressable>
+          ) : null}
+          {/* Out already: the day starts where they are standing, not at home
+              (owner, 4 Sep 2026). The device is only asked when this is tapped. */}
+          {which === 'start' && me.supported ? (
+            <Pressable onPress={async () => { const p = await me.ask(); if (p) await set({ label: p.formatted ?? p.label, lat: p.lat, lng: p.lng }); }} disabled={busy || me.busy} style={styles.opt}>
+              <View style={styles.optIcon}>{me.busy ? <ActivityIndicator size="small" color={colors.accent} /> : <Icon name="here" size={18} color={colors.ink} />}</View>
+              <View style={{ flex: 1 }}><Text style={[type.body, { fontWeight: '700' }]}>{me.busy ? 'Finding you…' : 'Where I am'}</Text><Text style={type.tiny}>{me.error ? me.error : me.place ? `${me.place.formatted ?? me.place.label}${me.accuracyM != null ? ` · ${accuracyWords(me.accuracyM)}` : ''}` : 'Use this device’s location'}</Text></View>
             </Pressable>
           ) : null}
           <Pressable onPress={() => setOther((v) => !v)} disabled={busy} style={[styles.opt, current.kind === 'custom' && styles.optOn]}>

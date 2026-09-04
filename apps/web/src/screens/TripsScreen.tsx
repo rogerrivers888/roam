@@ -24,6 +24,7 @@ import { getSpeakPref } from './SettingsScreen';
 import { SourceDataPanel } from '../components/SourceData';
 import { isAdmin } from '../admin';
 import { recallScreen, rememberScreen } from '../screenState';
+import { accuracyWords, useHere } from '../hooks/useHere';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
 const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
@@ -171,9 +172,60 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
 // New trip
 // ---------------------------------------------------------------------------
 
+/** Trip away, day out from home, or out already. */
+type TripKind = 'trip' | 'outing' | 'now';
+
+/** The clock, down to the last five minutes: a window that starts "now" starts now. */
+const roundedNow = () => {
+  const d = new Date();
+  d.setMinutes(Math.floor(d.getMinutes() / 5) * 5, 0, 0);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+/** Four hours later, on the half hour, and never past the end of the day. */
+const hoursAfter = (hhmm: string, hours: number) => {
+  const [h, m] = hhmm.split(':').map(Number);
+  const mins = Math.min(23 * 60 + 30, Math.ceil((h * 60 + m + hours * 60) / 30) * 30);
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+};
+
+const KIND_HINT: Record<TripKind, string> = {
+  trip: 'Somewhere else, with dates and somewhere to stay.',
+  outing: 'A day out from home, planned by the hour.',
+  now: "You're out already — this starts where you're standing, from now.",
+};
+
+/**
+ * Where you are, asked of the device only when the button is pressed (owner,
+ * 4 Sep 2026). Typing it is always there underneath: a browser set to keep
+ * location private, a phone that cannot see the sky, or simply a household that
+ * would rather say it must all end up in the same place.
+ */
+function StartHere({ value, onPick }: { value: Place | null; onPick: (p: Place | null) => void }) {
+  const me = useHere();
+  const fromDevice = Boolean(value && me.place && value.lat === me.place.lat && value.lng === me.place.lng);
+  return (
+    <View style={{ gap: spacing.sm }}>
+      {!value ? (
+        <>
+          {me.supported ? <Button label={me.busy ? 'Finding you…' : 'Use my location'} icon="here" onPress={async () => { const p = await me.ask(); if (p) onPick(p); }} loading={me.busy} /> : null}
+          <Text style={type.tiny}>{me.supported ? "Your device says where you are and the map gives it a name. It isn't stored — it's used to search around you." : 'This browser cannot tell us where you are. Type it instead.'}</Text>
+          {me.error ? <StatusLine tone="warn">{me.error}</StatusLine> : null}
+        </>
+      ) : null}
+      <PlacePicker value={value} onPick={onPick} placeholder={me.supported ? 'Or type where you are' : 'Where you are'} />
+      {fromDevice ? <Text style={type.tiny}>From your device{me.accuracyM != null ? `, ${accuracyWords(me.accuracyM)}` : ''} · © OpenStreetMap contributors</Text> : null}
+    </View>
+  );
+}
+
 function NewTripForm({ household, prefill, onCreated }: { household: HouseholdResponse; prefill: TripPrefill | null; onCreated: (t: TripDetail) => Promise<void> }) {
   const home = household.household.home;
-  const [kind, setKind] = useState<'trip' | 'outing'>('trip');
+  // Three ways a trip begins (owner, 4 Sep 2026): somewhere else with dates, a
+  // day out from home, or — the one that was missing — standing in the street
+  // already ("in the real world, I'm out in London and I suddenly want to find
+  // somewhere to go"). "Right now" is a day out whose starting point is the
+  // device's own fix and whose window starts on the clock.
+  const [kind, setKind] = useState<TripKind>('trip');
   const [title, setTitle] = useState('');
   // The name is filled in from where you are going and keeps up with it until
   // you type over it (owner, 4 Sep 2026: "It should just chuck in the location
@@ -196,6 +248,10 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
   const [to, setTo] = useState<Place | null>(null);
   const [oStart, setOStart] = useState('10:00');
   const [oEnd, setOEnd] = useState('16:00');
+  // Right now: where the device says they are, and the hours left in the day.
+  const [herePlace, setHerePlace] = useState<Place | null>(null);
+  const [nStart, setNStart] = useState(() => roundedNow());
+  const [nEnd, setNEnd] = useState(() => hoursAfter(roundedNow(), 4));
   // A day out is a drive unless it is said not to be (owner, 4 Sep 2026:
   // "the means of transport should be defaulted to drive… walking and cycling,
   // it's just too much noise"). The other three are behind the line.
@@ -204,12 +260,17 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
   const [error, setError] = useState<string | null>(null);
 
   const shortName = (p: Place | null) => (!p ? '' : home && p.lat === home.lat && p.lng === home.lng ? 'Home' : (p.locality ?? p.label.split(',')[0].trim()));
+  // Where a day out starts: home (or wherever they said) for a planned one, the
+  // device's fix for one that has already started.
+  const startPoint = kind === 'now' ? herePlace : from;
   // Half-typed letters are not a destination: the name fills in once somewhere
   // has been picked, not while the box still says "bat".
-  const city = kind === 'trip' ? shortName(place) : shortName(to) || shortName(from);
+  const city = kind === 'trip' ? shortName(place) : shortName(to) || shortName(startPoint);
   const defaultTitle = kind === 'trip'
     ? (city ? `${city} · ${monthSpanLabel(start, end)}` : '')
-    : (to ? `${shortName(from) || 'Home'} → ${shortName(to)}` : from ? `Around ${shortName(from)}` : '');
+    : kind === 'now'
+      ? (herePlace ? `Around ${shortName(herePlace)}, ${fmtDate(start)}` : '')
+      : (to ? `${shortName(from) || 'Home'} → ${shortName(to)}` : from ? `Around ${shortName(from)}` : '');
   // Where changes, so does the name — until it has been typed in.
   useEffect(() => { if (!named) setTitle(defaultTitle); }, [defaultTitle, named]);
   const savedTitle = title.trim() || defaultTitle || undefined;
@@ -223,6 +284,23 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
           title: savedTitle ?? (placeText.trim() ? `${placeText.trim()} · ${monthSpanLabel(start, end)}` : undefined),
           place: place ?? undefined, placeText: place ? undefined : placeText.trim(), startDate: start, endDate: end,
           base: base ?? undefined, baseKind: base ? baseKind : 'other', hasCar, dayStart, dayEnd, intensity, attendingMemberIds: [...attending], seedFromAtlas: seed,
+        });
+        await onCreated(t);
+      } else if (kind === 'now') {
+        if (!herePlace) { setError('Tap "Use my location", or type where you are.'); setBusy(false); return; }
+        // Now is now: the window opens at this minute rather than at the top of
+        // the five it was rounded to, so nothing is already in the past.
+        const now = new Date();
+        const depart = new Date(`${now.toISOString().slice(0, 10)}T${nStart}:00`);
+        if (depart < now) depart.setTime(now.getTime());
+        const back = new Date(`${now.toISOString().slice(0, 10)}T${nEnd}:00`);
+        // Late enough in the evening and "back by" has already gone: give them
+        // the couple of hours they actually have rather than an error.
+        if (back <= depart) back.setTime(depart.getTime() + 2 * 3600_000);
+        const t = await api.createTrip({
+          title: savedTitle, origin: herePlace,
+          departAt: depart.toISOString(), returnAt: back.toISOString(),
+          travelMode: mode, intensity, attendingMemberIds: [...attending],
         });
         await onCreated(t);
       } else {
@@ -260,7 +338,17 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
 
   return (
     <Card style={{ borderColor: colors.accent }}>
-      <Segmented value={kind} options={[{ value: 'trip', label: 'Trip away (dates)' }, { value: 'outing', label: 'Day out (hours)' }]} onChange={setKind} />
+      <Segmented
+        value={kind}
+        options={[{ value: 'trip', label: 'Trip away' }, { value: 'outing', label: 'Day out' }, { value: 'now', label: 'Right now' }]}
+        onChange={(k) => {
+          // The clock has moved on since the form was opened: a window that
+          // says "now" has to mean now, not when the page loaded.
+          if (k === 'now') { const t = roundedNow(); setNStart(t); setNEnd(hoursAfter(t, 4)); }
+          setKind(k);
+        }}
+      />
+      <Text style={type.tiny}>{KIND_HINT[kind]}</Text>
 
       {kind === 'trip' ? (
         <>
@@ -293,6 +381,20 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
             </View>
           </FoldLine>
         </>
+      ) : kind === 'now' ? (
+        <>
+          <Text style={type.h3}>Where you are</Text>
+          <StartHere value={herePlace} onPick={setHerePlace} />
+          <Text style={type.h3}>How long you've got</Text>
+          <TimeRangePicker start={nStart} end={nEnd} onChange={(a, b) => { setNStart(a); setNEnd(b); }} labels={['From', 'Back by']} />
+          {nameField}
+          <FoldLine label="Getting about" value={MODE_WORD[mode]} icon={mode === 'cycling' ? 'walking' : mode}>
+            <Wrap>{(['driving', 'transit', 'walking', 'cycling'] as const).map((m) => <Chip key={m} label={MODE_WORD[m]} selected={mode === m} onPress={() => setMode(m)} />)}</Wrap>
+          </FoldLine>
+          {whoLine}
+          {paceLine}
+          <Text style={type.tiny}>Next: Find looks around you, and what you keep goes on today's shortlist.</Text>
+        </>
       ) : (
         <>
           <Text style={type.h3}>Where to</Text>
@@ -306,7 +408,7 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
             <View style={{ gap: spacing.sm }}>
               <Wrap>{(['driving', 'transit', 'walking', 'cycling'] as const).map((m) => <Chip key={m} label={MODE_WORD[m]} selected={mode === m} onPress={() => setMode(m)} />)}</Wrap>
               <Text style={type.tiny}>Starting from</Text>
-              <PlacePicker value={from} onPick={setFrom} extra={home ? [home] : []} />
+              <PlacePicker value={from} onPick={setFrom} extra={home ? [home] : []} here />
             </View>
           </FoldLine>
           {whoLine}
@@ -315,7 +417,7 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
       )}
 
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-      <Button label={kind === 'trip' ? 'Create trip' : 'Create day out'} onPress={submit} loading={busy} />
+      <Button label={kind === 'trip' ? 'Create trip' : kind === 'now' ? 'Find something now' : 'Create day out'} onPress={submit} loading={busy} />
     </Card>
   );
 }

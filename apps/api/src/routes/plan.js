@@ -1162,6 +1162,8 @@ router.post('/start', async (req, res, next) => {
     for (const c of before) { const m = matchChoice(c, utterance); if (m) { picked = m; pickedCheck = c; break; } }
     let intent;
     const base = state.intent || {};
+    // What a tapped control answered with, for the record of answered checks.
+    const setSaid = set?.origin?.lat != null ? (set.origin.label || 'where I am') : null;
     if (set && typeof set === 'object') {
       // A tapped control is exact: it lands in the intent as it is, no model call.
       // Wants a control produced last time are replaced, wants that were said stay.
@@ -1175,6 +1177,17 @@ router.post('/start', async (req, res, next) => {
           state.resolved.destination = { said: pl.label, place: pl };
           next.destination = pl.label;
         } else { next.destination = null; delete state.resolved.destination; }
+      }
+      // Where they are standing, tapped rather than said (owner, 4 Sep 2026:
+      // "in the real world, I'm out in London and I suddenly want to find
+      // somewhere to go"). A fix is exact, so it never goes back through the
+      // geocoder to be guessed at.
+      if (set.origin !== undefined) {
+        if (set.origin?.lat != null) {
+          const pl = { label: set.origin.label, lat: set.origin.lat, lng: set.origin.lng, locality: set.origin.locality ?? null, country: set.origin.country ?? null, countryCode: set.origin.countryCode ?? null, how: 'picked' };
+          state.resolved.origin = { said: pl.label, place: pl };
+          next.origin = pl.label;
+        } else { next.origin = null; delete state.resolved.origin; }
       }
       if (set.date !== undefined) next.date = set.date || null;
       if (set.end_date !== undefined) next.end_date = set.end_date || null;
@@ -1305,7 +1318,9 @@ router.post('/start', async (req, res, next) => {
     for (const c of before) {
       if (stillOpen.has(c.id) || state.answered.some((a) => a.id === c.id)) continue;
       if (c.id.startsWith('q:') && replacedQuestion && pickedCheck?.id !== c.id) continue;
-      const answer = pickedCheck?.id === c.id ? picked.label : utterance.slice(0, 60);
+      // A tapped control says nothing out loud, so the record of what answered
+      // "Where are you starting from?" is the place itself, not a blank line.
+      const answer = pickedCheck?.id === c.id ? picked.label : (utterance.slice(0, 60) || setSaid || '');
       state.answered.push({ id: c.id, text: c.text, answer });
     }
     state.checks = checks;

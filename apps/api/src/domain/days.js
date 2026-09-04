@@ -39,14 +39,32 @@ export function dayAsTrip(trip, day) {
   };
 }
 
-/** Every date from start to end inclusive, as YYYY-MM-DD. */
+/**
+ * A calendar date as YYYY-MM-DD, whether it arrives as that already or as the
+ * Date the driver builds for a `date` column (local midnight, so its own
+ * year/month/day are the ones written in the database).
+ */
+const asDate = (v) => (v instanceof Date
+  ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
+  : String(v).slice(0, 10));
+
+/**
+ * Every date from start to end inclusive, as YYYY-MM-DD.
+ *
+ * Counted in UTC on purpose. A trip's days are calendar dates, not instants:
+ * read as local midnight and printed back through toISOString(), every day of
+ * every summer trip came out one day early on a machine running an hour ahead
+ * of UTC — a fortnight in Lisbon starting on the 4th got a first day dated the
+ * 3rd. Nothing here is a moment in time, so nothing here has a timezone.
+ */
 export function datesBetween(startDate, endDate) {
   const out = [];
-  const d = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
+  const d = new Date(`${asDate(startDate)}T00:00:00Z`);
+  const end = new Date(`${asDate(endDate)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || Number.isNaN(end.getTime())) return out;
   while (d <= end && out.length < 60) {
     out.push(d.toISOString().slice(0, 10));
-    d.setDate(d.getDate() + 1);
+    d.setUTCDate(d.getUTCDate() + 1);
   }
   return out;
 }

@@ -154,6 +154,8 @@ export type Review = { text: string; rating: number | null; author: string | nul
 export type VenuePhotoRef = { ref?: string; url?: string; attribution?: string };
 
 export type Venue = {
+  /** Set when this place sits inside another's grounds — a ride in a theme park. It belongs in that place's drawer, not beside it in a list. */
+  insideRef?: string | null; insideName?: string | null;
   venueRef: string; source: string; sourcePlaceId: string; name: string; category: string; contributingSources?: string[];
   cuisines: string[]; experiences: string[]; allergens: string[]; dietaryOptions?: string[];
   priceLevel: number | null; rating: number | null; ratingCount?: number | null; goodForChildren: boolean | null; menuForChildren?: boolean | null; lat: number; lng: number;
@@ -652,7 +654,7 @@ export const api = {
    * matching a prefix, never a street or a shop — and is cheap enough to run on every keystroke.
    */
   geocode: (q: string, limit = 6, bias?: { near?: Place | null; country?: string | null; kind?: 'lodging' | 'area' | null }) =>
-    request<{ results: Place[]; attribution: string }>(`/api/places/geocode${qs({ q, limit, near: bias?.near ? `${bias.near.lat},${bias.near.lng}` : undefined, country: bias?.country ?? undefined, kind: bias?.kind ?? undefined })}`),
+    request<{ results: Place[]; home?: { code: string; name: string | null }; attribution: string }>(`/api/places/geocode${qs({ q, limit, near: bias?.near ? `${bias.near.lat},${bias.near.lng}` : undefined, country: bias?.country ?? undefined, kind: bias?.kind ?? undefined })}`),
   /** Coordinates from the device → the address they sit at. Nothing is stored; the household asked for this one. */
   where: (lat: number, lng: number) => request<{ place: Place; named: boolean; attribution: string }>(`/api/places/where${qs({ at: `${lat},${lng}` })}`),
   /** `sources` is the exact set of sources for this one search (e.g. 'osm,tripadvisor'); omitted = the default set, which never includes opt-in sources. */

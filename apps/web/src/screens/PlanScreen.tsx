@@ -19,6 +19,7 @@ import { Icon } from '../components/Icon';
 import { WhoLine, firstName } from '../components/Faces';
 import { getSpeakPref } from './SettingsScreen';
 import { recallScreen, rememberScreen } from '../screenState';
+import { useHere } from '../hooks/useHere';
 
 const speak = (text: string) => { if (getSpeakPref()) speakRaw(text); };
 
@@ -214,6 +215,22 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
     return () => { live = false; clearInterval(h); };
   }, [plan?.running, sessionId, take]);
 
+  // "Where are you starting from?" answered by the device rather than by
+  // typing (owner, 4 Sep 2026). A fix is exact, so it goes in as a picked place
+  // — the planner never has to guess at the words.
+  const me = useHere();
+  const startHere = useCallback(async () => {
+    // No session yet is the normal case: this is often the first thing tapped,
+    // and planSet opens one, exactly as picking a destination does.
+    if (busy) return;
+    const place = await me.ask();
+    if (!place) return;
+    setBusy('thinking');
+    try { take(await api.planSet({ origin: place }, sessionId, attendingIds ? [...attendingIds] : null), false); }
+    catch (e) { setError(e instanceof ApiError ? e.message : String((e as any)?.message || e)); }
+    finally { setBusy(false); }
+  }, [sessionId, busy, attendingIds, take, me]);
+
   const skip = useCallback(async (id: string) => {
     if (!sessionId || busy) return;
     setBusy('thinking');
@@ -384,6 +401,12 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
                     {!fromRow ? (
                       <>
                         <Text style={type.tiny}>Starting somewhere other than home?</Text>
+                        {/* Out already, and the device knows it: no typing at
+                            all (owner, 4 Sep 2026). Only asked when pressed. */}
+                        {me.supported ? (
+                          <Chip label={me.busy ? 'Finding you…' : 'Where I am'} icon="here" tone="accent" onPress={async () => { setTravelOpen(false); await startHere(); }} />
+                        ) : null}
+                        {me.error ? <Text style={[type.tiny, { color: colors.dislike }]}>{me.error}</Text> : null}
                         <TextInput value={fromText} onChangeText={setFromText} style={styles.editInput} placeholder="From…" placeholderTextColor={colors.inkFaint} onSubmitEditing={() => { setTravelOpen(false); send(fromText, false, 'from'); }} accessibilityLabel="Change where you start" />
                         <Row>
                           {speech.supported ? <Pressable onPress={() => { fieldRef.current = 'from'; speech.start(); }} style={styles.mic} accessibilityRole="button" accessibilityLabel="Say where you start"><Icon name="mic" size={16} color={colors.ink} /><Text style={[type.small, { fontWeight: '600' }]}>Say it</Text></Pressable> : null}
@@ -584,8 +607,15 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
                   </Row>
                   {i === 0 && !busy ? (
                     <View style={{ paddingLeft: 30, gap: 4 }}>
-                      {c.choices.length ? <Wrap>{c.choices.map((ch) => <Chip key={ch.say} label={ch.label} tone="accent" onPress={() => send(ch.say)} />)}</Wrap> : null}
-                      <Text style={type.tiny}>{c.choices.length ? 'Tap one, or say it' : 'Say it or type it below'}{c.skippable ? <Text onPress={() => skip(c.id)} style={{ textDecorationLine: 'underline' }}> · skip</Text> : null}</Text>
+                      {c.choices.length || c.id === 'origin' ? (
+                        <Wrap>
+                          {c.choices.map((ch) => <Chip key={ch.say} label={ch.label} tone="accent" onPress={() => send(ch.say)} />)}
+                          {/* Standing in the street, the answer is under their feet. */}
+                          {c.id === 'origin' && me.supported ? <Chip label={me.busy ? 'Finding you…' : 'Where I am'} icon="here" tone="accent" onPress={startHere} /> : null}
+                        </Wrap>
+                      ) : null}
+                      <Text style={type.tiny}>{c.choices.length || c.id === 'origin' ? 'Tap one, or say it' : 'Say it or type it below'}{c.skippable ? <Text onPress={() => skip(c.id)} style={{ textDecorationLine: 'underline' }}> · skip</Text> : null}</Text>
+                      {c.id === 'origin' && me.error ? <Text style={[type.tiny, { color: colors.dislike }]}>{me.error}</Text> : null}
                     </View>
                   ) : null}
                 </View>

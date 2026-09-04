@@ -113,6 +113,11 @@ export function storable(fullPath: string, body: any): any | null {
     };
   }
 
+  // Where the device says the household is standing (/api/places/where) falls
+  // through here on purpose. The map's name for a point is open data and could
+  // be kept, but a fix is not a fact about a place — it is a fact about a
+  // person, this minute. It is used and dropped, never written down.
+  //
   // Everything else — every search, every plan, every photo, every route — is
   // a provider's answer to a question asked once, and is not ours to write down.
   return null;

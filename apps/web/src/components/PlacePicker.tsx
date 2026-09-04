@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { api, Place } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Icon } from './Icon';
+import { useHere } from '../hooks/useHere';
 
 /**
  * Type a place, pick from real matches. Used for home, trip origins and
@@ -22,6 +23,7 @@ export function PlacePicker({
   onPick,
   onText,
   extra,
+  here,
   near,
   countryCode,
   kind,
@@ -34,6 +36,8 @@ export function PlacePicker({
   onText?: (text: string) => void;
   /** Extra fixed choices shown first, e.g. Home. */
   extra?: Place[];
+  /** Offer "Where I am" beside them: the device is asked only when it is tapped. */
+  here?: boolean;
   /** Look here first — the city a trip is in — so "Hilton" for Rome is not London's Hiltons. */
   near?: Place | null;
   /** Never leave this country (ISO code, e.g. IT). */
@@ -43,6 +47,7 @@ export function PlacePicker({
   autoFocus?: boolean;
 }) {
   const areas = kind === 'area';
+  const me = useHere();
   const [text, setText] = useState('');
   const [editing, setEditing] = useState(false);
   const [items, setItems] = useState<(Place & { matchedBy?: string; approximate?: boolean })[]>([]);
@@ -109,13 +114,26 @@ export function PlacePicker({
 
   return (
     <View style={{ gap: 6 }}>
-      {extra?.length ? (
+      {extra?.length || (here && me.supported) ? (
         <View style={styles.pills}>
-          {extra.map((p) => (
+          {extra?.map((p) => (
             <Pressable key={p.label} onPress={() => choose(p)} style={styles.pill}><Text style={styles.pillText}>{p.label}</Text></Pressable>
           ))}
+          {/* Nothing is asked of the device until this is pressed. */}
+          {here && me.supported ? (
+            <Pressable
+              onPress={async () => { const p = await me.ask(); if (p) choose(p); }}
+              disabled={me.busy}
+              style={[styles.pill, styles.herePill]}
+              accessibilityRole="button"
+            >
+              {me.busy ? <ActivityIndicator size="small" color={colors.accent} /> : <Icon name="here" size={14} color={colors.accent} />}
+              <Text style={[styles.pillText, { color: colors.accent }]}>{me.busy ? 'Finding you…' : 'Where I am'}</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
+      {here && me.error ? <Text style={[type.tiny, { color: colors.dislike }]}>{me.error}</Text> : null}
       <View style={styles.box}>
         <Icon name={areas ? 'place' : 'search'} size={16} color={colors.inkFaint} />
         <TextInput value={text} onChangeText={type_} placeholder={placeholder} placeholderTextColor={colors.inkFaint} style={styles.boxInput} autoCapitalize="words" autoCorrect={false} onSubmitEditing={() => { if (items[0]) choose(items[0]); }} returnKeyType="search" autoFocus={autoFocus || editing} />
@@ -178,5 +196,6 @@ const styles = StyleSheet.create({
   change: { minHeight: TARGET, justifyContent: 'center', paddingHorizontal: spacing.sm },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   pill: { paddingHorizontal: 12, minHeight: 36, justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.line },
+  herePill: { flexDirection: 'row', alignItems: 'center', gap: 6, borderColor: colors.accent },
   pillText: { fontSize: 13, fontWeight: '600', color: colors.ink },
 });

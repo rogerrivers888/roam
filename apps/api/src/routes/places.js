@@ -20,6 +20,35 @@ import { upsertHouseholdPlace } from './atlas.js';
 import { googleSource } from '../sources/google.js';
 import { claimPlace, ownedRecord, ownedRecords, enrich } from '../sources/own.js';
 
+// ---------------------------------------------------------------------------
+// A ride is not a day out (owner, 4 Sep 2026: "Saw the Ride… is a ride in
+// Thorpe Park… the rides can't be mixed in with actual other events like
+// Chertsey Museum or Staines Park").
+//
+// Some places have grounds: a theme park, a zoo, a water park, an aquarium.
+// Anything the sources return from inside those grounds is something to do
+// while you are there, not somewhere else to go, so it is marked with the place
+// it belongs to. The list drops them; that place's own drawer shows them.
+// ---------------------------------------------------------------------------
+const GROUNDS = { 'theme-park': 1.2, zoo: 1.0, 'water-park': 0.8, aquarium: 0.4 };
+const hasGrounds = (v) => (v.experiences || []).reduce((r, e) => Math.max(r, GROUNDS[e] ?? 0), 0);
+
+export function markContained(venues) {
+  const parents = venues
+    .map((v) => ({ v, radiusKm: hasGrounds(v) }))
+    .filter((p) => p.radiusKm > 0 && (p.v.ratingCount ?? 0) >= 200)
+    .sort((a, b) => (b.v.ratingCount ?? 0) - (a.v.ratingCount ?? 0));
+  if (!parents.length) return venues;
+  for (const v of venues) {
+    if (hasGrounds(v) > 0) continue; // a park inside a park is still its own place
+    const home = parents.find((p) => p.v !== v && kmBetween(p.v, v) <= p.radiusKm);
+    if (!home) continue;
+    v.insideRef = home.v.venueRef ?? `${home.v.source}:${home.v.sourcePlaceId}`;
+    v.insideName = home.v.name;
+  }
+  return venues;
+}
+
 export const places = Router();
 export const visits = Router();
 
@@ -65,7 +94,7 @@ async function resolveNear(nearParam, household) {
 }
 
 /** The household's relationship with a set of venue refs, in one query each. */
-async function householdStatus(householdId, refs) {
+export async function householdStatus(householdId, refs) {
   if (!refs.length) return {};
   const [{ rows: v }, { rows: l }] = await Promise.all([
     query(
