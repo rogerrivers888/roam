@@ -139,9 +139,14 @@ async function buildTable({ household, attending, attendees, session, taste, hom
   if (routingEnabled() && !routing.off && finalists.length) {
     try {
       const rows = await travelMatrixMinutes({ origin: home, destinations: finalists, mode: 'driving', meter });
-      if (!rows) travelNote = 'Google Routes returned nothing for these places.';
-      else if (!rows.some((row) => row?.minutes != null)) travelNote = 'Google Routes found no road route to any of these places.';
       rows?.forEach((row, i) => { if (row?.minutes != null) { finalists[i].travelMinutes = row.minutes; finalists[i].travelEstimated = false; } });
+      // A spent quota comes back both ways: a 429, and a 200 whose rows carry
+      // an error instead of a route. Neither is worth asking again this run.
+      if (!rows?.some((row) => row?.minutes != null)) {
+        travelNote = 'Google Routes answered without a road time for any of these, so they are worked out from the distance — a road is longer than a straight line. Its daily quota is the usual reason.';
+        routing.off = true;
+        routing.note = travelNote;
+      }
     } catch (err) {
       // The estimate stands, but the reason is said out loud in the log and on
       // the table: an hour by road is not an hour as the crow flies.
@@ -468,7 +473,8 @@ router.post('/tastes/trip', async (req, res, next) => {
 router.get('/tastes/menu/usage', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    res.json({ enabled: menuCheckEnabled(), ...(await menuCheckUsage(household.id)) });
+    // readsInBackground tells a client to poll rather than hold the request open.
+    res.json({ enabled: menuCheckEnabled(), readsInBackground: true, ...(await menuCheckUsage(household.id)) });
   } catch (err) {
     next(err);
   }
