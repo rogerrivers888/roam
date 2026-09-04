@@ -151,18 +151,16 @@ export function AccountsScreen() {
         </Card>
       ) : null}
 
-      {/* The owner does not appear in his own list until he has an account
-          row; until then he is on the shared passcode. */}
-      {data && !data.ownerClaimed ? <ClaimOwner onClaim={(email, name) => act(() => api.claimOwnerAccount({ email, name }))} busy={busy} /> : null}
-
       {invitation ? <InvitationCard invitation={invitation} onDone={() => setInvitation(null)} /> : null}
 
+      {/* Inviting is what this screen is for, so it is the first thing on it —
+          open by default until there is somebody in the list to look at. */}
       <Row style={styles.head}>
-        <SectionTitle hint={`${customers.length} ${customers.length === 1 ? 'person' : 'people'}`}>Who has Roam</SectionTitle>
-        <Button label={adding ? 'Cancel' : 'Add someone'} icon={adding ? 'close' : 'add'} onPress={() => setAdding((v) => !v)} />
+        <SectionTitle hint={customers.length ? `${customers.length} ${customers.length === 1 ? 'person' : 'people'}` : undefined}>Who has Roam</SectionTitle>
+        {customers.length ? <Button label={adding ? 'Cancel' : 'Invite someone'} icon={adding ? 'close' : 'add'} onPress={() => setAdding((v) => !v)} /> : null}
       </Row>
 
-      {adding && data ? (
+      {(adding || !customers.length) && data ? (
         <AddAccount
           plans={data.plans}
           defaultBound={data.defaults.guestMonthlyCallBound}
@@ -214,14 +212,10 @@ export function AccountsScreen() {
         />
       ))}
 
-      {data && !customers.length && !adding ? (
-        <Card>
-          <Text style={type.body}>Nobody else has Roam yet.</Text>
-          <Text style={type.tiny}>
-            Add someone by e-mail and Roam makes them a household of their own — their own places, their own people, nothing of yours.
-          </Text>
-        </Card>
-      ) : null}
+      {/* Optional, and last: the owner signs in with the passcode and does not
+          need an account row at all. It only buys him two things, and the line
+          says which, because "claim" on its own means nothing. */}
+      {data && !data.ownerClaimed ? <IncludeMine onClaim={(email, name) => act(() => api.claimOwnerAccount({ email, name }))} busy={busy} /> : null}
     </ScrollView>
   );
 }
@@ -438,27 +432,37 @@ function InvitationCard({ invitation, onDone }: { invitation: Invitation & { ema
   );
 }
 
-/** The owner claiming his own household, so he appears in his own list. */
-function ClaimOwner({ onClaim, busy }: { onClaim: (email: string, name: string) => Promise<any>; busy: boolean }) {
+/**
+ * Your own household in the list — optional, and the last thing on the screen.
+ *
+ * You sign in with the passcode, which means Roam has no e-mail for you and
+ * your household is not one of the rows above. Nothing is broken by leaving it
+ * that way, so this is one folded line rather than a card demanding an action:
+ * the first version of this screen led with it, and the owner's reaction was
+ * "I don't want to claim a name. I want to send an invite" (4 Sep 2026).
+ */
+function IncludeMine({ onClaim, busy }: { onClaim: (email: string, name: string) => Promise<any>; busy: boolean }) {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   return (
-    <Card>
-      <Text style={[type.small, { fontWeight: '700', color: colors.ink }]}>Your own account</Text>
-      <Text style={type.tiny}>
-        You are signed in with the shared passcode, so you do not appear below and your own usage is not counted with everybody else's.
-        Add your e-mail to claim the household you already have — nothing moves, and the passcode goes on working.
-      </Text>
-      <Row style={{ gap: spacing.sm, flexWrap: 'wrap' }}>
-        <TextInput value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor={colors.inkMuted} style={[styles.input, { flex: 1, minWidth: 120 }]} />
-        <TextInput
-          value={email} onChangeText={setEmail} placeholder="you@example.com" placeholderTextColor={colors.inkMuted}
-          autoCapitalize="none" keyboardType="email-address" inputMode="email"
-          style={[styles.input, { flex: 2, minWidth: 180 }]}
-        />
-        <Button label="Claim" icon="check" onPress={() => void onClaim(email.trim(), name.trim())} disabled={busy || !email.includes('@')} />
-      </Row>
-    </Card>
+    <FoldLine label="Optional" value="Show my own household in this list too" icon="person">
+      <Card>
+        <Text style={type.tiny}>
+          You sign in with the passcode, so Roam has no e-mail for you and your own household is not one of the rows above.
+          Adding one changes nothing about how you sign in — the passcode goes on working — but it means your household's usage
+          is counted alongside everybody else's, and you can get in by e-mail on a device that has never had the passcode.
+        </Text>
+        <Row style={{ gap: spacing.sm, flexWrap: 'wrap' }}>
+          <TextInput value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor={colors.inkMuted} style={[styles.input, { flex: 1, minWidth: 120 }]} />
+          <TextInput
+            value={email} onChangeText={setEmail} placeholder="you@example.com" placeholderTextColor={colors.inkMuted}
+            autoCapitalize="none" keyboardType="email-address" inputMode="email"
+            style={[styles.input, { flex: 2, minWidth: 180 }]}
+          />
+          <Button label="Add mine" icon="check" onPress={() => void onClaim(email.trim(), name.trim())} disabled={busy || !email.includes('@')} />
+        </Row>
+      </Card>
+    </FoldLine>
   );
 }
 
@@ -489,7 +493,7 @@ function AddAccount({ plans, defaultBound, canSend, busy, onAdd }: {
 
   return (
     <Card>
-      <SectionTitle hint="they get a household of their own">Add someone</SectionTitle>
+      <SectionTitle hint="they get a Roam of their own — their places, their people, nothing of yours">Invite someone</SectionTitle>
       <Row style={{ gap: spacing.sm, flexWrap: 'wrap' }}>
         <TextInput value={name} onChangeText={setName} placeholder="Their name" placeholderTextColor={colors.inkMuted} style={[styles.input, { flex: 1, minWidth: 130 }]} />
         <TextInput
@@ -515,8 +519,8 @@ function AddAccount({ plans, defaultBound, canSend, busy, onAdd }: {
       </Text>
 
       <Wrap>
-        <Button label={canSend ? 'Add and e-mail the link' : 'Add and make a link'} icon="send" onPress={() => void submit(true)} disabled={!ready || busy} />
-        <Button label="Add without inviting" kind="secondary" onPress={() => void submit(false)} disabled={!ready || busy} />
+        <Button label={canSend ? 'Send the invitation' : 'Make their link'} icon="send" onPress={() => void submit(true)} disabled={!ready || busy} />
+        <Button label="Add them, invite later" kind="secondary" onPress={() => void submit(false)} disabled={!ready || busy} />
       </Wrap>
     </Card>
   );
