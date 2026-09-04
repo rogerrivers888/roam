@@ -10,17 +10,28 @@ import { Row } from './ui';
  * the phone (and inside the shell's phone frame). Same container the venue
  * drawer uses, with nothing in it but what the caller passes.
  */
-export function SideSheet({ title, subtitle, onClose, children, footer }: {
+export function SideSheet({ title, subtitle, onClose, children, footer, size = 'md' }: {
   title: string; subtitle?: string | null; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode;
+  /**
+   * How wide the panel is on a wide screen. `md` (460) is a record; `lg` (760)
+   * is a record with charts in it — the back office's drill-downs.
+   *
+   * A size on the one drawer rather than a second drawer component: four
+   * hand-rolled copies is the mess Parcelvision had to merge back into one, and
+   * each of its copies was missing a different one of Escape, focus return and
+   * a scroll lock.
+   */
+  size?: 'md' | 'lg';
 }) {
   const { width, height, framed, origin } = useViewport();
   const wide = width >= 900;
+  const panelWidth = size === 'lg' ? 760 : 460;
   const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height, borderRadius: radius.lg, overflow: 'hidden' as const } : null;
   return (
     <Modal visible transparent animationType={wide ? 'fade' : 'slide'} onRequestClose={onClose}>
       <View style={styles.backdropWrap}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-        <View style={[styles.panel, wide ? styles.panelSide : styles.panelSheet, frameBox]}>
+        <View style={[styles.panel, wide ? [styles.panelSide, { width: panelWidth }] : styles.panelSheet, frameBox]}>
           <ScrollView contentContainerStyle={{ gap: spacing.md, padding: spacing.lg }}>
             <Row style={{ alignItems: 'flex-start' }}>
               <View style={{ flex: 1, gap: 2 }}>

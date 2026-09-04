@@ -12,8 +12,21 @@ import {
 import { findLiveSession, liveSessions, revokeAllSessions } from '../repositories/sessions.js';
 import { accountByEmail, accountById, consumeSignInLink, ownerAccount, recordSignIn } from '../repositories/accounts.js';
 import { invite } from './accounts.js';
+import { accessFor } from '../access.js';
 
 const router = express.Router();
+
+/**
+ * The doors and capabilities behind a session.
+ *
+ * `requireSession` attaches these to every other request, but this route
+ * answers *before* the door — it is how the app finds out whether it is inside
+ * — so it resolves them itself from the account it just looked up.
+ */
+async function accessSummary(account) {
+  const access = await accessFor({ account });
+  return { doors: access.doors, capabilities: [...access.capabilities], role: access.role ? { key: access.role.key, label: access.role.label } : null };
+}
 
 const bearerOf = (req) => {
   const [scheme, value] = String(req.headers.authorization || '').split(' ');
@@ -50,6 +63,10 @@ router.get('/session', async (req, res, next) => {
       // `account` being absent.
       account: account ? { id: account.id, email: account.email, name: account.name, role: account.role, plan: account.plan } : null,
       isOwner: Boolean(session) && (!session.account_id || account?.role === 'owner'),
+      // Which applications this session may enter and what it may do in them
+      // (access.js). The app draws only the doors it is told it holds — and the
+      // API refuses the rest whatever the app draws.
+      access: session ? await accessSummary(account) : null,
     });
   } catch (err) { next(err); }
 });

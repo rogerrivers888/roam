@@ -1050,6 +1050,38 @@ export const api = {
   removeAccount: (id: string, { withHousehold = false } = {}) =>
     del<{ removed: boolean; withHousehold: boolean; message: string }>(`/api/accounts/${id}${withHousehold ? '?withHousehold=1' : ''}`),
 
+
+  // --- the back office ------------------------------------------------------
+  //
+  // Every one of these answers 404 to a session without the admin door, so the
+  // app drawing them at all is a courtesy rather than the security boundary.
+
+  adminOverview: (days = 30) => request<AdminOverview>(`/api/admin/overview?days=${days}`),
+  adminPeople: (days = 30) => request<AdminPeople>(`/api/admin/people?days=${days}`),
+  adminPerson: (id: string, days = 30) => request<PersonRecord>(`/api/admin/people/${id}?days=${days}`),
+  adminSetRole: (id: string, roleId: string | null) => patch<{ account: { id: string; role: any } }>(`/api/admin/people/${id}/role`, { roleId }),
+  adminActivity: (days = 30) => request<{ window: { days: number }; feed: FeedRow[]; screens: ScreenRow[]; daily: DailyRow[]; active: Engagement['active'] }>(`/api/admin/activity?days=${days}`),
+  adminEngagement: (days = 30) => request<Engagement>(`/api/admin/reporting/engagement?days=${days}`),
+  adminRevenue: () => request<RevenueReport>('/api/admin/reporting/revenue'),
+  adminUsage: (days = 30) => request<UsageReport>(`/api/admin/reporting/usage?days=${days}`),
+  adminRoles: () => request<{ roles: Role[]; capabilities: Capability[]; doors: string[] }>('/api/admin/roles'),
+  adminCreateRole: (body: { key: string; label: string; description?: string; doors: string[]; capabilities: string[] }) =>
+    post<{ role: Role }>('/api/admin/roles', body),
+  adminUpdateRole: (id: string, body: Partial<{ label: string; description: string; doors: string[]; capabilities: string[] }>) =>
+    patch<{ role: Role }>(`/api/admin/roles/${id}`, body),
+  adminDeleteRole: (id: string) => del<{ removed: boolean }>(`/api/admin/roles/${id}`),
+  adminPlans: () => request<{ plans: SubscriptionPlan[] }>('/api/admin/plans'),
+  adminUpdatePlan: (key: string, body: Partial<{ label: string; note: string; pricePence: number | null; callBound: number | null; active: boolean }>) =>
+    patch<{ plan: SubscriptionPlan }>(`/api/admin/plans/${key}`, body),
+  adminAudit: (limit = 200) => request<{ audit: AuditRow[] }>(`/api/admin/audit?limit=${limit}`),
+
+  /**
+   * Telemetry: which screen, and still here. Fire-and-forget by design — a
+   * household must never notice that reporting failed.
+   */
+  reportActivity: (events: { kind: string; screen?: string; subject?: string; seconds?: number; at?: string }[]) =>
+    post<{ recorded: number }>('/api/activity', { events }).catch(() => ({ recorded: 0 })),
+
   // --- writes that have not gone yet ----------------------------------------
 
   /** Send everything waiting in the outbox. Safe to call at any time. */
@@ -1071,6 +1103,8 @@ export type SessionState = {
   isOwner?: boolean;
   /** Their account was suspended while they were signed in. */
   suspended?: boolean;
+  /** Which applications this session may enter, and what it may do in them. */
+  access?: Access | null;
 };
 
 // --- the admin module -------------------------------------------------------
@@ -1109,6 +1143,97 @@ export type AccountsResponse = {
   foundingHousehold: { id: string; name: string } | null;
   totals: { costMonth: number; costEver: number; callsMonth: number };
 };
+
+
+// --- the back office --------------------------------------------------------
+
+export type Access = { doors: string[]; capabilities: string[]; role: { key: string; label: string } | null };
+
+export type EstateTotals = {
+  households: number; accounts: number; active_accounts: number; invited: number; suspended: number;
+  joined_this_month: number; people: number; places: number; trips: number; visits: number; ratings: number;
+  live_devices: number; cost_month_usd: number; cost_ever_usd: number; calls_month: number;
+};
+export type DailyRow = { day: string; households: number; seconds: number; views: number; places: number; trips: number; visits: number };
+export type ScreenRow = { screen: string; views: number; households?: number; seconds: number };
+export type FeedRow = { kind: string; at: string; title: string; detail: string; household_id?: string; household_name?: string; account_email?: string | null };
+/** A subscription plan (`plans` table). Not to be confused with `PlanRow`, which is a row on the Plan screen. */
+export type SubscriptionPlan = { key: string; label: string; note: string | null; price_pence: number | null; call_bound: number | null; active: boolean; people?: number };
+export type MoneyBlock = {
+  mrrPence: number;
+  byPlan: { key: string; label: string; price_pence: number | null; households: number; mrr_pence: number; unpriced: number }[];
+  revenue: { month: string; households: number; revenue_pence: number; paying: number }[];
+  cost: { month: string; calls: number; cost_usd: number }[];
+  costMonthUsd: number;
+  basis: string;
+};
+export type AdminOverview = {
+  window: { days: number };
+  totals: EstateTotals;
+  active: { dau: number; wau: number; mau: number; seconds_30d: number; stickiness: number };
+  daily: DailyRow[];
+  screens: ScreenRow[];
+  feed: FeedRow[];
+  money: MoneyBlock | null;
+  withheld: string[];
+};
+export type AdminPerson = {
+  id: string; householdId: string; householdName: string | null; email: string; name: string | null;
+  status: string; plan: string; role: { id: string; key?: string; label?: string } | null;
+  createdAt: string; lastSeenAt: string | null; signInCount: number; liveDevices: number; members: number; trips: number;
+  activity: { seconds: number; views: number; daysActive: number; lastActive: string | null };
+  usage: { calls: number; costUsd: number; bound: number | null } | null;
+};
+export type AdminPeople = {
+  window: { days: number };
+  people: AdminPerson[];
+  roles: { id: string; key: string; label: string; doors: string[]; isOwner: boolean }[];
+  plans: { key: string; label: string; pricePence: number | null }[];
+  withheld: string[];
+};
+export type PersonRecord = {
+  account: { id: string; email: string; name: string | null; status: string; plan: string; trialEndsOn: string | null; note: string | null; createdAt: string; activatedAt: string | null; lastSeenAt: string | null; signInCount: number; monthlyCallBound: number | null; role: { id: string; key: string; label: string; doors: string[] } | null };
+  household: { id: string; name: string; homeLabel: string | null; timezone: string | null; createdAt: string } | null;
+  members: { id: string; name: string; relationship: string | null; isMinor: boolean; allergens: number; dislikes: number }[];
+  devices: { id: string; label: string | null; since: string; lastSeen: string; until: string }[];
+  signIns: { id: string; method: string; label: string | null; at: string }[];
+  audit: AuditRow[];
+  behaviour: {
+    summary: Record<string, number | string | null>;
+    feed: { kind: string; at: string; title: string; detail: string; subject: string | null; weight: number }[];
+    screens: ScreenRow[];
+    daily: { day: string; seconds: number; views: number }[];
+  } | null;
+  withheld: string[];
+};
+export type AuditRow = {
+  id: number; actor_id: string | null; actor_label: string | null; action: string;
+  subject_type: string | null; subject_id: string | null; subject_label: string | null;
+  before: any; after: any; at: string;
+};
+export type Engagement = {
+  window: { days: number };
+  daily: DailyRow[];
+  active: { dau: number; wau: number; mau: number; seconds_30d: number; stickiness: number };
+  screens: ScreenRow[];
+  retention: { cohorts: { cohort: string; size: number }[]; cells: { cohort: string; week_no: number; households: number }[] };
+  leaders: { accountId: string; email: string | null; name: string | null; seconds: number; views: number; daysActive: number; lastActive: string | null }[];
+};
+export type RevenueReport = {
+  basis: string; missing: string[]; mrrPence: number; arrPence: number; paying: number; free: number; arpuPence: number;
+  byPlan: MoneyBlock['byPlan']; revenue: MoneyBlock['revenue']; cost: MoneyBlock['cost']; plans: SubscriptionPlan[]; totals: EstateTotals;
+};
+export type UsageReport = {
+  window: { days: number };
+  byProvider: { provider: string; calls: number; cost_usd: number | null; households: number }[];
+  households: { accountId: string; email: string; name: string | null; calls: number; costUsd: number | null; bound: number | null; used: number }[];
+  withheld: string[];
+};
+export type Role = {
+  id: string; key: string; label: string; description: string | null; doors: string[];
+  is_system: boolean; is_owner: boolean; capabilities: string[]; people?: number;
+};
+export type Capability = { key: string; area: string; label: string; note: string; manages?: boolean };
 
 export type OfflineManifest = {
   generatedAt: string;

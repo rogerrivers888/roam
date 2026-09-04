@@ -14,6 +14,8 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { PrototypesScreen } from './src/screens/PrototypesScreen';
 import { JoinScreen } from './src/screens/JoinScreen';
 import { AccountsScreen } from './src/screens/AccountsScreen';
+import { AdminApp } from './src/admin/AdminApp';
+import { useActivity } from './src/hooks/useActivity';
 import { LockScreen } from './src/screens/LockScreen';
 import { Wordmark } from './src/components/Wordmark';
 import { useViewport, ViewportProvider } from './src/hooks/useViewport';
@@ -22,16 +24,13 @@ import { useOutbox } from './src/hooks/useOutbox';
 import { useSession } from './src/hooks/useSession';
 import { Icon, IconName } from './src/components/Icon';
 
-type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes' | 'accounts';
+type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes';
 const TABS: { key: Tab; label: string; icon: IconName; owner?: true }[] = [
   { key: 'plan', label: 'Plan', icon: 'plan' },
   { key: 'places', label: 'Places', icon: 'places' },
   { key: 'trips', label: 'Trips', icon: 'trips' },
   { key: 'household', label: 'Household', icon: 'household' },
   { key: 'settings', label: 'Settings', icon: 'settings' },
-  // The admin module. Drawn only for the owner, and the API answers 404 to
-  // everybody else whether or not it is drawn (api/src/auth.js `requireOwner`).
-  { key: 'accounts', label: 'Accounts', icon: 'accounts', owner: true },
 ];
 
 // Mobile-first (V1 is the installed web app on a phone), but on a wide screen
@@ -43,6 +42,18 @@ const DESKTOP = 900;
 // frame so every screen shows how it will look on the phone. The choice sticks.
 type ViewMode = 'web' | 'mobile';
 const VIEW_KEY = 'roam.viewMode';
+/**
+ * Which of Roam's two applications is open (owner, 4 Sep 2026: "2 profiles:
+ * web client, web admin"). Remembered, because somebody working in the back
+ * office for an afternoon should not land in the household app every reload.
+ */
+const PROFILE_KEY = 'roam.profile';
+type Profile = 'client' | 'admin';
+const readProfile = (): Profile =>
+  (Platform.OS === 'web' && typeof localStorage !== 'undefined' && localStorage.getItem(PROFILE_KEY) === 'admin' ? 'admin' : 'client');
+const rememberProfile = (p: Profile) => {
+  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') localStorage.setItem(PROFILE_KEY, p);
+};
 const PHONE = { width: 390, height: 844 };
 const TOOLBAR = 44;
 const BEZEL = 10;
@@ -153,7 +164,9 @@ export default function App() {
  * take away the one thing that still works.
  */
 function Gate() {
-  const { state, isOwner, recheck } = useSession();
+  const { state, isOwner, access, recheck } = useSession();
+  const [profile, setProfile] = useState<Profile>(readProfile);
+  const choose = (p: Profile) => { setProfile(p); rememberProfile(p); };
   // A link in the address is redeemed before the passcode screen can appear:
   // the person holding it has never seen a Roam passcode and never will.
   const link = useMemo(signInToken, []);
@@ -183,10 +196,18 @@ function Gate() {
   if (state === 'out' || state === 'unconfigured') {
     return <LockScreen onIn={recheck} configured={state !== 'unconfigured'} notice={linkFailed} />;
   }
-  return <Shell isOwner={isOwner} />;
+
+  // Two applications behind one sign-in. The back office is only reachable by a
+  // session holding the `admin` door — and if this app drew it anyway, every
+  // request it made would answer 404 (api/src/access.js).
+  const mayAdminister = Boolean(access?.doors?.includes('admin'));
+  if (profile === 'admin' && mayAdminister) {
+    return <AdminApp access={access} onLeave={() => choose('client')} />;
+  }
+  return <Shell isOwner={isOwner} mayAdminister={mayAdminister} onAdmin={() => choose('admin')} />;
 }
 
-function Shell({ isOwner }: { isOwner: boolean }) {
+function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; mayAdminister?: boolean; onAdmin?: () => void }) {
   const { width } = useViewport();
   const desktop = width >= DESKTOP;
   // The admin module is the owner's. Everybody else's app is exactly what it
@@ -243,6 +264,9 @@ function Shell({ isOwner }: { isOwner: boolean }) {
   }, []);
   const offline = useOffline();
   const outbox = useOutbox();
+  // Which screen, and that somebody is here. Two events, nothing identifying,
+  // and always written against this session's own household (useActivity).
+  useActivity(tab);
   // Showing the saved copy: the browser says there is no connection, the app has
   // already had to fall back to the device, or the API cannot be reached at all
   // and there is something saved to fall back to.
@@ -283,7 +307,6 @@ function Shell({ isOwner }: { isOwner: boolean }) {
       {tab === 'household' ? <HouseholdScreen data={household} refresh={refreshHousehold} /> : null}
       {tab === 'settings' ? <SettingsScreen data={household} refresh={refreshHousehold} /> : null}
       {tab === 'prototypes' ? <PrototypesScreen /> : null}
-      {tab === 'accounts' && isOwner ? <AccountsScreen /> : null}
     </>
   );
 
@@ -357,11 +380,26 @@ function Shell({ isOwner }: { isOwner: boolean }) {
               <Text style={[styles.navLabel, tab === 'prototypes' && { color: colors.ink }]}>Prototypes</Text>
             </Pressable>
             <View style={{ flex: 1 }} />
+            {/* The other application, for whoever holds its door. Named rather
+                than hidden behind an icon: switching profile is a deliberate act. */}
+            {mayAdminister && onAdmin ? (
+              <Pressable onPress={onAdmin} style={[styles.navItem, styles.navItemQuiet]} accessibilityRole="button">
+                <View style={styles.navIcon}><Icon name="accounts" size={18} color={colors.inkMuted} /></View>
+                <Text style={styles.navLabel}>Back office</Text>
+              </Pressable>
+            ) : null}
             {/* The corner is who you are and how the app looks — not the API's address (owner, 4 Sep 2026). */}
             <You household={household} onOpen={() => setTab('settings')} />
           </View>
         ) : (
-          <View style={styles.header}><Wordmark height={34} /></View>
+          <View style={styles.header}>
+            <Wordmark height={34} />
+            {mayAdminister && onAdmin ? (
+              <Pressable onPress={onAdmin} style={styles.headerAdmin} accessibilityRole="button" accessibilityLabel="Back office">
+                <Icon name="accounts" size={16} color={colors.inkMuted} />
+              </Pressable>
+            ) : null}
+          </View>
         )}
         {!desktop ? waitingBanner : null}
         {!desktop && showingSaved ? offlineBanner : !desktop && health !== 'ok' ? banner : null}
@@ -462,6 +500,10 @@ const styles = StyleSheet.create({
   desktop: { flex: 1, flexDirection: 'row' },
   sidebar: { width: 220, padding: spacing.lg, borderRightWidth: 1, borderRightColor: colors.line, backgroundColor: colors.surface, gap: 4 },
   // The one mint field (style guide): no shadow, just its colour.
+  // The header centres the wordmark, so the back-office door floats at its
+  // right edge rather than joining the column and pushing the mark off centre.
+  headerAdmin: { position: 'absolute', right: spacing.md, top: spacing.md, padding: 6 },
+  navItemQuiet: { opacity: 0.9 },
   header: { alignItems: 'center', paddingVertical: spacing.md, backgroundColor: colors.headerBg, borderBottomWidth: 1, borderBottomColor: colors.line },
   sideBrand: { paddingVertical: spacing.sm },
   navItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET, paddingHorizontal: spacing.sm, borderRadius: 10 },
