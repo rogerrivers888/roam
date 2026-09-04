@@ -6,10 +6,11 @@
 // interruption — a small number, or none at all.
 //
 // Two things are deliberate here (owner, 4 Sep 2026):
-//   • A stop is proposed only when it is *particularly good* — a standout
-//     rating, or somewhere the household already loves. An ordinary pub eight
-//     minutes off the road is not a reason to break a journey, so it is listed
-//     under "also on the way" and never planned in by itself.
+//   • A stop is proposed only when it is *particularly good* for what it costs
+//     — the bar rises with the detour, and somewhere the household already
+//     loves clears it whatever it costs. An ordinary pub eight minutes off the
+//     road is not a reason to break a journey, so it is listed under "also on
+//     the way" and never planned in by itself.
 //   • What each stop costs is always shown. The corridor is a bias, not a
 //     restriction: neither Google's along-route ranking nor a sampled circle
 //     guarantees a place sits on the road (Requirements §4).
@@ -22,7 +23,11 @@ import { wallClock } from './time.js';
 // How far off the road is still "on the way", by how you are travelling.
 export const MAX_DETOUR_MINUTES = { driving: 15, transit: 20, cycling: 10, walking: 8 };
 // The most a journey may grow either way for stops, however good they are.
-const MAX_ADDED_MINUTES_PER_LEG = 100;
+const MAX_ADDED_MINUTES_PER_LEG = 120;
+// A stop on the way is a break in a journey, not a visit: the household's usual
+// two and a half hours at an attraction is what they do when they have gone
+// somewhere, not what they do with a castle beside the motorway.
+const BREAK_MINUTES = { food: 90, thing: 75 };
 
 const FOOD = new Set(['restaurant', 'cafe', 'pub', 'bar']);
 const ACTIVITY = new Set(['attraction', 'event']);
@@ -100,7 +105,7 @@ export function corridorStops({
     const detour = Math.round(c.detourMinutes ?? 0);
     const isFood = FOOD.has(c.category);
     const isThing = ACTIVITY.has(c.category);
-    const dwell = dwellFor(c);
+    const dwell = Math.min(dwellFor(c), isFood ? BREAK_MINUTES.food : BREAK_MINUTES.thing);
     const standout = standoutReason(c, detour, limit);
     const tooFar = detour > limit;
     const banned = c.chain && !includeChains;
