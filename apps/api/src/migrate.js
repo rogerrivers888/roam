@@ -12,19 +12,30 @@ const migrationsDir = path.resolve(
 export const numberOf = (file) => file.slice(0, file.indexOf('_'));
 
 /**
- * Numbers that have already been used twice in this repository's history.
+ * The files that have already collided, by name.
  *
- * Six collisions happened before there was anything to stop them. Every one is
- * applied wherever it matters, they are ordered deterministically by full
+ * Six numbers were used twice before there was anything to stop it. Every one of
+ * these is applied wherever it matters, they order deterministically by full
  * filename, and renaming an applied file would make it run a second time — so
- * they are history, listed here once, and everything else must be unique.
+ * they are history.
+ *
+ * Named rather than numbered, because grandfathering the *number* would let a
+ * new `030_anything.sql` in through the same door and recreate exactly the
+ * divergence this guard exists to prevent (found by review, 4 Sep 2026).
  *
  * The list is explicit rather than derived from what a database has applied,
  * because "has this been applied" is a different answer in every environment:
  * an empty database has applied none of them, and a guard that inferred history
  * from that would refuse to build a database from scratch.
  */
-const HISTORICAL_DUPLICATES = new Set(['009', '019', '021', '028', '029', '030']);
+const HISTORICAL_DUPLICATES = new Set([
+  '009_favourites.sql', '009_timezone.sql',
+  '019_prototype_reviews.sql', '019_retry_refused_where.sql',
+  '021_home_radius.sql', '021_owned_places.sql',
+  '028_group_setup.sql', '028_place_menus.sql',
+  '029_home_country.sql', '029_research_version.sql',
+  '030_group_cap.sql', '030_place_contents.sql',
+]);
 
 /**
  * Refuse a *new* migration whose number is already taken.
@@ -39,7 +50,9 @@ export function assertNoNewDuplicateNumbers(files) {
     const n = numberOf(file);
     if (!n) continue;
     const seen = taken.get(n);
-    if (seen && !HISTORICAL_DUPLICATES.has(n)) {
+    // Only a pair that is *both* on the list is history. A new file taking a
+    // grandfathered number is the same mistake wearing an old number.
+    if (seen && !(HISTORICAL_DUPLICATES.has(seen) && HISTORICAL_DUPLICATES.has(file))) {
       throw new Error(
         `two migrations share the number ${n}: ${seen} and ${file}. `
         + 'Renumber the new one — a duplicate number is how environments start disagreeing about the order.',

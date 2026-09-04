@@ -27,10 +27,23 @@ test('a new file taking a used number is refused', () => {
   );
 });
 
-test('the six collisions that already happened are history, not an error', () => {
-  for (const n of ['009', '019', '021', '028', '029', '030']) {
-    assert.doesNotThrow(() => assertNoNewDuplicateNumbers([`${n}_one.sql`, `${n}_two.sql`]), `${n} should be grandfathered`);
-  }
+test('the collisions that already happened are history, by name', () => {
+  assert.doesNotThrow(() => assertNoNewDuplicateNumbers(['009_favourites.sql', '009_timezone.sql']));
+  assert.doesNotThrow(() => assertNoNewDuplicateNumbers(['030_group_cap.sql', '030_place_contents.sql']));
+});
+
+test('a new file wearing a grandfathered number is still refused', () => {
+  // The hole in grandfathering by number rather than by name: `030_anything`
+  // would have walked straight in and recreated the divergence (found by
+  // review, 4 Sep 2026).
+  assert.throws(
+    () => assertNoNewDuplicateNumbers(['030_group_cap.sql', '030_place_contents.sql', '030_something_new.sql']),
+    /two migrations share the number 030/,
+  );
+  assert.throws(
+    () => assertNoNewDuplicateNumbers(['009_favourites.sql', '009_something_new.sql']),
+    /two migrations share the number 009/,
+  );
 });
 
 test('the repository builds from an empty database', async () => {
