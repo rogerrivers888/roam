@@ -388,9 +388,20 @@ export const googleSource = {
  * halves of a town.
  */
 export async function sweepArea({ center, radiusKm = 2.5, queries = [], pages = 2, meter = null } = {}) {
-  if (!KEY() || !center || center.lat == null) return { places: [], calls: 0 };
-  const radius = Math.min(radiusKm, 50) * 1000;
+  if (!KEY() || !center || center.lat == null) return { places: [], calls: 0, problems: ['no Google key'] };
+  // Text Search fences with a rectangle, not a circle: `locationRestriction`
+  // rejects a circle outright, which is why the first Windsor sweep came back
+  // with nothing from every one of its eight queries (4 Sep 2026). A box round
+  // the radius is the same fence in the shape the endpoint accepts.
+  const km = Math.min(radiusKm, 50);
+  const dLat = km / 111.32;
+  const dLng = km / (111.32 * Math.cos((center.lat * Math.PI) / 180) || 1);
+  const rectangle = {
+    low: { latitude: center.lat - dLat, longitude: center.lng - dLng },
+    high: { latitude: center.lat + dLat, longitude: center.lng + dLng },
+  };
   const found = new Map();
+  const problems = [];
   let calls = 0;
 
   for (const q of queries) {
@@ -401,7 +412,7 @@ export async function sweepArea({ center, radiusKm = 2.5, queries = [], pages = 
         pageSize: 20,
         includedType: 'restaurant',
         languageCode: 'en-GB',
-        locationRestriction: { circle: { center: { latitude: center.lat, longitude: center.lng }, radius } },
+        locationRestriction: { rectangle },
       };
       if (pageToken) body.pageToken = pageToken;
       let data;
@@ -410,7 +421,11 @@ export async function sweepArea({ center, radiusKm = 2.5, queries = [], pages = 
         calls += 1;
       } catch (err) {
         // One query failing is not the sweep failing: a quota on one metric or
-        // a bad page token should not lose the four queries that worked.
+        // a bad page token should not lose the four queries that worked. But it
+        // must not vanish either — a swallowed error that reports as "no
+        // results" is the same empty-with-no-reason the owner complained about
+        // on the menu tabs, and it cost a deploy to find (4 Sep 2026).
+        problems.push(`${q}: ${String(err.message).slice(0, 120)}`);
         if (/\b429\b/.test(String(err.message))) throw err;
         break;
       }
@@ -440,7 +455,7 @@ export async function sweepArea({ center, radiusKm = 2.5, queries = [], pages = 
       if (!pageToken) break;
     }
   }
-  return { places: [...found.values()], calls };
+  return { places: [...found.values()], calls, problems };
 }
 
 /** Stream a Google photo through the server so the key stays server-side. */

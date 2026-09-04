@@ -112,8 +112,10 @@ export async function sweep(code, { dryRun = false } = {}) {
   // B. the crowd
   let googleCalls = 0;
   try {
-    const { places, calls } = await googleSweep({ center, radiusKm, queries: QUERIES, pages: 2 });
+    const { places, calls, problems } = await googleSweep({ center, radiusKm, queries: QUERIES, pages: 2 });
     googleCalls = calls;
+    // Said out loud rather than left as a zero.
+    if (problems?.length) notes.push(`the crowd pass was refused: ${problems[0]}`);
     for (const g of places) {
       if (kmBetween(center, g) > radiusKm) continue;
       const ref = `google:${g.sourcePlaceId}`;
