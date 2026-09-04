@@ -638,7 +638,7 @@ export const api = {
     post<{ venueRef: string; status: string }>('/api/places/save', { ref: venueRef, status, ...(context ?? {}) }),
   /** Predictions as you type: one cheap call, nothing fetched until one is chosen. */
   suggestPlaces: (p: { q: string; near?: string; radiusKm?: number; session?: string }) =>
-    request<{ suggestions: { placeId: string; name: string; where: string | null; types: string[] }[] }>(`/api/places/suggest${qs(p)}`),
+    request<{ suggestions: { placeId: string; name: string; where: string | null; kind: string | null; types: string[] }[] }>(`/api/places/suggest${qs(p)}`),
   /** Take a place out of the atlas. Somewhere you've been is kept — delete the visit first. */
   deleteAtlasPlace: (venueRef: string) => del<void>('/api/atlas/places', { venueRef }),
   /** A place the atlas held only by its identifier learns its name once the source has been asked. */

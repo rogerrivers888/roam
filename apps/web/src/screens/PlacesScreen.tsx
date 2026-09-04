@@ -11,7 +11,7 @@ import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap } from '../components/ui';
 import { PlacePicker } from '../components/PlacePicker';
 import { SourcePicker } from '../components/SourcePicker';
-import { VenueRow, VisitForm, VisitSummary, rowsForVisit } from '../components/Visits';
+import { BeenCapture, VenueRow, VisitForm, VisitSummary, rowsForVisit } from '../components/Visits';
 import { getViewer, onViewerChange } from '../viewer';
 import { isAdmin } from '../admin';
 
@@ -112,6 +112,16 @@ function atlasToVenue(p: AtlasPlace): Venue {
   };
 }
 
+function venueToBrowseItem(v: Venue): BrowseItem {
+  const [source] = v.venueRef.split(':');
+  return {
+    id: v.venueRef, venueRef: v.venueRef, name: v.name, category: v.category, lat: v.lat, lng: v.lng,
+    dwellMinutes: 0, reasons: [], justification: null, startsAt: null, endsAt: null, pinned: false, source,
+    cuisines: v.cuisines ?? [], experiences: v.experiences ?? [], address: typeof v.address === 'string' ? v.address : null,
+    website: v.website ?? null, openingHours: v.openingHours ?? null,
+  };
+}
+
 function atlasToBrowseItem(p: AtlasPlace): BrowseItem {
   const v = (p.venue ?? {}) as Partial<Venue>;
   const [source] = p.venueRef.split(':');
@@ -150,6 +160,9 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
   const [places, setPlaces] = useState<AtlasPlace[]>([]);
   const [wherePending, setWherePending] = useState(0);
   const [open, setOpen] = useState<AtlasPlace | null>(null);
+  // A place found by searching, before it is anything of ours: the drawer shows
+  // its details so you can be sure it is the right one.
+  const [newVenue, setNewVenue] = useState<Venue | null>(null);
   const refills = useRef(0);
 
   const members = household?.members ?? [];
@@ -262,7 +275,7 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
         <CityPanel
           key={home ? 'home' : `${country!.code}/${city!.name}`}
           country={country} city={city} home={home} places={places} household={household} viewer={viewer} wide={wide} viewportHeight={height}
-          onBack={() => { setSel(null); setOpen(null); }} onOpen={setOpen} openRef={open?.venueRef ?? null}
+          onBack={() => { setSel(null); setOpen(null); }} onOpen={setOpen} onOpenVenue={setNewVenue} openRef={open?.venueRef ?? null}
           onPlanTrip={() => onPlanTrip?.(home ? { placeText: home.label ?? 'home' } : { placeText: `${city!.name}, ${country!.name}`, countryCode: country!.code })}
           onChanged={refreshAll}
         />
@@ -271,11 +284,13 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
       ) : null}
 
       <VenueDrawer
-        item={open ? atlasToBrowseItem(open) : null}
+        item={newVenue ? venueToBrowseItem(newVenue) : open ? atlasToBrowseItem(open) : null}
         baseLabel={city?.name ?? (home ? 'home' : null)}
-        onClose={() => setOpen(null)}
+        onClose={() => { setOpen(null); setNewVenue(null); }}
         onVenue={async (v) => { if (open?.unnamed && v.name) { try { await api.nameAtlasPlace(open.venueRef, v.name); await loadPlaces(); } catch { /* the drawer still shows the fetched name */ } } }}
-        ours={open ? <OursPanel place={open} household={household} ctx={country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {}} viewer={viewer} onChanged={refreshAll} onRemoved={() => setOpen(null)} /> : null}
+        ours={newVenue
+          ? <NewPlacePanel venue={newVenue} household={household} ctx={country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {}} onChanged={refreshAll} />
+          : open ? <OursPanel place={open} household={household} ctx={country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {}} viewer={viewer} onChanged={refreshAll} onRemoved={() => setOpen(null)} /> : null}
         gettingThere={open ? <GettingThere place={open} /> : null}
       />
     </ScrollView>
@@ -312,9 +327,9 @@ const Count = ({ label, heart }: { label: string; heart?: boolean }) => (
 // Inside a city
 // ---------------------------------------------------------------------------
 
-function CityPanel({ country, city, home, places, household, viewer, wide, viewportHeight, onBack, onOpen, openRef, onPlanTrip, onChanged }: {
+function CityPanel({ country, city, home, places, household, viewer, wide, viewportHeight, onBack, onOpen, onOpenVenue, openRef, onPlanTrip, onChanged }: {
   country: AtlasCountry | null; city: AtlasCity | null; home: AtlasHome | null; places: AtlasPlace[]; household: HouseholdResponse | null; viewer: string | null; wide: boolean; viewportHeight: number;
-  onBack: () => void; onOpen: (p: AtlasPlace) => void; openRef: string | null; onPlanTrip: () => void; onChanged: () => Promise<void>;
+  onBack: () => void; onOpen: (p: AtlasPlace) => void; onOpenVenue: (v: Venue) => void; openRef: string | null; onPlanTrip: () => void; onChanged: () => Promise<void>;
 }) {
   // The filters are per city: coming back to London should not bring Lisbon's
   // "food only, been" with it.
@@ -398,7 +413,7 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
           onChange={(k) => { setKind(k); setTypeF(null); setSelPin(null); }}
         />
         {adding ? (
-          <AddPlace household={household} kind={kind} centre={centre} radiusKm={searchRadiusKm} ctx={ctx} wide={wide} onAdded={onChanged} />
+          <AddPlace household={household} kind={kind} centre={centre} radiusKm={searchRadiusKm} ctx={ctx} wide={wide} onAdded={onChanged} onOpen={onOpenVenue} />
         ) : (
         <>
         <View style={styles.filters}>
@@ -566,12 +581,47 @@ function PickSheet({ visible, title, options, value, onPick, onClose }: { visibl
 // Our side of a place, at the top of the drawer
 // ---------------------------------------------------------------------------
 
+/**
+ * A place just found by searching, before it is anything of ours: save it to
+ * try, or say we have been — with the source's own details, menu and order in
+ * the tabs beside it, so the first thing you can check is that it is the right
+ * one (owner, 4 Sep 2026).
+ */
+function NewPlacePanel({ venue, household, ctx: where, onChanged }: {
+  venue: Venue; household: HouseholdResponse | null; ctx: { country?: string; countryCode?: string; locality?: string }; onChanged: () => Promise<void>;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const ctx = { label: venue.name, category: venue.category, lat: venue.lat ?? undefined, lng: venue.lng ?? undefined, venue, ...where };
+
+  return (
+    <View style={styles.ours}>
+      <Row style={{ flexWrap: 'wrap' }}>
+        <Text style={type.h3}>Ours</Text>
+        <Chip label="Not in your places yet" />
+      </Row>
+      <Wrap>
+        <Button label={adding ? 'Close' : "We've been here"} icon={adding ? 'close' : undefined} kind={adding ? 'ghost' : 'primary'} onPress={() => setAdding((a) => !a)} />
+        <Button label="Save to try" kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'saved', ctx); setMsg(`Saved ${venue.name} to try.`); await onChanged(); }} />
+      </Wrap>
+      {msg ? <StatusLine tone="good">{msg}</StatusLine> : null}
+      {adding && household ? (
+        <BeenCapture venue={venue} household={household}
+          onCreate={async (body) => { await api.createVisit({ venueRef: venue.venueRef, venueLabel: venue.name, category: venue.category, lat: venue.lat, lng: venue.lng, visitedOn: body.visitedOn, note: body.note, attendeeIds: body.attendeeIds, takes: body.takes, venue: { experiences: venue.experiences, cuisines: venue.cuisines, category: venue.category }, ...where }); }}
+          onSaved={async () => { setAdding(false); setMsg(`Added ${venue.name} — thank you.`); await onChanged(); }} />
+      ) : null}
+      <Text style={type.tiny}>Rate the dishes on the Order tab when you have the menu.</Text>
+    </View>
+  );
+}
+
 function OursPanel({ place, household, ctx: where, viewer, onChanged, onRemoved }: { place: AtlasPlace; household: HouseholdResponse | null; ctx: { country?: string; countryCode?: string; locality?: string }; viewer: string | null; onChanged: () => Promise<void>; onRemoved: () => void }) {
   const [detail, setDetail] = useState<{ visits: Visit[] } | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Visit | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [detailed, setDetailed] = useState(false);
   const ctx = { label: place.name, category: place.category, lat: place.lat ?? undefined, lng: place.lng ?? undefined, ...where };
   const venue = atlasToVenue(place);
   const mine = myScore(place, viewer);
@@ -593,6 +643,9 @@ function OursPanel({ place, household, ctx: where, viewer, onChanged, onRemoved 
           place (owner, 4 Sep 2026): the stars are given on the order, and
           "our history here" shows what was ordered and what was loved. */}
       <Wrap>
+        {/* Dishes are rated on the order; this is the whole evening in one tap,
+            for the times nobody photographed a menu (owner, 4 Sep 2026). */}
+        <Button label={adding ? 'Close' : "We've been here"} icon={adding ? 'close' : undefined} kind={adding ? 'ghost' : 'primary'} onPress={() => { setEditing(null); setDetailed(false); setAdding((a) => !a); }} />
         {!place.visits && place.ledger !== 'saved' && !place.special ? <Button label="Save to try" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'saved', ctx); setMsg('Saved to try.'); await onChanged(); }} /> : null}
         {place.visits > 0 && !place.special ? <Button label="Mark as special" icon="keep" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'special', ctx); setMsg('Marked special — the planner will go further for it.'); await onChanged(); }} /> : null}
       </Wrap>
@@ -601,8 +654,14 @@ function OursPanel({ place, household, ctx: where, viewer, onChanged, onRemoved 
       {!place.visits && !place.special ? <Text style={type.tiny}>Special comes after you've been. Record the visit and it appears here.</Text> : null}
       {msg ? <StatusLine tone="good">{msg}</StatusLine> : null}
       {adding && household ? (
-        <VisitForm venue={venue} household={household} onDone={async () => { setAdding(false); await load(); await onChanged(); }} onCancel={() => setAdding(false)}
-          createVia={async (body) => { await api.createVisit({ venueRef: place.venueRef, venueLabel: place.name, category: venue.category, lat: venue.lat, lng: venue.lng, visitedOn: body.visitedOn, note: body.note, attendeeIds: body.attendeeIds, takes: body.takes, venue: body.venue, ...where }); }} />
+        detailed ? (
+          <VisitForm venue={venue} household={household} onDone={async () => { setAdding(false); setDetailed(false); await load(); await onChanged(); }} onCancel={() => setDetailed(false)}
+            createVia={async (body) => { await api.createVisit({ venueRef: place.venueRef, venueLabel: place.name, category: venue.category, lat: venue.lat, lng: venue.lng, visitedOn: body.visitedOn, note: body.note, attendeeIds: body.attendeeIds, takes: body.takes, venue: body.venue, ...where }); }} />
+        ) : (
+          <BeenCapture venue={venue} household={household} onMore={() => setDetailed(true)}
+            onCreate={async (body) => { await api.createVisit({ venueRef: place.venueRef, venueLabel: place.name, category: venue.category, lat: venue.lat, lng: venue.lng, visitedOn: body.visitedOn, note: body.note, attendeeIds: body.attendeeIds, takes: body.takes, venue: { experiences: venue.experiences, cuisines: venue.cuisines, category: venue.category }, ...where }); }}
+            onSaved={async () => { setAdding(false); setMsg('Saved — thank you.'); await load(); await onChanged(); }} />
+        )
       ) : null}
       {editing && household ? (
         <VisitForm venue={venue} household={household} onDone={async () => { setEditing(null); await load(); await onChanged(); }} onCancel={() => setEditing(null)}
@@ -648,12 +707,14 @@ function OursPanel({ place, household, ctx: where, viewer, onChanged, onRemoved 
  * radius from home, is where it looks. Which sources answered is an admin's
  * question, so it hides behind a chip on a wide screen only.
  */
-function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
+function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded, onOpen }: {
   household: HouseholdResponse | null; kind: Kind; centre: { lat: number; lng: number } | null; radiusKm: number;
   ctx: { country?: string; countryCode?: string; locality?: string }; wide: boolean; onAdded: () => Promise<void>;
+  /** Open the place in the drawer, where its details, menu and order live. */
+  onOpen: (v: Venue) => void;
 }) {
   const [q, setQ] = useState('');
-  const [suggestions, setSuggestions] = useState<{ placeId: string; name: string; where: string | null }[]>([]);
+  const [suggestions, setSuggestions] = useState<{ placeId: string; name: string; where: string | null; kind: string | null }[]>([]);
   const [sources, setSources] = useState<string[] | null>(null);
   const [showSources, setShowSources] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -682,14 +743,18 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
     return () => { if (typing.current) clearTimeout(typing.current); };
   }, [q, centre?.lat, centre?.lng]);
 
-  /** A chosen prediction: fetch that one place and offer it. */
+  /**
+   * A chosen prediction opens in the drawer — the first thing to know is that
+   * this is the right Sebastian's, and the details, menu and order are there
+   * (owner, 4 Sep 2026).
+   */
   const choose = async (placeId: string, name: string) => {
     justChose.current = true;
     setSuggestions([]); setQ(name); setBusy(true); setMsg(null);
     session.current = uuid();
     try {
       const d = await api.place(`google:${placeId}`);
-      if (d.venue) setRes([{ ...d.venue, household: d.household } as Venue]);
+      if (d.venue) onOpen({ ...d.venue, household: d.household } as Venue);
       else setMsg("Couldn't open that one.");
     } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   };
@@ -730,7 +795,7 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
               <View style={{ width: 22, alignItems: 'center' }}><Icon name="address" size={16} /></View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={type.h3} numberOfLines={1}>{sg.name}</Text>
-                {sg.where ? <Text style={type.tiny} numberOfLines={1}>{sg.where}</Text> : null}
+                {sg.kind || sg.where ? <Text style={type.tiny} numberOfLines={1}>{[sg.kind, sg.where].filter(Boolean).join(' · ')}</Text> : null}
               </View>
             </Pressable>
           ))}
@@ -748,7 +813,7 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
           createVia={async (body) => { await api.createVisit({ venueRef: rating.venueRef, venueLabel: rating.name, category: rating.category, lat: rating.lat, lng: rating.lng, visitedOn: body.visitedOn, note: body.note, attendeeIds: body.attendeeIds, takes: body.takes, venue: body.venue, ...ctx }); }} />
       ) : null}
       {res?.slice(0, 40).map((v) => (
-        <VenueRow key={v.venueRef} venue={v} stack={!wide} action={
+        <VenueRow key={v.venueRef} venue={v} stack={!wide} onPress={() => onOpen(v)} action={
           <Row>
             <Button label="Been" kind="secondary" onPress={() => setRating(v)} />
             <Button label="To try" kind="ghost" onPress={() => save(v)} />

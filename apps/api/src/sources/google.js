@@ -264,6 +264,22 @@ export const googleSource = {
    * a bias, not a fence, so a restaurant in the next town still appears.
    */
   async suggest(query, { near = null, radiusKm = 15, sessionToken = null, meter = null } = {}) {
+    // What kind of place a prediction is, in a word or two: "you've got the
+    // right Sebastian's" needs the word restaurant next to the address
+    // (owner, 4 Sep 2026).
+    const describe = (types = []) => {
+      const cuisines = cuisineFromTypes(types);
+      const primary = types[0] || '';
+      const category = TYPE_TO_CATEGORY[primary] || types.map((t) => TYPE_TO_CATEGORY[t]).find(Boolean) || null;
+      const experience = TYPE_TO_EXPERIENCE[primary] || types.map((t) => TYPE_TO_EXPERIENCE[t]).find(Boolean) || null;
+      const word = (x) => String(x).charAt(0).toUpperCase() + String(x).slice(1).replace(/[-_]/g, ' ');
+      if (cuisines.length && (!category || category === 'restaurant')) return `${word(cuisines[0])}${/house|bakery|coffee|bar$/.test(cuisines[0]) ? '' : ' restaurant'}`;
+      if (experience) return word(experience);
+      if (category) return word(category === 'cafe' ? 'café' : category);
+      if (types.includes('street_address') || types.includes('route') || types.includes('premise')) return 'Address';
+      if (types.includes('locality') || types.includes('postal_town')) return 'Town';
+      return null;
+    };
     if (!KEY() || !String(query || '').trim()) return [];
     const body = { input: String(query).trim(), includedPrimaryTypes: [], languageCode: 'en-GB' };
     delete body.includedPrimaryTypes;
@@ -277,6 +293,7 @@ export const googleSource = {
         placeId: p.placeId,
         name: p.structuredFormat?.mainText?.text ?? p.text?.text ?? '',
         where: p.structuredFormat?.secondaryText?.text ?? null,
+        kind: describe(p.types || []),
         types: p.types || [],
       }))
       .filter((p) => p.placeId && p.name);

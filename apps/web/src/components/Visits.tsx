@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, HouseholdResponse, Venue, Visit, VisitTake } from '../api';
+import { api, HouseholdResponse, Take, Venue, Visit, VisitTake } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, StatusLine, Wrap } from './ui';
 import { CategoryIcon, Icon } from './Icon';
@@ -74,6 +74,90 @@ export function VisitSummary({ visit, onPress }: { visit: Visit; onPress?: () =>
 }
 
 export type VisitCreateBody = { visitedOn: string; note: string; attendeeIds: string[]; takes: VisitTake[]; venue: Partial<Venue> };
+
+/** The number behind a word, so a one-tap answer still gives the row a score. */
+const SCORE_FOR: Record<Take, number> = { loved: 5, fine: 3, not_for_me: 1 };
+const WORD_FOR: Record<Take, string> = { loved: 'Loved it', fine: 'It was fine', not_for_me: 'Not for us' };
+
+/**
+ * "Did everyone love it?" — one tap (owner, 4 Sep 2026: "I should just have
+ * 'Everyone loved it' as my first option, so it's just 1 click… it's almost
+ * like I'm being forced to review it, which is also very awkward"). The date is
+ * today and everybody came, because that is nearly always true; anything else
+ * is behind "More detail". Each choice saves as it is tapped, so there is
+ * nothing to lose by closing the drawer.
+ */
+export function BeenCapture({ venue, household, onCreate, onSaved, onMore }: {
+  venue: Pick<Venue, 'name'>;
+  household: HouseholdResponse;
+  onCreate: (body: VisitCreateBody) => Promise<void>;
+  onSaved: () => Promise<void>;
+  /** Where the long form lives, when there is one. */
+  onMore?: () => void;
+}) {
+  const members = household.members;
+  const [mode, setMode] = useState<'ask' | 'some'>('ask');
+  const [takes, setTakes] = useState<Record<string, Take>>(() => Object.fromEntries(members.map((m) => [m.id, 'loved' as Take])));
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (what: Record<string, Take>, tag: string) => {
+    setBusy(tag); setError(null);
+    try {
+      await onCreate({
+        visitedOn: today(), note: '', attendeeIds: members.map((m) => m.id),
+        takes: members.map((m) => ({ memberId: m.id, subject: 'visit', take: what[m.id], comment: null, score: SCORE_FOR[what[m.id]] })),
+        venue: {},
+      });
+      await onSaved();
+    } catch (e: any) { setError(e.message); } finally { setBusy(null); }
+  };
+
+  const everyone = (take: Take) => save(Object.fromEntries(members.map((m) => [m.id, take])), take);
+
+  if (mode === 'some') {
+    return (
+      <View style={styles.capture}>
+        <Text style={type.h3}>Who loved it?</Text>
+        {members.map((m) => (
+          <View key={m.id} style={styles.whoLine}>
+            <Text style={[type.body, { flex: 1, minWidth: 0 }]} numberOfLines={1}>{m.name.split(' ')[0]}</Text>
+            <View style={styles.whoPicks}>
+              {(['loved', 'fine', 'not_for_me'] as Take[]).map((t) => {
+                const on = takes[m.id] === t;
+                return (
+                  <Pressable key={t} onPress={() => setTakes((s) => ({ ...s, [m.id]: t }))} style={[styles.whoPick, on && styles.whoPickOn]}
+                    accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={`${m.name}: ${WORD_FOR[t]}`}>
+                    <Icon name={t === 'loved' ? 'keep' : t === 'fine' ? 'minus' : 'close'} size={15} color={on ? colors.primaryFg : colors.ink} fill={t === 'loved' && on} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ))}
+        {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+        <Row>
+          <Button label="Save" onPress={() => save(takes, 'some')} loading={busy === 'some'} />
+          <Button label="Back" kind="ghost" onPress={() => setMode('ask')} />
+        </Row>
+        <Text style={type.tiny}>♥ loved it · – it was fine · ✕ not for us</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.capture}>
+      <Text style={type.h3}>Did everyone love it?</Text>
+      <Button label="Everyone loved it" icon="keep" iconFill onPress={() => everyone('loved')} loading={busy === 'loved'} />
+      <Row style={{ flexWrap: 'wrap' }}>
+        <Button label="Only some of us" kind="secondary" onPress={() => setMode('some')} />
+        <Button label="Not for us" kind="secondary" onPress={() => everyone('not_for_me')} loading={busy === 'not_for_me'} />
+      </Row>
+      {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+      {onMore ? <Pressable onPress={onMore} accessibilityRole="button"><Text style={styles.moreLink}>More detail — another date, who came, a note, exact scores</Text></Pressable> : null}
+    </View>
+  );
+}
 
 /** Rows for the form from a visit being edited: each person's score, take and words. */
 export function rowsForVisit(visit: Visit, members: { id: string; name: string }[]): TakeRow[] {
@@ -153,5 +237,11 @@ const styles = StyleSheet.create({
   form: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.panel },
   visitRow: { gap: 6, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.panel },
   takeLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  capture: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.panel },
+  whoLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET - 6 },
+  whoPicks: { flexDirection: 'row', gap: 6 },
+  whoPick: { width: 40, height: 34, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+  whoPickOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  moreLink: { fontSize: 13, fontWeight: '600', color: colors.ink, textDecorationLine: 'underline' },
   scoreInline: { flexDirection: 'row', alignItems: 'center', gap: 3 },
 });
