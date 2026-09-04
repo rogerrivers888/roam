@@ -97,7 +97,9 @@ async function post(path, body, fieldMask) {
   const data = await res.json();
   // A spent quota also arrives as a 200 whose rows carry an error instead of a
   // route, so the body has to be read as well as the status.
-  if (Array.isArray(data) && data.length && data.every((r) => r?.error) && isExhausted(null, JSON.stringify(data.slice(0, 3)))) throw pause(path);
+  // Even one row carrying RESOURCE_EXHAUSTED means the quota answered, not the
+  // road: a matrix can come back 200 with its elements refused one by one.
+  if (Array.isArray(data) && data.some((r) => r?.error) && isExhausted(null, JSON.stringify(data).slice(0, 4000))) throw pause(path);
   clearPause(path);
   return data;
 }
