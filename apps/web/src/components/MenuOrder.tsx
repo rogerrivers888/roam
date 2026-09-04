@@ -12,21 +12,22 @@ import { Button, Card, Chip, Row, Segmented, Wrap } from './ui';
  * an order that I can then read to the waiter. After that, I can go in and
  * review or give stars to the particular dishes that we had."
  *
- * Four steps, one screen: the menu (read from the restaurant's own page, not
- * photographed), the order grouped by person, a staff view in big type, and
- * stars afterwards.
+ * Menu and Order are two tabs of the place's own drawer rather than a screen of
+ * their own (owner, 4 Sep 2026: "if you can fit it in, menu/order would be
+ * amazing… that way you should be straight into what you want"), so the state
+ * lives in `useMenuOrder` and the two panels draw on it. Only the screen you
+ * hold up to a waiter takes the whole window.
  *
  * The rating rule is the owner's and it is deliberately sparse: stars mean
  * good, a dish nobody touches counts as fine and writes nothing, and "not
  * great" is one tap that only then asks why.
  *
  * Allergens exclude and dislikes rank, and they never share a control or a
- * colour (CLAUDE.md). An allergen the menu declares strikes the dish out in the
- * warning red; an allergen that is only *likely* — carrot in a ragù, which no
- * menu has to declare — can never be a clearance, so it asks.
+ * colour (CLAUDE.md). An allergen the menu declares is the warning red; an
+ * allergen that is only *likely* — carrot in a ragù, which no menu has to
+ * declare — can never be a clearance, so it asks.
  */
 
-type Step = 'menu' | 'order' | 'staff' | 'rate' | 'saved';
 type Picks = Record<string, { members: Record<string, boolean>; table: boolean; note: string }>;
 type Marks = Record<string, { stars: number; notGreat: boolean; comment: string; concept: boolean }>;
 
@@ -118,19 +119,13 @@ function Face({ label, on, onPress, size = 30 }: { label: string; on: boolean; o
 
 const money = (n: number) => `£${n.toFixed(2).replace(/\.00$/, '')}`;
 
-export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
-  venueRef: string;
-  venueLabel: string;
-  website?: string | null;
-  onClose: () => void;
-}) {
-  const { width, height, framed, origin } = useViewport();
-  const wide = width >= 900;
-  const frameBox = framed && origin
-    ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height, borderRadius: radius.lg, overflow: 'hidden' as const }
-    : null;
+/* --------------------------------------------------------------- the state */
 
-  const [step, setStep] = useState<Step>('menu');
+export type MenuOrderCtl = ReturnType<typeof useMenuOrder>;
+
+export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: {
+  venueRef: string; venueLabel: string; website?: string | null; enabled?: boolean;
+}) {
   const [menu, setMenu] = useState<ReadMenu | null | undefined>(undefined);
   const [link, setLink] = useState<MenuLink | null>(null);
   const [reading, setReading] = useState(false);
@@ -141,21 +136,21 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
   const [picks, setPicks] = useState<Picks>({});
   const [order, setOrder] = useState<Order | null>(null);
   const [marks, setMarks] = useState<Marks>({});
-  const [staffBy, setStaffBy] = useState<'person' | 'course'>('person');
   const [busy, setBusy] = useState(false);
-  // An order that was already here when the screen opened is one the table has
+  const [staff, setStaff] = useState(false);
+  // Where the Order tab is: the order itself, the stars afterwards, what was kept.
+  const [phase, setPhase] = useState<'order' | 'rate' | 'saved'>('order');
+  // An order that was already here when the drawer opened is one the table has
   // placed; the meal comes after it, so that is the only one offered "we ate
   // it" (owner, 4 Sep 2026). One being written now is still being written.
   const [resumed, setResumed] = useState(false);
-  // A note for the waiter is a fallback for the one you can write while
-  // ordering, so it hides behind a pencil rather than taking a row on every
-  // line (owner, 4 Sep 2026).
   const [noting, setNoting] = useState<Record<string, boolean>>({});
   // "What's this?": a menu often gives a name in another language and nothing
   // else. Asked for one dish at a time, on a tap, and kept once written.
   const [asked, setAsked] = useState<Record<string, DishNote | 'asking' | 'failed'>>({});
 
   useEffect(() => {
+    if (!enabled) return;
     let live = true;
     api.household().then((h) => live && setHousehold(h)).catch(() => {});
     api.heldMenu(venueRef)
@@ -165,7 +160,6 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
       if (!live || !d.order || d.order.visitId) return;
       setOrder(d.order);
       setResumed(true);
-      setStep('order');
       // The picks are what the menu draws and what saving writes, so an order
       // that came back from the server has to become picks again or editing it
       // would quietly wipe it.
@@ -178,7 +172,7 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
       }, new Map<string, Picks[string]>())));
     }).catch(() => {});
     return () => { live = false; };
-  }, [venueRef]);
+  }, [venueRef, enabled]);
 
   const members = household?.members ?? [];
   const sections = menu?.sections ?? [];
@@ -188,6 +182,10 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
     for (const s of sections) for (const i of s.items) map.set(i.id, { ...i, section: s.title });
     return map;
   }, [menu]);
+
+  const pickOf = (id: string) => picks[id] ?? { members: {}, table: false, note: '' };
+  const setPick = (id: string, next: Partial<Picks[string]>) =>
+    setPicks((p) => ({ ...p, [id]: { ...pickOf(id), ...next } }));
 
   const rowsFrom = (from: Picks) => {
     const rows: { itemId: string; memberId: string | null; note: string }[] = [];
@@ -200,21 +198,6 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
   };
   const chosen = useMemo(() => rowsFrom(picks), [picks, itemsById, members]);
   const total = chosen.reduce((n, r) => n + (itemsById.get(r.itemId)?.price ?? 0), 0);
-
-  const pickOf = (id: string) => picks[id] ?? { members: {}, table: false, note: '' };
-  const setPick = (id: string, next: Partial<{ members: Record<string, boolean>; table: boolean; note: string }>) =>
-    setPicks((p) => ({ ...p, [id]: { ...pickOf(id), ...next } }));
-
-  async function whatIsThis(item: MenuItem) {
-    if (asked[item.id]) { setAsked(({ [item.id]: _drop, ...rest }) => rest); return; }   // tapping again folds it away
-    setAsked((a) => ({ ...a, [item.id]: 'asking' }));
-    try {
-      const d = await api.dishNote(item.name, venueLabel);
-      setAsked((a) => ({ ...a, [item.id]: d.dish }));
-    } catch {
-      setAsked((a) => ({ ...a, [item.id]: 'failed' }));
-    }
-  }
 
   async function readTheMenu() {
     setReading(true); setError(null); setHow([]);
@@ -246,7 +229,7 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
 
   async function toTheOrder() {
     setBusy(true);
-    try { await writeOrder(); setStep('order'); }
+    try { await writeOrder(); setPhase('order'); }
     catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
@@ -278,7 +261,7 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
     setBusy(true);
     try {
       if (order && !order.visitId) await api.clearOrder(order.id);
-      setOrder(null); setPicks({}); setMarks({}); setResumed(false); setStep('menu');
+      setOrder(null); setPicks({}); setMarks({}); setResumed(false); setPhase('order');
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
@@ -288,7 +271,7 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
     try {
       const d = order.visitId ? { order } : await api.orderEaten(order.id);
       setOrder(d.order);
-      setStep('rate');
+      setPhase('rate');
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
@@ -307,17 +290,20 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
         };
       }));
       setOrder(d.order);
-      setStep('saved');
+      setPhase('saved');
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
-  // Keep the screen awake while it is being read across a table.
-  useEffect(() => {
-    if (step !== 'staff' || typeof navigator === 'undefined') return;
-    let lock: any;
-    (navigator as any).wakeLock?.request?.('screen').then((l: any) => { lock = l; }).catch(() => {});
-    return () => { lock?.release?.().catch(() => {}); };
-  }, [step]);
+  async function whatIsThis(item: MenuItem) {
+    if (asked[item.id]) { setAsked(({ [item.id]: _drop, ...rest }) => rest); return; }   // tapping again folds it away
+    setAsked((a) => ({ ...a, [item.id]: 'asking' }));
+    try {
+      const d = await api.dishNote(item.name, venueLabel);
+      setAsked((a) => ({ ...a, [item.id]: d.dish }));
+    } catch {
+      setAsked((a) => ({ ...a, [item.id]: 'failed' }));
+    }
+  }
 
   const groups = useMemo(() => {
     const list = order?.items ?? [];
@@ -326,410 +312,417 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
       .filter((g) => g.items.length || g.id !== null);
   }, [order, members]);
 
-  const allergenLines = members
-    .flatMap((m) => (m.allergens ?? []).map((a) => `${m.name.split(' ')[0]} is allergic to ${a.value.toLowerCase()}.`));
-  const dietLines = members
-    .flatMap((m) => (m.diets ?? []).map((d) => `${m.name.split(' ')[0]} is ${d.value.toLowerCase()}.`));
+  const allergenLines = members.flatMap((m) => (m.allergens ?? []).map((a) => `${m.name.split(' ')[0]} is allergic to ${a.value.toLowerCase()}.`));
+  const dietLines = members.flatMap((m) => (m.diets ?? []).map((d) => `${m.name.split(' ')[0]} is ${d.value.toLowerCase()}.`));
 
-  const header = (title: string, sub: string | null, back?: () => void) => (
-    <Row style={{ alignItems: 'flex-start' }}>
-      <View style={{ flex: 1, gap: 2 }}>
-        {back ? (
-          <Pressable onPress={back} accessibilityRole="button" style={styles.backRow}>
-            <Icon name="back" size={14} /><Text style={type.tiny}>Back</Text>
-          </Pressable>
-        ) : null}
-        <Text style={type.title}>{title}</Text>
-        {sub ? <Text style={type.small}>{sub}</Text> : null}
-      </View>
-      <Pressable onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel="Close">
-        <Icon name="close" size={22} color={colors.ink} />
-      </Pressable>
-    </Row>
-  );
+  return {
+    venueLabel, menu, link, reading, error, how, members, sections, shown, section, setSection, itemsById,
+    picks, pickOf, setPick, chosen, total, order, resumed, marks, setMarks, busy, staff, setStaff, phase, setPhase,
+    noting, setNoting, asked, groups, allergenLines, dietLines,
+    readTheMenu, toTheOrder, removeFromOrder, noteOnOrder, startAgain, weAteIt, saveStars, whatIsThis,
+  };
+}
 
+/* ---------------------------------------------------------------- the menu */
+
+export function MenuPanel({ ctl, onOrder }: { ctl: MenuOrderCtl; onOrder: () => void }) {
+  const { menu, link, reading, error, how, members, sections, shown, chosen, total, asked } = ctl;
   return (
-    <Modal visible transparent animationType={wide ? 'fade' : 'slide'} onRequestClose={onClose}>
-      <View style={styles.backdropWrap}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
-        <View style={[styles.panel, wide ? styles.panelSide : styles.panelSheet, frameBox]}>
+    <>
+      <ScrollView contentContainerStyle={styles.body}>
+        {menu === undefined ? <Text style={type.small}>Looking for the menu we hold…</Text> : null}
 
-          {/* ------------------------------------------------------- the menu */}
-          {step === 'menu' ? (
-            <>
-              <ScrollView contentContainerStyle={styles.body}>
-                {header(venueLabel, menu ? `Menu · ${menu.items} things · read ${menu.ageDays === 0 ? 'today' : `${menu.ageDays} days ago`}` : 'Menu')}
+        {menu === null ? (
+          <Card>
+            <Text style={type.h3}>Read their menu</Text>
+            {link?.url ? (
+              <Text style={type.small}>{link.how ?? `Their menu is at ${link.url.replace(/^https?:\/\//, '').slice(0, 60)}.`}</Text>
+            ) : (
+              <Text style={type.small}>{link?.why ?? 'We will follow the website Google gave us and look for their menu.'}</Text>
+            )}
+            <Text style={type.tiny}>
+              Roam opens their own page — a PDF is read, a page that draws itself is rendered in a browser, and only a menu
+              that will not open any other way is read by Claude. Nobody has to photograph anything.
+            </Text>
+            {how.length ? <Text style={type.tiny}>{how.join(' · ')}</Text> : null}
+            {error ? <Text style={[type.small, { color: colors.allergen }]}>{error}</Text> : null}
+            <Wrap>
+              <Button label={reading ? 'Reading their menu…' : 'Read their menu'} icon="restaurant" onPress={ctl.readTheMenu} disabled={reading} />
+              {reading ? <ActivityIndicator color={colors.icon} /> : null}
+            </Wrap>
+          </Card>
+        ) : null}
 
-                {menu === undefined ? <Text style={type.small}>Looking for the menu we hold…</Text> : null}
-
-                {menu === null ? (
-                  <Card>
-                    <Text style={type.h3}>Read their menu</Text>
-                    {link?.url ? (
-                      <Text style={type.small}>{link.how ?? `Their menu is at ${link.url.replace(/^https?:\/\//, '').slice(0, 60)}.`}</Text>
-                    ) : (
-                      <Text style={type.small}>{link?.why ?? 'We will follow the website Google gave us and look for their menu.'}</Text>
-                    )}
-                    <Text style={type.tiny}>
-                      Roam opens their own page — a PDF is read, a page that draws itself is rendered in a browser, and only a menu
-                      that will not open any other way is read by Claude. Nobody has to photograph anything.
-                    </Text>
-                    {how.length ? <Text style={type.tiny}>{how.join(' · ')}</Text> : null}
-                    {error ? <Text style={[type.small, { color: colors.allergen }]}>{error}</Text> : null}
-                    <Wrap>
-                      <Button label={reading ? 'Reading their menu…' : 'Read their menu'} icon="restaurant" onPress={readTheMenu} disabled={reading} />
-                      {reading ? <ActivityIndicator color={colors.icon} /> : null}
-                    </Wrap>
-                  </Card>
-                ) : null}
-
-                {menu ? (
-                  <>
-                    <Text style={type.tiny}>
-                      {menu.how?.join(' · ')} · {new URL(menu.sourceUrl).hostname}
-                      {menu.stale ? ` · prices as printed ${menu.ageDays} days ago` : ''}
-                    </Text>
-                    {menu.note ? <Text style={type.small}>{menu.note}</Text> : null}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
-                      {sections.map((s) => (
-                        <Chip key={s.title} label={s.title} selected={s.title === shown?.title} onPress={() => setSection(s.title)} />
-                      ))}
-                    </ScrollView>
-                    {shown?.note ? <Text style={type.tiny}>{shown.note}</Text> : null}
-                    <Text style={type.tiny}>(V) is vegetarian.{dietLines.length ? ` ${dietLines.join(' ')}` : ''}</Text>
-                    {shown?.items.map((item) => {
-                      const p = pickOf(item.id);
-                      const flags = flagsFor(item, members);
-                      const picked = p.table || members.some((m) => p.members[m.id]);
-                      return (
-                        <View key={item.id} style={[styles.row, picked && styles.rowPicked]}>
-                          <Row style={{ alignItems: 'flex-start' }}>
-                            <Text style={[type.body, styles.itemName]}>
-                              {item.name}
-                              {isVeg(item) ? <Text style={styles.veg}> (V)</Text> : null}
-                            </Text>
-                            <Text style={styles.price}>{item.priceText ?? ''}</Text>
-                            <Pressable
-                              onPress={() => whatIsThis(item)}
-                              accessibilityRole="button"
-                              accessibilityLabel={`What is ${item.name}?`}
-                              style={styles.rowBtn}
-                            >
-                              <Icon name="info" size={14} color={asked[item.id] ? colors.icon : colors.inkMuted} />
-                            </Pressable>
-                          </Row>
-                          {item.description ? <Text style={type.small}>{item.description}</Text> : null}
-                          {asked[item.id] ? (
-                            <View style={styles.whatIs}>
-                              {asked[item.id] === 'asking' ? <Text style={type.tiny}>Looking it up…</Text> : null}
-                              {asked[item.id] === 'failed' ? <Text style={type.tiny}>Could not look that one up just now.</Text> : null}
-                              {typeof asked[item.id] === 'object' ? (
-                                <>
-                                  <Text style={type.small}>
-                                    {(asked[item.id] as DishNote).known
-                                      ? (asked[item.id] as DishNote).what
-                                      : `Not a dish Roam knows — ask at the table. ${(asked[item.id] as DishNote).what}`}
-                                  </Text>
-                                  {(asked[item.id] as DishNote).origin ? <Text style={type.tiny}>{(asked[item.id] as DishNote).origin}</Text> : null}
-                                  <Text style={type.tiny}>Roam's own words about the dish, not the restaurant's.</Text>
-                                </>
-                              ) : null}
-                            </View>
-                          ) : null}
-                          {item.kcal || item.allergens ? (
-                            <Text style={type.tiny}>
-                              {item.kcal ? `${item.kcal} kcal` : ''}{item.kcal && item.allergens ? ' · ' : ''}{item.allergens ?? ''}
-                            </Text>
-                          ) : null}
-                          {flags.length ? <Wrap>{flags.map((f, i) => <FlagChip key={i} flag={f} />)}</Wrap> : null}
-                          <Row style={{ flexWrap: 'wrap', gap: 6 }}>
-                            {members.map((m) => (
-                              <Face key={m.id} label={m.name} on={!!p.members[m.id]}
-                                onPress={() => setPick(item.id, { members: { ...p.members, [m.id]: !p.members[m.id] } })} />
-                            ))}
-                            <Chip label="Table" icon="household" selected={p.table} onPress={() => setPick(item.id, { table: !p.table })} />
-                            {picked ? (
-                              <TextInput
-                                value={p.note}
-                                onChangeText={(t) => setPick(item.id, { note: t })}
-                                placeholder="no chilli"
-                                placeholderTextColor={colors.inkFaint}
-                                style={styles.noteInput}
-                                accessibilityLabel={`A word about ${item.name}`}
-                              />
-                            ) : null}
-                          </Row>
-                        </View>
-                      );
-                    })}
-                  </>
-                ) : null}
-              </ScrollView>
-              {menu ? (
-                <View style={styles.bar}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={type.body}>
-                      {chosen.length ? `${chosen.length} ${chosen.length === 1 ? 'thing' : 'things'}${total ? ` · ${money(total)}` : ''}` : 'Nothing chosen yet'}
-                    </Text>
-                    <Text style={type.tiny}>
-                      {!chosen.length ? 'Tap a face on a dish' : total ? 'Tap to check it over' : 'Priced by the set menu — tap to check it over'}
-                    </Text>
-                  </View>
-                  <Button label="The order" icon="forward" onPress={toTheOrder} disabled={!chosen.length || busy} />
-                </View>
-              ) : null}
-            </>
-          ) : null}
-
-          {/* ------------------------------------------------------ the order */}
-          {step === 'order' && order ? (
-            <>
-              <ScrollView contentContainerStyle={styles.body}>
-                {header('The order', `${venueLabel}${resumed ? ' · placed earlier' : ''}`, () => setStep('menu'))}
-                {groups.map((g) => (
-                  <View key={g.id ?? 'table'} style={{ gap: 4 }}>
-                    <Row>
-                      {g.id ? <Face label={g.name} on onPress={() => {}} size={26} /> : <Icon name="household" size={18} />}
-                      <Text style={type.h3}>{g.name}</Text>
-                    </Row>
-                    {g.items.length ? g.items.map((i) => (
-                      <View key={i.id} style={styles.orderRow}>
-                        <Row style={{ alignItems: 'center' }}>
-                          <Text style={[type.body, { flex: 1 }]}>{i.name}</Text>
-                          <Text style={type.small}>{i.priceText ?? ''}</Text>
-                          <Pressable
-                            onPress={() => setNoting((n) => ({ ...n, [i.id]: !n[i.id] }))}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${i.note ? 'Change the' : 'Add a'} word for the waiter about ${i.name}`}
-                            style={styles.rowBtn}
-                          >
-                            <Icon name="edit" size={14} color={i.note ? colors.icon : colors.inkMuted} />
-                          </Pressable>
-                          <Pressable
-                            onPress={() => removeFromOrder(i)}
-                            disabled={busy}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Take ${i.name} off the order`}
-                            style={styles.rowBtn}
-                          >
-                            <Icon name="close" size={15} color={colors.inkMuted} />
-                          </Pressable>
-                        </Row>
-                        {i.note && !noting[i.id] ? <Text style={type.tiny}>{i.note}</Text> : null}
-                        {noting[i.id] ? (
-                          <TextInput
-                            defaultValue={i.note ?? ''}
-                            autoFocus
-                            onEndEditing={(e) => { noteOnOrder(i, e.nativeEvent.text); setNoting((n) => ({ ...n, [i.id]: false })); }}
-                            onBlur={(e: any) => { noteOnOrder(i, e?.nativeEvent?.text ?? ''); setNoting((n) => ({ ...n, [i.id]: false })); }}
-                            placeholder="a word for the waiter"
-                            placeholderTextColor={colors.inkFaint}
-                            style={[styles.noteInput, { marginTop: 4 }]}
-                            accessibilityLabel={`A word about ${i.name}`}
-                          />
-                        ) : null}
-                      </View>
-                    )) : <Text style={type.tiny}>Nothing yet</Text>}
-                  </View>
-                ))}
-                {order.total ? (
-                  <Row style={styles.totalRow}>
-                    <Text style={type.h3}>Total</Text><Text style={type.h3}>{money(order.total)}</Text>
-                  </Row>
-                ) : (
-                  <Text style={type.tiny}>These courses are priced by the set menu, not one by one, so there is no total to show.</Text>
-                )}
-                {allergenLines.length ? (
-                  <View style={styles.warn}>
-                    <Icon name="allergen" size={14} color={colors.allergen} />
-                    <Text style={[type.small, { color: colors.allergen, flex: 1 }]}>
-                      {allergenLines.join(' ')} Roam can never clear a dish of an allergen a menu does not have to declare — ask at the table.
-                    </Text>
-                  </View>
-                ) : null}
-                {dietLines.length ? <Text style={type.tiny}>{dietLines.join(' ')}</Text> : null}
-                {resumed ? (
-                  <Card>
-                    <Text style={type.small}>
-                      This order was already here. When you have eaten it, say so and star whatever stood out.
-                    </Text>
-                    <Wrap>
-                      <Button label="We ate it" icon="favourite" kind="secondary" onPress={weAteIt} disabled={busy} />
-                    </Wrap>
-                  </Card>
-                ) : null}
-              </ScrollView>
-              <View style={styles.bar}>
-                <Button label="Restart" icon="refresh" kind="ghost" style={styles.barBtn} onPress={startAgain} disabled={busy} />
-                <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Button label="Add/Change" icon="edit" kind="secondary" style={styles.barBtn} onPress={() => setStep('menu')} disabled={busy} />
-                </View>
-                <Button label="Show staff" icon="list" style={styles.barBtn} onPress={() => setStep('staff')} disabled={!order.items.length} />
-              </View>
-            </>
-          ) : null}
-
-          {/* --------------------------------------------- the waiter's screen */}
-          {step === 'staff' && order ? (
-            <ScrollView contentContainerStyle={[styles.body, { gap: spacing.sm }]}>
-              <Row style={{ alignItems: 'flex-start' }}>
-                <View style={{ flex: 1 }}>
-                  <Segmented
-                    value={staffBy}
-                    onChange={setStaffBy}
-                    options={[{ value: 'person', label: 'By person' }, { value: 'course', label: 'By course' }]}
-                  />
-                </View>
-                <Pressable onPress={() => setStep('order')} style={styles.close} accessibilityRole="button" accessibilityLabel="Close">
-                  <Icon name="close" size={22} color={colors.ink} />
-                </Pressable>
-              </Row>
-              {staffBy === 'person'
-                ? groups.filter((g) => g.items.length).map((g) => (
-                    <View key={g.id ?? 'table'} style={{ gap: 2 }}>
-                      <Text style={styles.staffWho}>{g.name}</Text>
-                      {g.items.map((i) => (
-                        <View key={i.id}>
-                          <Text style={styles.staffDish}>{i.name}</Text>
-                          {i.note ? <Text style={type.small}>{i.note}</Text> : null}
-                        </View>
-                      ))}
-                    </View>
-                  ))
-                : [...new Set(order.items.map((i) => itemsById.get(i.menuItemId ?? '')?.section ?? 'Ordered'))].map((sec) => (
-                    <View key={sec} style={{ gap: 2 }}>
-                      <Text style={styles.staffWho}>{sec}</Text>
-                      {order.items
-                        .filter((i) => (itemsById.get(i.menuItemId ?? '')?.section ?? 'Ordered') === sec)
-                        .map((i) => (
-                          <View key={i.id}>
-                            <Text style={styles.staffDish}>{i.name}</Text>
-                            <Text style={type.small}>{i.member ? `for ${i.member.split(' ')[0]}` : 'for the table'}{i.note ? ` · ${i.note}` : ''}</Text>
-                          </View>
-                        ))}
-                    </View>
-                  ))}
-              {allergenLines.length ? (
-                <View style={styles.staffAlert}>
-                  <Text style={styles.staffAlertText}>{allergenLines.join(' ')} Please check anything cooked in a stock or a soffritto.</Text>
-                </View>
-              ) : null}
-              {dietLines.length ? <Text style={styles.staffDiet}>{dietLines.join(' ')}</Text> : null}
-              <Text style={type.tiny}>Big type, no chrome, the screen stays awake. Works with no signal.</Text>
+        {menu ? (
+          <>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
+              {sections.map((s) => (
+                <Chip key={s.title} label={s.title} selected={s.title === shown?.title} onPress={() => ctl.setSection(s.title)} />
+              ))}
             </ScrollView>
-          ) : null}
-
-          {/* ---------------------------------------------------- the stars */}
-          {step === 'rate' && order ? (
-            <>
-              <ScrollView contentContainerStyle={styles.body}>
-                {header('How was it?', venueLabel, () => setStep('order'))}
-                <Card>
-                  <Text style={type.small}>
-                    <Text style={{ fontWeight: '700' }}>Only star what stood out.</Text> Anything you leave alone is taken as fine —
-                    that is the answer for most plates. Say so only when it was not.
-                  </Text>
-                </Card>
-                {order.items.map((i) => {
-                  const m = marks[i.id] ?? { stars: 0, notGreat: false, comment: '', concept: false };
-                  const set = (next: Partial<typeof m>) => setMarks((s) => ({ ...s, [i.id]: { ...m, ...next } }));
-                  return (
-                    <View key={i.id} style={styles.row}>
-                      <Row>
-                        {i.member ? <Face label={i.member} on onPress={() => {}} size={26} /> : <Icon name="household" size={16} />}
-                        <Text style={[type.body, { flex: 1 }]}>{i.name}</Text>
-                      </Row>
-                      <Row style={{ gap: spacing.md }}>
-                        <Row style={{ gap: 2 }}>
-                          {[1, 2, 3, 4, 5].map((n) => (
-                            <Pressable key={n} onPress={() => set({ stars: m.stars === n ? 0 : n, notGreat: false })}
-                              accessibilityRole="button" accessibilityLabel={`${n} star${n > 1 ? 's' : ''} for ${i.name}`} hitSlop={4}>
-                              <Icon name="favourite" size={24} fill={m.stars >= n} color={m.stars >= n ? colors.rating : colors.inkFaint} />
-                            </Pressable>
-                          ))}
-                        </Row>
-                        <Chip label="Not great" icon="close" selected={m.notGreat} onPress={() => set({ notGreat: !m.notGreat, stars: 0 })} />
-                      </Row>
-                      {m.stars || m.notGreat ? (
+            {shown?.note ? <Text style={type.tiny}>{shown.note}</Text> : null}
+            <Text style={type.tiny}>(V) is vegetarian.{ctl.dietLines.length ? ` ${ctl.dietLines.join(' ')}` : ''}</Text>
+            {shown?.items.map((item) => {
+              const p = ctl.pickOf(item.id);
+              const flags = flagsFor(item, members);
+              const picked = p.table || members.some((m) => p.members[m.id]);
+              const note = asked[item.id];
+              return (
+                <View key={item.id} style={[styles.row, picked && styles.rowPicked]}>
+                  <Row style={{ alignItems: 'center' }}>
+                    <Text style={[type.body, styles.itemName]}>
+                      {item.name}
+                      {isVeg(item) ? <Text style={styles.veg}> (V)</Text> : null}
+                    </Text>
+                    <Text style={styles.price}>{item.priceText ?? ''}</Text>
+                    <Pressable
+                      onPress={() => ctl.whatIsThis(item)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`What is ${item.name}?`}
+                      style={styles.rowBtn}
+                    >
+                      <Icon name="info" size={14} color={note ? colors.icon : colors.inkMuted} />
+                    </Pressable>
+                  </Row>
+                  {item.description ? <Text style={type.small}>{item.description}</Text> : null}
+                  {note ? (
+                    <View style={styles.whatIs}>
+                      {note === 'asking' ? <Text style={type.tiny}>Looking it up…</Text> : null}
+                      {note === 'failed' ? <Text style={type.tiny}>Could not look that one up just now.</Text> : null}
+                      {typeof note === 'object' ? (
                         <>
-                          <TextInput
-                            value={m.comment}
-                            onChangeText={(t) => set({ comment: t })}
-                            placeholder={m.notGreat ? 'what was wrong with it?' : 'what made it good?'}
-                            placeholderTextColor={colors.inkFaint}
-                            style={[styles.noteInput, { flex: 1, width: '100%' }]}
-                            accessibilityLabel={`A word about ${i.name}`}
-                          />
-                          {i.conceptSuggestion ? (
-                            <Chip
-                              label={`This is ${i.conceptSuggestion.label.toLowerCase()}`}
-                              icon={m.concept ? 'check' : 'add'}
-                              selected={m.concept}
-                              onPress={() => set({ concept: !m.concept })}
-                            />
-                          ) : i.concept ? (
-                            <Text style={type.tiny}>→ {i.concept.label}, so it counts everywhere</Text>
-                          ) : null}
+                          <Text style={type.small}>{note.known ? note.what : `Not a dish Roam knows — ask at the table. ${note.what}`}</Text>
+                          {note.origin ? <Text style={type.tiny}>{note.origin}</Text> : null}
+                          <Text style={type.tiny}>Roam's own words about the dish, not the restaurant's.</Text>
                         </>
                       ) : null}
                     </View>
-                  );
-                })}
-              </ScrollView>
-              <View style={styles.bar}>
-                <View style={{ flex: 1 }}>
-                  <Text style={type.body}>
-                    {Object.values(marks).filter((m) => m.stars).length} starred · {Object.values(marks).filter((m) => m.notGreat).length} not great
-                  </Text>
-                  <Text style={type.tiny}>{order.items.length - Object.values(marks).filter((m) => m.stars || m.notGreat).length} left as fine</Text>
-                </View>
-                <Button label="Save" icon="check" onPress={saveStars} disabled={busy} />
-              </View>
-            </>
-          ) : null}
-
-          {/* ----------------------------------------------------- what it kept */}
-          {step === 'saved' && order ? (
-            <ScrollView contentContainerStyle={styles.body}>
-              {header('Saved', `${venueLabel} · the visit is in Places`)}
-              {order.items.map((i) => {
-                const r = i.ratings[0];
-                return (
-                  <Row key={i.id} style={styles.orderRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={type.body}>{i.name}</Text>
-                      <Text style={type.tiny}>
-                        {r?.score ? `liked by ${i.member?.split(' ')[0] ?? 'the table'}` : r?.take === 'not_for_me' ? `${i.member?.split(' ')[0] ?? 'the table'} would not have it again` : 'nothing said, so it counts as fine'}
-                        {r?.comment ? ` — “${r.comment}”` : ''}
-                      </Text>
-                    </View>
-                    {r?.score ? <Row style={{ gap: 1 }}>{[1, 2, 3, 4, 5].map((n) => <Icon key={n} name="favourite" size={13} fill={(r.score ?? 0) >= n} color={(r.score ?? 0) >= n ? colors.rating : colors.inkFaint} />)}</Row> : null}
+                  ) : null}
+                  {item.kcal || item.allergens ? (
+                    <Text style={type.tiny}>
+                      {item.kcal ? `${item.kcal} kcal` : ''}{item.kcal && item.allergens ? ' · ' : ''}{item.allergens ?? ''}
+                    </Text>
+                  ) : null}
+                  {flags.length ? <Wrap>{flags.map((f, i) => <FlagChip key={i} flag={f} />)}</Wrap> : null}
+                  <Row style={{ flexWrap: 'wrap', gap: 6 }}>
+                    {members.map((m) => (
+                      <Face key={m.id} label={m.name} on={!!p.members[m.id]}
+                        onPress={() => ctl.setPick(item.id, { members: { ...p.members, [m.id]: !p.members[m.id] } })} />
+                    ))}
+                    <Chip label="Table" icon="household" selected={p.table} onPress={() => ctl.setPick(item.id, { table: !p.table })} />
+                    {picked ? (
+                      <TextInput
+                        value={p.note}
+                        onChangeText={(t) => ctl.setPick(item.id, { note: t })}
+                        placeholder="no chilli"
+                        placeholderTextColor={colors.inkFaint}
+                        style={styles.noteInput}
+                        accessibilityLabel={`A word about ${item.name}`}
+                      />
+                    ) : null}
                   </Row>
-                );
-              })}
-              <Text style={type.tiny}>
-                A star goes to the dish as well as to the plate you had, so it counts the next time you are anywhere that serves it.
-                “Not great” lowers that one dish and nothing else. Fine changes nothing.
-              </Text>
-              <Button label="Done" icon="check" onPress={onClose} />
-            </ScrollView>
-          ) : null}
-
-          {error && step !== 'menu' ? <Text style={[type.tiny, { color: colors.allergen, padding: spacing.md }]}>{error}</Text> : null}
+                </View>
+              );
+            })}
+            <Text style={type.tiny}>
+              {menu.how?.join(' · ')} · {new URL(menu.sourceUrl).hostname}
+              {menu.stale ? ` · prices as printed ${menu.ageDays} days ago` : ''}
+            </Text>
+          </>
+        ) : null}
+      </ScrollView>
+      {menu ? (
+        <View style={styles.bar}>
+          <View style={{ flex: 1 }}>
+            <Text style={type.body}>
+              {chosen.length ? `${chosen.length} ${chosen.length === 1 ? 'thing' : 'things'}${total ? ` · ${money(total)}` : ''}` : 'Nothing chosen yet'}
+            </Text>
+            <Text style={type.tiny}>
+              {!chosen.length ? 'Tap a face on a dish' : total ? 'Tap to check it over' : 'Priced by the set menu — tap to check it over'}
+            </Text>
+          </View>
+          <Button label="The order" icon="forward" style={styles.barBtn} onPress={async () => { await ctl.toTheOrder(); onOrder(); }} disabled={!chosen.length || ctl.busy} />
         </View>
+      ) : null}
+    </>
+  );
+}
+
+/* --------------------------------------------------------------- the order */
+
+export function OrderPanel({ ctl, onMenu, footer }: { ctl: MenuOrderCtl; onMenu: () => void; footer?: React.ReactNode }) {
+  const { order, groups, busy, phase, marks, setMarks, noting, setNoting, allergenLines, dietLines, resumed } = ctl;
+
+  if (!order || !order.items.length) {
+    return (
+      <ScrollView contentContainerStyle={styles.body}>
+        <Text style={type.small}>Nothing ordered here yet.</Text>
+        <Text style={type.tiny}>Open the menu, tap a face on a dish to say who wants it, and the order builds itself.</Text>
+        <Wrap><Button label="The menu" icon="restaurant" kind="secondary" onPress={onMenu} /></Wrap>
+        {footer}
+      </ScrollView>
+    );
+  }
+
+  if (phase === 'rate') {
+    const starred = Object.values(marks).filter((m) => m.stars).length;
+    const bad = Object.values(marks).filter((m) => m.notGreat).length;
+    return (
+      <>
+        <ScrollView contentContainerStyle={styles.body}>
+          <Card>
+            <Text style={type.small}>
+              <Text style={{ fontWeight: '700' }}>Only star what stood out.</Text> Anything you leave alone is taken as fine —
+              that is the answer for most plates. Say so only when it was not.
+            </Text>
+          </Card>
+          {order.items.map((i) => {
+            const m = marks[i.id] ?? { stars: 0, notGreat: false, comment: '', concept: false };
+            const set = (next: Partial<typeof m>) => setMarks((s) => ({ ...s, [i.id]: { ...m, ...next } }));
+            return (
+              <View key={i.id} style={styles.row}>
+                <Row>
+                  {i.member ? <Face label={i.member} on onPress={() => {}} size={26} /> : <Icon name="household" size={16} />}
+                  <Text style={[type.body, { flex: 1 }]}>{i.name}</Text>
+                </Row>
+                <Row style={{ gap: spacing.md }}>
+                  <Row style={{ gap: 2 }}>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Pressable key={n} onPress={() => set({ stars: m.stars === n ? 0 : n, notGreat: false })}
+                        accessibilityRole="button" accessibilityLabel={`${n} star${n > 1 ? 's' : ''} for ${i.name}`} hitSlop={4}>
+                        <Icon name="favourite" size={24} fill={m.stars >= n} color={m.stars >= n ? colors.rating : colors.inkFaint} />
+                      </Pressable>
+                    ))}
+                  </Row>
+                  <Chip label="Not great" icon="close" selected={m.notGreat} onPress={() => set({ notGreat: !m.notGreat, stars: 0 })} />
+                </Row>
+                {m.stars || m.notGreat ? (
+                  <>
+                    <TextInput
+                      value={m.comment}
+                      onChangeText={(t) => set({ comment: t })}
+                      placeholder={m.notGreat ? 'what was wrong with it?' : 'what made it good?'}
+                      placeholderTextColor={colors.inkFaint}
+                      style={[styles.noteInput, { flex: 1, width: '100%' }]}
+                      accessibilityLabel={`A word about ${i.name}`}
+                    />
+                    {i.conceptSuggestion ? (
+                      <Chip
+                        label={`This is ${i.conceptSuggestion.label.toLowerCase()}`}
+                        icon={m.concept ? 'check' : 'add'}
+                        selected={m.concept}
+                        onPress={() => set({ concept: !m.concept })}
+                      />
+                    ) : i.concept ? (
+                      <Text style={type.tiny}>→ {i.concept.label}, so it counts everywhere</Text>
+                    ) : null}
+                  </>
+                ) : null}
+              </View>
+            );
+          })}
+          {footer}
+        </ScrollView>
+        <View style={styles.bar}>
+          <View style={{ flex: 1 }}>
+            <Text style={type.body}>{starred} starred · {bad} not great</Text>
+            <Text style={type.tiny}>{order.items.length - starred - bad} left as fine</Text>
+          </View>
+          <Button label="Save" icon="check" style={styles.barBtn} onPress={ctl.saveStars} disabled={busy} />
+        </View>
+      </>
+    );
+  }
+
+  if (phase === 'saved') {
+    return (
+      <ScrollView contentContainerStyle={styles.body}>
+        <Text style={type.h3}>Saved</Text>
+        <Text style={type.small}>The visit is in Places, with the order and what everyone thought under it.</Text>
+        {order.items.map((i) => {
+          const r = i.ratings[0];
+          const who = i.member?.split(' ')[0] ?? 'the table';
+          return (
+            <Row key={i.id} style={styles.orderRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={type.body}>{i.name}</Text>
+                <Text style={type.tiny}>
+                  {r?.score ? `liked by ${who}` : r?.take === 'not_for_me' ? `${who} would not have it again` : 'nothing said, so it counts as fine'}
+                  {r?.comment ? ` — “${r.comment}”` : ''}
+                </Text>
+              </View>
+              {r?.score ? (
+                <Row style={{ gap: 1 }}>
+                  {[1, 2, 3, 4, 5].map((n) => <Icon key={n} name="favourite" size={13} fill={(r.score ?? 0) >= n} color={(r.score ?? 0) >= n ? colors.rating : colors.inkFaint} />)}
+                </Row>
+              ) : null}
+            </Row>
+          );
+        })}
+        <Text style={type.tiny}>
+          A star goes to the dish as well as to the plate you had, so it counts the next time you are anywhere that serves it.
+          “Not great” lowers that one dish and nothing else. Fine changes nothing.
+        </Text>
+        {footer}
+      </ScrollView>
+    );
+  }
+
+  return (
+    <>
+      <ScrollView contentContainerStyle={styles.body}>
+        {groups.map((g) => (
+          <View key={g.id ?? 'table'} style={{ gap: 4 }}>
+            <Row>
+              {g.id ? <Face label={g.name} on onPress={() => {}} size={26} /> : <Icon name="household" size={18} />}
+              <Text style={type.h3}>{g.name}</Text>
+            </Row>
+            {g.items.length ? g.items.map((i) => (
+              <View key={i.id} style={styles.orderRow}>
+                <Row style={{ alignItems: 'center' }}>
+                  <Text style={[type.body, { flex: 1 }]}>{i.name}</Text>
+                  <Text style={type.small}>{i.priceText ?? ''}</Text>
+                  <Pressable
+                    onPress={() => setNoting((n) => ({ ...n, [i.id]: !n[i.id] }))}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${i.note ? 'Change the' : 'Add a'} word for the waiter about ${i.name}`}
+                    style={styles.rowBtn}
+                  >
+                    <Icon name="edit" size={14} color={i.note ? colors.icon : colors.inkMuted} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => ctl.removeFromOrder(i)}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Take ${i.name} off the order`}
+                    style={styles.rowBtn}
+                  >
+                    <Icon name="close" size={15} color={colors.inkMuted} />
+                  </Pressable>
+                </Row>
+                {i.note && !noting[i.id] ? <Text style={type.tiny}>{i.note}</Text> : null}
+                {noting[i.id] ? (
+                  <TextInput
+                    defaultValue={i.note ?? ''}
+                    autoFocus
+                    onEndEditing={(e) => { ctl.noteOnOrder(i, e.nativeEvent.text); setNoting((n) => ({ ...n, [i.id]: false })); }}
+                    onBlur={(e: any) => { ctl.noteOnOrder(i, e?.nativeEvent?.text ?? ''); setNoting((n) => ({ ...n, [i.id]: false })); }}
+                    placeholder="a word for the waiter"
+                    placeholderTextColor={colors.inkFaint}
+                    style={[styles.noteInput, { marginTop: 4 }]}
+                    accessibilityLabel={`A word about ${i.name}`}
+                  />
+                ) : null}
+              </View>
+            )) : <Text style={type.tiny}>Nothing yet</Text>}
+          </View>
+        ))}
+        {order.total ? (
+          <Row style={styles.totalRow}>
+            <Text style={type.h3}>Total</Text><Text style={type.h3}>{money(order.total)}</Text>
+          </Row>
+        ) : (
+          <Text style={type.tiny}>These courses are priced by the set menu, not one by one, so there is no total to show.</Text>
+        )}
+        {allergenLines.length ? (
+          <View style={styles.warn}>
+            <Icon name="allergen" size={14} color={colors.allergen} />
+            <Text style={[type.small, { color: colors.allergen, flex: 1 }]}>
+              {allergenLines.join(' ')} Roam can never clear a dish of an allergen a menu does not have to declare — ask at the table.
+            </Text>
+          </View>
+        ) : null}
+        {dietLines.length ? <Text style={type.tiny}>{dietLines.join(' ')}</Text> : null}
+        {resumed ? (
+          <Card>
+            <Text style={type.small}>This order was already here. When you have eaten it, say so and star whatever stood out.</Text>
+            <Wrap><Button label="We ate it" icon="favourite" kind="secondary" onPress={ctl.weAteIt} disabled={busy} /></Wrap>
+          </Card>
+        ) : null}
+        {footer}
+      </ScrollView>
+      <View style={styles.bar}>
+        <Button label="Restart" icon="refresh" kind="ghost" style={styles.barBtn} onPress={ctl.startAgain} disabled={busy} />
+        <View style={{ flex: 1, alignItems: 'center' }}>
+          <Button label="Add/Change" icon="edit" kind="secondary" style={styles.barBtn} onPress={onMenu} disabled={busy} />
+        </View>
+        <Button label="Show staff" icon="list" style={styles.barBtn} onPress={() => ctl.setStaff(true)} disabled={!order.items.length} />
+      </View>
+    </>
+  );
+}
+
+/* ------------------------------------------- the screen you hold up to them */
+
+export function StaffSheet({ ctl }: { ctl: MenuOrderCtl }) {
+  const { width, height, framed, origin } = useViewport();
+  const [by, setBy] = useState<'person' | 'course'>('person');
+  const { order, groups, itemsById, allergenLines, dietLines } = ctl;
+  const frameBox = framed && origin
+    ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height }
+    : null;
+
+  // Keep the screen awake while it is being read across a table.
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return;
+    let lock: any;
+    (navigator as any).wakeLock?.request?.('screen').then((l: any) => { lock = l; }).catch(() => {});
+    return () => { lock?.release?.().catch(() => {}); };
+  }, []);
+
+  if (!order) return null;
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={() => ctl.setStaff(false)}>
+      <View style={[styles.staffWrap, frameBox]}>
+        <ScrollView contentContainerStyle={[styles.body, { gap: spacing.sm }]}>
+          <Row style={{ alignItems: 'flex-start' }}>
+            <View style={{ flex: 1 }}>
+              <Segmented value={by} onChange={setBy} options={[{ value: 'person', label: 'By person' }, { value: 'course', label: 'By course' }]} />
+            </View>
+            <Pressable onPress={() => ctl.setStaff(false)} style={styles.close} accessibilityRole="button" accessibilityLabel="Close">
+              <Icon name="close" size={22} color={colors.ink} />
+            </Pressable>
+          </Row>
+          {by === 'person'
+            ? groups.filter((g) => g.items.length).map((g) => (
+                <View key={g.id ?? 'table'} style={{ gap: 2 }}>
+                  <Text style={styles.staffWho}>{g.name}</Text>
+                  {g.items.map((i) => (
+                    <View key={i.id}>
+                      <Text style={styles.staffDish}>{i.name}</Text>
+                      {i.note ? <Text style={type.small}>{i.note}</Text> : null}
+                    </View>
+                  ))}
+                </View>
+              ))
+            : [...new Set(order.items.map((i) => itemsById.get(i.menuItemId ?? '')?.section ?? 'Ordered'))].map((sec) => (
+                <View key={sec} style={{ gap: 2 }}>
+                  <Text style={styles.staffWho}>{sec}</Text>
+                  {order.items
+                    .filter((i) => (itemsById.get(i.menuItemId ?? '')?.section ?? 'Ordered') === sec)
+                    .map((i) => (
+                      <View key={i.id}>
+                        <Text style={styles.staffDish}>{i.name}</Text>
+                        <Text style={type.small}>{i.member ? `for ${i.member.split(' ')[0]}` : 'for the table'}{i.note ? ` · ${i.note}` : ''}</Text>
+                      </View>
+                    ))}
+                </View>
+              ))}
+          {allergenLines.length ? (
+            <View style={styles.staffAlert}>
+              <Text style={styles.staffAlertText}>{allergenLines.join(' ')} Please check anything cooked in a stock or a soffritto.</Text>
+            </View>
+          ) : null}
+          {dietLines.length ? <Text style={styles.staffDiet}>{dietLines.join(' ')}</Text> : null}
+          <Text style={type.tiny}>Big type, no chrome, the screen stays awake. Works with no signal.</Text>
+        </ScrollView>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdropWrap: { flex: 1 },
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(32,30,29,0.45)' },
-  panel: { backgroundColor: colors.bg, overflow: 'hidden' },
-  panelSide: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 520, borderLeftWidth: 1, borderLeftColor: colors.line },
-  panelSheet: { position: 'absolute', left: 0, right: 0, bottom: 0, top: 40, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
   body: { padding: spacing.lg, gap: spacing.sm, paddingBottom: spacing.xl },
-  backRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 },
   close: { width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'center' },
   row: { gap: 6, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
   rowPicked: { backgroundColor: colors.surfaceMuted, borderRadius: radius.sm, paddingHorizontal: spacing.sm },
@@ -742,6 +735,8 @@ const styles = StyleSheet.create({
   faceOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   faceText: { fontSize: 12, fontWeight: '800', color: colors.inkMuted },
   faceTextOn: { color: colors.primaryFg },
+  whatIs: { backgroundColor: colors.surfaceMuted, borderRadius: radius.sm, padding: spacing.sm, gap: 2 },
+  rowBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 15, borderWidth: 1, borderColor: colors.line, marginLeft: 6 },
   noteInput: {
     height: 32, minWidth: 120, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm,
     paddingHorizontal: 10, color: colors.ink, backgroundColor: colors.surface, fontSize: 13,
@@ -750,19 +745,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 6,
     padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.surface,
   },
-  // Three actions have to sit on one row inside 390px, so the bar's buttons are
-  // tighter than the standard one (owner, 4 Sep 2026).
   // Three labelled buttons on one row inside 390px: tighter padding than the
   // standard button, and the bar's own gap trimmed to match (owner, 4 Sep 2026).
   barBtn: { paddingHorizontal: 10 },
   orderRow: { paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.line },
-  whatIs: { backgroundColor: colors.surfaceMuted, borderRadius: radius.sm, padding: spacing.sm, gap: 2 },
-  rowBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 15, borderWidth: 1, borderColor: colors.line, marginLeft: 6 },
   totalRow: { borderTopWidth: 1, borderTopColor: colors.ink, paddingTop: spacing.sm, justifyContent: 'space-between' },
   warn: {
     flexDirection: 'row', gap: 8, alignItems: 'flex-start', borderWidth: 1, borderColor: colors.allergen,
     backgroundColor: colors.allergenSoft, borderRadius: radius.sm, padding: spacing.sm,
   },
+  staffWrap: { flex: 1, backgroundColor: colors.bg },
   staffWho: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '800', marginTop: spacing.sm },
   staffDish: { fontSize: 21, fontWeight: '800', letterSpacing: -0.4, color: colors.ink, lineHeight: 26 },
   staffDiet: { fontSize: 15, fontWeight: '600', color: colors.ink },

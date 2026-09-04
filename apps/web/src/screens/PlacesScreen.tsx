@@ -277,6 +277,7 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
         onClose={() => setOpen(null)}
         onVenue={async (v) => { if (open?.unnamed && v.name) { try { await api.nameAtlasPlace(open.venueRef, v.name); await loadPlaces(); } catch { /* the drawer still shows the fetched name */ } } }}
         ours={open ? <OursPanel place={open} household={household} ctx={country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {}} viewer={viewer} onChanged={refreshAll} onRemoved={() => setOpen(null)} /> : null}
+        gettingThere={open ? <GettingThere place={open} /> : null}
       />
     </ScrollView>
   );
@@ -635,7 +636,6 @@ function OursPanel({ place, household, ctx: where, viewer, onChanged, onRemoved 
           {confirmRemove ? <Button label="Keep it" kind="ghost" onPress={() => setConfirmRemove(false)} /> : null}
         </Row>
       )}
-      <GettingThere place={place} />
       {detail?.visits.length ? (
         <View style={{ gap: spacing.sm }}>
           <Text style={type.h3}>Our history here</Text>

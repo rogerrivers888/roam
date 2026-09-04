@@ -5,7 +5,7 @@ import { Icon, IconText, Rating, Stars } from './Icon';
 import { API_URL, api, BrowseItem, MenuLink, OwnedRecord, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
-import { MenuOrder } from './MenuOrder';
+import { MenuPanel, OrderPanel, StaffSheet, useMenuOrder } from './MenuOrder';
 import { OwnedFacts } from './OwnedFacts';
 import { useOffline } from '../hooks/useOffline';
 import { savedRecord } from '../offline/cache';
@@ -32,7 +32,12 @@ import { SOURCE_LABEL, priceMarks, typeLine } from './StopCard';
  * opens, not by asking a source that does not have it.
  */
 
-type Tab = 'overview' | 'reviews' | 'hours' | 'photos';
+// The tabs the owner asked for (4 Sep 2026): "I don't think hours and photos
+// are needed… no harm, but definitely doesn't need to be a tab." Hours and
+// photos fold into Overview; getting there earns one of its own; and the menu
+// and the order — the two things you want while you are standing in the place —
+// are tabs rather than something below the fold.
+type Tab = 'overview' | 'travel' | 'reviews' | 'menu' | 'order';
 
 // Somewhere you eat, where the menu is worth a row of its own.
 const EATING = new Set(['restaurant', 'cafe', 'bar', 'pub']);
@@ -60,7 +65,7 @@ function openState(v?: Venue): { state: string; detail: string | null; open: boo
 /** The address as you would read it aloud, without the protocol. */
 const prettyUrl = (u: string) => u.replace(/^https?:\/\//i, '').replace(/\/$/, '').slice(0, 64);
 
-export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, added, shortlisted, ours, onVenue }: {
+export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, added, shortlisted, ours, onVenue, gettingThere }: {
   item: BrowseItem | null;
   baseLabel?: string | null;
   onClose: () => void;
@@ -72,6 +77,8 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   ours?: React.ReactNode;
   /** The source's record once fetched (the atlas uses it to learn a name it only held as an identifier). */
   onVenue?: (venue: Venue) => void;
+  /** How you get to it — the station, its lines, the postcode — which now has a tab of its own. */
+  gettingThere?: React.ReactNode;
 }) {
   const { width, height, framed, origin } = useViewport();
   const wide = width >= 900;
@@ -88,9 +95,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   // The same test the shell uses: not what the browser claims, but whether the
   // answers on screen actually came off the device.
   const showingSaved = !online || serving;
-  // The table half of the evening: read the menu, tick who wants what, show the
-  // order to the waiter, star what stood out (owner, 4 Sep 2026).
-  const [ordering, setOrdering] = useState(false);
+
 
   useEffect(() => {
     setTab('overview'); setVenue(undefined); setMenu(undefined); setError(null); setSaved(false); setOwnRecord(undefined);
@@ -122,6 +127,15 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
     return () => { live = false; };
   }, [item?.venueRef]);
 
+  // Menu and order are tabs of this drawer, so their state lives here and is
+  // only fetched for somewhere you eat (owner, 4 Sep 2026).
+  const ctl = useMenuOrder({
+    venueRef: item?.venueRef ?? '',
+    venueLabel: (item && item.name === item.venueRef && venue?.name ? venue.name : item?.name) ?? '',
+    website: venue?.website ?? ownRecord?.website ?? item?.website ?? null,
+    enabled: !!item && EATING.has(item.category),
+  });
+
   if (!item) return null;
   const v = venue ?? undefined;
   // A place the atlas holds only by identifier takes its name from the source when the drawer opens.
@@ -139,159 +153,150 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   const sourceName = SOURCE_LABEL[source] ?? source;
   const photoUri = (p: { ref?: string; url?: string }, w: number) => p.url ?? (p.ref ? `${API_URL}/api/photos/google?name=${encodeURIComponent(p.ref)}&w=${w}` : null);
 
+  const eating = EATING.has(item.category);
   const tabs: { value: Tab; label: string }[] = [
-    { value: 'overview', label: 'Overview' }, { value: 'reviews', label: `Reviews${reviews.length ? ` (${reviews.length})` : ''}` },
-    { value: 'hours', label: 'Hours' }, { value: 'photos', label: `Photos${photos.length ? ` (${photos.length})` : ''}` },
+    { value: 'overview', label: 'Overview' },
+    ...(gettingThere || mapsUrl ? [{ value: 'travel' as Tab, label: 'Getting there' }] : []),
+    { value: 'reviews', label: `Reviews${reviews.length ? ` (${reviews.length})` : ''}` },
+    ...(eating ? [{ value: 'menu' as Tab, label: 'Menu' }, { value: 'order' as Tab, label: 'Order' }] : []),
   ];
+  const shown = tabs.some((t) => t.value === tab) ? tab : 'overview';
+
+  const openNow = openState(v);
+  const travelBits = [
+    item.distanceKm != null ? `${item.distanceKm} km from ${baseLabel ?? 'base'}` : null,
+    item.travelFromBaseMinutes != null ? `about ${item.travelFromBaseMinutes} min` : null,
+    item.category !== 'event' && item.dwellMinutes > 0 ? `allow ${minutes(item.dwellMinutes)}` : null,
+    item.startsAt ? clock(item.startsAt) : null,
+  ].filter(Boolean);
 
   return (
     <>
-    {ordering ? (
-      <MenuOrder venueRef={item.venueRef} venueLabel={title} website={website ?? null} onClose={() => setOrdering(false)} />
-    ) : null}
+    {ctl.staff ? <StaffSheet ctl={ctl} /> : null}
     <Modal visible transparent animationType={wide ? 'fade' : 'slide'} onRequestClose={onClose}>
       <View style={styles.backdropWrap}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
         <View style={[styles.panel, wide ? styles.panelSide : styles.panelSheet, frameBox]}>
-          <ScrollView contentContainerStyle={{ gap: spacing.md, padding: spacing.lg }}>
+
+          {/* The head is fixed and short, so the tabs — and whichever one you
+              came for — start above the fold (owner, 4 Sep 2026). */}
+          <View style={styles.head}>
             <Row style={{ alignItems: 'flex-start' }}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={type.title}>{title}</Text>
                 <Text style={type.small}>{typeLine(item)}{price ? ` · ${price}` : ''}{item.chain ? ` · chain${item.brand ? ` (${item.brand})` : ''}` : ''}</Text>
-                {rating != null ? <Rating value={rating}>{ratingCount ? ` from ${ratingCount.toLocaleString()} reviews` : ''} · {SOURCE_LABEL[item.ratingSource ?? source] ?? sourceName}</Rating> : <Text style={type.tiny}>No rating from {sourceName}.</Text>}
-                {(() => {
-                  const o = openState(v);
-                  if (!o) return null;
-                  return (
-                    <IconText name="hours" color={o.open === false ? colors.inkMuted : colors.icon}>
-                      <Text style={{ fontWeight: '700', color: colors.ink }}>{o.state}</Text>{o.detail ? ` · ${o.detail}` : ''}
+                <Row style={{ flexWrap: 'wrap', gap: spacing.sm }}>
+                  {rating != null ? <Rating value={rating}>{ratingCount ? ` (${ratingCount.toLocaleString()})` : ''}</Rating> : null}
+                  {openNow ? (
+                    <IconText name="hours" color={openNow.open === false ? colors.inkMuted : colors.icon}>
+                      <Text style={{ fontWeight: '700', color: colors.ink }}>{openNow.state}</Text>{openNow.detail ? ` · ${openNow.detail}` : ''}
                     </IconText>
-                  );
-                })()}
-                {(() => {
-                  const bits = [
-                    item.distanceKm != null ? `${item.distanceKm} km from ${baseLabel ?? 'base'}` : null,
-                    item.travelFromBaseMinutes != null ? `about ${item.travelFromBaseMinutes} min` : null,
-                    item.category !== 'event' && item.dwellMinutes > 0 ? `allow ${minutes(item.dwellMinutes)}` : null,
-                    item.startsAt ? clock(item.startsAt) : null,
-                  ].filter(Boolean);
-                  return bits.length ? <Text style={type.small}>{bits.join(' · ')}</Text> : null;
-                })()}
+                  ) : null}
+                </Row>
               </View>
               <Pressable onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel="Close"><Icon name="close" size={22} color={colors.ink} /></Pressable>
             </Row>
-
-            {photos[0] && photoUri(photos[0], 800) ? (
-              <View>
-                <Image source={{ uri: photoUri(photos[0], 800)! }} style={styles.hero} accessibilityIgnoresInvertColors />
-                {photos[0].attribution ? <Text style={type.tiny}>{photos[0].attribution}</Text> : null}
-              </View>
+            {onAdd || onShortlist ? (
+              <Wrap>
+                {onAdd ? <Button label={added ? 'In the plan' : 'Add to plan'} icon={added ? 'keep' : 'add'} iconFill={added} kind={added ? 'secondary' : 'primary'} onPress={() => onAdd(item)} disabled={added} /> : null}
+                {onShortlist ? <Button label={saved || shortlisted ? 'Shortlisted' : 'Shortlist'} icon={saved || shortlisted ? 'shortlisted' : 'shortlist'} kind="secondary" onPress={async () => { await onShortlist(item); setSaved(true); }} disabled={saved || shortlisted} /> : null}
+              </Wrap>
             ) : null}
-
-            <Wrap>
-              {onAdd ? <Button label={added ? 'In the plan' : 'Add to plan'} icon={added ? 'keep' : 'add'} iconFill={added} kind={added ? 'secondary' : 'primary'} onPress={() => onAdd(item)} disabled={added} /> : null}
-              {onShortlist ? <Button label={saved || shortlisted ? 'Shortlisted' : 'Shortlist'} icon={saved || shortlisted ? 'shortlisted' : 'shortlist'} kind="secondary" onPress={async () => { await onShortlist(item); setSaved(true); }} disabled={saved || shortlisted} /> : null}
-              {website ? <Button label="Website" icon="external" kind="ghost" onPress={() => Linking.openURL(website)} /> : null}
-              {mapsUrl ? <Button label="Open in Google Maps" kind="ghost" onPress={() => Linking.openURL(mapsUrl)} /> : null}
-              {externalUrl && !mapsUrl ? <Button label={item.category === 'event' ? 'Tickets' : `On ${sourceName}`} kind="ghost" onPress={() => Linking.openURL(externalUrl)} /> : null}
-            </Wrap>
-
-            {ours}
-
-            <Segmented value={tab} options={tabs} onChange={setTab} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
+              {tabs.map((t) => <Chip key={t.value} label={t.label} selected={t.value === shown} onPress={() => setTab(t.value)} />)}
+            </ScrollView>
             {venue === undefined ? <Text style={type.tiny}>Fetching from {sourceName}…</Text> : null}
             {error ? <Text style={[type.tiny, { color: colors.dislike }]}>{error}</Text> : null}
+          </View>
 
-            {tab === 'overview' ? (
-              <View style={{ gap: spacing.sm }}>
-                {v?.summary ?? item.summary ? <Text style={type.body}>{v?.summary ?? item.summary}</Text> : null}
-                {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
-                {v?.address ?? item.address ? <IconText name="address">{v?.address ?? item.address}</IconText> : null}
-                {venue === null && !error ? <IconText name="offline" color={colors.inkMuted}>No signal — showing what is saved on this device.</IconText> : null}
-                {item.venueName ? <IconText name="ticket">At {item.venueName}</IconText> : null}
-                {(v?.goodForChildren ?? item.goodForChildren) != null ? <IconText name="children">{(v?.goodForChildren ?? item.goodForChildren) ? 'Good for children' : 'Not noted as good for children'}{(v?.menuForChildren ?? item.menuForChildren) ? " · children's menu" : ''}</IconText> : null}
-                {item.reservable != null ? <IconText name="phone">{item.reservable ? 'Takes bookings' : 'Walk-in only'}</IconText> : null}
-                {(v?.dietaryOptions ?? []).length ? <Text style={type.small}>Diets: {(v?.dietaryOptions ?? []).join(', ')}</Text> : null}
-                {item.justification ? <Text style={type.small}>"{item.justification}"</Text> : null}
-                {EATING.has(item.category) ? (
-                  <View style={{ gap: 2 }}>
-                    {menu === undefined ? <IconText name="restaurant">Looking for their menu…</IconText> : null}
-                    {menu?.url ? (
-                      <>
-                        <Pressable onPress={() => Linking.openURL(menu.url!)} accessibilityRole="link" accessibilityLabel="Open the menu">
-                          <IconText name="restaurant">Menu · <Text style={{ color: colors.accent, fontWeight: '700' }}>{prettyUrl(menu.url)}</Text></IconText>
-                        </Pressable>
-                        <Text style={type.tiny}>{menu.how} Looked up just now; no source publishes menus, so this is their own page and nothing is kept.</Text>
-                      </>
-                    ) : null}
-                    {menu && !menu.url ? (
-                      <>
-                        <IconText name="restaurant" color={colors.inkMuted}>No menu address on their site.</IconText>
-                        <Text style={type.tiny}>{menu.why}</Text>
-                      </>
-                    ) : null}
-                    <Wrap style={{ marginTop: 4 }}>
-                      <Button label="Menu & order" icon="list" kind="secondary" onPress={() => setOrdering(true)} />
-                    </Wrap>
-                    <Text style={type.tiny}>Reads their menu into dishes you can tick off, one each, and makes the order to show the waiter.</Text>
+          {shown === 'menu' ? (
+            <View style={{ flex: 1 }}><MenuPanel ctl={ctl} onOrder={() => setTab('order')} /></View>
+          ) : shown === 'order' ? (
+            <View style={{ flex: 1 }}><OrderPanel ctl={ctl} onMenu={() => setTab('menu')} /></View>
+          ) : (
+            <ScrollView contentContainerStyle={{ gap: spacing.md, padding: spacing.lg }}>
+
+              {shown === 'overview' ? (
+                <View style={{ gap: spacing.sm }}>
+                  {v?.summary ?? item.summary ? <Text style={type.body}>{v?.summary ?? item.summary}</Text> : null}
+                  {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
+                  {v?.address ?? item.address ? <IconText name="address">{v?.address ?? item.address}</IconText> : null}
+                  {venue === null && !error ? <IconText name="offline" color={colors.inkMuted}>No signal — showing what is saved on this device.</IconText> : null}
+                  {item.venueName ? <IconText name="ticket">At {item.venueName}</IconText> : null}
+                  {(v?.goodForChildren ?? item.goodForChildren) != null ? <IconText name="children">{(v?.goodForChildren ?? item.goodForChildren) ? 'Good for children' : 'Not noted as good for children'}{(v?.menuForChildren ?? item.menuForChildren) ? " · children's menu" : ''}</IconText> : null}
+                  {item.reservable != null ? <IconText name="phone">{item.reservable ? 'Takes bookings' : 'Walk-in only'}</IconText> : null}
+                  {(v?.dietaryOptions ?? []).length ? <Text style={type.small}>Diets: {(v?.dietaryOptions ?? []).join(', ')}</Text> : null}
+                  {item.justification ? <Text style={type.small}>"{item.justification}"</Text> : null}
+                  <Wrap>
+                    {website ? <Button label="Website" icon="external" kind="ghost" onPress={() => Linking.openURL(website)} /> : null}
+                    {externalUrl && !mapsUrl ? <Button label={item.category === 'event' ? 'Tickets' : `On ${sourceName}`} kind="ghost" onPress={() => Linking.openURL(externalUrl)} /> : null}
+                  </Wrap>
+
+                  {/* Hours and photos lost their tabs and live here (owner, 4 Sep 2026). */}
+                  <View style={{ gap: 2, marginTop: spacing.sm }}>
+                    <Text style={type.h3}>Opening hours</Text>
+                    {hours.length ? hours.map((h, i) => <Text key={i} style={type.small}>{h}</Text>)
+                      : ownRecord?.openingHours ? (
+                        <>
+                          <Text style={type.small}>{ownRecord.openingHours}</Text>
+                          <Text style={type.tiny}>Roam's own record, from {ownRecord.provenance?.opening_hours === 'site' ? 'their own website' : 'OpenStreetMap'} — kept, so it is here with no signal.</Text>
+                        </>
+                      ) : <Text style={type.small}>{venue === undefined ? '' : `No opening hours from ${sourceName}.`}</Text>}
                   </View>
-                ) : null}
 
-                <OwnedFacts
-                  record={ownRecord}
-                  offline={showingSaved}
-                  onResearch={async () => {
-                    setOwnRecord(undefined);
-                    const r = await api.researchPlace(item.venueRef).catch(() => null);
-                    setOwnRecord(r?.record ?? null);
-                  }}
-                />
-              </View>
-            ) : null}
+                  {photos.length ? (
+                    <View style={{ gap: spacing.sm }}>
+                      {photos.map((p, i) => { const u = photoUri(p, 800); return u ? <View key={i}><Image source={{ uri: u }} style={styles.hero} accessibilityIgnoresInvertColors />{p.attribution ? <Text style={type.tiny}>{p.attribution}</Text> : null}</View> : null; })}
+                    </View>
+                  ) : null}
 
-            {tab === 'reviews' ? (
-              <View style={{ gap: spacing.sm }}>
-                {reviews.map((r, i) => (
-                  <View key={i} style={styles.review}>
-                    <Row style={{ flexWrap: 'wrap', gap: spacing.sm }}>
-                      {r.rating != null ? <Stars value={r.rating} size={14} /> : null}
-                      <Text style={type.tiny}>{[
-                        reviews.length > 1 && i === 0 ? 'best' : reviews.length > 1 && i === reviews.length - 1 ? 'most critical' : null,
-                        r.author, r.when,
-                      ].filter(Boolean).join(' · ')}</Text>
-                    </Row>
-                    <Text style={type.body}>{r.text}</Text>
-                  </View>
-                ))}
-                {venue !== undefined && !reviews.length ? <Text style={type.small}>{source === 'osm' || source === 'fixtures' ? 'OpenStreetMap carries no reviews. Google Places and Tripadvisor return up to five each when the place is theirs.' : `No review text returned by ${sourceName} for this place.`}</Text> : null}
-                {reviews.length ? <Text style={type.tiny}>{v?.attribution ?? item.attribution ?? ''} · Up to five reviews are available through the API; the rest are on the source's own page.</Text> : null}
-              </View>
-            ) : null}
+                  <OwnedFacts
+                    record={ownRecord}
+                    offline={showingSaved}
+                    onResearch={async () => {
+                      setOwnRecord(undefined);
+                      const r = await api.researchPlace(item.venueRef).catch(() => null);
+                      setOwnRecord(r?.record ?? null);
+                    }}
+                  />
 
-            {tab === 'hours' ? (
-              <View style={{ gap: 4 }}>
-                {(() => {
-                  const o = openState(v);
-                  return o ? <Text style={[type.body, { fontWeight: '700' }]}>{o.state}{o.detail ? ` · ${o.detail}` : ''}</Text> : null;
-                })()}
-                {hours.length ? hours.map((h, i) => <Text key={i} style={type.body}>{h}</Text>) : <Text style={type.small}>{venue === undefined ? '' : `No opening hours from ${sourceName}.`}</Text>}
-                {!hours.length && ownRecord?.openingHours ? (
-                  <View style={{ gap: 1, marginTop: spacing.sm }}>
-                    <Text style={type.body}>{ownRecord.openingHours}</Text>
-                    <Text style={type.tiny}>Roam's own record, from {ownRecord.provenance?.opening_hours === 'site' ? 'their own website' : 'OpenStreetMap'} — kept, so it is here with no signal.</Text>
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
+                  {ours}
+                </View>
+              ) : null}
 
-            {tab === 'photos' ? (
-              <View style={{ gap: spacing.sm }}>
-                {photos.length ? photos.map((p, i) => { const u = photoUri(p, 800); return u ? <View key={i}><Image source={{ uri: u }} style={styles.hero} accessibilityIgnoresInvertColors />{p.attribution ? <Text style={type.tiny}>{p.attribution}</Text> : null}</View> : null; }) : <Text style={type.small}>{venue === undefined ? '' : `No photos from ${sourceName}.`}</Text>}
-              </View>
-            ) : null}
+              {shown === 'travel' ? (
+                <View style={{ gap: spacing.sm }}>
+                  {v?.address ?? item.address ? <IconText name="address">{v?.address ?? item.address}</IconText> : null}
+                  {travelBits.length ? <Text style={type.small}>{travelBits.join(' · ')}</Text> : null}
+                  {gettingThere}
+                  <Wrap>
+                    {mapsUrl ? <Button label="Open in Google Maps" icon="map" kind="secondary" onPress={() => Linking.openURL(mapsUrl)} /> : null}
+                  </Wrap>
+                </View>
+              ) : null}
 
-            <Text style={type.tiny}>{v?.attribution ?? item.attribution ?? ''}</Text>
-          </ScrollView>
+              {shown === 'reviews' ? (
+                <View style={{ gap: spacing.sm }}>
+                  {reviews.map((r, i) => (
+                    <View key={i} style={styles.review}>
+                      <Row style={{ flexWrap: 'wrap', gap: spacing.sm }}>
+                        {r.rating != null ? <Stars value={r.rating} size={14} /> : null}
+                        <Text style={type.tiny}>{[
+                          reviews.length > 1 && i === 0 ? 'best' : reviews.length > 1 && i === reviews.length - 1 ? 'most critical' : null,
+                          r.author, r.when,
+                        ].filter(Boolean).join(' · ')}</Text>
+                      </Row>
+                      <Text style={type.body}>{r.text}</Text>
+                    </View>
+                  ))}
+                  {venue !== undefined && !reviews.length ? <Text style={type.small}>{source === 'osm' || source === 'fixtures' ? 'OpenStreetMap carries no reviews. Google Places and Tripadvisor return up to five each when the place is theirs.' : `No review text returned by ${sourceName} for this place.`}</Text> : null}
+                  {reviews.length ? <Text style={type.tiny}>{v?.attribution ?? item.attribution ?? ''} · Up to five reviews are available through the API; the rest are on the source's own page.</Text> : null}
+                </View>
+              ) : null}
+
+              <Text style={type.tiny}>{v?.attribution ?? item.attribution ?? ''}</Text>
+            </ScrollView>
+          )}
         </View>
       </View>
     </Modal>
@@ -303,6 +308,7 @@ const styles = StyleSheet.create({
   backdropWrap: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(29,27,22,0.35)' },
   panel: { backgroundColor: colors.bg },
+  head: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.sm, gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.line },
   panelSide: { width: 460, maxWidth: '100%', height: '100%', borderLeftWidth: 1, borderLeftColor: colors.line },
   panelSheet: { width: '100%', height: '100%' },
   close: { width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'center' },
