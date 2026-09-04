@@ -318,9 +318,27 @@ places.get('/search', async (req, res, next) => {
     // 10 (owner, 4 Sep 2026). A browse is still fenced by the radius; a named
     // search is only ranked by distance.
     const fence = q ? Math.max(radiusKm, 40) : radiusKm;
+
+    // Food & drink must mean food and drink. A source is asked for a kind of
+    // place but is free to answer with anything the words matched, and the
+    // licensed text search takes no type at all — so searching "Sunningdale" on
+    // Food & drink came back with care homes, a pharmacy and barber shops
+    // (owner, 4 Sep 2026). Whatever the sources hand over, the segment is kept
+    // here, where no source can talk its way past it.
+    const FOOD = new Set(['restaurant', 'cafe', 'pub', 'bar']);
+    const THINGS = new Set(['attraction', 'event']);
+    const wants = new Set(categories);
+    const asked = wants.has('food') || wants.has('things') || [...wants].some((c) => FOOD.has(c) || THINGS.has(c));
+    const isWanted = (v) => {
+      if (!asked) return true;
+      if ((wants.has('food') || [...wants].some((c) => FOOD.has(c))) && FOOD.has(v.category)) return true;
+      if ((wants.has('things') || [...wants].some((c) => THINGS.has(c))) && THINGS.has(v.category)) return true;
+      return false;
+    };
+
     const inRange = venues
       .map((v) => ({ ...v, distanceKm: Number(kmBetween(near, v).toFixed(2)) }))
-      .filter((v) => v.distanceKm <= fence)
+      .filter((v) => v.distanceKm <= fence && isWanted(v))
       .sort((a, b) => a.distanceKm - b.distanceKm);
     const status = await householdStatus(household.id, inRange.map((v) => `${v.source}:${v.sourcePlaceId}`));
     const shown = inRange.slice(0, 120).map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, household: status[`${v.source}:${v.sourcePlaceId}`] ?? null }));
