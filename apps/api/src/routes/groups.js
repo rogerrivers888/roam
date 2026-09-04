@@ -24,7 +24,9 @@
 
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { query, withTransaction } from '../db.js';
+import { withTransaction } from '../db.js';
+import * as groupsRepo from '../repositories/groups.js';
+import * as tripsRepo from '../repositories/trips.js';
 import { currentHousehold } from './household.js';
 import { CADENCES, DEFAULT_CADENCE, QUIET_HOURS, dueRuns, nextRun, reminderBody, schedule } from '../domain/reminders.js';
 import { channelReady, sendReminder } from '../sources/notify.js';
@@ -46,15 +48,15 @@ const shortName = (name) => {
 const inWords = (d) => (d ? new Date(`${ymd(d)}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '');
 
 async function loadGroup(groupId) {
-  const rows = [await groupsRepo.groupById(groupId)].filter(Boolean);
-  if (!rows[0]) { const e = new Error('That group does not exist.'); e.status = 404; e.code = 'group_not_found'; throw e; }
-  return rows[0];
+  const group = await groupsRepo.groupById(groupId);
+  if (!group) { const e = new Error('That group does not exist.'); e.status = 404; e.code = 'group_not_found'; throw e; }
+  return group;
 }
 
 async function loadTrip(tripId) {
-  const { rows } = await query('select * from trips where id = $1', [tripId]);
-  if (!rows[0]) { const e = new Error('Trip not found'); e.status = 404; e.code = 'trip_not_found'; throw e; }
-  return rows[0];
+  const trip = await tripsRepo.tripById(tripId);
+  if (!trip) { const e = new Error('Trip not found'); e.status = 404; e.code = 'trip_not_found'; throw e; }
+  return trip;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +146,7 @@ export async function groupPayload(groupId) {
   const trip = await loadTrip(group.trip_id);
   const household = await currentHousehold();
   const tz = household.timezone || DEFAULT_TZ;
-  const [{ rows: items }, { rows: people }, { rows: states }, { rows: reminders }] = await Promise.all([
+  const [items, people, states, reminders] = await Promise.all([
     groupsRepo.itemsOf(groupId),
     groupsRepo.participantsOf(groupId),
     groupsRepo.statesOf(groupId),
@@ -286,9 +288,9 @@ export async function groupPayload(groupId) {
 /** GET /api/trips/:id/group — null when the trip is still a household trip. */
 router.get('/trips/:id/group', async (req, res, next) => {
   try {
-    const rows = [await groupsRepo.groupIdForTrip(req.params.id)].filter(Boolean).map((id) => ({ id }));
-    if (!rows[0]) return res.json({ group: null });
-    res.json(await groupPayload(rows[0].id));
+    const groupId = await groupsRepo.groupIdForTrip(req.params.id);
+    if (!groupId) return res.json({ group: null });
+    res.json(await groupPayload(groupId));
   } catch (err) { next(err); }
 });
 
@@ -329,7 +331,7 @@ router.post('/trips/:id/group', async (req, res, next) => {
           await groupsRepo.insertItem(created.id, {
             kind: 'stay', required: true, label: `A room at ${trip.base_label}`,
             detail: start && ymd(trip.end_date) ? `${inWords(start)} – ${inWords(ymd(trip.end_date))} · everyone books their own` : 'Everyone books their own',
-            position: position++, perHead: true,
+            position: position++,
           }, client);
         }
         const shortlist = await groupsRepo.shortlistForChecklist(trip.id, client);
@@ -338,7 +340,7 @@ router.post('/trips/:id/group', async (req, res, next) => {
           await groupsRepo.insertItem(created.id, {
             kind: 'activity', required: s.kind !== 'food', label: s.venue_label,
             detail: s.kind === 'food' ? 'Are you coming to this?' : null,
-            venueRef: s.venue_ref, position: position++, perHead: true,
+            venueRef: s.venue_ref, position: position++,
           }, client);
         }
       }
@@ -798,9 +800,9 @@ export function startReminderLoop({ everyMinutes = 15 } = {}) {
 // ---------------------------------------------------------------------------
 
 async function groupByToken(inviteToken) {
-  const { rows } = await query('select * from trip_groups where invite_token = $1', [inviteToken]);
-  if (!rows[0]) { const e = new Error('That link is not in use any more. Ask whoever invited you for a new one.'); e.status = 404; e.code = 'link_unknown'; throw e; }
-  return rows[0];
+  const group = await groupsRepo.groupByInviteToken(inviteToken);
+  if (!group) { const e = new Error('That link is not in use any more. Ask whoever invited you for a new one.'); e.status = 404; e.code = 'link_unknown'; throw e; }
+  return group;
 }
 
 /**
@@ -811,16 +813,16 @@ async function groupByToken(inviteToken) {
  */
 async function joinPayload(group, participantToken) {
   const trip = await loadTrip(group.trip_id);
-  const [{ rows: items }, { rows: people }] = await Promise.all([
-    query('select * from group_items where group_id = $1 order by position, created_at', [group.id]),
-    query('select * from group_participants where group_id = $1', [group.id]),
+  const [items, people] = await Promise.all([
+    groupsRepo.itemsOf(group.id),
+    groupsRepo.participantsPlain(group.id),
   ]);
   const active = people.filter((p) => !p.withdrawn_at);
   const me = participantToken ? active.find((p) => p.token === participantToken) : null;
   const organiser = people.find((p) => p.member_id);
   // Every state, but only ever counted — a participant is told how many are on
   // a coach, never who they are.
-  const { rows: allStates } = await query('select s.* from group_item_states s join group_items i on i.id = s.item_id where i.group_id = $1', [group.id]);
+  const allStates = await groupsRepo.statesOf(group.id);
   const byItem = new Map(allStates.map((st) => [`${st.item_id}:${st.participant_id}`, st]));
   const mine = new Map(allStates.filter((st) => me && st.participant_id === me.id).map((st) => [st.item_id, st]));
 
@@ -887,9 +889,9 @@ router.post('/join/:token', async (req, res, next) => {
     const group = await groupByToken(req.params.token);
     if (group.closed_at) return res.status(409).json({ error: 'group_closed', message: 'This group is not taking any more people.' });
     if (group.maximum_count) {
-      const { rows: full } = await query('select coalesce(sum(heads), 0)::int as heads from group_participants where group_id = $1 and joined_at is not null and withdrawn_at is null', [group.id]);
-      if (full[0].heads >= group.maximum_count) {
-        return res.status(409).json({ error: 'group_full', message: `This trip is full — ${full[0].heads} of ${group.maximum_count}. Ask whoever invited you.` });
+      const heads = await groupsRepo.headsJoined(group.id);
+      if (heads >= group.maximum_count) {
+        return res.status(409).json({ error: 'group_full', message: `This trip is full — ${heads} of ${group.maximum_count}. Ask whoever invited you.` });
       }
     }
     const b = req.body || {};
@@ -899,25 +901,16 @@ router.post('/join/:token', async (req, res, next) => {
     const contactKind = b.contactKind ?? (contact?.includes('@') ? 'email' : contact ? 'mobile' : null);
     const heads = Math.max(1, Number(b.heads) || 1);
 
-    const { rows: people } = await query('select * from group_participants where group_id = $1', [group.id]);
+    const people = await groupsRepo.participantsPlain(group.id);
     const match = people.find((p) => p.id === b.matchId && !p.joined_at && !p.withdrawn_at)
       ?? people.find((p) => !p.joined_at && !p.withdrawn_at && p.name.trim().toLowerCase() === name.toLowerCase());
     let me;
     if (match) {
-      const { rows } = await query(
-        `update group_participants set name = $2, contact = coalesce($3, contact), contact_kind = coalesce($4, contact_kind),
-           heads = $5, brings = coalesce($6, brings), joined_at = coalesce(joined_at, now()), token = coalesce(token, $7)
-         where id = $1 returning *`,
-        [match.id, name, contact, contactKind, heads, b.brings?.trim() || null, token()],
-      );
-      me = rows[0];
+      me = await groupsRepo.joinOntoParticipant(match.id, { name, contact, contactKind, heads, brings: b.brings?.trim() || null, token: token() });
     } else {
-      const { rows } = await query(
-        `insert into group_participants (group_id, name, contact, contact_kind, heads, brings, joined_at, token)
-         values ($1,$2,$3,$4,$5,$6,now(),$7) returning *`,
-        [group.id, name, contact, contactKind, heads, b.brings?.trim() || null, token()],
-      );
-      me = rows[0];
+      me = await groupsRepo.insertParticipant(group.id, {
+        name, contact, contactKind, heads, brings: b.brings?.trim() || null, joinedAt: new Date(), token: token(),
+      });
     }
     res.status(201).json({ participantToken: me.token, ...(await joinPayload(group, me.token)) });
   } catch (err) { next(err); }
@@ -932,44 +925,37 @@ router.post('/join/:token/items/:itemId', async (req, res, next) => {
   try {
     const group = await groupByToken(req.params.token);
     const b = req.body || {};
-    const { rows: me } = await query('select * from group_participants where group_id = $1 and token = $2', [group.id, b.participantToken ?? req.query.p ?? '']);
-    if (!me[0]) return res.status(403).json({ error: 'not_you', message: 'Say who you are first.' });
-    const { rows: item } = await query('select * from group_items where id = $1 and group_id = $2', [req.params.itemId, group.id]);
-    if (!item[0]) return res.status(404).json({ error: 'item_not_found' });
+    const me = await groupsRepo.participantByToken(group.id, b.participantToken ?? req.query.p ?? '');
+    if (!me) return res.status(403).json({ error: 'not_you', message: 'Say who you are first.' });
+    const item = await groupsRepo.itemOfGroup(req.params.itemId, group.id);
+    if (!item) return res.status(404).json({ error: 'item_not_found' });
     if (b.status === 'clear') {
-      await query('delete from group_item_states where item_id = $1 and participant_id = $2', [item[0].id, me[0].id]);
+      await groupsRepo.clearState(item.id, me.id);
     } else {
       if (!PARTICIPANT_STATUSES.includes(b.status)) return res.status(400).json({ error: 'bad_status', message: `status must be one of ${PARTICIPANT_STATUSES.join(', ')}` });
       if (b.status === 'paid') return res.status(400).json({ error: 'not_yours_to_say', message: 'The organiser ticks the money off as it reaches them.' });
       // Saying yes to an extra: it may be full, or shut.
-      if (b.status === 'in' && item[0].state !== 'cancelled') {
-        const { rows: on } = await query(
-          `select p.heads from group_item_states s join group_participants p on p.id = s.participant_id
-            where s.item_id = $1 and s.status in ('in','paid') and p.withdrawn_at is null and p.id <> $2`,
-          [item[0].id, me[0].id],
-        );
-        const taken = on.reduce((n, r) => n + (item[0].per_head ? r.heads : 1), 0);
-        const mine = item[0].per_head ? me[0].heads : 1;
-        if (item[0].capacity && taken + mine > item[0].capacity) {
-          return res.status(409).json({ error: 'full', message: `${item[0].label} is full — ${taken} of ${item[0].capacity} taken.` });
+      if (b.status === 'in' && item.state !== 'cancelled') {
+        const on = await groupsRepo.headsOnItemExcluding(item.id, me.id);
+        const taken = on.reduce((n, r) => n + (item.per_head ? r.heads : 1), 0);
+        const mine = item.per_head ? me.heads : 1;
+        if (item.capacity && taken + mine > item.capacity) {
+          return res.status(409).json({ error: 'full', message: `${item.label} is full — ${taken} of ${item.capacity} taken.` });
         }
-        if (item[0].state === 'closed' && item[0].late_joiners === 'no') {
-          return res.status(409).json({ error: 'closed', message: `${item[0].label} closed on ${inWords(item[0].closes_on)} and is not taking anybody else.` });
+        if (item.state === 'closed' && item.late_joiners === 'no') {
+          return res.status(409).json({ error: 'closed', message: `${item.label} closed on ${inWords(item.closes_on)} and is not taking anybody else.` });
         }
-        if (item[0].state === 'closed' && item[0].late_joiners === 'ask') {
-          return res.status(409).json({ error: 'ask_organiser', message: `${item[0].label} has already been booked. Ask the organiser whether there is room.` });
+        if (item.state === 'closed' && item.late_joiners === 'ask') {
+          return res.status(409).json({ error: 'ask_organiser', message: `${item.label} has already been booked. Ask the organiser whether there is room.` });
         }
       }
-      await query(
-        `insert into group_item_states (item_id, participant_id, status, booking_ref, where_booked, starts_on, ends_on, note, marked_by, on_date)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,'participant',now())
-         on conflict (item_id, participant_id) do update set status = excluded.status, booking_ref = excluded.booking_ref,
-           where_booked = excluded.where_booked, starts_on = excluded.starts_on, ends_on = excluded.ends_on,
-           note = excluded.note, marked_by = 'participant', on_date = now()`,
-        [item[0].id, me[0].id, b.status, b.bookingRef?.trim() || null, b.whereBooked?.trim() || null, ymd(b.startsOn), ymd(b.endsOn), b.note?.trim() || null],
-      );
+      await groupsRepo.setState(item.id, me.id, {
+        status: b.status, bookingRef: b.bookingRef?.trim() || null, whereBooked: b.whereBooked?.trim() || null,
+        startsOn: ymd(b.startsOn), endsOn: ymd(b.endsOn), note: b.note?.trim() || null,
+        markedBy: 'participant',
+      });
     }
-    res.json(await joinPayload(group, me[0].token));
+    res.json(await joinPayload(group, me.token));
   } catch (err) { next(err); }
 });
 

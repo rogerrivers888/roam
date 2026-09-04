@@ -17,7 +17,9 @@
 // learns from the three-way take underneath, which the score decides.
 
 import { Router } from 'express';
-import { query, withTransaction } from '../db.js';
+import { withTransaction } from '../db.js';
+import * as menusRepo from '../repositories/menus.js';
+import * as visitsRepo from '../repositories/visits.js';
 import { recordMenuRead, knownMenu } from '../domain/placeMenus.js';
 import { currentHousehold, loadMembers } from './household.js';
 import { recallVenue } from '../sources/index.js';
@@ -57,10 +59,9 @@ const money = (text) => {
 };
 
 async function menuPayload(menuId) {
-  const { rows } = await query('select * from menus where id = $1', [menuId]);
-  const m = rows[0];
+  const m = await menusRepo.menuById(menuId);
   if (!m) return null;
-  const { rows: items } = await query('select * from menu_items where menu_id = $1 order by position', [menuId]);
+  const items = await menusRepo.menuItems(menuId);
   const sections = [];
   for (const i of items) {
     let section = sections.find((s) => s.title === i.section);
@@ -88,17 +89,9 @@ function conceptOf(name) {
 }
 
 async function orderPayload(orderId) {
-  const { rows } = await query('select * from orders where id = $1', [orderId]);
-  const o = rows[0];
+  const o = await menusRepo.orderById(orderId);
   if (!o) return null;
-  const { rows: items } = await query(
-    `select oi.*, m.name as member_name,
-            (select json_agg(json_build_object('memberId', r.member_id, 'score', r.score, 'take', r.take, 'comment', r.comment))
-               from ratings r where r.order_item_id = oi.id) as ratings
-       from order_items oi left join members m on m.id = oi.member_id
-      where oi.order_id = $1 order by oi.position`,
-    [orderId],
-  );
+  const items = await menusRepo.orderItems(orderId);
   return {
     id: o.id, clientId: o.client_id, venueRef: o.venue_ref, venueLabel: o.venue_label, menuId: o.menu_id,
     visitId: o.visit_id, createdAt: o.created_at, updatedAt: o.updated_at,
@@ -122,11 +115,8 @@ menu.get('/', async (req, res, next) => {
     const household = await currentHousehold();
     const ref = String(req.query.ref || '').trim();
     if (!ref) return res.status(400).json({ error: 'ref_required' });
-    const { rows } = await query(
-      'select id from menus where household_id = $1 and venue_ref = $2 order by fetched_at desc limit 1',
-      [household.id, ref],
-    );
-    const held = rows[0] ? await menuPayload(rows[0].id) : null;
+    const menuId = await menusRepo.latestMenuId(household.id, ref);
+    const held = menuId ? await menuPayload(menuId) : null;
     let link = null;
     if (!held) {
       const venue = recallVenue(ref);
@@ -135,8 +125,8 @@ menu.get('/', async (req, res, next) => {
         let locality = venue?.locality ?? null;
         let address = typeof venue?.address === 'string' ? venue.address : venue?.address?.line1 ?? null;
         if (!locality && !address) {
-          const { rows: at } = await query('select locality, postcode from household_places where household_id = $1 and venue_ref = $2', [household.id, ref]);
-          if (at[0]) { locality = at[0].locality ?? null; address = at[0].postcode ?? null; }
+          const at = await menusRepo.placeAddress(household.id, ref);
+          if (at) { locality = at.locality ?? null; address = at.postcode ?? null; }
         }
         link = await findMenuUrl({ website, name: venue?.name ?? '', locality, address });
       }
@@ -188,8 +178,8 @@ menu.post('/read', async (req, res, next) => {
     let locality = String(req.body?.locality || venue?.locality || '').trim() || null;
     let address = String(req.body?.address || (typeof venue?.address === 'string' ? venue.address : venue?.address?.line1) || '').trim() || null;
     if (!locality && !address) {
-      const { rows } = await query('select locality, postcode from household_places where household_id = $1 and venue_ref = $2', [household.id, ref]);
-      if (rows[0]) { locality = rows[0].locality ?? null; address = rows[0].postcode ?? null; }
+      const at = await menusRepo.placeAddress(household.id, ref);
+      if (at) { locality = at.locality ?? null; address = at.postcode ?? null; }
     }
 
     let url = String(req.body?.url || '').trim();
@@ -227,21 +217,19 @@ menu.post('/read', async (req, res, next) => {
     }
 
     const menuId = await withTransaction(async (client) => {
-      const { rows } = await client.query(
-        `insert into menus (household_id, venue_ref, venue_label, source_url, source_kind, how, currency, note)
-         values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
-        [household.id, ref, label, read.sourceUrl, read.kind, JSON.stringify(read.how), read.currency, read.note],
-      );
-      const id = rows[0].id;
+      const id = await menusRepo.insertMenu(household.id, {
+        venueRef: ref, venueLabel: label, sourceUrl: read.sourceUrl, sourceKind: read.kind,
+        how: read.how, currency: read.currency, note: read.note,
+      }, client);
       let position = 0;
       for (const section of read.sections) {
         for (const item of section.items) {
-          await client.query(
-            `insert into menu_items (menu_id, section, section_note, position, name, description, price, price_text, kcal, allergens, vegetarian)
-             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-            [id, section.title, section.note ?? null, position += 1, item.name, item.description ?? null,
-             money(item.price), item.price ?? null, item.kcal ?? null, item.allergens ?? null, item.vegetarian ?? null],
-          );
+          await menusRepo.insertMenuItem(id, {
+            section: section.title, sectionNote: section.note ?? null, position: position += 1,
+            name: item.name, description: item.description ?? null,
+            price: money(item.price), priceText: item.price ?? null,
+            kcal: item.kcal ?? null, allergens: item.allergens ?? null, vegetarian: item.vegetarian ?? null,
+          }, client);
         }
       }
       return id;
@@ -291,10 +279,9 @@ menu.post('/dish', async (req, res, next) => {
     if (!name) return res.status(400).json({ error: 'name_required' });
     const key = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
 
-    const { rows } = await query('select * from dish_notes where name_key = $1', [key]);
-    if (rows[0]) {
-      const d = rows[0];
-      return res.json({ dish: { name: d.name, known: d.known, what: d.what, origin: d.origin }, cached: true });
+    const held = await menusRepo.dishNote(key);
+    if (held) {
+      return res.json({ dish: { name: held.name, known: held.known, what: held.what, origin: held.origin }, cached: true });
     }
 
     const note = await describeDish({
@@ -303,11 +290,7 @@ menu.post('/dish', async (req, res, next) => {
       householdId: household.id,
       sessionId: req.body?.sessionId ?? null,
     });
-    await query(
-      `insert into dish_notes (name_key, name, known, what, origin, model)
-       values ($1,$2,$3,$4,$5,$6) on conflict (name_key) do nothing`,
-      [key, name, note.known !== false, note.what, note.origin ?? null, process.env.ROAM_MENU_MODEL || 'claude-sonnet-5'],
-    );
+    await menusRepo.saveDishNote(key, name, { known: note.known !== false, what: note.what, origin: note.origin ?? null }, process.env.ROAM_MENU_MODEL || 'claude-sonnet-5');
     res.json({ dish: { name, known: note.known !== false, what: note.what, origin: note.origin ?? null }, cached: false });
   } catch (err) { next(err); }
 });
@@ -317,11 +300,8 @@ orders.get('/', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const ref = String(req.query.ref || '').trim();
-    const { rows } = await query(
-      `select id from orders where household_id = $1 ${ref ? 'and venue_ref = $2' : ''} order by created_at desc limit 1`,
-      ref ? [household.id, ref] : [household.id],
-    );
-    res.json({ order: rows[0] ? await orderPayload(rows[0].id) : null });
+    const orderId = await menusRepo.latestOrderId(household.id, ref || null);
+    res.json({ order: orderId ? await orderPayload(orderId) : null });
   } catch (err) { next(err); }
 });
 
@@ -338,14 +318,7 @@ orders.get('/history', async (req, res, next) => {
     const household = await currentHousehold();
     const ref = String(req.query.ref || '').trim();
     if (!ref) return res.status(400).json({ error: 'ref_required' });
-    const { rows } = await query(
-      `select o.id, o.visit_id, v.visited_on
-         from orders o left join visits v on v.id = o.visit_id
-        where o.household_id = $1 and o.venue_ref = $2 and o.visit_id is not null
-        order by coalesce(v.visited_on, o.created_at::date) desc, o.created_at desc
-        limit $3`,
-      [household.id, ref, Math.min(Number(req.query.limit) || 5, 20)],
-    );
+    const rows = await menusRepo.pastOrders(household.id, ref, Math.min(Number(req.query.limit) || 5, 20));
     const past = await Promise.all(rows.map(async (r) => ({
       ...(await orderPayload(r.id)),
       visitedOn: r.visited_on,
@@ -371,31 +344,24 @@ orders.post('/', async (req, res, next) => {
     const items = (Array.isArray(b.items) ? b.items : []).filter((i) => String(i?.name || '').trim());
 
     const orderId = await withTransaction(async (client) => {
-      let id = null;
-      if (b.clientId) {
-        const { rows } = await client.query('select id from orders where client_id = $1 and household_id = $2', [b.clientId, household.id]);
-        id = rows[0]?.id ?? null;
-      }
+      let id = b.clientId ? await menusRepo.orderByClientId(b.clientId, household.id, client) : null;
       if (id) {
-        await client.query('update orders set menu_id = coalesce($2, menu_id), venue_label = coalesce($3, venue_label), updated_at = now() where id = $1',
-          [id, b.menuId ?? null, b.label ?? null]);
-        await client.query('delete from order_items where order_id = $1', [id]);
+        await menusRepo.updateOrder(id, { menuId: b.menuId, venueLabel: b.label }, client);
+        await menusRepo.clearOrderItems(id, client);
       } else {
-        const { rows } = await client.query(
-          'insert into orders (client_id, household_id, menu_id, venue_ref, venue_label) values ($1,$2,$3,$4,$5) returning id',
-          [b.clientId ?? null, household.id, b.menuId ?? null, ref, b.label ?? null],
-        );
-        id = rows[0].id;
+        id = await menusRepo.insertOrder(household.id, { clientId: b.clientId, menuId: b.menuId, venueRef: ref, venueLabel: b.label }, client);
       }
       let position = 0;
       for (const item of items) {
-        const memberId = members.some((m) => m.id === item.memberId) ? item.memberId : null;
-        await client.query(
-          `insert into order_items (order_id, menu_item_id, member_id, name, price, price_text, note, position)
-           values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [id, item.menuItemId ?? null, memberId, String(item.name).trim(), money(item.priceText ?? item.price),
-           item.priceText ?? null, String(item.note || '').trim() || null, position += 1],
-        );
+        await menusRepo.insertOrderItem(id, {
+          menuItemId: item.menuItemId ?? null,
+          memberId: members.some((m) => m.id === item.memberId) ? item.memberId : null,
+          name: String(item.name).trim(),
+          price: money(item.priceText ?? item.price),
+          priceText: item.priceText ?? null,
+          note: String(item.note || '').trim() || null,
+          position: position += 1,
+        }, client);
       }
       return id;
     });
@@ -414,10 +380,10 @@ orders.post('/', async (req, res, next) => {
 orders.delete('/:id', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { rows } = await query('select * from orders where id = $1 and household_id = $2', [req.params.id, household.id]);
-    if (!rows[0]) return res.status(404).json({ error: 'order_not_found' });
-    if (rows[0].visit_id) return res.status(409).json({ error: 'already_eaten', message: 'This one became a visit. Change it there rather than here.' });
-    await query('delete from orders where id = $1', [req.params.id]);
+    const order = await menusRepo.orderOfHousehold(req.params.id, household.id);
+    if (!order) return res.status(404).json({ error: 'order_not_found' });
+    if (order.visit_id) return res.status(409).json({ error: 'already_eaten', message: 'This one became a visit. Change it there rather than here.' });
+    await menusRepo.deleteOrder(req.params.id);
     res.json({ deleted: true });
   } catch (err) { next(err); }
 });
@@ -432,8 +398,7 @@ orders.delete('/:id', async (req, res, next) => {
 orders.post('/:id/eaten', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { rows } = await query('select * from orders where id = $1 and household_id = $2', [req.params.id, household.id]);
-    const order = rows[0];
+    const order = await menusRepo.orderOfHousehold(req.params.id, household.id);
     if (!order) return res.status(404).json({ error: 'order_not_found' });
     if (order.visit_id) return res.json({ order: await orderPayload(order.id), visitId: order.visit_id, already: true });
 
@@ -445,24 +410,20 @@ orders.post('/:id/eaten', async (req, res, next) => {
     const visitedOn = b.visitedOn || new Date().toISOString().slice(0, 10);
 
     const visitId = await withTransaction(async (client) => {
-      const { rows: made } = await client.query(
-        `insert into visits (household_id, venue_ref, venue_label, category, lat, lng, visited_on)
-         values ($1,$2,$3,$4,$5,$6,$7) returning id`,
-        [household.id, order.venue_ref, order.venue_label || venue?.name || 'Where we ate',
-         b.category ?? venue?.category ?? 'restaurant', b.lat ?? venue?.lat ?? null, b.lng ?? venue?.lng ?? null, visitedOn],
-      );
-      const id = made[0].id;
-      for (const memberId of attendeeIds) {
-        await client.query('insert into visit_attendees (visit_id, member_id) values ($1,$2) on conflict do nothing', [id, memberId]);
-      }
+      const id = await menusRepo.insertMealVisit(household.id, {
+        venueRef: order.venue_ref,
+        venueLabel: order.venue_label || venue?.name || 'Where we ate',
+        category: b.category ?? venue?.category ?? 'restaurant',
+        lat: b.lat ?? venue?.lat ?? null, lng: b.lng ?? venue?.lng ?? null, visitedOn,
+      }, client);
+      for (const memberId of attendeeIds) await visitsRepo.addAttendee(id, memberId, client);
       const [source, ...rest] = order.venue_ref.split(':');
-      await client.query('insert into place_ledger (household_id, source, source_place_id, status) values ($1,$2,$3,$4)',
-        [household.id, source, rest.join(':'), 'visited']);
+      await visitsRepo.recordLedger(household.id, source, rest.join(':'), 'visited', client);
       await upsertHouseholdPlace(client, household.id, {
         venueRef: order.venue_ref, label: order.venue_label || venue?.name, category: b.category ?? venue?.category ?? 'restaurant',
         lat: b.lat ?? venue?.lat, lng: b.lng ?? venue?.lng, venue,
       });
-      await client.query('update orders set visit_id = $2, updated_at = now() where id = $1', [order.id, id]);
+      await menusRepo.attachVisit(order.id, id, client);
       return id;
     });
 
@@ -480,12 +441,11 @@ orders.post('/:id/eaten', async (req, res, next) => {
 orders.post('/:id/ratings', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { rows } = await query('select * from orders where id = $1 and household_id = $2', [req.params.id, household.id]);
-    const order = rows[0];
+    const order = await menusRepo.orderOfHousehold(req.params.id, household.id);
     if (!order) return res.status(404).json({ error: 'order_not_found' });
     if (!order.visit_id) return res.status(409).json({ error: 'not_eaten', message: 'Say you ate it first — the stars hang off the visit.' });
 
-    const { rows: items } = await query('select id, name, member_id from order_items where order_id = $1', [order.id]);
+    const items = await menusRepo.orderItemsPlain(order.id);
     const members = await loadMembers(household.id);
     const list = Array.isArray(req.body?.ratings) ? req.body.ratings : [];
 
@@ -499,16 +459,17 @@ orders.post('/:id/ratings', async (req, res, next) => {
         if (!memberId) continue;
         const score = Number(r.score);
         const stars = Number.isFinite(score) && score >= 0.5 && score <= 5 && Math.round(score * 2) === score * 2 ? score : null;
-        await client.query('delete from ratings where order_item_id = $1 and member_id = $2', [item.id, memberId]);
-        if (!stars && !r.notGreat) continue;   // untouched stays untouched: silence is fine
+        // Untouched stays untouched: silence is "fine", and clears any earlier star.
+        if (!stars && !r.notGreat) { await menusRepo.replaceDishRating(item.id, memberId, null, client); continue; }
         const confirmed = r.conceptKey ? conceptByKey(r.conceptKey) : null;
         const concept = confirmed ?? resolveConcept(item.name, { kinds: ['dish'] });
-        await client.query(
-          `insert into ratings (visit_id, member_id, subject, take, comment, concept_key, score, order_item_id)
-           values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [order.visit_id, memberId, item.name, r.notGreat ? 'not_for_me' : 'loved',
-           String(r.comment || '').trim() || null, concept?.key ?? null, r.notGreat ? null : stars, item.id],
-        );
+        await menusRepo.replaceDishRating(item.id, memberId, {
+          visitId: order.visit_id, subject: item.name,
+          take: r.notGreat ? 'not_for_me' : 'loved',
+          comment: String(r.comment || '').trim() || null,
+          conceptKey: concept?.key ?? null,
+          score: r.notGreat ? null : stars,
+        }, client);
       }
     });
 
