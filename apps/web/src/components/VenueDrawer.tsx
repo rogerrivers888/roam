@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import { Icon, IconText, Rating, Stars } from './Icon';
-import { API_URL, api, BrowseItem, MenuLink, OwnedRecord, Venue } from '../api';
+import { API_URL, api, BrowseItem, MenuLink, OwnedRecord, PlaceInsideItem, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
 import { MenuPanel, OrderPanel, PastMeals, StaffSheet, useMenuOrder } from './MenuOrder';
@@ -109,6 +109,73 @@ function Hero({ uri, attribution }: { uri: string | null; attribution: string | 
   );
 }
 
+// Places whose grounds hold other places, and how far those grounds reach.
+const GROUNDS: Record<string, number> = { 'theme-park': 1.2, zoo: 1.0, 'water-park': 0.8, aquarium: 0.4 };
+
+/** How a ride reads: 30 m high, 129 km/h, opened 2024, 1.4 m to ride. */
+function rideLine(f: PlaceInsideItem['facts']): string {
+  return [
+    f.heightM ? `${Math.round(f.heightM)} m high` : null,
+    f.speedKph ? `${Math.round(f.speedKph)} km/h` : null,
+    f.lengthM ? `${Math.round(f.lengthM)} m long` : null,
+    f.opened ? `opened ${f.opened}` : null,
+    f.minHeightM ? `${f.minHeightM} m to ride` : null,
+    f.extraCharge ? 'extra charge' : null,
+  ].filter(Boolean).join(' · ');
+}
+
+/**
+ * What is inside this place. A theme park is not one thing to do, it is forty,
+ * and those forty belong here rather than in the list beside the museum down
+ * the road (owner, 4 Sep 2026). Everything shown is ours: the open map for the
+ * rides and where they stand, Wikidata for how high and how fast, Wikipedia for
+ * the paragraph — all licences that let us keep the answer.
+ */
+function InsideList({ item, venue, inside, setInside }: {
+  item: BrowseItem; venue?: Venue | null; inside: PlaceInsideItem[] | null;
+  setInside: (v: PlaceInsideItem[] | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [open, setOpen] = useState(false);
+  const experiences = venue?.experiences ?? item.experiences ?? [];
+  const grounds = experiences.reduce((r, e) => Math.max(r, GROUNDS[e] ?? 0), 0);
+
+  useEffect(() => {
+    if (!grounds || inside || busy || failed) return;
+    setBusy(true);
+    api.placeInside({ ref: item.venueRef, lat: item.lat, lng: item.lng, experiences: experiences.join(','), name: item.name })
+      .then((r) => setInside(r.items))
+      .catch(() => setFailed(true))
+      .finally(() => setBusy(false));
+  }, [grounds, item.venueRef]);
+
+  if (!grounds) return null;
+  if (busy && !inside) return <IconText name="search">Looking up what is inside…</IconText>;
+  if (!inside?.length) return null;
+
+  const rides = inside.filter((i) => !['eat', 'shop', 'facility'].includes(i.kind));
+  const eat = inside.filter((i) => i.kind === 'eat');
+  const shown = open ? rides : rides.slice(0, 6);
+  return (
+    <View style={{ gap: 6, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted }}>
+      <Text style={[type.tiny, { fontWeight: '700', color: colors.ink }]}>WHAT'S INSIDE</Text>
+      {shown.map((i) => {
+        const line = rideLine(i.facts);
+        return (
+          <View key={i.itemRef} style={{ gap: 1 }}>
+            <Text style={[type.small, { color: colors.ink, fontWeight: '600' }]}>{i.name}</Text>
+            <Text style={type.tiny}>{[i.kindLabel, line].filter(Boolean).join(' · ')}</Text>
+          </View>
+        );
+      })}
+      {rides.length > shown.length ? <Pressable onPress={() => setOpen(true)} accessibilityRole="button"><Text style={[type.tiny, { color: colors.accent, fontWeight: '700' }]}>All {rides.length}</Text></Pressable> : null}
+      {eat.length ? <Text style={type.tiny}>{eat.length} place{eat.length === 1 ? '' : 's'} to eat inside.</Text> : null}
+      <Text style={type.tiny}>{[...new Set(inside.flatMap((i) => i.attribution))].join(' · ')}</Text>
+    </View>
+  );
+}
+
 export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, added, shortlisted, ours, capture, onVenue, gettingThere }: {
   item: BrowseItem | null;
   baseLabel?: string | null;
@@ -135,6 +202,10 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   // Inside the shell's phone frame the Modal still portals to the whole window, so the sheet is pinned to the frame's size.
   const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height, borderRadius: radius.lg, overflow: 'hidden' as const } : null;
   const [tab, setTab] = useState<Tab>('overview');
+  // What is inside a place with grounds: the rides in a theme park, the animals
+  // in a zoo (owner, 4 Sep 2026). Researched once from the open map, Wikidata
+  // and Wikipedia, then ours — so this is a read, and it may go on the device.
+  const [inside, setInside] = useState<PlaceInsideItem[] | null>(null);
   const [venue, setVenue] = useState<Venue | null | undefined>(undefined);
   const [menu, setMenu] = useState<MenuLink | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +219,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
 
 
   useEffect(() => {
-    setTab('overview'); setVenue(undefined); setMenu(undefined); setError(null); setSaved(false); setOwnRecord(undefined);
+    setTab('overview'); setVenue(undefined); setMenu(undefined); setError(null); setSaved(false); setOwnRecord(undefined); setInside(null);
     if (!item) return;
     let live = true;
     // A place the household has never opened has no saved answer of its own, but
@@ -274,6 +345,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
               {shown === 'overview' ? (
                 <View style={{ gap: spacing.sm }}>
                   {capture}
+                  <InsideList item={item} venue={v} inside={inside} setInside={setInside} />
                   {v?.summary ?? item.summary ? <Text style={type.body}>{v?.summary ?? item.summary}</Text> : null}
                   {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
                   {v?.address ?? item.address ? <IconText name="address">{v?.address ?? item.address}</IconText> : null}

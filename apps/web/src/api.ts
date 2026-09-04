@@ -2,6 +2,8 @@
 // key ever reaches this bundle (Technical Constraints §13.7).
 
 import { recall, remember, servingSaved, warm, warmQuietly } from './offline/cache';
+import { flush as flushOutbox, queue as queueWrite, refreshOutbox } from './offline/outbox';
+import { deviceLabel, sessionExpired, sessionToken, setSessionToken } from './session';
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
 
@@ -28,25 +30,54 @@ export class OfflineError extends Error {
 }
 
 /**
+ * Thrown when a write could not be sent but has been kept on the device and
+ * will go on its own (offline/outbox.ts).
+ *
+ * It is an error because it is not done yet — a screen must not tell anybody
+ * their booking is confirmed when it is sitting in a queue — but it is a
+ * different one from a failure, so the message can say "saved, and it will send
+ * itself" rather than "something went wrong".
+ */
+export class QueuedError extends Error {
+  code = 'queued';
+  queued = true;
+  constructor(public path: string) { super("No signal — saved on this device and it will send itself when you're back."); }
+}
+
+/**
  * Every request goes through here, and so does the device's copy of it
  * (offline/cache.ts). A GET that succeeds is saved if its licence allows
  * (offline/policy.ts); a GET that cannot reach the API is answered from what
  * was saved, and the app is told it is showing an older copy.
  *
- * Writes are never answered from the copy: the household has to know whether
- * their booking status actually reached the server.
+ * A write is never answered from the copy — the household has to know whether
+ * their booking status actually reached the server — but a write that cannot be
+ * sent is no longer thrown away either: if it is one that still means the same
+ * thing later (offline/policy.ts `queueable`) it is kept and sent when there is
+ * signal, and the caller is told which of the two happened.
  */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase();
   const readOnly = method === 'GET';
+  const token = sessionToken();
   try {
     const res = await fetch(`${API_URL}${path}`, {
       ...init,
-      headers: { 'content-type': 'application/json', ...(init?.headers || {}) },
+      // `include` so the sign-in response can set the cookie that photographs
+      // are loaded with; every other request is authorised by the header.
+      credentials: 'include',
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers || {}),
+      },
     });
     if (res.status === 204) return undefined as T;
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
+      // Signed out, or the token has run out. Drop it so the app shows the
+      // passcode screen; anything waiting in the outbox stays waiting.
+      if (res.status === 401 && path !== '/api/session') sessionExpired();
       // The API answering "no" is an answer; only an API that cannot answer at
       // all falls back to the copy.
       if (readOnly && [502, 503, 504].includes(res.status)) {
@@ -60,12 +91,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return body as T;
   } catch (err) {
     if (err instanceof ApiError) throw err;
-    if (!readOnly) throw err;
+    if (!readOnly) {
+      // The API could not be reached at all. Keep the write rather than lose it.
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      if (await queueWrite(method, path, body)) throw new QueuedError(path);
+      throw err;
+    }
     const saved = await recall<T>(path);
     if (saved) { servingSaved(true); return saved.body; }
     throw new OfflineError(path);
   }
 }
+
+/**
+ * Replay the outbox. Given to `flush` so a write made an hour ago goes out the
+ * same door as a live one — same header, same handling of a 401.
+ */
+const sendQueued = (method: string, path: string, body: unknown) =>
+  request(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
 
 const post = <T,>(path: string, body: unknown) => request<T>(path, { method: 'POST', body: JSON.stringify(body) });
 const patch = <T,>(path: string, body: unknown) => request<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
@@ -277,6 +320,13 @@ export type OptionStop = {
   address?: string | null; website?: string | null; summary?: string | null; openingHours?: string | null;
   distanceKm?: number | null; travelFromBaseMinutes?: number | null; attribution?: string | null; reservable?: boolean | null; mapsUrl?: string | null;
   photos?: VenuePhotoRef[];
+};
+
+/** One thing inside a place with grounds — a ride, an animal house, a café. Ours: OSM, Wikidata, Wikipedia. */
+export type PlaceInsideItem = {
+  itemRef: string; name: string; kind: string; kindLabel: string; lat: number | null; lng: number | null;
+  facts: { heightM?: number; lengthM?: number; speedKph?: number; opened?: string; builtBy?: string; minHeightM?: number; coasterType?: string; operator?: string; note?: string; extraCharge?: boolean; capacity?: number };
+  summary: string | null; summarySource: string | null; website: string | null; wikipediaUrl: string | null; attribution: string[];
 };
 
 export type BrowseItem = Omit<OptionStop, 'position' | 'travelFromPrevMinutes' | 'pinned'> & { pinned: boolean; ticketed?: boolean; venueName?: string | null; externalUrl?: string | null; shortlisted?: boolean; score?: number | null; contributingSources?: string[] };
@@ -819,6 +869,9 @@ export const api = {
   inspireStatus: (sessionId: string) => request<{ sessionId: string; ref: string; running: boolean; ideas: Idea[] | null; reply: string | null; budget: IdeaBudget; stage: InspireStage | null; placed: number; startedAt: string | null; error: string | null }>(`/api/plan/inspire/${sessionId}`),
   /** Five more days out on the same list, without losing the ones already there. */
   inspireMore: (body: { sessionId: string; attendingMemberIds?: string[] | null }) => post<{ sessionId: string; ref: string; running: boolean; stage: InspireStage }>('/api/plan/inspire/more', body),
+  /** What is inside a place with grounds: the rides in a theme park, researched once and ours to keep. */
+  placeInside: (q: { ref: string; lat?: number; lng?: number; experiences?: string; name?: string; refresh?: '1' }) =>
+    request<{ ref: string; items: PlaceInsideItem[]; researched: boolean }>(`/api/places/inside${qs(q)}`),
   /** What one run did, by the number shown on screen: what was asked, how long, and every call it made. */
   planRun: (ref: string) => request<{ ref: string; sessionId: string; kind: string; asked: any; startedAt: string; seconds: number; stage: string; running: boolean; error: string | null; answered: { title: string; pinned: boolean }[] | null; calls: { provider: string; purpose: string; units: any; costUsd: number | null; at: string; afterSeconds: number }[] }>(`/api/plan/runs/${ref}`),
   inspireThings: (q: { lat: number; lng: number; label: string; locality?: string }) => request<{ items: IdeaThing[]; headline: IdeaHeadline | null; cached?: boolean; tookMs?: number }>(`/api/plan/inspire/things${qs(q)}`),
@@ -853,7 +906,48 @@ export const api = {
   saveForOffline: (): Promise<void> => warm((path) => request<any>(path)),
   /** The quiet daily fill, on start-up: only what the API answers for free. */
   keepDeviceCopyFresh: (): Promise<void> => warmQuietly((path) => request<any>(path)),
+
+  // --- the door -------------------------------------------------------------
+
+  /** Whether this device is signed in, and whether the API is asking at all. */
+  sessionState: () => request<SessionState>('/api/session'),
+
+  /**
+   * The passcode, once. The token is kept on the device from here on; the
+   * cookie the API also sets exists only so an `<img>` can load a photograph.
+   */
+  signIn: async (passcode: string): Promise<SessionState> => {
+    const r = await post<{ token: string; session: SessionSummary }>('/api/session', { passcode, label: deviceLabel() });
+    setSessionToken(r.token);
+    // Anything written while they were signed out goes now.
+    void api.sendWaitingWrites();
+    return { signedIn: true, configured: true, session: r.session };
+  },
+
+  /**
+   * Sign out. The device's saved copy is deliberately *not* thrown away here —
+   * it is the same household's data and they will sign back in — but anything
+   * still waiting to be sent is reported first, so nobody signs out on top of
+   * unsent ratings without being told.
+   */
+  signOut: async ({ everywhere = false } = {}): Promise<void> => {
+    try { await del<void>(`/api/session${everywhere ? '?all=1' : ''}`); } catch { /* leaving is not something the server can refuse */ }
+    setSessionToken(null);
+  },
+
+  /** The devices signed in, for Settings. */
+  devices: () => request<{ sessions: (SessionSummary & { lastSeen: string })[] }>('/api/sessions'),
+
+  // --- writes that have not gone yet ----------------------------------------
+
+  /** Send everything waiting in the outbox. Safe to call at any time. */
+  sendWaitingWrites: (): Promise<void> => flushOutbox(sendQueued),
+  /** Count what is waiting, without sending it. */
+  countWaitingWrites: (): Promise<void> => refreshOutbox(),
 };
+
+export type SessionSummary = { id: string; label: string | null; since: string; until: string };
+export type SessionState = { signedIn: boolean; configured: boolean; session?: SessionSummary | null; message?: string };
 
 export type OfflineManifest = {
   generatedAt: string;

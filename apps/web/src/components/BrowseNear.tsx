@@ -153,7 +153,15 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
   const vegetarians = useMemo(() => (household?.members ?? []).filter((m) => (m.diets ?? []).some((c) => /vegetarian|vegan/i.test(c.value))).map((m) => m.name), [household]);
 
   // For you: how well rated, weighed by how many said so, then what the family has loved and been to, then who is coming.
-  const scored = useMemo<Scored[]>(() => (find.res ?? []).map((v) => {
+  // What is inside another place's grounds — the rides in a theme park — is
+  // not a place to go on its own (owner, 4 Sep 2026). It is kept aside for that
+  // place's drawer and never listed beside a museum.
+  const inside = useMemo(() => {
+    const by = new Map<string, FindResult[]>();
+    for (const v of find.res ?? []) if (v.insideRef) by.set(v.insideRef, [...(by.get(v.insideRef) ?? []), v]);
+    return by;
+  }, [find.res]);
+  const scored = useMemo<Scored[]>(() => (find.res ?? []).filter((v) => !v.insideRef).map((v) => {
     const reasons: Scored['reasons'] = [];
     let score = (v.rating ?? 0) * Math.log10((v.ratingCount ?? 0) + 2) - (v.distanceKm ?? 0) * 0.05;
     const k = known.get(v.venueRef);

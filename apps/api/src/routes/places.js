@@ -15,6 +15,7 @@ import { searchAreas, AREA_ATTRIBUTION, providerCalls as areaCalls } from '../so
 import { findMenuUrl } from '../sources/menuLink.js';
 import { resolveConcept, conceptByKey } from '../domain/concepts.js';
 import { kmBetween } from '../domain/travel.js';
+import { contentsOf, groundsRadiusKm, researchInside } from '../sources/inside.js';
 import { currentHousehold, loadMembers } from './household.js';
 import { upsertHouseholdPlace } from './atlas.js';
 import { googleSource } from '../sources/google.js';
@@ -50,6 +51,34 @@ export function markContained(venues) {
 }
 
 export const places = Router();
+
+/**
+ * What is inside a place with grounds — the rides in a theme park, the animals
+ * in a zoo (owner, 4 Sep 2026). Held in our own tables from sources we may keep,
+ * so this is a read once a park has been researched, and researching it is one
+ * open-map query rather than anything billable.
+ *
+ * GET /api/places/inside?ref=osm:way/123&lat=&lng=&kind=theme-park[&refresh=1]
+ */
+places.get('/inside', async (req, res, next) => {
+  try {
+    const ref = String(req.query.ref || '').trim();
+    if (!ref) return res.status(400).json({ error: 'ref_required' });
+    const experiences = String(req.query.experiences || req.query.kind || '').split(',').map((e) => e.trim()).filter(Boolean);
+    const radiusKm = Number(req.query.radiusKm) || groundsRadiusKm(experiences);
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const held = await contentsOf(ref);
+    // Nothing to research without somewhere to look, and nothing worth
+    // researching for a place that has no grounds.
+    if (held.length && !req.query.refresh) return res.json({ ref, items: held, researched: false });
+    if (!radiusKm || !Number.isFinite(lat) || !Number.isFinite(lng)) return res.json({ ref, items: held, researched: false });
+    const items = await researchInside({ parentRef: ref, name: req.query.name ?? null, lat, lng, radiusKm, force: Boolean(req.query.refresh) });
+    res.json({ ref, items, researched: true });
+  } catch (err) {
+    next(err);
+  }
+});
 export const visits = Router();
 
 const TAKES = ['loved', 'fine', 'not_for_me'];
@@ -303,11 +332,14 @@ places.get('/search', async (req, res, next) => {
       .filter((v) => v.distanceKm <= fence)
       .sort((a, b) => a.distanceKm - b.distanceKm);
     const status = await householdStatus(household.id, inRange.map((v) => `${v.source}:${v.sourcePlaceId}`));
+    const shown = inRange.slice(0, 120).map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, household: status[`${v.source}:${v.sourcePlaceId}`] ?? null }));
+    // A ride belongs to its park, not to the list beside it.
+    markContained(shown);
 
     res.json({
       near: { label: near.label, lat: near.lat, lng: near.lng, how: near.how },
       radiusKm,
-      results: inRange.slice(0, 120).map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, household: status[`${v.source}:${v.sourcePlaceId}`] ?? null })),
+      results: shown,
       sourcesQueried,
       degradedSources: degraded,
       attribution: [...new Set(inRange.map((v) => v.attribution).filter(Boolean))],
