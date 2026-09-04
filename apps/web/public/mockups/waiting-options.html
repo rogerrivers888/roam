@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roam · The wait — a map that shows the search happening</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FFFFFF;--surface:#FFFFFF;--muted:#EFF8F3;--mint:#B6E3CF;--headerSub:#2F6A52;
+    --ink:#201E1D;--ink2:#6B6663;--ink3:#8B8784;--line:#E5EFEA;--accent:#2E8A63;--accentSoft:#EFF8F3;
+    --red:#EC3013;--paper:#FCFCFA;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#EDF3F0;color:var(--ink);font:14px/1.45 Archivo,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;padding:30px 32px 80px}
+  h1{font-size:27px;margin:0 0 6px;letter-spacing:-.4px}
+  .lede{color:var(--ink2);max-width:940px;margin:0 0 6px}
+  .lede b{color:var(--ink)}
+  section{margin:0 0 46px}
+  h2{font-size:20px;margin:0 0 4px;letter-spacing:-.2px}
+  h2 .tag{font:600 11px/1 Archivo;vertical-align:3px;margin-left:8px;padding:4px 8px;border-radius:999px;background:var(--mint);color:#1C4E3A}
+  .sub{color:var(--ink2);margin:0 0 16px;max-width:900px}
+  .row{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}
+  .notes{width:330px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;font-size:13px}
+  .notes h4{margin:0 0 8px;font-size:13px}
+  .notes ul{margin:0 0 10px;padding-left:17px}
+  .notes li{margin:0 0 6px;color:var(--ink2)}
+  .notes li b{color:var(--ink)}
+  .cap{font-size:12px;color:var(--ink2);text-align:center;margin:8px 0 0;width:390px}
+  /* phone */
+  .phone{width:390px;height:800px;background:var(--bg);border-radius:34px;border:8px solid #23221F;overflow:hidden;position:relative;box-shadow:0 18px 38px rgba(20,40,32,.20);display:flex;flex-direction:column}
+  .status{height:40px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:11px;font-weight:700;color:var(--ink)}
+  .hdr{flex:none;background:var(--mint);padding:10px 16px 12px}
+  .hdr .t{font-size:19px;font-weight:700;letter-spacing:-.3px}
+  .hdr .s{font-size:12px;color:var(--headerSub);margin-top:1px}
+  .screen{flex:1;min-height:0;display:flex;flex-direction:column}
+  .tabbar{height:56px;flex:none;border-top:1px solid var(--line);background:var(--surface);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--ink3)}
+  .tabbar div{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .tabbar .on{color:var(--accent);font-weight:700}
+  .tabbar svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  /* map */
+  .mapwrap{position:relative;background:var(--paper);overflow:hidden}
+  .mapwrap.rounded{border-radius:14px;border:1px solid var(--line)}
+  .mapwrap svg.map{display:block;width:100%;height:100%}
+  .grain{position:absolute;inset:0;pointer-events:none;opacity:.5;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 .12 0 0 0 0 .18 0 0 0 0 .15 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .scaleline{position:absolute;left:12px;bottom:10px;font-size:10px;color:var(--ink3);display:flex;align-items:center;gap:6px}
+  .scaleline i{display:block;height:5px;border:1px solid var(--ink3);border-top:0;width:52px}
+  .beat{position:absolute;left:14px;top:12px;font:600 16px/1 Caveat,cursive;font-size:19px;color:var(--ink);opacity:0;transition:opacity .35s}
+  .beat.on{opacity:.85}
+  /* copy blocks */
+  .pad{padding:12px 16px}
+  .title{font-size:20px;font-weight:700;letter-spacing:-.3px}
+  .small{font-size:13px;color:var(--ink2)}
+  .tiny{font-size:11px;color:var(--ink3)}
+  .lines{display:flex;flex-direction:column;margin-top:8px}
+  .ln{display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--line);font-size:13px;color:var(--ink3);opacity:.45;transition:opacity .3s,color .3s}
+  .ln:first-child{border-top:0}
+  .ln.on{opacity:1;color:var(--ink2)}
+  .ln.done{color:var(--ink)}
+  .ln .mk{width:17px;height:17px;flex:none;margin-top:1px;position:relative}
+  .ln .mk svg{width:17px;height:17px;stroke:var(--accent);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .ln .mk .tick{opacity:0;transition:opacity .25s}
+  .ln.done .mk .tick{opacity:1}
+  .ln .mk .dot{position:absolute;left:6px;top:6px;width:6px;height:6px;border-radius:50%;background:var(--ink3);opacity:.45}
+  .ln.done .mk .dot,.ln.on .mk .dot{opacity:0}
+  .ln .mk .spin{position:absolute;inset:2px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);opacity:0;animation:sp .9s linear infinite}
+  .ln.on:not(.done) .mk .spin{opacity:1}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .ln b{color:var(--ink);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+  .chip{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:12px;font-weight:600;color:var(--ink3);opacity:0;transform:translateY(4px);transition:opacity .3s,transform .3s,background .3s,color .3s}
+  .chip.in{opacity:1;transform:none}
+  .chip.hit{background:var(--accentSoft);color:var(--accent);border-color:transparent}
+  .count{font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink)}
+  .btnrow{display:flex;gap:8px;align-items:center;margin-top:12px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 16px;border-radius:12px;font:700 14px Archivo;background:var(--ink);color:#fff;border:0;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  .btn.sm{min-height:32px;padding:0 12px;font-size:12.5px;border-radius:10px}
+  .btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  /* results */
+  .res{padding:0 16px 10px;overflow:hidden;flex:1;min-height:0}
+  .card{display:flex;gap:10px;padding:11px 0;border-top:1px solid var(--line);opacity:0;transform:translateY(8px);transition:opacity .35s,transform .35s}
+  .card.in{opacity:1;transform:none}
+  .card .thumb{width:46px;height:46px;border-radius:10px;background:var(--muted);flex:none;display:flex;align-items:center;justify-content:center}
+  .card .thumb svg{width:20px;height:20px;stroke:var(--accent);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .card .n{font-size:14.5px;font-weight:600}
+  .card .m{font-size:12px;color:var(--ink3);margin-top:2px}
+  /* search bar for variant B */
+  .sbar{display:flex;align-items:center;gap:8px;margin:10px 16px 0;padding:0 12px;height:40px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:13.5px;color:var(--ink2)}
+  .sbar svg{width:16px;height:16px;stroke:var(--ink3);fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .filters{display:flex;gap:6px;padding:10px 16px 2px;flex-wrap:wrap}
+  .filters .chip{opacity:1;transform:none}
+  .filters .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  /* controls */
+  .controls{position:sticky;top:0;z-index:20;background:#EDF3F0;padding:10px 0 14px;margin:0 0 18px;border-bottom:1px solid #D9E5DF;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .controls .lbl{font-size:12px;color:var(--ink2);margin-right:2px}
+  .controls .btn.sm.on{background:var(--accent)}
+  .hr{height:1px;background:#D9E5DF;margin:36px 0 26px;border:0}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;max-width:1180px}
+  .note{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:15px 17px}
+  .note h4{margin:0 0 8px;font-size:14px}
+  .note p{margin:0 0 8px;color:var(--ink2);font-size:13px}
+  .note p:last-child{margin:0}
+  .note code{background:var(--muted);padding:1px 5px;border-radius:5px;font-size:12px}
+  .kbd{font:600 11px Archivo;background:var(--muted);color:var(--headerSub);padding:3px 7px;border-radius:6px}
+</style>
+</head>
+<body>
+
+<h1>The wait</h1>
+<p class="lede">Every search has dead air in it — the catchment is worked out, three sources are asked, the pool is filtered, and until all that lands there is nothing on screen but a spinner. This replaces the spinner with <b>the actual search, drawn</b>: the country, then the city, then the ground you can reach, then the areas inside it being looked through. Real coastline, real borough boundaries, real area names. Nothing here is a GIF — it is one SVG map, a few kilobytes, that can be drawn for any town Roam searches.</p>
+<p class="lede" style="margin-bottom:18px"><b>The rule underneath all three:</b> the animation never decides how long you wait. It is capped by the search — if the answer lands early it compresses and gets out of the way, and under about a third of a second it never appears at all.</p>
+
+<div class="controls">
+  <span class="lbl">Search takes</span>
+  <button class="btn sm ghost" data-ms="200">0.2s — instant</button>
+  <button class="btn sm ghost" data-ms="1400">1.4s — quick</button>
+  <button class="btn sm on" data-ms="3600">3.6s — typical</button>
+  <button class="btn sm ghost" data-ms="7000">7s — a slow source</button>
+  <button class="btn sm ghost" data-ms="99000">Hangs</button>
+  <span style="width:14px"></span>
+  <button class="btn sm" id="replay">Replay all</button>
+  <label class="lbl" style="display:flex;align-items:center;gap:6px;margin-left:8px"><input type="checkbox" id="rm"> Reduced motion</label>
+</div>
+
+<section>
+  <h2>A — In the card<span class="tag">least disruptive</span></h2>
+  <p class="sub">The screen you were on does not go anywhere. The map is a strip at the top of the results list, and results push in underneath it as they arrive. Nothing is covered, nothing is thrown away, and the transition at the end is the strip shrinking to a line.</p>
+  <div class="row">
+    <div>
+      <div class="phone" id="pA">
+        <div class="status"><span>9:41</span><span>Roam</span></div>
+        <div class="hdr"><div class="t">Find</div><div class="s">Tonight · everyone · 30 min by car</div></div>
+        <div class="screen">
+          <div class="sbar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>somewhere for dinner</span></div>
+          <div class="filters"><span class="chip on">Dinner</span><span class="chip">Everyone</span><span class="chip">30 min</span></div>
+          <div class="pad" style="padding-bottom:0">
+            <div class="mapwrap rounded" data-map style="height:132px">
+              <svg class="map"></svg><div class="grain"></div>
+              <div class="beat" data-beat></div>
+            </div>
+            <div class="lines" style="margin-top:6px">
+              <div class="ln" data-ln="0"><span class="mk"><span class="dot"></span><span class="spin"></span><svg class="tick" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg></span><span data-lntext>Working out what you can reach</span></div>
+            </div>
+          </div>
+          <div class="res" data-res></div>
+        </div>
+        <div class="tabbar">
+          <div class="on"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Find</div>
+          <div><svg viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>Places</div>
+          <div><svg viewBox="0 0 24 24"><path d="M3 7h18M8 3v4M16 3v4M3 7v13a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7"/></svg>Trips</div>
+          <div><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Us</div>
+        </div>
+      </div>
+      <p class="cap">The list keeps its place. The map is 132px and never covers anything.</p>
+    </div>
+    <div class="notes">
+      <h4>Why this one</h4>
+      <ul>
+        <li>Nothing is hidden, so <b>nothing has to come back</b> — the end of the search is not a screen change, it is a strip getting shorter.</li>
+        <li>Results can stream: the first eight places are on screen while the map is still sweeping the far side of the catchment.</li>
+        <li>Small enough that it can be the default on every search, not just the long ones.</li>
+      </ul>
+      <h4>Costs</h4>
+      <ul>
+        <li>132px of map cannot hold area names legibly, so the areas go in the line underneath instead.</li>
+        <li>Less of a moment. If the wait is genuinely seven seconds, this is not enough to hold anybody.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>B — Map and running notes<span class="tag">recommended</span></h2>
+  <p class="sub">Half the screen is the map, half is what the search is actually doing, in words, as it happens: the catchment drawn, the areas named as they are looked through, the sources answering, the count climbing, the allergen rule biting. The map holds the eye; the notes are why the wait is worth it.</p>
+  <div class="row">
+    <div>
+      <div class="phone" id="pB">
+        <div class="status"><span>9:41</span><span>Roam</span></div>
+        <div class="screen">
+          <div class="mapwrap" data-map style="height:352px">
+            <svg class="map"></svg><div class="grain"></div>
+            <div class="beat" data-beat></div>
+            <div class="scaleline"><i></i><span data-scale>2 km</span></div>
+          </div>
+          <div class="pad">
+            <div class="title" data-title>Looking around home</div>
+            <div class="small" data-sub>Tonight · everyone · 30 minutes by car</div>
+            <div class="chips" data-areas></div>
+            <div class="lines">
+              <div class="ln" data-ln="0"><span class="mk"><span class="dot"></span><span class="spin"></span><svg class="tick" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg></span><span>Everywhere within <b>30 minutes by car</b></span></div>
+              <div class="ln" data-ln="1"><span class="mk"><span class="dot"></span><span class="spin"></span><svg class="tick" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg></span><span data-src>Asking the open map and the places we hold</span></div>
+              <div class="ln" data-ln="2"><span class="mk"><span class="dot"></span><span class="spin"></span><svg class="tick" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg></span><span><span class="count" data-count>0</span> <span data-plural>places</span> so far</span></div>
+              <div class="ln" data-ln="3"><span class="mk"><span class="dot"></span><span class="spin"></span><svg class="tick" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg></span><span data-rule>Ada eats no nuts — <b data-ruled>0</b> ruled out</span></div>
+            </div>
+            <div class="btnrow"><button class="btn ghost sm" data-stop>Stop</button><span class="tiny" data-hint></span></div>
+          </div>
+          <div class="res" data-res style="display:none"></div>
+        </div>
+        <div class="tabbar">
+          <div class="on"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Find</div>
+          <div><svg viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>Places</div>
+          <div><svg viewBox="0 0 24 24"><path d="M3 7h18M8 3v4M16 3v4M3 7v13a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7"/></svg>Trips</div>
+          <div><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Us</div>
+        </div>
+      </div>
+      <p class="cap">Areas are named as the magnifier reaches them. The count is the real pool, not a percentage.</p>
+    </div>
+    <div class="notes">
+      <h4>Why this one</h4>
+      <ul>
+        <li>Every line is a fact the search really produced, so the wait <b>teaches you how Roam thinks</b>: catchment first, then sources, then the household's rules.</li>
+        <li>The area names are the answer to "is it even looking near me?" — the commonest reason people abandon a search.</li>
+        <li>"Ada eats no nuts — 6 ruled out" is the one thing a spinner can never say, and it is the thing that earns trust.</li>
+        <li>Stop is real. The pool it already has is shown; nothing is thrown away.</li>
+      </ul>
+      <h4>Costs</h4>
+      <ul>
+        <li>It is a takeover, so there is a screen change at the end. Softened by keeping the header and letting the map shrink rather than vanish.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>C — The full sketch<span class="tag">the one to watch</span></h2>
+  <p class="sub">The brief, taken at its word: the whole screen is the map, the zoom is slow and deliberate — Great Britain, London, your streets — and the magnifier does the work in the open. One line of words, no chrome. Best for the first search of a session, or a long one; too much for the fifth search in a row.</p>
+  <div class="row">
+    <div>
+      <div class="phone" id="pC">
+        <div class="status"><span>9:41</span><span>Roam</span></div>
+        <div class="screen">
+          <div class="mapwrap" data-map style="flex:1">
+            <svg class="map"></svg><div class="grain"></div>
+            <div class="beat" data-beat></div>
+            <div class="scaleline"><i></i><span data-scale>2 km</span></div>
+          </div>
+          <div class="pad" style="flex:none">
+            <div class="title" data-title>Looking around home</div>
+            <div class="small"><span class="count" data-count>0</span> <span data-plural>places</span> · <span data-areatext>drawing what you can reach</span></div>
+            <div class="btnrow"><button class="btn ghost sm" data-stop>Stop</button></div>
+          </div>
+          <div class="res" data-res style="display:none"></div>
+        </div>
+      </div>
+      <p class="cap">Great Britain → London → the ground you can reach, in one continuous move.</p>
+    </div>
+    <div class="notes">
+      <h4>What makes it feel real</h4>
+      <ul>
+        <li>The coastline is <b>Natural Earth</b> and the boroughs are the <b>real GLA boundaries</b>, simplified to about 40 points each. A hand-drawn squiggle would read as decoration; a real coast reads as a map.</li>
+        <li>The zoom is one continuous camera move, eased, never a cut — that is what sells "we are going somewhere", and it is why it must be slow at the start.</li>
+        <li>The lens genuinely magnifies the map under it, so the sweep is not a badge sliding about on top of a picture.</li>
+        <li>Pins have no names. Until the pool is ranked we do not know what to show, and licensed names are not ours to scatter on a map.</li>
+      </ul>
+      <h4>Costs</h4>
+      <ul>
+        <li>Needs about three seconds to land. On a fast search you see the first second of it and then it leaves — which is fine, but the fancy part is wasted.</li>
+        <li>Full takeover: it must not be the default, or Roam will feel slower than it is.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<h2 style="margin-bottom:10px">How it stays honest</h2>
+<div class="grid2">
+  <div class="note"><h4>The search sets the clock, not the animation</h4>
+    <p>Three thresholds. Under <b>300ms</b> nothing appears — the results are simply there. Between 300ms and the end of the timeline the beats <b>compress</b> (playback speeds up to 2.5×, minimum 350ms of outro) rather than cutting mid-zoom. Past the timeline the sweep loops until the last source answers.</p>
+    <p>Set the control above to <span class="kbd">0.2s</span> and no map is drawn at all.</p></div>
+  <div class="note"><h4>Every beat is a real event</h4>
+    <p><code>POST /api/discover</code> already does the work in order: catchment from <code>deriveCatchment</code>, then <code>searchAllSources</code>, then <code>applyConstraints</code>. Streaming those four moments back — SSE, or a chunked JSON prelude — turns the beats into events instead of timings. A source that is slow says so by name; the line stays spinning and the map does not pretend it finished.</p></div>
+  <div class="note"><h4>The areas are open data, so we may keep them</h4>
+    <p>Administrative boundaries and area names come from OpenStreetMap, which sits in the owned layer with the rest of <code>sources/own.js</code> — the same rule that lets us hold a summary or a postcode district. A simplified boundary is a couple of kilobytes and is cached per town, so the second search of the evening draws instantly.</p>
+    <p>No provider's names, photos or ratings appear on the map. The pins are counts, not content.</p></div>
+  <div class="note"><h4>Anywhere, not just London</h4>
+    <p>The camera takes three boxes: country, town, catchment. Country outlines are one 8KB file for the whole world at sketch resolution; the town box comes from the geocode Roam already ran; the catchment is the polygon the search is bounded by. Padstow and Palermo get the same treatment.</p></div>
+  <div class="note"><h4>Reduced motion, and the fifth search of the evening</h4>
+    <p>With <span class="kbd">prefers-reduced-motion</span> the map draws once, static, with the areas named and the lines ticking — no zoom, no sweep. Tick the box above to see it.</p>
+    <p>The full sketch (C) should run on the first search of a session and after that fall back to A, so the flourish never becomes a toll.</p></div>
+  <div class="note"><h4>What it costs to build</h4>
+    <p>One <code>&lt;Sketch&gt;</code> component: about 300 lines of SVG and a request-animation-frame camera, no library, no images, no GIF. It reads width from <code>useViewport()</code> so it works in the phone frame and wide. Icons stay Lucide; the magnifier is drawn geometry, not a glyph.</p>
+    <p>The honest part — streaming the four events out of <code>/api/discover</code> — is the larger half of the job.</p></div>
+</div>
+
+<script>
+const GEO = {"uk":"M-1.066,-58.990L-1.149,-58.935L-1.196,-58.846L-1.251,-58.830L-1.306,-58.829L-1.515,-58.957L-1.563,-58.951L-1.516,-59.010L-1.386,-59.058L-1.313,-59.121L-1.144,-59.060L-1.066,-58.990ZM-4.197,-63.265L-4.155,-63.234L-4.049,-63.239L-4.084,-63.170L-4.373,-62.953L-4.419,-63.026L-4.472,-63.023L-4.553,-63.163L-4.568,-63.374L-4.462,-63.429L-4.315,-63.426L-4.197,-63.265ZM-6.218,-64.562L-6.304,-64.572L-6.403,-64.514L-6.650,-64.510L-6.647,-64.689L-6.670,-64.726L-6.803,-64.776L-6.877,-64.973L-7.008,-65.106L-7.050,-65.109L-7.203,-64.926L-7.155,-64.819L-7.325,-64.638L-7.355,-64.617L-7.607,-64.656L-7.679,-64.729L-7.855,-64.778L-7.884,-64.895L-8.118,-65.119L-8.145,-65.186L-8.044,-65.288L-7.754,-65.430L-7.746,-65.466L-7.886,-65.553L-7.911,-65.609L-7.873,-65.643L-7.737,-65.630L-7.550,-65.729L-7.451,-65.919L-7.377,-66.181L-7.219,-66.293L-7.179,-66.232L-7.101,-66.217L-7.031,-66.273L-6.947,-66.452L-6.699,-66.471L-6.475,-66.554L-6.129,-66.513L-6.036,-66.385L-5.986,-66.185L-5.869,-65.987L-5.717,-65.815L-5.711,-65.711L-5.879,-65.585L-5.879,-65.510L-5.739,-65.565L-5.583,-65.548L-5.528,-65.473L-5.470,-65.267L-5.484,-65.166L-5.569,-65.288L-5.671,-65.352L-5.656,-65.063L-5.558,-65.045L-5.607,-64.876L-5.826,-64.813L-5.938,-64.562L-6.019,-64.498L-6.218,-64.562ZM-5.105,-66.920L-5.231,-66.918L-5.331,-66.977L-5.393,-67.219L-5.318,-67.380L-5.252,-67.394L-5.160,-67.305L-5.105,-67.141L-5.105,-66.920ZM-6.129,-67.774L-6.055,-67.356L-6.088,-67.289L-6.305,-67.199L-6.270,-67.311L-6.302,-67.414L-6.286,-67.493L-6.334,-67.496L-6.491,-67.359L-6.463,-67.556L-6.375,-67.669L-6.311,-67.642L-6.129,-67.774ZM-5.970,-67.568L-6.042,-67.554L-6.072,-67.708L-6.041,-67.766L-5.912,-67.853L-5.970,-67.884L-5.939,-67.979L-5.800,-68.093L-5.725,-68.111L-5.970,-67.568ZM-5.778,-68.517L-6.176,-68.417L-6.313,-68.426L-6.326,-68.475L-6.298,-68.508L-6.185,-68.540L-6.139,-68.781L-6.311,-68.893L-6.286,-69.001L-6.182,-69.058L-6.103,-69.063L-5.947,-68.861L-5.836,-68.839L-5.761,-68.781L-5.778,-68.517ZM-7.250,-69.922L-7.347,-69.922L-7.381,-69.951L-7.422,-70.133L-7.411,-70.414L-7.267,-70.396L-7.250,-69.922ZM-6.145,-70.644L-6.164,-70.465L-6.136,-70.290L-6.068,-70.233L-5.880,-70.195L-5.706,-70.206L-5.672,-70.176L-5.696,-70.076L-5.949,-69.793L-6.015,-69.806L-6.034,-70.081L-6.163,-70.046L-6.323,-70.083L-6.442,-70.314L-6.675,-70.380L-6.761,-70.527L-6.704,-70.627L-6.643,-70.602L-6.583,-70.648L-6.617,-70.751L-6.379,-70.827L-6.358,-70.946L-6.306,-70.955L-6.247,-70.917L-6.166,-70.794L-6.145,-70.644ZM-7.206,-70.976L-7.093,-70.871L-7.183,-70.697L-7.321,-70.697L-7.515,-70.825L-7.470,-70.919L-7.271,-70.928L-7.206,-70.976ZM-6.199,-72.261L-6.326,-71.929L-6.376,-71.921L-6.419,-71.838L-6.555,-71.747L-6.437,-71.745L-6.403,-71.715L-6.425,-71.612L-6.578,-71.461L-6.683,-71.404L-6.797,-71.247L-6.854,-71.245L-6.910,-71.145L-6.983,-71.101L-7.083,-71.221L-6.857,-71.427L-7.057,-71.578L-6.985,-71.667L-7.077,-71.721L-7.085,-71.916L-7.012,-72.005L-6.886,-71.917L-6.726,-71.930L-6.776,-72.143L-6.237,-72.527L-6.194,-72.398L-6.199,-72.261ZM-3.110,-72.551L-3.113,-72.348L-3.212,-72.181L-3.990,-71.494L-4.036,-71.293L-3.907,-71.270L-3.857,-71.230L-4.078,-70.965L-4.135,-70.779L-3.868,-70.822L-3.403,-71.023L-3.295,-71.027L-3.036,-70.956L-2.856,-70.993L-2.244,-70.972L-2.074,-71.012L-1.962,-70.964L-1.867,-70.844L-1.781,-70.586L-2.020,-70.187L-2.090,-69.899L-2.260,-69.460L-2.593,-68.910L-2.775,-68.768L-3.047,-68.707L-3.310,-68.551L-2.885,-68.613L-2.653,-68.470L-2.674,-68.353L-2.768,-68.261L-2.980,-68.246L-3.178,-68.042L-3.362,-67.948L-3.695,-68.012L-3.789,-68.069L-3.704,-67.976L-3.608,-67.927L-3.049,-67.813L-2.837,-67.945L-2.599,-67.947L-2.147,-67.725L-1.655,-67.134L-1.423,-66.179L-1.232,-65.618L-1.154,-65.533L-0.671,-65.273L-0.370,-64.887L-0.084,-64.612L-0.206,-64.448L-0.169,-64.311L0.115,-63.749L0.036,-63.802L-0.074,-63.807L-0.270,-63.964L-0.461,-63.929L-0.660,-63.943L-0.485,-63.893L-0.294,-63.889L0.128,-63.512L0.271,-63.289L0.356,-62.996L0.298,-62.864L0.046,-62.573L0.280,-62.412L0.382,-62.439L0.559,-62.674L0.704,-62.692L1.056,-62.661L1.382,-62.553L1.657,-62.321L1.716,-62.195L1.747,-61.852L1.591,-61.281L1.413,-61.078L1.317,-61.017L1.232,-61.040L1.274,-60.836L1.188,-60.768L1.101,-60.739L0.955,-60.775L0.752,-60.649L0.898,-60.584L0.927,-60.515L0.891,-60.394L0.799,-60.340L0.507,-60.281L0.425,-60.224L0.528,-60.254L0.600,-60.227L0.687,-60.097L0.889,-60.054L1.257,-60.079L1.415,-60.060L1.398,-59.770L1.044,-59.555L0.960,-59.362L0.772,-59.375L0.684,-59.298L0.205,-59.105L-0.204,-59.186L-0.451,-59.179L-0.785,-59.108L-1.416,-59.316L-1.334,-59.196L-1.517,-59.080L-1.866,-59.029L-2.031,-59.045L-1.962,-58.891L-2.036,-58.852L-2.350,-58.906L-2.433,-58.846L-2.548,-58.873L-2.777,-59.014L-2.999,-59.031L-3.405,-58.898L-3.485,-58.765L-3.584,-58.410L-3.680,-58.282L-3.793,-58.265L-4.195,-58.522L-4.297,-58.469L-4.507,-58.441L-4.728,-58.361L-5.010,-58.158L-5.119,-57.968L-5.225,-57.941L-5.323,-58.037L-5.434,-58.071L-5.622,-57.987L-5.655,-58.028L-5.656,-58.113L-5.571,-58.215L-5.342,-58.292L-5.142,-58.492L-5.004,-58.682L-4.894,-58.743L-4.861,-58.819L-4.583,-59.126L-4.523,-59.444L-4.296,-59.523L-4.188,-59.780L-3.842,-59.848L-3.608,-59.844L-3.375,-59.794L-3.136,-59.807L-3.042,-59.876L-2.881,-60.128L-2.433,-60.667L-2.742,-60.409L-2.979,-60.341L-3.293,-60.103L-3.562,-60.141L-3.763,-60.343L-3.891,-60.426L-4.235,-60.390L-4.174,-60.484L-4.091,-60.536L-4.276,-60.573L-4.386,-60.667L-4.601,-60.662L-4.902,-60.482L-5.125,-60.610L-5.168,-60.667L-5.201,-60.862L-5.262,-60.892L-5.183,-61.005L-5.088,-61.080L-4.879,-61.155L-4.383,-61.408L-4.218,-61.539L-4.149,-61.618L-3.980,-61.972L-4.048,-61.998L-4.079,-62.081L-4.039,-62.239L-4.118,-62.431L-4.101,-62.589L-4.356,-62.559L-4.584,-62.422L-4.683,-62.408L-4.638,-62.549L-4.405,-62.752L-4.269,-62.970L-4.111,-63.094L-3.764,-63.242L-3.646,-63.226L-3.326,-63.309L-3.098,-63.163L-3.166,-63.388L-3.065,-63.442L-2.919,-63.239L-2.864,-63.217L-2.750,-63.247L-2.913,-63.314L-3.065,-63.587L-3.059,-63.710L-2.925,-63.957L-3.032,-64.026L-3.027,-64.251L-2.900,-64.344L-2.846,-64.641L-2.868,-64.713L-2.994,-64.701L-3.110,-64.626L-3.166,-64.629L-3.322,-64.801L-3.569,-65.211L-3.592,-65.377L-3.465,-65.738L-3.268,-65.970L-3.036,-66.051L-3.434,-66.070L-3.550,-66.041L-3.658,-65.946L-3.783,-65.906L-3.958,-65.752L-4.133,-65.749L-4.253,-65.866L-4.517,-65.713L-4.818,-65.865L-4.890,-65.737L-4.911,-65.593L-5.032,-65.718L-5.135,-65.885L-5.173,-66.108L-5.117,-66.154L-5.056,-66.112L-4.965,-66.394L-4.677,-67.012L-4.724,-67.184L-4.892,-67.362L-4.872,-67.673L-4.807,-67.791L-4.584,-67.789L-4.844,-67.990L-4.800,-68.182L-4.927,-67.949L-5.093,-67.876L-5.115,-67.799L-5.196,-67.771L-5.228,-67.695L-5.247,-67.899L-5.223,-68.016L-4.997,-68.317L-5.084,-68.252L-5.410,-67.890L-5.386,-67.489L-5.556,-66.815L-5.618,-66.713L-5.731,-66.718L-5.768,-66.825L-5.681,-67.229L-5.504,-67.546L-5.574,-67.527L-5.623,-67.565L-5.610,-67.997L-5.555,-68.140L-5.535,-68.348L-5.392,-68.825L-5.329,-68.900L-5.313,-69.014L-5.188,-69.268L-5.652,-68.856L-5.865,-68.911L-5.937,-68.990L-5.969,-69.143L-6.134,-69.174L-6.035,-69.278L-5.878,-69.307L-5.731,-69.441L-5.861,-69.532L-5.736,-69.638L-5.591,-69.899L-5.562,-70.139L-5.656,-70.327L-5.795,-70.409L-5.802,-70.575L-5.757,-70.633L-5.582,-70.722L-5.679,-70.768L-5.745,-70.949L-5.608,-71.348L-5.349,-71.342L-5.290,-71.392L-5.157,-71.348L-5.413,-71.703L-5.351,-71.843L-5.338,-72.024L-5.008,-72.069L-5.090,-72.301L-5.067,-72.561L-5.017,-72.649L-4.925,-72.691L-4.810,-72.662L-4.715,-72.541L-4.492,-72.653L-4.433,-72.546L-4.189,-72.631L-3.454,-72.746L-3.259,-72.810L-3.053,-72.780L-3.110,-72.551ZM-3.165,-73.087L-3.279,-73.064L-3.367,-73.175L-3.395,-73.310L-3.357,-73.329L-3.272,-73.302L-3.212,-73.125L-3.165,-73.087ZM-3.057,-73.543L-3.071,-73.495L-2.818,-73.451L-2.762,-73.400L-2.793,-73.305L-2.864,-73.273L-2.995,-73.368L-3.201,-73.341L-3.242,-73.485L-3.304,-73.422L-3.332,-73.430L-3.354,-73.522L-3.310,-73.740L-3.249,-73.766L-3.156,-73.751L-3.051,-73.678L-3.020,-73.598L-3.057,-73.543ZM-2.729,-73.849L-2.815,-73.801L-2.852,-73.841L-2.861,-73.967L-3.013,-74.054L-3.042,-74.137L-2.976,-74.163L-2.815,-73.955L-2.731,-73.927L-2.729,-73.849ZM-1.308,-76.540L-1.287,-76.397L-1.236,-76.434L-1.158,-76.297L-1.052,-76.351L-1.199,-75.469L-1.299,-75.214L-1.356,-75.279L-1.276,-75.686L-1.291,-75.764L-1.323,-75.834L-1.481,-75.804L-1.499,-75.901L-1.641,-75.931L-1.664,-76.024L-1.577,-76.056L-1.494,-76.044L-1.375,-76.125L-1.450,-76.400L-1.572,-76.452L-1.414,-76.665L-1.364,-76.687L-1.302,-76.683L-1.308,-76.540ZM-1.043,-76.492L-1.068,-76.468L-1.166,-76.675L-1.093,-76.913L-1.006,-76.905L-0.992,-76.843L-1.000,-76.785L-1.049,-76.763L-1.043,-76.492ZM-0.774,-77.100L-0.825,-76.838L-0.909,-76.845L-0.938,-76.965L-0.916,-77.097L-0.865,-77.088L-0.823,-77.141L-0.774,-77.100Z","boroughs":[{"n":"Barking and Dagenham","d":"M0.1886,-60.3655L0.1848,-60.3697L0.1848,-60.3752L0.1827,-60.3775L0.1852,-60.3843L0.1834,-60.3829L0.1735,-60.3836L0.1619,-60.3780L0.1515,-60.3883L0.1468,-60.3895L0.1498,-60.3910L0.1471,-60.4018L0.1475,-60.4089L0.1510,-60.4136L0.1513,-60.4223L0.1511,-60.4326L0.1498,-60.4351L0.1476,-60.4346L0.1482,-60.4382L0.1466,-60.4389L0.1296,-60.4238L0.1311,-60.4197L0.1265,-60.4184L0.1277,-60.4102L0.1326,-60.4097L0.1336,-60.4075L0.1309,-60.4066L0.1317,-60.4029L0.1293,-60.4016L0.1316,-60.3944L0.1299,-60.3941L0.1294,-60.3858L0.1191,-60.3803L0.1176,-60.3741L0.1206,-60.3731L0.1172,-60.3704L0.1134,-60.3711L0.1148,-60.3679L0.1119,-60.3635L0.1085,-60.3636L0.1050,-60.3595L0.0935,-60.3526L0.0926,-60.3587L0.0915,-60.3565L0.0780,-60.3498L0.0684,-60.3503L0.0668,-60.3450L0.0692,-60.3390L0.0680,-60.3371L0.0698,-60.3369L0.0729,-60.3260L0.0753,-60.3271L0.0852,-60.3206L0.0927,-60.3202L0.0949,-60.3063L0.0999,-60.3022L0.0998,-60.2981L0.1090,-60.2977L0.1291,-60.3039L0.1580,-60.2930L0.1645,-60.3224L0.1745,-60.3402L0.1793,-60.3438L0.1805,-60.3499L0.1860,-60.3550L0.1903,-60.3636L0.1886,-60.3655Z","cx":0.1314,"cy":-60.3712},{"n":"Barnet","d":"M-0.2852,-60.4995L-0.2961,-60.4969L-0.3040,-60.4985L-0.3054,-60.4936L-0.2483,-60.4146L-0.2543,-60.4100L-0.2513,-60.3966L-0.2526,-60.3941L-0.2473,-60.3890L-0.2460,-60.3950L-0.2334,-60.3947L-0.2134,-60.3676L-0.2099,-60.3702L-0.2088,-60.3686L-0.2060,-60.3697L-0.2057,-60.3678L-0.1994,-60.3693L-0.1969,-60.3764L-0.1909,-60.3783L-0.1892,-60.3843L-0.1780,-60.3922L-0.1743,-60.3904L-0.1694,-60.3979L-0.1696,-60.4024L-0.1672,-60.4045L-0.1657,-60.4128L-0.1611,-60.4163L-0.1596,-60.4149L-0.1571,-60.4176L-0.1602,-60.4204L-0.1586,-60.4270L-0.1617,-60.4357L-0.1567,-60.4477L-0.1533,-60.4441L-0.1513,-60.4357L-0.1444,-60.4400L-0.1420,-60.4459L-0.1434,-60.4540L-0.1387,-60.4562L-0.1445,-60.4647L-0.1354,-60.4749L-0.1291,-60.4918L-0.1346,-60.4942L-0.1451,-60.5085L-0.1479,-60.5076L-0.1491,-60.5127L-0.1517,-60.5129L-0.1522,-60.5171L-0.1499,-60.5184L-0.1522,-60.5201L-0.1547,-60.5293L-0.1858,-60.5410L-0.1821,-60.5503L-0.1878,-60.5492L-0.1910,-60.5428L-0.1966,-60.5453L-0.1948,-60.5498L-0.1990,-60.5497L-0.1999,-60.5529L-0.2033,-60.5528L-0.2022,-60.5490L-0.2056,-60.5503L-0.2079,-60.5471L-0.2111,-60.5477L-0.2078,-60.5411L-0.2198,-60.5375L-0.2264,-60.5319L-0.2289,-60.5364L-0.2479,-60.5288L-0.2506,-60.5301L-0.2519,-60.5158L-0.2573,-60.5072L-0.2632,-60.5120L-0.2643,-60.5100L-0.2683,-60.5103L-0.2682,-60.5080L-0.2728,-60.5075L-0.2737,-60.5021L-0.2852,-60.4995Z","cx":-0.2007,"cy":-60.4702},{"n":"Bexley","d":"M0.1342,-60.3029L0.1253,-60.3037L0.1184,-60.3008L0.1206,-60.2967L0.1215,-60.2591L0.1242,-60.2417L0.1186,-60.2451L0.1120,-60.2357L0.1083,-60.2406L0.1021,-60.2379L0.0983,-60.2395L0.0966,-60.2360L0.0934,-60.2355L0.0823,-60.2253L0.0829,-60.2145L0.0787,-60.2135L0.0858,-60.2090L0.0874,-60.1878L0.0829,-60.1879L0.0845,-60.1858L0.0809,-60.1833L0.0779,-60.1770L0.0750,-60.1761L0.0765,-60.1744L0.0747,-60.1701L0.0830,-60.1667L0.0929,-60.1529L0.1077,-60.1411L0.1131,-60.1392L0.1296,-60.1424L0.1489,-60.1321L0.1530,-60.1324L0.1538,-60.1365L0.1492,-60.1384L0.1511,-60.1467L0.1547,-60.1481L0.1512,-60.1512L0.1559,-60.1680L0.1644,-60.1643L0.1667,-60.1687L0.1667,-60.1747L0.1729,-60.1878L0.1761,-60.1858L0.1843,-60.1901L0.1877,-60.1966L0.1911,-60.1967L0.1931,-60.2014L0.1981,-60.2016L0.2034,-60.2056L0.2033,-60.2127L0.2107,-60.2187L0.2115,-60.2281L0.2089,-60.2323L0.2119,-60.2361L0.2116,-60.2389L0.2165,-60.2417L0.2170,-60.2467L0.2202,-60.2468L0.2238,-60.2505L0.2126,-60.2561L0.1956,-60.2535L0.1855,-60.2553L0.1801,-60.2612L0.1750,-60.2808L0.1700,-60.2879L0.1618,-60.2925L0.1482,-60.2956L0.1342,-60.3029Z","cx":0.1454,"cy":-60.213},{"n":"Brent","d":"M-0.2655,-60.4379L-0.2671,-60.4404L-0.2765,-60.4342L-0.2904,-60.4294L-0.2846,-60.4253L-0.2825,-60.4158L-0.3048,-60.4190L-0.3266,-60.4056L-0.3221,-60.3910L-0.3297,-60.3868L-0.3282,-60.3795L-0.3314,-60.3779L-0.3356,-60.3699L-0.3279,-60.3679L-0.3186,-60.3623L-0.3078,-60.3528L-0.3086,-60.3485L-0.3047,-60.3430L-0.3075,-60.3321L-0.3027,-60.3304L-0.2966,-60.3356L-0.2933,-60.3352L-0.2825,-60.3410L-0.2779,-60.3353L-0.2790,-60.3325L-0.2811,-60.3314L-0.2840,-60.3328L-0.2894,-60.3299L-0.2857,-60.3259L-0.2805,-60.3246L-0.2675,-60.3274L-0.2578,-60.3358L-0.2560,-60.3335L-0.2507,-60.3339L-0.2434,-60.3300L-0.2344,-60.3315L-0.2277,-60.3271L-0.2160,-60.3238L-0.2152,-60.3294L-0.2029,-60.3319L-0.1983,-60.3279L-0.1965,-60.3234L-0.1914,-60.3373L-0.2257,-60.3851L-0.2354,-60.3956L-0.2460,-60.3950L-0.2473,-60.3890L-0.2526,-60.3941L-0.2513,-60.3966L-0.2543,-60.4100L-0.2483,-60.4146L-0.2655,-60.4379Z","cx":-0.2722,"cy":-60.3651},{"n":"Bromley","d":"M-0.0034,-60.0333L0.0009,-60.0121L0.0033,-60.0098L0.0023,-60.0052L0.0066,-59.9834L0.0104,-59.9842L0.0084,-59.9749L0.0150,-59.9452L0.0191,-59.9450L0.0249,-59.9618L0.0329,-59.9704L0.0423,-59.9614L0.0443,-59.9561L0.0424,-59.9466L0.0458,-59.9488L0.0508,-59.9487L0.0561,-59.9462L0.0585,-59.9413L0.0853,-59.9470L0.0912,-59.9533L0.0864,-59.9586L0.0828,-59.9674L0.0849,-59.9680L0.0836,-59.9752L0.0851,-59.9840L0.0878,-59.9876L0.0962,-59.9924L0.1049,-60.0022L0.1142,-60.0022L0.1158,-60.0056L0.1179,-60.0058L0.1217,-60.0122L0.1167,-60.0244L0.1185,-60.0290L0.1253,-60.0317L0.1370,-60.0290L0.1362,-60.0319L0.1395,-60.0335L0.1427,-60.0395L0.1459,-60.0515L0.1451,-60.0589L0.1495,-60.0690L0.1517,-60.0678L0.1496,-60.0761L0.1526,-60.0788L0.1533,-60.0833L0.1497,-60.0866L0.1499,-60.1038L0.1478,-60.1069L0.1624,-60.1064L0.1590,-60.1118L0.1553,-60.1248L0.1489,-60.1321L0.1324,-60.1416L0.1258,-60.1423L0.1131,-60.1392L0.1077,-60.1411L0.0929,-60.1529L0.0830,-60.1667L0.0754,-60.1698L0.0633,-60.1573L0.0587,-60.1578L0.0423,-60.1818L0.0304,-60.1896L0.0287,-60.1806L0.0247,-60.1798L0.0249,-60.1781L0.0254,-60.1757L0.0287,-60.1769L0.0286,-60.1731L0.0312,-60.1699L0.0338,-60.1694L0.0377,-60.1720L0.0390,-60.1584L0.0362,-60.1543L0.0252,-60.1650L0.0211,-60.1615L0.0142,-60.1604L0.0100,-60.1545L0.0081,-60.1554L0.0035,-60.1464L0.0018,-60.1482L-0.0008,-60.1439L-0.0049,-60.1420L-0.0065,-60.1441L-0.0066,-60.1420L-0.0105,-60.1402L-0.0142,-60.1404L-0.0143,-60.1427L-0.0218,-60.1449L-0.0209,-60.1520L-0.0303,-60.1597L-0.0318,-60.1581L-0.0408,-60.1575L-0.0459,-60.1545L-0.0517,-60.1546L-0.0518,-60.1563L-0.0569,-60.1553L-0.0623,-60.1588L-0.0743,-60.1602L-0.0810,-60.1464L-0.0805,-60.1436L-0.0728,-60.1388L-0.0732,-60.1330L-0.0682,-60.1241L-0.0621,-60.1209L-0.0605,-60.1171L-0.0529,-60.1208L-0.0506,-60.1178L-0.0521,-60.1157L-0.0503,-60.1152L-0.0535,-60.1103L-0.0477,-60.1073L-0.0427,-60.1016L-0.0365,-60.1000L-0.0369,-60.0816L-0.0297,-60.0822L-0.0268,-60.0854L-0.0236,-60.0739L-0.0237,-60.0630L-0.0222,-60.0637L-0.0156,-60.0526L-0.0080,-60.0469L-0.0049,-60.0417L-0.0034,-60.0333Z","cx":0.0366,"cy":-60.0846},{"n":"Camden","d":"M-0.1424,-60.3903L-0.1503,-60.3940L-0.1699,-60.3960L-0.1730,-60.3939L-0.1743,-60.3904L-0.1780,-60.3922L-0.1892,-60.3843L-0.1909,-60.3783L-0.1969,-60.3764L-0.1994,-60.3693L-0.2057,-60.3678L-0.2060,-60.3697L-0.2088,-60.3686L-0.2099,-60.3702L-0.2134,-60.3676L-0.1887,-60.3344L-0.1844,-60.3402L-0.1787,-60.3429L-0.1739,-60.3424L-0.1735,-60.3394L-0.1695,-60.3410L-0.1649,-60.3365L-0.1604,-60.3389L-0.1594,-60.3374L-0.1527,-60.3393L-0.1472,-60.3192L-0.1452,-60.3175L-0.1435,-60.3185L-0.1370,-60.3093L-0.1324,-60.3058L-0.1308,-60.3064L-0.1293,-60.3006L-0.1273,-60.2993L-0.1228,-60.3033L-0.1194,-60.3023L-0.1147,-60.3047L-0.1138,-60.3028L-0.1117,-60.3035L-0.1138,-60.3082L-0.1078,-60.3074L-0.1054,-60.3097L-0.1070,-60.3146L-0.1136,-60.3184L-0.1129,-60.3214L-0.1160,-60.3270L-0.1225,-60.3283L-0.1225,-60.3390L-0.1270,-60.3552L-0.1372,-60.3681L-0.1409,-60.3758L-0.1424,-60.3903Z","cx":-0.1521,"cy":-60.3423},{"n":"City of London","d":"M-0.0853,-60.3113L-0.0861,-60.3091L-0.0967,-60.3163L-0.0976,-60.3122L-0.1078,-60.3074L-0.1138,-60.3082L-0.1111,-60.3014L-0.1114,-60.2946L-0.1046,-60.2947L-0.1047,-60.2924L-0.1041,-60.2948L-0.0982,-60.2943L-0.0802,-60.2900L-0.0769,-60.2958L-0.0727,-60.2953L-0.0734,-60.3009L-0.0780,-60.3094L-0.0794,-60.3092L-0.0784,-60.3135L-0.0810,-60.3142L-0.0827,-60.3112L-0.0853,-60.3113Z","cx":-0.0913,"cy":-60.304},{"n":"Croydon","d":"M0.0000,-60.0046L0.0023,-60.0050L0.0033,-60.0098L0.0009,-60.0121L-0.0049,-60.0417L-0.0086,-60.0477L-0.0156,-60.0526L-0.0222,-60.0637L-0.0237,-60.0630L-0.0236,-60.0739L-0.0268,-60.0854L-0.0297,-60.0822L-0.0369,-60.0816L-0.0365,-60.1000L-0.0427,-60.1016L-0.0477,-60.1073L-0.0535,-60.1103L-0.0503,-60.1152L-0.0521,-60.1157L-0.0506,-60.1178L-0.0529,-60.1208L-0.0605,-60.1171L-0.0621,-60.1209L-0.0682,-60.1241L-0.0732,-60.1330L-0.0728,-60.1388L-0.0806,-60.1437L-0.0786,-60.1503L-0.0864,-60.1494L-0.0939,-60.1550L-0.1127,-60.1557L-0.1198,-60.1487L-0.1294,-60.1338L-0.1321,-60.1332L-0.1312,-60.1250L-0.1242,-60.1146L-0.1344,-60.1038L-0.1288,-60.0956L-0.1287,-60.0904L-0.1303,-60.0899L-0.1259,-60.0793L-0.1279,-60.0779L-0.1247,-60.0762L-0.1221,-60.0644L-0.1240,-60.0628L-0.1213,-60.0618L-0.1210,-60.0596L-0.1229,-60.0543L-0.1219,-60.0529L-0.1247,-60.0525L-0.1242,-60.0503L-0.1214,-60.0507L-0.1169,-60.0316L-0.1269,-60.0302L-0.1283,-60.0343L-0.1329,-60.0311L-0.1325,-60.0292L-0.1364,-60.0300L-0.1442,-60.0260L-0.1434,-60.0233L-0.1475,-60.0204L-0.1440,-60.0074L-0.1493,-60.0044L-0.1444,-60.0007L-0.1455,-59.9960L-0.1504,-59.9939L-0.1528,-59.9951L-0.1619,-59.9897L-0.1572,-59.9798L-0.1583,-59.9759L-0.1543,-59.9747L-0.1572,-59.9691L-0.1545,-59.9687L-0.1577,-59.9654L-0.1553,-59.9604L-0.1456,-59.9581L-0.1436,-59.9604L-0.1408,-59.9576L-0.1373,-59.9596L-0.1243,-59.9372L-0.1178,-59.9377L-0.1148,-59.9462L-0.1110,-59.9460L-0.0943,-59.9573L-0.0974,-59.9601L-0.0912,-59.9607L-0.0888,-59.9699L-0.0819,-59.9754L-0.0847,-59.9838L-0.0788,-59.9874L-0.0789,-59.9900L-0.0710,-59.9923L-0.0700,-59.9886L-0.0641,-59.9881L-0.0513,-59.9943L-0.0497,-59.9988L-0.0479,-59.9987L-0.0511,-60.0077L-0.0502,-60.0106L-0.0419,-60.0124L-0.0379,-60.0203L-0.0327,-60.0183L-0.0223,-60.0195L-0.0143,-60.0060L-0.0110,-60.0120L-0.0085,-60.0126L0.0000,-60.0046Z","cx":-0.0907,"cy":-60.0391},{"n":"Ealing","d":"M-0.3789,-60.3662L-0.3853,-60.3612L-0.3950,-60.3573L-0.3949,-60.3556L-0.3987,-60.3561L-0.3953,-60.3474L-0.4048,-60.3473L-0.4195,-60.3438L-0.4176,-60.3380L-0.4118,-60.3338L-0.3933,-60.3298L-0.3872,-60.3265L-0.3859,-60.3278L-0.3761,-60.3252L-0.3761,-60.3190L-0.3826,-60.3078L-0.3900,-60.3014L-0.3934,-60.2904L-0.4031,-60.2845L-0.4069,-60.2785L-0.3871,-60.2704L-0.3776,-60.2735L-0.3718,-60.2637L-0.3653,-60.2684L-0.3629,-60.2724L-0.3505,-60.2775L-0.3421,-60.2726L-0.3347,-60.2729L-0.3300,-60.2710L-0.3274,-60.2726L-0.3261,-60.2710L-0.3247,-60.2726L-0.3191,-60.2698L-0.3159,-60.2724L-0.3120,-60.2661L-0.3055,-60.2702L-0.3059,-60.2729L-0.3011,-60.2700L-0.2976,-60.2708L-0.3007,-60.2779L-0.2940,-60.2815L-0.2857,-60.2802L-0.2808,-60.2835L-0.2700,-60.2697L-0.2554,-60.2708L-0.2528,-60.2791L-0.2550,-60.2859L-0.2457,-60.2864L-0.2465,-60.2898L-0.2451,-60.2898L-0.2527,-60.3185L-0.2496,-60.3258L-0.2453,-60.3292L-0.2471,-60.3327L-0.2560,-60.3335L-0.2578,-60.3358L-0.2690,-60.3268L-0.2843,-60.3255L-0.2894,-60.3299L-0.2840,-60.3328L-0.2811,-60.3314L-0.2790,-60.3325L-0.2779,-60.3353L-0.2825,-60.3410L-0.2933,-60.3352L-0.2966,-60.3356L-0.3027,-60.3304L-0.3074,-60.3321L-0.3047,-60.3430L-0.3086,-60.3485L-0.3089,-60.3517L-0.3071,-60.3519L-0.3126,-60.3580L-0.3279,-60.3679L-0.3430,-60.3715L-0.3475,-60.3749L-0.3624,-60.3710L-0.3625,-60.3690L-0.3758,-60.3643L-0.3776,-60.3674L-0.3789,-60.3662Z","cx":-0.3279,"cy":-60.315},{"n":"Enfield","d":"M-0.0121,-60.5701L-0.0491,-60.5756L-0.0620,-60.5736L-0.0839,-60.5848L-0.0947,-60.5850L-0.1048,-60.5878L-0.1217,-60.5825L-0.1354,-60.5828L-0.1493,-60.5776L-0.1635,-60.5818L-0.1636,-60.5726L-0.1725,-60.5576L-0.1770,-60.5569L-0.1821,-60.5503L-0.1858,-60.5410L-0.1547,-60.5293L-0.1522,-60.5201L-0.1499,-60.5184L-0.1522,-60.5171L-0.1517,-60.5129L-0.1491,-60.5127L-0.1479,-60.5076L-0.1451,-60.5085L-0.1346,-60.4942L-0.1291,-60.4918L-0.1354,-60.4749L-0.1445,-60.4647L-0.1387,-60.4562L-0.1352,-60.4578L-0.1175,-60.4530L-0.1024,-60.4527L-0.0958,-60.4547L-0.0858,-60.4533L-0.0543,-60.4541L-0.0414,-60.4489L-0.0342,-60.4544L-0.0351,-60.4615L-0.0257,-60.4752L-0.0133,-60.5036L-0.0118,-60.5251L-0.0089,-60.5371L-0.0114,-60.5425L-0.0103,-60.5633L-0.0121,-60.5701Z","cx":-0.1031,"cy":-60.5204},{"n":"Greenwich","d":"M0.0747,-60.1701L0.0765,-60.1744L0.0750,-60.1761L0.0779,-60.1770L0.0809,-60.1833L0.0845,-60.1858L0.0829,-60.1879L0.0874,-60.1878L0.0858,-60.2090L0.0787,-60.2135L0.0829,-60.2145L0.0823,-60.2253L0.0934,-60.2355L0.0966,-60.2360L0.0983,-60.2395L0.1021,-60.2379L0.1083,-60.2406L0.1120,-60.2357L0.1186,-60.2451L0.1242,-60.2417L0.1215,-60.2591L0.1206,-60.2967L0.1184,-60.3008L0.1081,-60.2975L0.0908,-60.2965L0.0850,-60.2910L0.0767,-60.2778L0.0663,-60.2738L0.0418,-60.2742L0.0251,-60.2724L0.0170,-60.2764L0.0074,-60.2880L0.0039,-60.2898L-0.0007,-60.2887L-0.0051,-60.2805L-0.0004,-60.2651L-0.0020,-60.2593L-0.0108,-60.2544L-0.0179,-60.2546L-0.0235,-60.2578L-0.0251,-60.2550L-0.0264,-60.2493L-0.0231,-60.2480L-0.0230,-60.2462L-0.0168,-60.2473L-0.0189,-60.2459L-0.0207,-60.2398L-0.0229,-60.2389L-0.0200,-60.2357L-0.0191,-60.2307L-0.0150,-60.2276L-0.0131,-60.2291L-0.0151,-60.2335L-0.0140,-60.2350L0.0000,-60.2337L0.0184,-60.2371L0.0150,-60.2357L0.0164,-60.2292L0.0127,-60.2305L0.0133,-60.2257L0.0092,-60.2241L0.0091,-60.2223L0.0114,-60.2094L0.0175,-60.2068L0.0184,-60.2012L0.0196,-60.2014L0.0199,-60.1998L0.0151,-60.1987L0.0220,-60.1970L0.0216,-60.1870L0.0289,-60.1852L0.0304,-60.1896L0.0400,-60.1842L0.0566,-60.1603L0.0587,-60.1578L0.0610,-60.1587L0.0618,-60.1565L0.0717,-60.1657L0.0734,-60.1694L0.0749,-60.1679L0.0747,-60.1701Z","cx":0.04,"cy":-60.2276},{"n":"Hackney","d":"M-0.0957,-60.3974L-0.0978,-60.3973L-0.0961,-60.3926L-0.1045,-60.3830L-0.0985,-60.3768L-0.0917,-60.3758L-0.0904,-60.3660L-0.0855,-60.3628L-0.0795,-60.3620L-0.0764,-60.3550L-0.0768,-60.3530L-0.0838,-60.3539L-0.0866,-60.3388L-0.0970,-60.3320L-0.0954,-60.3259L-0.0887,-60.3231L-0.0874,-60.3207L-0.0850,-60.3211L-0.0852,-60.3116L-0.0833,-60.3108L-0.0810,-60.3142L-0.0761,-60.3146L-0.0772,-60.3228L-0.0737,-60.3277L-0.0663,-60.3291L-0.0651,-60.3323L-0.0622,-60.3324L-0.0624,-60.3360L-0.0590,-60.3337L-0.0528,-60.3350L-0.0509,-60.3375L-0.0448,-60.3365L-0.0332,-60.3507L-0.0290,-60.3469L-0.0164,-60.3485L-0.0189,-60.3603L-0.0191,-60.3619L-0.0171,-60.3621L-0.0184,-60.3675L-0.0291,-60.3774L-0.0333,-60.3764L-0.0470,-60.3795L-0.0474,-60.3837L-0.0584,-60.3956L-0.0611,-60.4040L-0.0762,-60.3993L-0.0809,-60.4006L-0.0957,-60.3974Z","cx":-0.0675,"cy":-60.3547},{"n":"Hammersmith and Fulham","d":"M-0.2287,-60.3279L-0.2344,-60.3315L-0.2432,-60.3300L-0.2464,-60.3317L-0.2453,-60.3292L-0.2496,-60.3258L-0.2527,-60.3186L-0.2492,-60.3017L-0.2460,-60.2950L-0.2457,-60.2864L-0.2550,-60.2859L-0.2493,-60.2741L-0.2444,-60.2757L-0.2456,-60.2631L-0.2434,-60.2596L-0.2394,-60.2621L-0.2343,-60.2622L-0.2278,-60.2569L-0.2250,-60.2401L-0.2170,-60.2288L-0.2042,-60.2220L-0.1901,-60.2217L-0.1829,-60.2268L-0.1777,-60.2427L-0.1838,-60.2427L-0.1943,-60.2570L-0.1983,-60.2599L-0.2046,-60.2704L-0.2141,-60.2801L-0.2179,-60.2888L-0.2159,-60.2892L-0.2158,-60.2936L-0.2172,-60.2957L-0.2193,-60.2943L-0.2283,-60.3129L-0.2266,-60.3188L-0.2287,-60.3279Z","cx":-0.2255,"cy":-60.2819},{"n":"Haringey","d":"M-0.0958,-60.4547L-0.1024,-60.4527L-0.1175,-60.4530L-0.1352,-60.4578L-0.1434,-60.4540L-0.1421,-60.4450L-0.1444,-60.4400L-0.1513,-60.4357L-0.1533,-60.4441L-0.1563,-60.4484L-0.1617,-60.4357L-0.1586,-60.4270L-0.1602,-60.4204L-0.1571,-60.4176L-0.1596,-60.4149L-0.1611,-60.4163L-0.1657,-60.4128L-0.1712,-60.3954L-0.1604,-60.3960L-0.1503,-60.3940L-0.1424,-60.3901L-0.1313,-60.3972L-0.1195,-60.4004L-0.1150,-60.3925L-0.1049,-60.3829L-0.0961,-60.3926L-0.0978,-60.3973L-0.0809,-60.4006L-0.0762,-60.3993L-0.0611,-60.4040L-0.0617,-60.4080L-0.0522,-60.4198L-0.0534,-60.4244L-0.0507,-60.4340L-0.0414,-60.4489L-0.0543,-60.4541L-0.0858,-60.4533L-0.0958,-60.4547Z","cx":-0.1176,"cy":-60.4229},{"n":"Harrow","d":"M-0.3046,-60.4984L-0.3167,-60.5051L-0.3198,-60.5014L-0.3330,-60.4943L-0.3383,-60.4873L-0.3398,-60.4894L-0.3492,-60.4831L-0.3598,-60.4804L-0.3662,-60.4736L-0.3758,-60.4691L-0.4041,-60.4610L-0.4016,-60.4404L-0.4003,-60.4357L-0.3976,-60.4350L-0.3966,-60.4323L-0.3955,-60.4240L-0.3920,-60.4210L-0.3916,-60.4101L-0.3758,-60.3643L-0.3625,-60.3690L-0.3624,-60.3710L-0.3475,-60.3749L-0.3440,-60.3719L-0.3356,-60.3698L-0.3314,-60.3779L-0.3282,-60.3795L-0.3297,-60.3868L-0.3221,-60.3910L-0.3266,-60.4056L-0.3048,-60.4190L-0.2824,-60.4158L-0.2846,-60.4253L-0.2904,-60.4294L-0.2765,-60.4342L-0.2671,-60.4404L-0.3039,-60.4905L-0.3056,-60.4947L-0.3046,-60.4984Z","cx":-0.3413,"cy":-60.4355},{"n":"Havering","d":"M0.1594,-60.3026L0.1580,-60.2930L0.1670,-60.2901L0.1727,-60.2848L0.1758,-60.2786L0.1791,-60.2636L0.1834,-60.2568L0.1921,-60.2535L0.2104,-60.2563L0.2105,-60.2629L0.2142,-60.2726L0.2217,-60.2754L0.2244,-60.2746L0.2300,-60.2779L0.2267,-60.2895L0.2421,-60.2917L0.2403,-60.2964L0.2412,-60.3010L0.2372,-60.3100L0.2450,-60.3091L0.2445,-60.3117L0.2408,-60.3142L0.2429,-60.3181L0.2459,-60.3167L0.2463,-60.3215L0.2490,-60.3250L0.2509,-60.3253L0.2539,-60.3077L0.2637,-60.3077L0.2643,-60.3137L0.2668,-60.3164L0.2654,-60.3306L0.2978,-60.3357L0.2973,-60.3395L0.3008,-60.3412L0.3341,-60.3440L0.3315,-60.3528L0.3290,-60.3526L0.3279,-60.3609L0.3252,-60.3642L0.3224,-60.3638L0.3221,-60.3661L0.3153,-60.3720L0.3131,-60.3848L0.2904,-60.3823L0.2868,-60.3971L0.2714,-60.4221L0.2699,-60.4391L0.2541,-60.4423L0.2581,-60.4503L0.2632,-60.4516L0.2642,-60.4541L0.2529,-60.4678L0.2374,-60.4785L0.2241,-60.4909L0.2221,-60.4883L0.2037,-60.4803L0.1948,-60.4812L0.1895,-60.4792L0.1861,-60.4809L0.1859,-60.4790L0.1813,-60.4814L0.1803,-60.4792L0.1690,-60.4743L0.1560,-60.4773L0.1382,-60.4777L0.1475,-60.4598L0.1495,-60.4444L0.1476,-60.4346L0.1498,-60.4351L0.1511,-60.4326L0.1510,-60.4136L0.1475,-60.4089L0.1471,-60.4006L0.1498,-60.3910L0.1468,-60.3895L0.1515,-60.3883L0.1619,-60.3780L0.1735,-60.3836L0.1834,-60.3829L0.1852,-60.3843L0.1827,-60.3775L0.1848,-60.3752L0.1848,-60.3697L0.1903,-60.3636L0.1859,-60.3548L0.1805,-60.3499L0.1793,-60.3438L0.1745,-60.3402L0.1655,-60.3245L0.1594,-60.3026Z","cx":0.2197,"cy":-60.3682},{"n":"Hillingdon","d":"M-0.3770,-60.3178L-0.3761,-60.3252L-0.3859,-60.3278L-0.3872,-60.3265L-0.3933,-60.3298L-0.4118,-60.3338L-0.4196,-60.3410L-0.4182,-60.3419L-0.4193,-60.3440L-0.4043,-60.3474L-0.3953,-60.3474L-0.3987,-60.3561L-0.3949,-60.3556L-0.3950,-60.3573L-0.3853,-60.3612L-0.3777,-60.3669L-0.3916,-60.4101L-0.3920,-60.4210L-0.3955,-60.4240L-0.3966,-60.4323L-0.3976,-60.4350L-0.4003,-60.4357L-0.4024,-60.4431L-0.4018,-60.4504L-0.4041,-60.4610L-0.4111,-60.4620L-0.4170,-60.4663L-0.4265,-60.4672L-0.4406,-60.4721L-0.4456,-60.4714L-0.4489,-60.4645L-0.4571,-60.4596L-0.4689,-60.4667L-0.4767,-60.4751L-0.4879,-60.4829L-0.4916,-60.4893L-0.4972,-60.4908L-0.5003,-60.4864L-0.4976,-60.4828L-0.5002,-60.4753L-0.4954,-60.4701L-0.4992,-60.4542L-0.4963,-60.4437L-0.5009,-60.4401L-0.4986,-60.4308L-0.4996,-60.4272L-0.4947,-60.4150L-0.4896,-60.4105L-0.4890,-60.4032L-0.4840,-60.3998L-0.4855,-60.3977L-0.4840,-60.3934L-0.4848,-60.3864L-0.4826,-60.3846L-0.4811,-60.3766L-0.4775,-60.3759L-0.4766,-60.3723L-0.4777,-60.3672L-0.4914,-60.3531L-0.4918,-60.3458L-0.4955,-60.3409L-0.4905,-60.3339L-0.4890,-60.3257L-0.4923,-60.3064L-0.4896,-60.3016L-0.4898,-60.2975L-0.4856,-60.2952L-0.4832,-60.2896L-0.4862,-60.2804L-0.4898,-60.2773L-0.4887,-60.2725L-0.4905,-60.2691L-0.4948,-60.2672L-0.4992,-60.2606L-0.4989,-60.2560L-0.5032,-60.2485L-0.5060,-60.2348L-0.5103,-60.2268L-0.5004,-60.2262L-0.4939,-60.2191L-0.4771,-60.2168L-0.4736,-60.2125L-0.4610,-60.2102L-0.4481,-60.2045L-0.4440,-60.2039L-0.4415,-60.2096L-0.4351,-60.2097L-0.4365,-60.2117L-0.4336,-60.2175L-0.4112,-60.2306L-0.4158,-60.2372L-0.4150,-60.2416L-0.4169,-60.2508L-0.4126,-60.2606L-0.4097,-60.2789L-0.4070,-60.2783L-0.4031,-60.2845L-0.3936,-60.2902L-0.3900,-60.3014L-0.3826,-60.3078L-0.3770,-60.3178Z","cx":-0.4498,"cy":-60.3491},{"n":"Hounslow","d":"M-0.3781,-60.2733L-0.3871,-60.2704L-0.4093,-60.2795L-0.4126,-60.2606L-0.4169,-60.2508L-0.4150,-60.2416L-0.4158,-60.2372L-0.4112,-60.2306L-0.4336,-60.2175L-0.4365,-60.2117L-0.4351,-60.2097L-0.4415,-60.2096L-0.4440,-60.2039L-0.4587,-60.2088L-0.4615,-60.1971L-0.4575,-60.1972L-0.4575,-60.1874L-0.4554,-60.1860L-0.4565,-60.1796L-0.4463,-60.1826L-0.4477,-60.1746L-0.4398,-60.1740L-0.4400,-60.1676L-0.4295,-60.1647L-0.4275,-60.1679L-0.4191,-60.1704L-0.4138,-60.1667L-0.4131,-60.1631L-0.4059,-60.1548L-0.3978,-60.1562L-0.3914,-60.1543L-0.3928,-60.1561L-0.3854,-60.1517L-0.3841,-60.1548L-0.3879,-60.1646L-0.3761,-60.1755L-0.3779,-60.1775L-0.3668,-60.1853L-0.3729,-60.1885L-0.3791,-60.1871L-0.3798,-60.1897L-0.3863,-60.1934L-0.3878,-60.1978L-0.3838,-60.1979L-0.3730,-60.2106L-0.3685,-60.2097L-0.3564,-60.2122L-0.3487,-60.2095L-0.3401,-60.2135L-0.3406,-60.2103L-0.3370,-60.2061L-0.3363,-60.2078L-0.3330,-60.2074L-0.3303,-60.2113L-0.3269,-60.2100L-0.3256,-60.2117L-0.3267,-60.2175L-0.3237,-60.2231L-0.3207,-60.2234L-0.3186,-60.2323L-0.3070,-60.2397L-0.2970,-60.2559L-0.2917,-60.2586L-0.2847,-60.2574L-0.2794,-60.2533L-0.2725,-60.2391L-0.2680,-60.2342L-0.2631,-60.2322L-0.2578,-60.2326L-0.2519,-60.2383L-0.2498,-60.2524L-0.2434,-60.2596L-0.2456,-60.2631L-0.2444,-60.2757L-0.2493,-60.2741L-0.2531,-60.2812L-0.2554,-60.2708L-0.2676,-60.2692L-0.2715,-60.2707L-0.2808,-60.2835L-0.2868,-60.2800L-0.2940,-60.2815L-0.3007,-60.2779L-0.2976,-60.2708L-0.3011,-60.2700L-0.3059,-60.2729L-0.3055,-60.2702L-0.3120,-60.2661L-0.3159,-60.2724L-0.3191,-60.2698L-0.3247,-60.2726L-0.3261,-60.2710L-0.3274,-60.2726L-0.3300,-60.2710L-0.3347,-60.2729L-0.3421,-60.2726L-0.3505,-60.2775L-0.3629,-60.2724L-0.3653,-60.2684L-0.3718,-60.2637L-0.3781,-60.2733Z","cx":-0.3545,"cy":-60.2262},{"n":"Islington","d":"M-0.1046,-60.3831L-0.1150,-60.3925L-0.1195,-60.4004L-0.1313,-60.3972L-0.1425,-60.3898L-0.1409,-60.3758L-0.1372,-60.3681L-0.1270,-60.3552L-0.1225,-60.3390L-0.1225,-60.3283L-0.1160,-60.3270L-0.1129,-60.3214L-0.1136,-60.3184L-0.1070,-60.3146L-0.1053,-60.3087L-0.0976,-60.3122L-0.0967,-60.3163L-0.0861,-60.3091L-0.0850,-60.3211L-0.0874,-60.3207L-0.0887,-60.3231L-0.0954,-60.3259L-0.0970,-60.3320L-0.0866,-60.3388L-0.0838,-60.3539L-0.0768,-60.3530L-0.0766,-60.3560L-0.0795,-60.3620L-0.0855,-60.3628L-0.0904,-60.3660L-0.0917,-60.3758L-0.0985,-60.3768L-0.1046,-60.3831Z","cx":-0.1038,"cy":-60.3487},{"n":"Kensington and Chelsea","d":"M-0.2164,-60.3241L-0.2285,-60.3277L-0.2266,-60.3188L-0.2283,-60.3129L-0.2193,-60.2943L-0.2172,-60.2957L-0.2158,-60.2936L-0.2159,-60.2892L-0.2179,-60.2888L-0.2141,-60.2801L-0.2046,-60.2704L-0.1983,-60.2599L-0.1943,-60.2570L-0.1838,-60.2427L-0.1778,-60.2429L-0.1709,-60.2495L-0.1498,-60.2542L-0.1558,-60.2623L-0.1550,-60.2691L-0.1584,-60.2826L-0.1655,-60.2769L-0.1795,-60.2754L-0.1803,-60.2813L-0.1842,-60.2818L-0.1879,-60.2953L-0.1921,-60.2948L-0.1950,-60.3031L-0.1992,-60.3023L-0.2036,-60.3120L-0.2006,-60.3121L-0.2015,-60.3155L-0.2064,-60.3208L-0.2155,-60.3219L-0.2164,-60.3241Z","cx":-0.1964,"cy":-60.2892},{"n":"Kingston upon Thames","d":"M-0.3007,-60.0327L-0.2929,-60.0422L-0.2911,-60.0489L-0.2851,-60.0563L-0.2881,-60.0580L-0.2810,-60.0658L-0.2647,-60.0794L-0.2611,-60.0858L-0.2539,-60.0845L-0.2450,-60.0865L-0.2441,-60.0920L-0.2429,-60.0911L-0.2388,-60.0961L-0.2414,-60.1080L-0.2475,-60.1147L-0.2446,-60.1255L-0.2475,-60.1322L-0.2509,-60.1536L-0.2530,-60.1560L-0.2542,-60.1661L-0.2510,-60.1721L-0.2541,-60.1783L-0.2709,-60.1659L-0.2804,-60.1535L-0.2866,-60.1508L-0.2906,-60.1650L-0.2930,-60.1649L-0.2934,-60.1610L-0.2948,-60.1609L-0.3016,-60.1689L-0.3018,-60.1672L-0.3059,-60.1688L-0.3069,-60.1668L-0.3107,-60.1701L-0.3145,-60.1638L-0.3086,-60.1588L-0.3060,-60.1525L-0.3084,-60.1419L-0.3091,-60.1201L-0.3177,-60.1083L-0.3141,-60.1028L-0.3168,-60.1002L-0.3160,-60.0987L-0.3132,-60.1006L-0.3117,-60.0983L-0.3074,-60.0838L-0.3087,-60.0791L-0.3143,-60.0778L-0.3169,-60.0751L-0.3199,-60.0538L-0.3305,-60.0358L-0.3275,-60.0288L-0.3291,-60.0068L-0.3307,-60.0045L-0.3283,-60.0007L-0.3193,-60.0028L-0.3059,-60.0148L-0.3040,-60.0272L-0.3007,-60.0327Z","cx":-0.2907,"cy":-60.1027},{"n":"Lambeth","d":"M-0.0890,-60.1680L-0.0951,-60.1915L-0.1014,-60.2023L-0.1009,-60.2053L-0.0922,-60.2165L-0.0900,-60.2247L-0.0930,-60.2342L-0.0960,-60.2306L-0.1006,-60.2376L-0.1000,-60.2418L-0.1083,-60.2473L-0.1040,-60.2482L-0.1084,-60.2562L-0.1030,-60.2653L-0.1048,-60.2685L-0.1109,-60.2717L-0.1059,-60.2822L-0.1091,-60.2947L-0.1127,-60.2944L-0.1177,-60.2924L-0.1206,-60.2883L-0.1239,-60.2650L-0.1295,-60.2563L-0.1262,-60.2540L-0.1346,-60.2362L-0.1506,-60.2269L-0.1477,-60.2024L-0.1423,-60.2002L-0.1455,-60.1909L-0.1436,-60.1855L-0.1360,-60.1858L-0.1400,-60.1773L-0.1382,-60.1730L-0.1365,-60.1728L-0.1353,-60.1670L-0.1384,-60.1673L-0.1378,-60.1523L-0.1480,-60.1391L-0.1447,-60.1383L-0.1426,-60.1398L-0.1340,-60.1361L-0.1335,-60.1392L-0.1279,-60.1377L-0.1245,-60.1398L-0.1198,-60.1487L-0.1127,-60.1557L-0.0939,-60.1550L-0.0864,-60.1494L-0.0786,-60.1503L-0.0789,-60.1531L-0.0816,-60.1558L-0.0834,-60.1553L-0.0858,-60.1641L-0.0890,-60.1680Z","cx":-0.1155,"cy":-60.2019},{"n":"Lewisham","d":"M0.0000,-60.1467L0.0057,-60.1482L0.0081,-60.1554L0.0100,-60.1545L0.0142,-60.1604L0.0211,-60.1615L0.0252,-60.1650L0.0362,-60.1543L0.0390,-60.1584L0.0377,-60.1720L0.0338,-60.1694L0.0312,-60.1699L0.0286,-60.1731L0.0287,-60.1769L0.0254,-60.1757L0.0247,-60.1798L0.0287,-60.1806L0.0290,-60.1852L0.0216,-60.1870L0.0220,-60.1970L0.0151,-60.1987L0.0199,-60.1998L0.0196,-60.2014L0.0184,-60.2012L0.0175,-60.2068L0.0115,-60.2093L0.0102,-60.2133L0.0092,-60.2241L0.0133,-60.2257L0.0127,-60.2305L0.0164,-60.2292L0.0150,-60.2357L0.0184,-60.2371L0.0000,-60.2337L-0.0140,-60.2350L-0.0151,-60.2335L-0.0131,-60.2291L-0.0150,-60.2276L-0.0191,-60.2307L-0.0200,-60.2357L-0.0229,-60.2389L-0.0207,-60.2398L-0.0189,-60.2459L-0.0168,-60.2473L-0.0230,-60.2462L-0.0231,-60.2480L-0.0264,-60.2493L-0.0235,-60.2578L-0.0299,-60.2686L-0.0373,-60.2665L-0.0399,-60.2676L-0.0422,-60.2629L-0.0465,-60.2641L-0.0519,-60.2615L-0.0505,-60.2594L-0.0540,-60.2596L-0.0522,-60.2295L-0.0454,-60.2191L-0.0461,-60.2098L-0.0416,-60.2067L-0.0461,-60.1985L-0.0537,-60.1966L-0.0575,-60.1992L-0.0618,-60.1951L-0.0650,-60.1845L-0.0634,-60.1787L-0.0667,-60.1729L-0.0735,-60.1687L-0.0750,-60.1646L-0.0739,-60.1604L-0.0623,-60.1588L-0.0569,-60.1553L-0.0518,-60.1563L-0.0517,-60.1546L-0.0459,-60.1545L-0.0408,-60.1575L-0.0318,-60.1581L-0.0303,-60.1597L-0.0209,-60.1520L-0.0222,-60.1453L-0.0179,-60.1426L-0.0143,-60.1427L-0.0142,-60.1404L-0.0066,-60.1420L-0.0065,-60.1441L-0.0049,-60.1420L-0.0034,-60.1426L0.0000,-60.1467Z","cx":-0.0143,"cy":-60.1963},{"n":"Merton","d":"M-0.1406,-60.1491L-0.1445,-60.1469L-0.1598,-60.1548L-0.1616,-60.1503L-0.1651,-60.1507L-0.1819,-60.1581L-0.1841,-60.1608L-0.1857,-60.1717L-0.1898,-60.1688L-0.1910,-60.1715L-0.1900,-60.1850L-0.2122,-60.1792L-0.2242,-60.1808L-0.2313,-60.1796L-0.2511,-60.1707L-0.2542,-60.1661L-0.2475,-60.1322L-0.2446,-60.1255L-0.2475,-60.1147L-0.2447,-60.1100L-0.2418,-60.1088L-0.2397,-60.1013L-0.2346,-60.1033L-0.2339,-60.0988L-0.2181,-60.0867L-0.2098,-60.0996L-0.2050,-60.0962L-0.2035,-60.0980L-0.2005,-60.0943L-0.1939,-60.0990L-0.1884,-60.0952L-0.1748,-60.1079L-0.1712,-60.1065L-0.1654,-60.0993L-0.1610,-60.0989L-0.1579,-60.1013L-0.1443,-60.1035L-0.1419,-60.1014L-0.1299,-60.1071L-0.1242,-60.1146L-0.1312,-60.1250L-0.1323,-60.1296L-0.1321,-60.1332L-0.1294,-60.1338L-0.1276,-60.1381L-0.1335,-60.1392L-0.1340,-60.1361L-0.1426,-60.1398L-0.1447,-60.1383L-0.1480,-60.1391L-0.1406,-60.1491Z","cx":-0.1821,"cy":-60.1304},{"n":"Newham","d":"M0.0684,-60.3505L0.0679,-60.3642L0.0659,-60.3684L0.0637,-60.3711L0.0592,-60.3705L0.0504,-60.3818L0.0420,-60.3777L0.0464,-60.3671L0.0354,-60.3678L0.0254,-60.3659L0.0231,-60.3704L0.0204,-60.3694L0.0216,-60.3672L0.0170,-60.3644L0.0146,-60.3673L0.0112,-60.3664L0.0096,-60.3613L0.0058,-60.3604L0.0052,-60.3628L-0.0086,-60.3592L-0.0105,-60.3635L-0.0191,-60.3619L-0.0161,-60.3473L-0.0212,-60.3385L-0.0175,-60.3296L-0.0108,-60.3262L-0.0075,-60.3212L-0.0089,-60.3115L-0.0056,-60.3059L-0.0022,-60.3078L0.0037,-60.3035L0.0026,-60.2960L0.0043,-60.2965L0.0056,-60.3015L0.0074,-60.3012L0.0061,-60.2949L0.0100,-60.2925L0.0077,-60.2878L0.0181,-60.2755L0.0279,-60.2721L0.0418,-60.2742L0.0663,-60.2738L0.0767,-60.2778L0.0899,-60.2959L0.0998,-60.2981L0.0999,-60.3022L0.0949,-60.3063L0.0926,-60.3203L0.0853,-60.3206L0.0782,-60.3261L0.0729,-60.3260L0.0698,-60.3369L0.0680,-60.3371L0.0692,-60.3390L0.0668,-60.3450L0.0684,-60.3505Z","cx":0.0332,"cy":-60.3321},{"n":"Redbridge","d":"M0.0940,-60.3529L0.1050,-60.3595L0.1085,-60.3636L0.1119,-60.3635L0.1148,-60.3679L0.1134,-60.3711L0.1172,-60.3704L0.1206,-60.3731L0.1176,-60.3741L0.1191,-60.3803L0.1294,-60.3858L0.1299,-60.3941L0.1316,-60.3944L0.1293,-60.4016L0.1317,-60.4029L0.1309,-60.4066L0.1336,-60.4075L0.1326,-60.4097L0.1277,-60.4102L0.1265,-60.4184L0.1311,-60.4197L0.1296,-60.4238L0.1466,-60.4389L0.1482,-60.4382L0.1495,-60.4444L0.1475,-60.4596L0.1431,-60.4694L0.1382,-60.4777L0.1359,-60.4777L0.1292,-60.4743L0.1194,-60.4645L0.1168,-60.4670L0.1039,-60.4600L0.1035,-60.4614L0.1002,-60.4603L0.0981,-60.4646L0.0923,-60.4616L0.0949,-60.4571L0.0919,-60.4530L0.0926,-60.4498L0.0890,-60.4476L0.0792,-60.4511L0.0729,-60.4473L0.0626,-60.4511L0.0483,-60.4611L0.0502,-60.4662L0.0543,-60.4667L0.0538,-60.4692L0.0409,-60.4650L0.0291,-60.4802L0.0212,-60.4865L0.0188,-60.4771L0.0144,-60.4725L0.0146,-60.4702L0.0088,-60.4705L0.0163,-60.4669L0.0214,-60.4592L0.0130,-60.4386L0.0121,-60.4290L0.0134,-60.4137L0.0156,-60.4130L0.0175,-60.4035L0.0164,-60.3962L0.0190,-60.3943L0.0192,-60.3914L0.0177,-60.3915L0.0189,-60.3856L0.0145,-60.3844L0.0148,-60.3745L0.0206,-60.3693L0.0234,-60.3703L0.0254,-60.3659L0.0354,-60.3678L0.0464,-60.3671L0.0420,-60.3777L0.0504,-60.3818L0.0592,-60.3705L0.0637,-60.3711L0.0659,-60.3684L0.0679,-60.3642L0.0684,-60.3503L0.0780,-60.3498L0.0915,-60.3565L0.0926,-60.3587L0.0940,-60.3529Z","cx":0.0782,"cy":-60.4164},{"n":"Richmond upon Thames","d":"M-0.3774,-60.1865L-0.3729,-60.1885L-0.3668,-60.1853L-0.3779,-60.1775L-0.3761,-60.1755L-0.3879,-60.1646L-0.3841,-60.1548L-0.3854,-60.1517L-0.3929,-60.1558L-0.3867,-60.1507L-0.3861,-60.1414L-0.3903,-60.1415L-0.3897,-60.1356L-0.3838,-60.1347L-0.3834,-60.1322L-0.3794,-60.1310L-0.3732,-60.1323L-0.3644,-60.1372L-0.3591,-60.1375L-0.3405,-60.1233L-0.3278,-60.1054L-0.3198,-60.1066L-0.3125,-60.1144L-0.3088,-60.1220L-0.3084,-60.1419L-0.3060,-60.1529L-0.3092,-60.1597L-0.3145,-60.1638L-0.3128,-60.1671L-0.3107,-60.1701L-0.3069,-60.1668L-0.3059,-60.1688L-0.3018,-60.1672L-0.3016,-60.1689L-0.2948,-60.1609L-0.2934,-60.1610L-0.2930,-60.1649L-0.2906,-60.1650L-0.2866,-60.1508L-0.2804,-60.1535L-0.2658,-60.1703L-0.2427,-60.1857L-0.2416,-60.1877L-0.2473,-60.1974L-0.2591,-60.2066L-0.2568,-60.2145L-0.2580,-60.2152L-0.2529,-60.2231L-0.2333,-60.2211L-0.2321,-60.2353L-0.2234,-60.2321L-0.2217,-60.2346L-0.2254,-60.2412L-0.2273,-60.2559L-0.2336,-60.2621L-0.2420,-60.2609L-0.2492,-60.2538L-0.2536,-60.2355L-0.2616,-60.2321L-0.2708,-60.2367L-0.2770,-60.2502L-0.2828,-60.2562L-0.2897,-60.2586L-0.2934,-60.2580L-0.2970,-60.2559L-0.3070,-60.2397L-0.3186,-60.2323L-0.3207,-60.2234L-0.3237,-60.2231L-0.3267,-60.2175L-0.3256,-60.2117L-0.3269,-60.2100L-0.3303,-60.2113L-0.3330,-60.2074L-0.3363,-60.2078L-0.3370,-60.2061L-0.3406,-60.2103L-0.3406,-60.2135L-0.3480,-60.2096L-0.3528,-60.2097L-0.3534,-60.2118L-0.3568,-60.2122L-0.3747,-60.2092L-0.3838,-60.1979L-0.3878,-60.1978L-0.3863,-60.1934L-0.3774,-60.1865Z","cx":-0.3169,"cy":-60.1896},{"n":"Southwark","d":"M-0.0802,-60.2900L-0.1016,-60.2947L-0.1041,-60.2948L-0.1047,-60.2924L-0.1046,-60.2947L-0.1091,-60.2947L-0.1059,-60.2822L-0.1114,-60.2732L-0.1030,-60.2653L-0.1084,-60.2562L-0.1040,-60.2482L-0.1083,-60.2473L-0.1000,-60.2418L-0.1006,-60.2376L-0.0960,-60.2306L-0.0930,-60.2342L-0.0900,-60.2246L-0.0922,-60.2165L-0.1010,-60.2052L-0.1007,-60.1992L-0.0951,-60.1915L-0.0883,-60.1657L-0.0858,-60.1642L-0.0834,-60.1553L-0.0816,-60.1558L-0.0783,-60.1514L-0.0739,-60.1604L-0.0750,-60.1646L-0.0735,-60.1687L-0.0667,-60.1729L-0.0634,-60.1787L-0.0650,-60.1845L-0.0618,-60.1951L-0.0575,-60.1992L-0.0537,-60.1966L-0.0461,-60.1985L-0.0416,-60.2067L-0.0461,-60.2098L-0.0454,-60.2191L-0.0522,-60.2295L-0.0540,-60.2596L-0.0505,-60.2594L-0.0519,-60.2615L-0.0465,-60.2641L-0.0422,-60.2629L-0.0399,-60.2676L-0.0373,-60.2665L-0.0299,-60.2686L-0.0293,-60.2835L-0.0305,-60.2885L-0.0381,-60.2927L-0.0451,-60.2919L-0.0548,-60.2834L-0.0598,-60.2816L-0.0802,-60.2900Z","cx":-0.0735,"cy":-60.2348},{"n":"Sutton","d":"M-0.2185,-60.0330L-0.2173,-60.0278L-0.2298,-60.0168L-0.2209,-60.0061L-0.2141,-60.0069L-0.2119,-60.0116L-0.2130,-60.0152L-0.2012,-60.0222L-0.1973,-60.0281L-0.1874,-60.0236L-0.1820,-60.0189L-0.1741,-60.0115L-0.1729,-60.0064L-0.1631,-60.0068L-0.1642,-60.0000L-0.1606,-59.9955L-0.1586,-59.9967L-0.1565,-59.9928L-0.1458,-59.9958L-0.1444,-60.0007L-0.1493,-60.0044L-0.1440,-60.0074L-0.1475,-60.0204L-0.1434,-60.0233L-0.1446,-60.0256L-0.1364,-60.0300L-0.1325,-60.0292L-0.1329,-60.0311L-0.1283,-60.0343L-0.1269,-60.0302L-0.1169,-60.0316L-0.1214,-60.0507L-0.1242,-60.0503L-0.1247,-60.0525L-0.1219,-60.0529L-0.1229,-60.0543L-0.1210,-60.0596L-0.1213,-60.0618L-0.1240,-60.0628L-0.1221,-60.0637L-0.1233,-60.0723L-0.1247,-60.0762L-0.1279,-60.0779L-0.1259,-60.0793L-0.1303,-60.0899L-0.1287,-60.0904L-0.1288,-60.0956L-0.1326,-60.1026L-0.1346,-60.1040L-0.1419,-60.1014L-0.1443,-60.1035L-0.1653,-60.0992L-0.1712,-60.1065L-0.1748,-60.1079L-0.1884,-60.0952L-0.1939,-60.0990L-0.2005,-60.0943L-0.2035,-60.0980L-0.2050,-60.0962L-0.2098,-60.0996L-0.2181,-60.0867L-0.2339,-60.0988L-0.2346,-60.1033L-0.2397,-60.1013L-0.2388,-60.0961L-0.2429,-60.0911L-0.2441,-60.0920L-0.2450,-60.0875L-0.2454,-60.0654L-0.2371,-60.0654L-0.2269,-60.0585L-0.2185,-60.0330Z","cx":-0.1711,"cy":-60.0536},{"n":"Tower Hamlets","d":"M0.0000,-60.2891L0.0040,-60.2898L0.0077,-60.2878L0.0100,-60.2925L0.0061,-60.2949L0.0070,-60.3017L0.0026,-60.2960L0.0039,-60.3033L-0.0022,-60.3078L-0.0053,-60.3056L-0.0088,-60.3107L-0.0074,-60.3211L-0.0108,-60.3262L-0.0175,-60.3296L-0.0212,-60.3383L-0.0164,-60.3455L-0.0164,-60.3485L-0.0290,-60.3469L-0.0333,-60.3507L-0.0447,-60.3365L-0.0509,-60.3375L-0.0528,-60.3350L-0.0590,-60.3337L-0.0624,-60.3360L-0.0622,-60.3324L-0.0651,-60.3323L-0.0663,-60.3291L-0.0737,-60.3277L-0.0772,-60.3228L-0.0757,-60.3162L-0.0794,-60.3092L-0.0736,-60.3017L-0.0727,-60.2954L-0.0769,-60.2958L-0.0802,-60.2900L-0.0600,-60.2816L-0.0548,-60.2834L-0.0436,-60.2925L-0.0381,-60.2927L-0.0321,-60.2900L-0.0296,-60.2863L-0.0297,-60.2672L-0.0261,-60.2605L-0.0194,-60.2552L-0.0105,-60.2544L-0.0014,-60.2604L-0.0004,-60.2651L-0.0051,-60.2805L0.0000,-60.2891Z","cx":-0.0317,"cy":-60.3056},{"n":"Waltham Forest","d":"M0.0222,-60.4872L0.0258,-60.4955L0.0228,-60.5060L0.0175,-60.5046L0.0015,-60.5069L-0.0005,-60.5102L-0.0039,-60.5086L-0.0082,-60.5100L-0.0073,-60.5141L-0.0122,-60.5143L-0.0153,-60.4969L-0.0257,-60.4752L-0.0352,-60.4612L-0.0342,-60.4544L-0.0412,-60.4491L-0.0504,-60.4345L-0.0534,-60.4244L-0.0522,-60.4198L-0.0622,-60.4069L-0.0584,-60.3956L-0.0474,-60.3837L-0.0470,-60.3795L-0.0425,-60.3777L-0.0279,-60.3768L-0.0239,-60.3711L-0.0184,-60.3675L-0.0171,-60.3616L-0.0105,-60.3635L-0.0086,-60.3592L0.0031,-60.3627L0.0058,-60.3623L0.0056,-60.3604L0.0096,-60.3613L0.0112,-60.3664L0.0146,-60.3673L0.0170,-60.3644L0.0216,-60.3672L0.0148,-60.3745L0.0143,-60.3775L0.0145,-60.3844L0.0187,-60.3853L0.0177,-60.3915L0.0192,-60.3914L0.0189,-60.3953L0.0164,-60.3962L0.0175,-60.4035L0.0156,-60.4130L0.0134,-60.4137L0.0120,-60.4278L0.0130,-60.4386L0.0214,-60.4592L0.0163,-60.4669L0.0088,-60.4705L0.0146,-60.4702L0.0222,-60.4872Z","cx":-0.0043,"cy":-60.4232},{"n":"Wandsworth","d":"M-0.1395,-60.1503L-0.1378,-60.1523L-0.1384,-60.1673L-0.1353,-60.1670L-0.1365,-60.1728L-0.1382,-60.1730L-0.1400,-60.1775L-0.1360,-60.1858L-0.1436,-60.1855L-0.1457,-60.1919L-0.1423,-60.2002L-0.1477,-60.2024L-0.1512,-60.2242L-0.1506,-60.2269L-0.1346,-60.2362L-0.1262,-60.2540L-0.1295,-60.2563L-0.1373,-60.2531L-0.1502,-60.2541L-0.1733,-60.2483L-0.1778,-60.2429L-0.1829,-60.2268L-0.1901,-60.2217L-0.2048,-60.2222L-0.2153,-60.2273L-0.2217,-60.2346L-0.2237,-60.2320L-0.2315,-60.2353L-0.2330,-60.2340L-0.2333,-60.2211L-0.2529,-60.2231L-0.2560,-60.2196L-0.2591,-60.2066L-0.2473,-60.1974L-0.2416,-60.1877L-0.2541,-60.1783L-0.2511,-60.1707L-0.2310,-60.1797L-0.2242,-60.1808L-0.2122,-60.1792L-0.1900,-60.1850L-0.1910,-60.1715L-0.1898,-60.1688L-0.1857,-60.1717L-0.1841,-60.1608L-0.1819,-60.1581L-0.1651,-60.1507L-0.1616,-60.1503L-0.1598,-60.1548L-0.1445,-60.1469L-0.1395,-60.1503Z","cx":-0.1818,"cy":-60.1974},{"n":"Westminster","d":"M-0.1116,-60.3036L-0.1138,-60.3028L-0.1147,-60.3047L-0.1194,-60.3023L-0.1228,-60.3033L-0.1273,-60.2993L-0.1293,-60.3006L-0.1308,-60.3064L-0.1324,-60.3058L-0.1370,-60.3093L-0.1435,-60.3185L-0.1452,-60.3175L-0.1472,-60.3192L-0.1527,-60.3393L-0.1594,-60.3374L-0.1604,-60.3389L-0.1649,-60.3365L-0.1695,-60.3410L-0.1735,-60.3394L-0.1739,-60.3424L-0.1801,-60.3425L-0.1844,-60.3402L-0.1887,-60.3344L-0.1914,-60.3373L-0.1965,-60.3234L-0.1983,-60.3279L-0.2028,-60.3318L-0.2153,-60.3292L-0.2155,-60.3219L-0.2067,-60.3210L-0.2015,-60.3155L-0.2006,-60.3121L-0.2036,-60.3120L-0.1992,-60.3023L-0.1950,-60.3031L-0.1921,-60.2948L-0.1879,-60.2953L-0.1842,-60.2818L-0.1803,-60.2813L-0.1795,-60.2754L-0.1655,-60.2769L-0.1584,-60.2826L-0.1550,-60.2691L-0.1558,-60.2623L-0.1498,-60.2542L-0.1371,-60.2531L-0.1273,-60.2587L-0.1230,-60.2685L-0.1206,-60.2883L-0.1177,-60.2924L-0.1114,-60.2946L-0.1116,-60.3036Z","cx":-0.1609,"cy":-60.3068}]};
+const D2R = Math.PI/180;
+const merc = (lon,lat)=>[lon, -(180/Math.PI)*Math.log(Math.tan(Math.PI/4 + lat*D2R/2))];
+const KM = 69.0;               // map units per km at London's latitude
+const BASE = merc(-0.1030, 51.5390);
+const ease = t => t<.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
+const lerp = (a,b,t)=>a+(b-a)*t;
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+function lcg(seed){ let s=seed; return ()=>((s=(s*1664525+1013904223)>>>0)/4294967296); }
+
+// bbox helpers -------------------------------------------------------------
+function pathBox(d){
+  const n = d.match(/-?\d+(\.\d+)?/g).map(Number);
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(let i=0;i<n.length;i+=2){ x0=Math.min(x0,n[i]); x1=Math.max(x1,n[i]); y0=Math.min(y0,n[i+1]); y1=Math.max(y1,n[i+1]); }
+  return [x0,y0,x1-x0,y1-y0];
+}
+const pad = (b,f)=>[b[0]-b[2]*f, b[1]-b[3]*f, b[2]*(1+2*f), b[3]*(1+2*f)];
+function fit(b, aspect){ // aspect = w/h of the panel
+  let [x,y,w,h] = b, cx=x+w/2, cy=y+h/2;
+  if (w/h < aspect) w = h*aspect; else h = w/aspect;
+  return [cx-w/2, cy-h/2, w, h];
+}
+const UK_RINGS = GEO.uk.split('Z').filter(Boolean).map(d=>d+'Z')
+  .sort((a,b)=>b.length-a.length);
+const UK_BOX = pad(pathBox(GEO.uk), .06);
+const LDN_BOX = pad(GEO.boroughs.reduce((a,b)=>{const bb=pathBox(b.d);
+  const x0=Math.min(a[0],bb[0]),y0=Math.min(a[1],bb[1]),x1=Math.max(a[2],bb[0]+bb[2]),y1=Math.max(a[3],bb[1]+bb[3]);
+  return [x0,y0,x1,y1];},[1e9,1e9,-1e9,-1e9]).reduce((_,__,i,r)=>i?_:[r[0],r[1],r[2]-r[0],r[3]-r[1]],0), .05);
+
+// the catchment: what 30 minutes by car actually looks like — lobed, not round
+const CATCH = (()=>{
+  const pts=[], n=84;
+  for(let i=0;i<n;i++){
+    const a = i/n*2*Math.PI;
+    const r = 6.4*(1 + .17*Math.sin(a*2+.6) + .11*Math.sin(a*3-1.1) + .06*Math.sin(a*5+2.2) + .04*Math.sin(a*7-.3));
+    pts.push([BASE[0]+r/KM*Math.cos(a), BASE[1]+r/KM*Math.sin(a)]);
+  }
+  return pts;
+})();
+const CATCH_D = 'M'+CATCH.map(p=>p[0].toFixed(4)+','+p[1].toFixed(4)).join('L')+'Z';
+const CATCH_BOX = pad(pathBox(CATCH_D), .10);
+
+// the areas the search is looking through: real boroughs, nearest first
+const AREAS = GEO.boroughs
+  .map(b=>({...b, dist: Math.hypot(b.cx-BASE[0], b.cy-BASE[1])}))
+  .sort((a,b)=>a.dist-b.dist).slice(0,6);
+const AREA_NAMES = AREAS.map(a=>a.n);
+
+// pins: places found, scattered inside the catchment, deterministic
+const PINS = (()=>{
+  const r = lcg(20260904), out=[];
+  const inside = (x,y)=>{ let c=false; for(let i=0,j=CATCH.length-1;i<CATCH.length;j=i++){
+    const [xi,yi]=CATCH[i],[xj,yj]=CATCH[j];
+    if((yi>y)!==(yj>y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi) c=!c; } return c; };
+  let guard=0;
+  while(out.length<38 && guard++<4000){
+    const x = CATCH_BOX[0]+r()*CATCH_BOX[2], y = CATCH_BOX[1]+r()*CATCH_BOX[3];
+    if(!inside(x,y)) continue;
+    if(out.some(p=>Math.hypot(p[0]-x,p[1]-y) < 0.55/KM)) continue;
+    out.push([x,y]);
+  }
+  // found in rough order of distance from home, as a real pool comes back
+  return out.sort((a,b)=>Math.hypot(a[0]-BASE[0],a[1]-BASE[1])-Math.hypot(b[0]-BASE[0],b[1]-BASE[1]));
+})();
+
+const SVGNS='http://www.w3.org/2000/svg';
+const el=(n,a={})=>{const e=document.createElementNS(SVGNS,n);for(const k in a)e.setAttribute(k,a[k]);return e;};
+
+// timeline -----------------------------------------------------------------
+const T = { coast:0, hold:0.85, toLdn:1.05, ldn:2.25, toCatch:2.55, catchDrawn:3.45, areas:3.55, sweep:4.9 };
+
+class Sketch {
+  constructor(wrap, opts){
+    this.wrap = wrap; this.opts = opts;
+    this.svg = wrap.querySelector('svg.map');
+    this.beatEl = wrap.querySelector('[data-beat]');
+    this.build();
+  }
+  build(){
+    const s = this.svg; s.innerHTML='';
+    const defs = el('defs'); s.appendChild(defs);
+    this.clip = el('clipPath',{id:'lens-'+this.opts.id});
+    this.clipC = el('circle',{cx:0,cy:0,r:0}); this.clip.appendChild(this.clipC); defs.appendChild(this.clip);
+
+    this.sketch = el('g',{id:'sk-'+this.opts.id});
+    s.appendChild(this.sketch);
+
+    // sea tint behind the country, so the coast reads as a coast
+    this.gUK = el('g',{class:'g-uk'});
+    this.ukFill = el('path',{d:GEO.uk, fill:'#EFF8F3', stroke:'none', opacity:0});
+    this.gUK.appendChild(this.ukFill);
+    this.ukRings = UK_RINGS.map((d,i)=>{
+      const p = el('path',{d, fill:'none', stroke:'#201E1D','stroke-width':1.1,
+        'stroke-linejoin':'round','stroke-linecap':'round','vector-effect':'non-scaling-stroke'});
+      this.gUK.appendChild(p);
+      const len = p.getTotalLength ? p.getTotalLength() : 10;
+      p.setAttribute('stroke-dasharray', len);
+      return {p, len, at: i===0 ? 0 : .18 + i*.028};   // the mainland first, islands after
+    });
+    this.sketch.appendChild(this.gUK);
+
+    // boroughs
+    this.gBor = el('g',{class:'g-bor', opacity:0});
+    this.borEls = GEO.boroughs.map(b=>{
+      const p = el('path',{d:b.d, fill:'none', stroke:'#B9CFC4','stroke-width':.9,
+        'stroke-linejoin':'round','vector-effect':'non-scaling-stroke'});
+      this.gBor.appendChild(p); return {b,p};
+    });
+    this.sketch.appendChild(this.gBor);
+
+    // the areas being searched, filled as they are reached
+    this.gArea = el('g',{class:'g-area'});
+    this.areaEls = AREAS.map(a=>{
+      const p = el('path',{d:a.d, fill:'#B6E3CF', stroke:'#2E8A63','stroke-width':1.1,
+        'stroke-linejoin':'round','vector-effect':'non-scaling-stroke','fill-opacity':0, 'stroke-opacity':0});
+      this.gArea.appendChild(p); return {a,p};
+    });
+    this.sketch.appendChild(this.gArea);
+
+    // catchment
+    this.catchLine = el('path',{d:CATCH_D, fill:'none', stroke:'#201E1D','stroke-width':1.8,
+      'stroke-linecap':'round','stroke-opacity':.85, opacity:0});
+    this.sketch.appendChild(this.catchLine);
+    this.catchLen = this.catchLine.getTotalLength ? this.catchLine.getTotalLength() : 3;
+    this.catchLine.setAttribute('stroke-dasharray', this.catchLen);
+
+    // pins
+    this.gPins = el('g',{class:'g-pins'});
+    this.pinEls = PINS.map(p=>{
+      const g = el('g',{transform:`translate(${p[0]} ${p[1]})`, opacity:0});
+      const inner = el('g');
+      inner.appendChild(el('circle',{r:3.4, fill:'#2E8A63'}));
+      inner.appendChild(el('circle',{r:6.2, fill:'none', stroke:'#2E8A63','stroke-width':1,'stroke-opacity':.35}));
+      g.appendChild(inner); this.gPins.appendChild(g); return {g, inner, p};
+    });
+    this.sketch.appendChild(this.gPins);
+
+    // home
+    this.home = el('g',{opacity:0});
+    const hi = el('g');
+    hi.appendChild(el('circle',{r:7.5, fill:'#fff', stroke:'#201E1D','stroke-width':2}));
+    hi.appendChild(el('circle',{r:3, fill:'#201E1D'}));
+    this.homeLab = el('g',{transform:`translate(${BASE[0]} ${BASE[1]})`, opacity:0});
+    this.homeLabIn = el('g');
+    const hl = el('text',{x:0,y:24,'text-anchor':'middle','font-family':'Caveat, cursive','font-size':15,fill:'#201E1D','font-weight':600,
+      stroke:'#FCFCFA','stroke-width':3.5,'paint-order':'stroke'});
+    hl.textContent='Home'; this.homeLabIn.appendChild(hl); this.homeLab.appendChild(this.homeLabIn);
+    this.gLab = this.gLab || null;
+    this.home.appendChild(hi); this.homeInner = hi;
+    this.sketch.appendChild(this.home);
+    this.home.setAttribute('transform',`translate(${BASE[0]} ${BASE[1]})`);
+
+    // labels, in map space but kept at screen size
+    this.gLab = el('g',{class:'g-lab'});
+    this.gLab.appendChild(this.homeLab);
+    this.labEls = AREAS.map(a=>{
+      const g = el('g',{transform:`translate(${a.cx} ${a.cy})`, opacity:0});
+      const inner = el('g');
+      const t = el('text',{x:0,y:0,'text-anchor':'middle','font-family':'Caveat, cursive','font-size':15,fill:'#1C4E3A','font-weight':600,
+        stroke:'#FCFCFA','stroke-width':3.5,'paint-order':'stroke'});
+      t.textContent = a.n.replace('City of London','The City');
+      inner.appendChild(t); g.appendChild(inner); this.gLab.appendChild(g);
+      return {g, inner};
+    });
+    s.appendChild(this.gLab);
+
+    // the magnifier, and the map magnified under it
+    this.lens = el('g',{opacity:0});
+    this.lensMag = el('g',{'clip-path':`url(#lens-${this.opts.id})`});
+    this.lensUse = el('use',{href:'#sk-'+this.opts.id});
+    this.lensUse.setAttributeNS('http://www.w3.org/1999/xlink','href','#sk-'+this.opts.id);
+    this.lensMag.appendChild(this.lensUse);
+    this.lensRing = el('g');
+    s.append(this.lensMag, this.lens);
+    this.lens.appendChild(this.lensRing);
+    this.ringInner = el('g');
+    this.ringInner.appendChild(el('circle',{r:34, fill:'rgba(255,255,255,.10)', stroke:'#201E1D','stroke-width':2.6}));
+    this.ringInner.appendChild(el('circle',{r:30, fill:'none', stroke:'#fff','stroke-width':1.2,'stroke-opacity':.7}));
+    this.ringInner.appendChild(el('path',{d:'M24 24 L41 41', stroke:'#201E1D','stroke-width':6,'stroke-linecap':'round'}));
+    this.ringInner.appendChild(el('path',{d:'M25 21 A34 34 0 0 0 21 25', stroke:'#fff','stroke-width':2,'stroke-linecap':'round',fill:'none','stroke-opacity':.55}));
+    this.lensRing.appendChild(this.ringInner);
+  }
+  view(t){
+    const a = this.wrap.clientWidth / Math.max(1,this.wrap.clientHeight);
+    const uk = fit(UK_BOX,a), ldn = fit(LDN_BOX,a), cat = fit(CATCH_BOX,a);
+    let from=uk, to=uk, k=0;
+    if (t < T.hold) { from=uk; to=uk; k=0; }
+    else if (t < T.ldn) { from=uk; to=ldn; k=ease(clamp((t-T.hold)/(T.ldn-T.hold),0,1)); }
+    else if (t < T.catchDrawn) { from=ldn; to=cat; k=ease(clamp((t-T.toCatch)/(T.catchDrawn-T.toCatch),0,1)); }
+    else { from=cat; to=cat; k=1; }
+    const v = [0,1,2,3].map(i=>lerp(from[i],to[i],k));
+    // a slow drift while sweeping, so the map is never quite still
+    if (t > T.sweep && !this.reduced) { const d=(t-T.sweep); v[0]+= Math.sin(d*.35)*v[2]*.012; v[1]+= Math.cos(d*.28)*v[3]*.012; }
+    return v;
+  }
+  frame(t, st){
+    const w = this.wrap.clientWidth || 360, h = this.wrap.clientHeight || 300;
+    const v = this.view(t);
+    this.svg.setAttribute('viewBox', v.join(' '));
+    const u = v[2]/w;                       // map units per screen pixel
+    const px = n => n*u;
+
+    // coastline draws itself, then the country recedes as we go in
+    const ukFade = 1-clamp((t-T.hold-.15)/(T.ldn-T.hold-.15),0,1);
+    this.ukRings.forEach(r=>{
+      const k = ease(clamp((t-r.at)/(T.hold-r.at||.3),0,1));
+      r.p.setAttribute('stroke-dashoffset', r.len*(1-k));
+      r.p.setAttribute('stroke-opacity', ukFade);
+    });
+    // the land tint carries the country, then gives the city a clean ground
+    this.ukFill.setAttribute('opacity', clamp((t-.35)/.5,0,1)*.9*ukFade);
+    this.gBor.setAttribute('opacity', clamp((t-T.hold-.25)/.6,0,1));
+    this.home.setAttribute('opacity', clamp((t-.55)/.4,0,1));
+    this.homeInner.setAttribute('transform',`scale(${px(1)})`);
+    this.homeLab.setAttribute('opacity', clamp((t-T.toCatch)/.5,0,1));
+    this.homeLabIn.setAttribute('transform',`scale(${px(1)})`);
+
+    // catchment
+    const cd = clamp((t-T.toCatch)/(T.catchDrawn-T.toCatch),0,1);
+    this.catchLine.setAttribute('opacity', cd>0?1:0);
+    this.catchLine.setAttribute('stroke-width', px(2.1));
+    this.catchLine.setAttribute('stroke-dashoffset', this.catchLen*(1-ease(cd)));
+    this.catchLine.setAttribute('stroke-dasharray', cd<1 ? this.catchLen : `${px(7)} ${px(5)}`);
+    if (cd>=1) this.catchLine.setAttribute('stroke-dashoffset', 0);
+
+    // areas light up one at a time, in the order the sweep reaches them
+    this.areaEls.forEach((a,i)=>{
+      const on = clamp((t-(T.areas+i*.28))/.45,0,1);
+      a.p.setAttribute('fill-opacity', on*.30);
+      a.p.setAttribute('stroke-opacity', on*.55);
+    });
+    this.labEls.forEach((l,i)=>{
+      const on = clamp((t-(T.areas+.15+i*.28))/.4,0,1);
+      l.g.setAttribute('opacity', on*clamp((t-T.areas)/.3,0,1));
+      l.inner.setAttribute('transform',`scale(${px(1)})`);
+    });
+
+    // the sweep
+    const sweeping = t > T.sweep-0.5 && !this.reduced;
+    this.lens.setAttribute('opacity', sweeping?clamp((t-(T.sweep-.5))/.4,0,1):0);
+    this.lensMag.setAttribute('opacity', sweeping?clamp((t-(T.sweep-.5))/.4,0,1):0);
+    const d = Math.max(0,t-(T.sweep-.5));
+    const lx = BASE[0] + Math.cos(d*.85)*(3.6/KM) + Math.cos(d*.31)*(1.9/KM);
+    const ly = BASE[1] + Math.sin(d*.72)*(3.1/KM) + Math.sin(d*.44)*(1.6/KM);
+    this.lens.setAttribute('transform',`translate(${lx} ${ly})`);
+    this.ringInner.setAttribute('transform',`scale(${px(1)})`);
+    this.clipC.setAttribute('cx',lx); this.clipC.setAttribute('cy',ly); this.clipC.setAttribute('r',px(33));
+    const M = 1.55;
+    this.lensUse.setAttribute('transform',`translate(${lx*(1-M)} ${ly*(1-M)}) scale(${M})`);
+
+    // pins pop as the pool comes back
+    const found = st.found;
+    this.pinEls.forEach((p,i)=>{
+      const on = i < found ? clamp((t-(st.foundAt[i]||0))/.35,0,1) : 0;
+      p.g.setAttribute('opacity', on);
+      p.inner.setAttribute('transform',`scale(${px(1)*(0.6+0.4*on)})`);
+    });
+
+    // scale bar and beat caption
+    const scaleEl = this.wrap.querySelector('[data-scale]');
+    if (scaleEl){ const kmw = 52*u*KM; scaleEl.textContent = kmw>60 ? Math.round(kmw/10)*10+' km' : kmw>4 ? Math.round(kmw)+' km' : (Math.round(kmw*10)/10)+' km'; }
+    if (this.beatEl){
+      const b = t<T.ldn-.55 ? 'Great Britain' : t<T.toCatch+.35 ? 'London' : t<T.areas+.4 ? '30 minutes by car' : '';
+      if (this.beatEl.textContent !== b){ this.beatEl.textContent = b; }
+      this.beatEl.classList.toggle('on', !!b);
+    }
+  }
+  still(on){ this.reduced = on; }
+}
+
+// the run: one search, one set of frames -----------------------------------
+const RESULTS = [
+  {n:'Trullo', m:'Highbury Corner · 12 min · Italian'},
+  {n:'Perilla', m:'Newington Green · 16 min · Modern British'},
+  {n:'Westerns Laundry', m:'Drayton Park · 9 min · Seafood'},
+  {n:'Bellanger', m:'Islington Green · 14 min · Brasserie'},
+];
+
+class Panel {
+  constructor(root, kind){
+    this.root = root; this.kind = kind;
+    this.wrap = root.querySelector('[data-map]');
+    this.sketch = new Sketch(this.wrap, {id:kind});
+    this.res = root.querySelector('[data-res]');
+    this.areasBox = root.querySelector('[data-areas]');
+    if (this.areasBox){
+      this.areaChips = AREA_NAMES.map(n=>{ const c=document.createElement('span'); c.className='chip'; c.textContent=n.replace('City of London','The City'); this.areasBox.appendChild(c); return c; });
+    }
+    const stop = root.querySelector('[data-stop]');
+    if (stop) stop.onclick = ()=> RUN.finish(this, true);
+  }
+  reset(){
+    this.res.innerHTML=''; this.res.style.display = this.kind==='A' ? '' : 'none';
+    this.root.querySelectorAll('.ln').forEach(l=>l.classList.remove('on','done'));
+    if (this.areaChips) this.areaChips.forEach(c=>c.classList.remove('in','hit'));
+    const t=this.root.querySelector('[data-title]'); if(t) t.textContent='Looking around home';
+    const h=this.root.querySelector('[data-hint]'); if(h) h.textContent='';
+    this.wrap.style.opacity=1; this.wrap.style.transition='none'; this.wrap.style.display='';
+    if (this.kind==='A'){ this.wrap.style.height='132px'; }
+    if (this.kind==='B'){ this.wrap.style.height='352px'; this.wrap.style.flex='none'; }
+    if (this.kind==='C'){ this.wrap.style.height=''; this.wrap.style.flex='1'; }
+    const sb=this.root.querySelector('[data-stop]'); if(sb) sb.textContent='Stop';
+    const at=this.root.querySelector('[data-areatext]'); if(at) at.textContent='drawing what you can reach';
+    const c=this.root.querySelector('[data-count]'); if(c) c.textContent='0';
+    this.sketch.reduced=false;
+    this.done=false;
+  }
+  tick(t, st){
+    this.sketch.frame(t, st);
+    const ln = i => this.root.querySelector(`[data-ln="${i}"]`);
+    const set=(i,on,done)=>{const e=ln(i); if(!e)return; e.classList.toggle('on',on); e.classList.toggle('done',done);};
+    if (this.kind==='A'){
+      const txt = this.root.querySelector('[data-lntext]');
+      set(0, true, false);
+      if (t < T.toCatch) txt.innerHTML = 'Working out what you can reach';
+      else if (t < T.areas+0.6) txt.innerHTML = 'Everywhere within <b>30 minutes by car</b>';
+      else if (t < T.sweep+1.2) txt.innerHTML = 'Looking through ' + AREA_NAMES.slice(0,3).map(n=>n.replace('City of London','the City')).join(', ') + '…';
+      else txt.innerHTML = `<b>${st.found}</b> places so far · <b>${st.ruled}</b> ruled out for nuts`;
+      // results stream in under the strip while the map is still sweeping
+      const want = Math.min(RESULTS.length, Math.floor(Math.max(0,(t-(T.sweep+0.4)))/0.5));
+      this.fillResults(want);
+    } else {
+      set(0, t>T.toCatch*.6, t>T.catchDrawn);
+      set(1, t>T.catchDrawn-0.4, t>T.areas+0.9);
+      set(2, t>T.areas+0.5, false);
+      set(3, t>T.sweep+0.3, st.ruled>0 && t>T.sweep+1.6);
+      const c=this.root.querySelector('[data-count]'); if(c) c.textContent = st.found;
+      const pl=this.root.querySelector('[data-plural]'); if(pl) pl.textContent = st.found===1?'place':'places';
+      const r=this.root.querySelector('[data-ruled]'); if(r) r.textContent = st.ruled;
+      const at=this.root.querySelector('[data-areatext]');
+      if (at) at.textContent = t<T.areas ? 'drawing what you can reach'
+        : st.areasSeen ? 'looking through ' + AREA_NAMES.slice(0,st.areasSeen).map(n=>n.replace('City of London','the City')).join(', ') : 'looking through the areas near you';
+      const ti=this.root.querySelector('[data-title]');
+      if (ti && st.areasSeen) ti.textContent = 'Looking around ' + AREA_NAMES[0];
+      if (this.areaChips) this.areaChips.forEach((c,i)=>{ c.classList.toggle('in', i<st.areasSeen); c.classList.toggle('hit', i<st.areasSeen-1); });
+      const src=this.root.querySelector('[data-src]');
+      if (src) src.innerHTML = st.slow && t>T.sweep+1.5
+        ? 'The open map is slow tonight — still waiting'
+        : t>T.areas+0.9 ? 'Asked <b>the open map</b> and the places we hold' : 'Asking the open map and the places we hold';
+      const h=this.root.querySelector('[data-hint]');
+      if (h) h.textContent = st.slow && t>T.sweep+2.5 ? 'Stop keeps what it has found' : '';
+    }
+  }
+  fillResults(n){
+    while (this.res.children.length < n){
+      const i = this.res.children.length; const r = RESULTS[i];
+      const d = document.createElement('div'); d.className='card';
+      d.innerHTML = `<div class="thumb"><svg viewBox="0 0 24 24"><path d="M7 3v8a3 3 0 0 0 6 0V3M10 3v18M17 3c-1.5 2-2 4-2 6s.5 3 2 3v9"/></svg></div>
+        <div><div class="n">${r.n}</div><div class="m">${r.m}</div></div>`;
+      this.res.appendChild(d); requestAnimationFrame(()=>d.classList.add('in'));
+    }
+  }
+  finish(stopped){
+    if (this.done) return; this.done = true;
+    if (this.kind==='A'){
+      this.wrap.style.transition='height .45s'; this.wrap.style.height='0px';
+      const l=this.root.querySelector('[data-ln="0"]'); if(l) l.classList.add('done');
+      const tx=this.root.querySelector('[data-lntext]');
+      if (tx) tx.innerHTML = stopped ? `<b>${RESULTS.length}</b> places found so far` : `<b>${RESULTS.length}</b> places, closest first · <b>6</b> ruled out for nuts`;
+      this.fillResults(RESULTS.length);
+    }
+    else {
+      this.wrap.style.transition='height .5s, opacity .4s';
+      this.wrap.style.flex='none'; this.wrap.style.height='96px';
+      this.res.style.display=''; this.fillResults(RESULTS.length);
+      const ti=this.root.querySelector('[data-title]');
+      if (ti) ti.textContent = stopped ? `${RESULTS.length} places so far` : `${RESULTS.length} places, closest first`;
+      const sub=this.root.querySelector('[data-sub]'); if (sub) sub.textContent = 'Everyone · within 30 minutes by car';
+      const at=this.root.querySelector('[data-areatext]');
+      if (at) at.textContent = 'Islington, Hackney, the City, Camden';
+      const pl=this.root.querySelector('[data-plural]'); if (pl) pl.textContent='places';
+      const cc=this.root.querySelector('[data-count]'); if (cc) cc.textContent=String(RESULTS.length);
+      this.root.querySelectorAll('.ln').forEach(l=>l.classList.add('done'));
+      const st=this.root.querySelector('[data-stop]'); if(st) st.textContent = 'Search again';
+    }
+  }
+}
+
+const panels = [new Panel(document.getElementById('pA'),'A'), new Panel(document.getElementById('pB'),'B'), new Panel(document.getElementById('pC'),'C')];
+
+const RUN = {
+  ms: 3600, raf:0, reduced:false,
+  finish(panel, stopped){ panel.finish(stopped); },
+  start(){
+    cancelAnimationFrame(this.raf);
+    panels.forEach(p=>p.reset());
+    const total = this.ms;
+    if (this.reduced){
+      panels.forEach(p=>{ p.sketch.still(true); p.tick(T.sweep+1.0, {found:PINS.length, foundAt:PINS.map(()=>0), ruled:6, areasSeen:AREA_NAMES.length, slow:false}); });
+      setTimeout(()=>panels.forEach(p=>p.finish(false)), Math.min(total, 2500));
+      return;
+    }
+    if (total < 300){    // never shown: the results are simply there
+      panels.forEach(p=>{ p.wrap.style.display='none'; p.finish(false); });
+      return;
+    }
+    const t0 = performance.now();
+    const slow = total > 6000;
+    const foundAt = [];
+    const loop = () => {
+      const wall = (performance.now()-t0)/1000;
+      // playback compresses when the answer is close, rather than cutting
+      let t = wall;
+      const budget = total/1000;
+      if (wall > budget*0.55 && budget < T.sweep){
+        const rate = clamp((T.sweep) / Math.max(0.35, budget), 1, 2.5);
+        t = budget*0.55 + (wall - budget*0.55)*rate;
+      }
+      // the pool comes back over the second half of the search
+      // places are only found once there is a catchment to find them in, so the
+      // pool runs on the timeline, not the wall clock
+      const span = Math.min(Math.max(0.6, budget-1.2), 4.0);
+      const prog = clamp((t - T.catchDrawn) / span, 0, 1);
+      const found = Math.min(PINS.length, Math.floor(prog*PINS.length));
+      for (let i=foundAt.length;i<found;i++) foundAt[i] = t;
+      const areasSeen = Math.min(AREA_NAMES.length, Math.max(0, Math.floor((t-T.areas)/0.28)+1));
+      const st = {found, foundAt, ruled: Math.floor(found*0.16), areasSeen: t<T.areas?0:areasSeen, slow};
+      panels.forEach(p=>p.tick(t, st));
+      if (wall*1000 >= total){ panels.forEach(p=>p.finish(false)); return; }
+      this.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+  }
+};
+
+document.querySelectorAll('[data-ms]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('[data-ms]').forEach(x=>{x.classList.add('ghost');x.classList.remove('on');});
+  b.classList.remove('ghost'); b.classList.add('on');
+  RUN.ms = +b.dataset.ms; RUN.start();
+});
+document.getElementById('replay').onclick = ()=>RUN.start();
+document.getElementById('rm').onchange = e=>{ RUN.reduced = e.target.checked; RUN.start(); };
+if (window.matchMedia('(prefers-reduced-motion: reduce)').matches){ document.getElementById('rm').checked=true; RUN.reduced=true; }
+RUN.start();
+</script>
+</body>
+</html>
