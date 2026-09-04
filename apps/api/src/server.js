@@ -171,6 +171,10 @@ app.patch('/api/sources/:key', async (req, res, next) => {
  * for a picture we already had would misreport the spend, and the whole point
  * of holding it is that we stopped asking.
  */
+// How long a device may hold a provider's photograph. The owner set ten hours
+// (ROAM_PHOTO_CACHE_SECONDS moves it without a deploy).
+const PHOTO_CACHE_SECONDS = Number(process.env.ROAM_PHOTO_CACHE_SECONDS || 36_000);
+
 app.get('/api/photos/google', async (req, res) => {
   try {
     const name = String(req.query.name || '');
@@ -182,7 +186,11 @@ app.get('/api/photos/google', async (req, res) => {
       await providerCalls.record(household.id, 'google-places', 'photo', { 'google-photos': 1 }).catch(() => null);
     }
     res.setHeader('content-type', photo.contentType);
-    res.setHeader('cache-control', 'private, max-age=3600');
+    // Ten hours, the owner's decision (4 Sep 2026: "you can persist them for 10
+    // hours"), so reopening the app shows the pictures it already had rather
+    // than fetching every one again. Private: one browser's own copy, never a
+    // shared cache, and it falls out of the browser by itself.
+    res.setHeader('cache-control', `private, max-age=${PHOTO_CACHE_SECONDS}`);
     res.send(photo.body);
   } catch (err) {
     // The status the provider gave, so a quota that has run out reads as one.

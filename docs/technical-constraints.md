@@ -103,7 +103,9 @@ You can bias to a portion of the route rather than the whole thing — useful fo
 
 **Reviews:** maximum 5 per venue, chosen by Google's relevance ranking. No pagination, no sorting. If a rating filter leaves only four of the five qualifying, only four return.
 
-**Retention:** `place_id` indefinite; latitude/longitude 30 days; **everything else, none**.
+**Retention:** `place_id` indefinite; latitude/longitude 30 days; **everything else, none** — except as the owner has decided below.
+
+**Owner's decision, 4 Sep 2026:** *"You can persist them for 10 hours."* A place's photograph, its rating and its review count may sit on the device for **ten hours** so that reopening the app shows what it already had instead of fetching every card again. Implemented as a private, ten-hour `cache-control` on `/api/photos/google` (`ROAM_PHOTO_CACHE_SECONDS`) and a ten-hour window on what the Inspire me screen remembers, dropped on the way back in when older. It is one household's own browser, never a shared cache, and it expires by itself. Nothing else about this section changes: no licensed field is written to the database, and the server still holds a search in memory only.
 
 ### 3.2 Yelp — Places API
 

@@ -92,6 +92,10 @@ type Things = { status: 'loading' | 'ready' | 'error'; items: IdeaThing[]; headl
  * Keeping only the identifier is what lets the screen say honestly how old the
  * answer is.
  */
+// How long a provider's picture and stars may sit on the device: the owner's
+// window (4 Sep 2026), the same ten hours the photo itself is cached for.
+const HEADS_KEPT_MS = 10 * 3600_000;
+
 type InspireMemory = {
   picks: Partial<Record<StepKey, string>>;
   cap: number | null;
@@ -101,6 +105,9 @@ type InspireMemory = {
   tasteSession: string | null;
   /** When the ideas on screen were actually found — not when the screen was last saved. */
   foundAt: string | null;
+  /** The picture and the stars for each idea, kept for ten hours (owner, 4 Sep 2026). */
+  heads?: Record<string, IdeaHeadline | null>;
+  headsAt?: string | null;
 };
 
 /**
@@ -348,6 +355,13 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
       setSessionId(memory.sessionId);
       setRunRef(s.ref ?? null);
       const kept = (s.ideas ?? []).map(usableIdea).filter((i): i is Idea => Boolean(i));
+      // What the cards looked like, if it is still inside the ten hours a
+      // provider's content may be held for. Older than that and it is dropped
+      // and looked up again, which is the whole point of a window.
+      const heldFor = memory.headsAt ? Date.now() - new Date(memory.headsAt).getTime() : Infinity;
+      if (memory.heads && heldFor < HEADS_KEPT_MS) {
+        putThings(Object.fromEntries(Object.entries(memory.heads).filter(([, h]) => h).map(([id, h]) => [id, { status: 'ready' as const, items: [], headline: h }])));
+      }
       // When the ideas were found, not when the screen was last put away: the
       // session knows, and its answer survives the tab being opened and closed
       // all afternoon.
@@ -398,8 +412,16 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
 
   // And remember it as it changes, so leaving mid-thought loses nothing.
   useEffect(() => {
-    rememberScreen<InspireMemory>('inspire', { picks, cap, budget, query, sessionId, tasteSession, foundAt });
-  }, [picks, cap, budget, query, sessionId, tasteSession, foundAt]);
+    // The pictures and the stars go with it. They are a provider's, so they are
+    // kept for ten hours and no longer — the owner's window (4 Sep 2026) — and
+    // are thrown away on the way back in when they are older than that.
+    const heads = Object.fromEntries(Object.entries(things).filter(([, t]) => t.headline).map(([id, t]) => [id, t.headline!]));
+    rememberScreen<InspireMemory>('inspire', {
+      picks, cap, budget, query, sessionId, tasteSession, foundAt,
+      heads: Object.keys(heads).length ? heads : undefined,
+      headsAt: Object.keys(heads).length ? new Date().toISOString() : null,
+    });
+  }, [picks, cap, budget, query, sessionId, tasteSession, foundAt, things]);
 
   /** Stop waiting. The run carries on server-side; its number still finds it. */
   const stopWaiting = () => { inspireRun.current += 1; setBusy(false); setStage(null); };
