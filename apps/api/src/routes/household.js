@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query, withTransaction } from '../db.js';
+import * as households from '../repositories/households.js';
 import { ALLERGENS, matchConcepts, resolveConcept, conceptByKey, isNegated } from '../domain/concepts.js';
 
 const NEGATION_PREFIX = /^(not|no|never|without|anything but|nothing)\s+/i;
@@ -21,14 +21,14 @@ const HALF_LIFE_DAYS = Number(process.env.ROAM_LEARN_HALF_LIFE_DAYS || 180);
 // V1 is a single founding household (Requirements §3). Multi-household
 // onboarding is V2, so the household is looked up rather than routed to.
 export async function currentHousehold() {
-  const { rows } = await query('select * from households order by created_at limit 1');
-  if (!rows[0]) {
+  const household = await households.firstHousehold();
+  if (!household) {
     const err = new Error('No household exists. Run `npm run seed`.');
     err.status = 404;
     err.code = 'no_household';
     throw err;
   }
-  return rows[0];
+  return household;
 }
 
 const ageOf = (birthYear) => (birthYear ? new Date().getFullYear() - birthYear : null);
@@ -45,18 +45,7 @@ function ageFrom(birthDate, birthYear) {
 }
 
 export async function loadMembers(householdId) {
-  const { rows } = await query(
-    `select m.*,
-            coalesce(json_agg(json_build_object('id', c.id, 'kind', c.kind, 'value', c.value,
-                                                'conceptKey', c.concept_key, 'conceptKind', c.concept_kind, 'maxMinutes', c.max_minutes, 'favourite', c.favourite))
-                     filter (where c.id is not null), '[]') as constraints
-       from members m
-       left join member_constraints c on c.member_id = m.id
-      where m.household_id = $1
-      group by m.id
-      order by m.is_minor, m.created_at`,
-    [householdId],
-  );
+  const rows = await households.membersWithConstraints(householdId);
 
   return rows.map((row) => {
     const age = ageFrom(row.birth_date, row.birth_year);
@@ -98,14 +87,7 @@ export function toAttendees(members) {
  * weighting and a confidence threshold (Requirements §5 "Preference confidence").
  */
 export async function loadLearnedPreferences(householdId) {
-  const { rows } = await query(
-    `select r.member_id, m.name, r.concept_key, r.take, v.visited_on
-       from ratings r
-       join visits v on v.id = r.visit_id
-       join members m on m.id = r.member_id
-      where v.household_id = $1 and r.concept_key is not null`,
-    [householdId],
-  );
+  const rows = await households.conceptRatings(householdId);
   const now = Date.now();
   const acc = new Map();
   for (const r of rows) {
@@ -176,28 +158,14 @@ router.patch('/', async (req, res, next) => {
     let homePlace = home?.lat != null ? home : null;
     if (!homePlace && homeText?.trim()) [homePlace] = await geocode(homeText, { limit: 1 });
     if (homeText?.trim() && !homePlace) return res.status(404).json({ error: 'home_not_found', message: `Couldn't find "${homeText}". Try a fuller address or a town name.` });
-    const { rows } = await query(
-      `update households
-          set name                  = coalesce($2, name),
-              default_visit_minutes = coalesce($3, default_visit_minutes),
-              max_travel_minutes    = coalesce($4, max_travel_minutes),
-              default_intensity     = coalesce($5, default_intensity),
-              home_label            = coalesce($6, home_label),
-              home_lat              = coalesce($7, home_lat),
-              home_lng              = coalesce($8, home_lng),
-              -- Home moving country is what makes a city search change which
-              -- country it puts first; both are replaced with home, not merged.
-              home_country_code     = case when $7::numeric is null then home_country_code else $12 end,
-              home_country          = case when $7::numeric is null then home_country      else $13 end,
-              pace                  = coalesce($9::jsonb, pace),
-              timezone              = coalesce($10, timezone),
-              home_radius_miles     = coalesce($11, home_radius_miles)
-        where id = $1 returning *`,
-      [household.id, name ?? null, defaultVisitMinutes ?? null, maxTravelMinutes ?? null, defaultIntensity ?? null,
-       homePlace?.label ?? null, homePlace?.lat ?? null, homePlace?.lng ?? null, mergedPace ? JSON.stringify(mergedPace) : null, timezone ?? null, radius,
-       homePlace?.countryCode ?? null, homePlace?.country ?? null],
-    );
-    const h = rows[0];
+    // Home moving country is what makes a city search change which country it
+    // puts first, so the country follows the coordinates rather than merging.
+    const h = await households.updateHousehold(household.id, {
+      name, defaultVisitMinutes, maxTravelMinutes, defaultIntensity,
+      homeLabel: homePlace?.label, homeLat: homePlace?.lat, homeLng: homePlace?.lng,
+      homeCountryCode: homePlace?.countryCode, homeCountry: homePlace?.country,
+      pace: mergedPace, timezone, homeRadiusMiles: radius,
+    });
     res.json({ household: { id: h.id, name: h.name, defaultVisitMinutes: h.default_visit_minutes, maxTravelMinutes: h.max_travel_minutes, defaultIntensity: h.default_intensity,
       home: h.home_lat != null ? { label: h.home_label, lat: h.home_lat, lng: h.home_lng } : null, homeRadiusMiles: h.home_radius_miles ?? 10, pace: paceOf(h), timezone: h.timezone } });
   } catch (err) {
@@ -213,12 +181,14 @@ router.post('/members', async (req, res, next) => {
     if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return res.status(400).json({ error: 'invalid_birth_date', message: 'Use YYYY-MM-DD' });
     if (relationship && !RELATIONSHIPS.includes(relationship)) return res.status(400).json({ error: 'invalid_relationship' });
     const age = ageFrom(birthDate, birthYear);
-    const { rows } = await query(
-      `insert into members (household_id, name, is_minor, relationship, birth_year, birth_date, avatar_url, typical_visit_minutes, max_travel_minutes)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
-      [household.id, name.trim(), age != null ? age < 13 : relationship === 'child', relationship, birthYear ?? (birthDate ? Number(birthDate.slice(0, 4)) : null), birthDate, avatarUrl, typicalVisitMinutes ?? null, maxTravelMinutes ?? null],
-    );
-    res.status(201).json({ member: rows[0] });
+    const member = await households.insertMember(household.id, {
+      name: name.trim(),
+      isMinor: age != null ? age < 13 : relationship === 'child',
+      relationship,
+      birthYear: birthYear ?? (birthDate ? Number(birthDate.slice(0, 4)) : null),
+      birthDate, avatarUrl, typicalVisitMinutes, maxTravelMinutes,
+    });
+    res.status(201).json({ member });
   } catch (err) {
     next(err);
   }
@@ -230,25 +200,13 @@ router.patch('/members/:id', async (req, res, next) => {
     if (relationship && !RELATIONSHIPS.includes(relationship)) return res.status(400).json({ error: 'invalid_relationship' });
     if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return res.status(400).json({ error: 'invalid_birth_date', message: 'Use YYYY-MM-DD' });
     if (avatarUrl && avatarUrl.length > 600_000) return res.status(413).json({ error: 'avatar_too_large', message: 'Keep photos under ~400KB' });
-    const { rows } = await query(
-      `update members
-          set name                  = coalesce($2, name),
-              relationship          = coalesce($3, relationship),
-              birth_year            = coalesce($4, birth_year),
-              avatar_url            = case when $5::text = '' then null else coalesce($5, avatar_url) end,
-              typical_visit_minutes = coalesce($6, typical_visit_minutes),
-              max_travel_minutes    = coalesce($7, max_travel_minutes),
-              birth_date            = coalesce($8::date, birth_date),
-              is_minor              = case when coalesce($8::date, birth_date) is not null
-                                           then age(coalesce($8::date, birth_date)) < interval '13 years'
-                                           when coalesce($4, birth_year) is not null
-                                           then (extract(year from now())::int - coalesce($4, birth_year)) < 13
-                                           else is_minor end
-        where id = $1 returning *`,
-      [req.params.id, name ?? null, relationship ?? null, birthYear ?? (birthDate ? Number(birthDate.slice(0, 4)) : null), avatarUrl ?? null, typicalVisitMinutes ?? null, maxTravelMinutes ?? null, birthDate ?? null],
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'member_not_found' });
-    res.json({ member: rows[0] });
+    const member = await households.updateMember(req.params.id, {
+      name, relationship,
+      birthYear: birthYear ?? (birthDate ? Number(birthDate.slice(0, 4)) : null),
+      avatarUrl, typicalVisitMinutes, maxTravelMinutes, birthDate,
+    });
+    if (!member) return res.status(404).json({ error: 'member_not_found' });
+    res.json({ member });
   } catch (err) {
     next(err);
   }
@@ -257,8 +215,7 @@ router.patch('/members/:id', async (req, res, next) => {
 // Epic 1 M3 — deleting a member deletes their profile and rating history.
 router.delete('/members/:id', async (req, res, next) => {
   try {
-    const { rowCount } = await query('delete from members where id = $1', [req.params.id]);
-    if (!rowCount) return res.status(404).json({ error: 'member_not_found' });
+    if (!await households.deleteMember(req.params.id)) return res.status(404).json({ error: 'member_not_found' });
     res.status(204).end();
   } catch (err) {
     next(err);
@@ -289,15 +246,15 @@ router.post('/members/:id/constraints', async (req, res, next) => {
       const scaleConcept = scale ? resolveConcept(scale[2], { kinds: kindsFor(kind) }) : null;
       const wantKey = (scaleConcept ?? concept)?.key ?? null;
       const wantValue = (scaleConcept ? scale[2] : stored).toLowerCase();
-      const { rows: others } = await query('select * from member_constraints where member_id = $1 and kind = $2', [req.params.id, other]);
+      const others = await households.constraintsOfKind(req.params.id, other);
       // Older rows may hold free text with no concept; resolve them the same way ranking does.
       const keyOf = (row) => row.concept_key ?? resolveConcept(row.value, { kinds: kindsFor(other) })?.key ?? null;
       const clash = others.find((row) => row.value === wantValue || (wantKey && keyOf(row) === wantKey));
       if (clash && kind === 'dislike' && scaleConcept) {
         const minutes = clash.max_minutes ?? 30;
-        const { rows: updated } = await query('update member_constraints set max_minutes = $2 where id = $1 returning *', [clash.id, minutes]);
+        const capped = await households.capConstraint(clash.id, minutes);
         return res.status(200).json({
-          constraint: updated[0], resolved: null, suggestions: [], limited: true,
+          constraint: capped, resolved: null, suggestions: [], limited: true,
           hint: `Short ones are fine, long ones aren't — so "${clash.value}" in Loves doing is now capped at ${minutes} min rather than adding a dislike. Tap it to change the limit.`,
         });
       }
@@ -309,16 +266,17 @@ router.post('/members/:id/constraints', async (req, res, next) => {
       }
     }
 
-    const { rows } = await query(
-      `insert into member_constraints (member_id, kind, value, concept_key, concept_kind, max_minutes, favourite)
-       values ($1, $2, $3, $4, $5, $6, $7)
-       on conflict (member_id, kind, value) do update set concept_key = excluded.concept_key, concept_kind = excluded.concept_kind, max_minutes = coalesce(excluded.max_minutes, member_constraints.max_minutes), favourite = excluded.favourite or member_constraints.favourite
-       returning *`,
-      [req.params.id, kind, stored.toLowerCase(), concept?.key ?? null, concept?.kind ?? null, maxMinutes ? Number(maxMinutes) : null, kind === 'like' && Boolean(favourite)],
-    );
+    const constraint = await households.upsertConstraint(req.params.id, {
+      kind,
+      value: stored.toLowerCase(),
+      conceptKey: concept?.key ?? null,
+      conceptKind: concept?.kind ?? null,
+      maxMinutes: maxMinutes ? Number(maxMinutes) : null,
+      favourite: kind === 'like' && Boolean(favourite),
+    });
     const negated = isNegated(value) && kind !== 'allergen';
     res.status(201).json({
-      constraint: rows[0],
+      constraint,
       resolved: concept ? { key: concept.key, label: concept.label, kind: concept.kind } : null,
       suggestions: concept || negated ? [] : matchConcepts(value, { kinds: kindsFor(kind), limit: 5 }).map((c) => ({ key: c.key, label: c.label, kind: c.kind })),
       hint: negated
@@ -339,15 +297,10 @@ router.post('/members/:id/constraints', async (req, res, next) => {
  */
 router.patch('/constraints/:id', async (req, res, next) => {
   try {
-    const body = req.body || {};
-    const sets = [];
-    const params = [req.params.id];
-    if ('maxMinutes' in body) { params.push(body.maxMinutes ? Number(body.maxMinutes) : null); sets.push(`max_minutes = $${params.length}`); }
-    if ('favourite' in body) { params.push(Boolean(body.favourite)); sets.push(`favourite = $${params.length} and kind = 'like'`); }
-    if (!sets.length) return res.status(400).json({ error: 'nothing_to_update', message: 'send maxMinutes and/or favourite' });
-    const { rows } = await query(`update member_constraints set ${sets.join(', ')} where id = $1 returning *`, params);
-    if (!rows[0]) return res.status(404).json({ error: 'constraint_not_found' });
-    res.json({ constraint: rows[0] });
+    const { nothingToDo, constraint } = await households.patchConstraint(req.params.id, req.body || {});
+    if (nothingToDo) return res.status(400).json({ error: 'nothing_to_update', message: 'send maxMinutes and/or favourite' });
+    if (!constraint) return res.status(404).json({ error: 'constraint_not_found' });
+    res.json({ constraint });
   } catch (err) {
     next(err);
   }
@@ -355,8 +308,7 @@ router.patch('/constraints/:id', async (req, res, next) => {
 
 router.delete('/constraints/:id', async (req, res, next) => {
   try {
-    const { rowCount } = await query('delete from member_constraints where id = $1', [req.params.id]);
-    if (!rowCount) return res.status(404).json({ error: 'constraint_not_found' });
+    if (!await households.deleteConstraint(req.params.id)) return res.status(404).json({ error: 'constraint_not_found' });
     res.status(204).end();
   } catch (err) {
     next(err);
@@ -421,12 +373,7 @@ router.get('/spend', async (req, res, next) => {
       };
     }).filter((l) => l.on || l.calls > 0 || (l.allowance?.used ?? 0) > 0);
 
-    const { rows: recent } = await query(
-      `select id, created_at as at, provider, purpose, coalesce(estimated_cost_usd, 0)::float as cost_usd, units
-         from provider_calls where household_id = $1
-        order by created_at desc limit 300`,
-      [household.id],
-    );
+    const recent = await households.recentProviderCalls(household.id);
     // Which table rows each call belongs to, so a provider's drawer can list its own activity.
     for (const r of recent) r.lines = r.units ? Object.keys(r.units) : legacyLines(r.provider, r.purpose).map((l) => l.key);
     res.json({
@@ -479,13 +426,7 @@ router.get('/export', async (_req, res, next) => {
   try {
     const household = await currentHousehold();
     const members = await loadMembers(household.id);
-    const [{ rows: trips }, { rows: stops }, { rows: visits }, { rows: ratings }, { rows: ledger }] = await Promise.all([
-      query('select * from trips where household_id = $1 order by depart_at', [household.id]),
-      query('select s.* from trip_stops s join trips t on t.id = s.trip_id where t.household_id = $1 order by s.trip_id, s.position', [household.id]),
-      query('select * from visits where household_id = $1 order by visited_on', [household.id]),
-      query('select r.* from ratings r join visits v on v.id = r.visit_id where v.household_id = $1 order by r.created_at', [household.id]),
-      query('select * from place_ledger where household_id = $1 order by created_at', [household.id]),
-    ]);
+    const { trips, stops, visits, ratings, ledger } = await households.everythingFor(household.id);
     res.setHeader('content-disposition', `attachment; filename="roam-export-${new Date().toISOString().slice(0, 10)}.json"`);
     res.json({
       exportedAt: new Date().toISOString(),
@@ -504,10 +445,7 @@ router.delete('/', async (req, res, next) => {
     const household = await currentHousehold();
     const { confirmName } = req.body || {};
     if (confirmName !== household.name) return res.status(400).json({ error: 'confirm_name_mismatch', message: 'Type the household name exactly to confirm deletion.' });
-    await withTransaction(async (client) => {
-      await client.query('delete from provider_calls where household_id = $1', [household.id]);
-      await client.query('delete from households where id = $1', [household.id]);
-    });
+    await households.deleteHouseholdAndCalls(household.id);
     res.json({ deleted: true, household: household.name });
   } catch (err) {
     next(err);
