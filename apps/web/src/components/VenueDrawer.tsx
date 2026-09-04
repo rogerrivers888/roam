@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
-import { Icon, IconText, Rating } from './Icon';
-import { API_URL, api, BrowseItem, Venue } from '../api';
+import { Icon, IconText, Rating, Stars } from './Icon';
+import { API_URL, api, BrowseItem, MenuLink, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
 import { SOURCE_LABEL, priceMarks, typeLine } from './StopCard';
@@ -14,9 +14,40 @@ import { SOURCE_LABEL, priceMarks, typeLine } from './StopCard';
  * map), reviews (best to most critical, with attribution), opening hours, and
  * photos. Detail is fetched when opened and never stored: licensed content is
  * rented, identifiers are ours (Technical Constraints §4).
+ *
+ * Three things it answers for someone standing outside (owner, 4 Sep 2026):
+ * whether it is open today, what each review actually gave it in stars, and
+ * where the menu is — the last found by following the website when the drawer
+ * opens, not by asking a source that does not have it.
  */
 
 type Tab = 'overview' | 'reviews' | 'hours' | 'photos';
+
+// Somewhere you eat, where the menu is worth a row of its own.
+const EATING = new Set(['restaurant', 'cafe', 'bar', 'pub']);
+
+/**
+ * Open today, or not. Google decides `openNow` in the place's own timezone, so
+ * this reads it rather than working it out; `hoursToday` is the day's own words
+ * where the place is. Sources that do not say leave this empty rather than
+ * guessing.
+ */
+function openState(v?: Venue): { state: string; detail: string | null; open: boolean | null } | null {
+  if (!v) return null;
+  const today = (v.hoursToday ?? '').trim();
+  const closedAllDay = /^closed$/i.test(today);
+  if (v.openNow === true) return { state: 'Open now', detail: v.closesAt ? `closes ${v.closesAt}` : today || null, open: true };
+  if (v.openNow === false) {
+    if (closedAllDay) return { state: 'Closed today', detail: null, open: false };
+    return { state: 'Closed now', detail: v.opensAt ? `opens ${v.opensAt}` : today || null, open: false };
+  }
+  if (closedAllDay) return { state: 'Closed today', detail: null, open: false };
+  if (today) return { state: 'Open today', detail: today, open: null };
+  return null;
+}
+
+/** The address as you would read it aloud, without the protocol. */
+const prettyUrl = (u: string) => u.replace(/^https?:\/\//i, '').replace(/\/$/, '').slice(0, 64);
 
 export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, added, shortlisted, ours, onVenue }: {
   item: BrowseItem | null;
@@ -37,14 +68,15 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height, borderRadius: radius.lg, overflow: 'hidden' as const } : null;
   const [tab, setTab] = useState<Tab>('overview');
   const [venue, setVenue] = useState<Venue | null | undefined>(undefined);
+  const [menu, setMenu] = useState<MenuLink | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    setTab('overview'); setVenue(undefined); setError(null); setSaved(false);
+    setTab('overview'); setVenue(undefined); setMenu(undefined); setError(null); setSaved(false);
     if (!item) return;
     let live = true;
-    api.place(item.venueRef).then((d) => { if (live) { setVenue(d.venue); if (d.venue) onVenue?.(d.venue); if (d.sourceError) setError(d.sourceError); } }).catch((e) => { if (live) { setVenue(null); setError(e.message); } });
+    api.place(item.venueRef).then((d) => { if (live) { setVenue(d.venue); setMenu(d.menu ?? null); if (d.venue) onVenue?.(d.venue); if (d.sourceError) setError(d.sourceError); } }).catch((e) => { if (live) { setVenue(null); setMenu(null); setError(e.message); } });
     return () => { live = false; };
   }, [item?.venueRef]);
 
@@ -81,6 +113,15 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                 <Text style={type.title}>{title}</Text>
                 <Text style={type.small}>{typeLine(item)}{price ? ` · ${price}` : ''}{item.chain ? ` · chain${item.brand ? ` (${item.brand})` : ''}` : ''}</Text>
                 {rating != null ? <Rating value={rating}>{ratingCount ? ` from ${ratingCount.toLocaleString()} reviews` : ''} · {SOURCE_LABEL[item.ratingSource ?? source] ?? sourceName}</Rating> : <Text style={type.tiny}>No rating from {sourceName}.</Text>}
+                {(() => {
+                  const o = openState(v);
+                  if (!o) return null;
+                  return (
+                    <IconText name="hours" color={o.open === false ? colors.inkMuted : colors.icon}>
+                      <Text style={{ fontWeight: '700', color: colors.ink }}>{o.state}</Text>{o.detail ? ` · ${o.detail}` : ''}
+                    </IconText>
+                  );
+                })()}
                 {(() => {
                   const bits = [
                     item.distanceKm != null ? `${item.distanceKm} km from ${baseLabel ?? 'base'}` : null,
@@ -125,7 +166,25 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                 {item.reservable != null ? <IconText name="phone">{item.reservable ? 'Takes bookings' : 'Walk-in only'}</IconText> : null}
                 {(v?.dietaryOptions ?? []).length ? <Text style={type.small}>Diets: {(v?.dietaryOptions ?? []).join(', ')}</Text> : null}
                 {item.justification ? <Text style={type.small}>"{item.justification}"</Text> : null}
-                <Text style={type.tiny}>Menus: none of our sources publish menus; the website button is the nearest thing.</Text>
+                {EATING.has(item.category) ? (
+                  <View style={{ gap: 2 }}>
+                    {menu === undefined ? <IconText name="restaurant">Looking for their menu…</IconText> : null}
+                    {menu?.url ? (
+                      <>
+                        <Pressable onPress={() => Linking.openURL(menu.url!)} accessibilityRole="link" accessibilityLabel="Open the menu">
+                          <IconText name="restaurant">Menu · <Text style={{ color: colors.accent, fontWeight: '700' }}>{prettyUrl(menu.url)}</Text></IconText>
+                        </Pressable>
+                        <Text style={type.tiny}>{menu.how} Looked up just now; no source publishes menus, so this is their own page and nothing is kept.</Text>
+                      </>
+                    ) : null}
+                    {menu && !menu.url ? (
+                      <>
+                        <IconText name="restaurant" color={colors.inkMuted}>No menu address on their site.</IconText>
+                        <Text style={type.tiny}>{menu.why}</Text>
+                      </>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             ) : null}
 
@@ -133,11 +192,13 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
               <View style={{ gap: spacing.sm }}>
                 {reviews.map((r, i) => (
                   <View key={i} style={styles.review}>
-                    <Text style={type.small}>
-                      <Text style={{ fontWeight: '700', color: colors.rating }}>{r.rating != null ? `${r.rating}/5` : ''}</Text>
-                      {reviews.length > 1 && i === 0 ? '  best' : reviews.length > 1 && i === reviews.length - 1 ? '  most critical' : ''}
-                      {r.author ? ` · ${r.author}` : ''}{r.when ? ` · ${r.when}` : ''}
-                    </Text>
+                    <Row style={{ flexWrap: 'wrap', gap: spacing.sm }}>
+                      {r.rating != null ? <Stars value={r.rating} size={14} /> : null}
+                      <Text style={type.tiny}>{[
+                        reviews.length > 1 && i === 0 ? 'best' : reviews.length > 1 && i === reviews.length - 1 ? 'most critical' : null,
+                        r.author, r.when,
+                      ].filter(Boolean).join(' · ')}</Text>
+                    </Row>
                     <Text style={type.body}>{r.text}</Text>
                   </View>
                 ))}
@@ -148,6 +209,10 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
 
             {tab === 'hours' ? (
               <View style={{ gap: 4 }}>
+                {(() => {
+                  const o = openState(v);
+                  return o ? <Text style={[type.body, { fontWeight: '700' }]}>{o.state}{o.detail ? ` · ${o.detail}` : ''}</Text> : null;
+                })()}
                 {hours.length ? hours.map((h, i) => <Text key={i} style={type.body}>{h}</Text>) : <Text style={type.small}>{venue === undefined ? '' : `No opening hours from ${sourceName}.`}</Text>}
               </View>
             ) : null}

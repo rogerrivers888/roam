@@ -466,8 +466,11 @@ function OursPanel({ place, household, country, cityName, viewer, onChanged }: {
       <Wrap>
         <Button label="We've been here" onPress={() => { setEditing(null); setAdding((a) => !a); }} kind={adding ? 'ghost' : 'primary'} />
         {!place.visits && place.ledger !== 'saved' && !place.special ? <Button label="Save to try" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'saved', ctx); setMsg('Saved to try.'); await onChanged(); }} /> : null}
-        {!place.special ? <Button label="Mark as special" icon="keep" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'special', ctx); setMsg('Marked special — the planner will go further for it.'); await onChanged(); }} /> : null}
+        {place.visits > 0 && !place.special ? <Button label="Mark as special" icon="keep" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'special', ctx); setMsg('Marked special — the planner will go further for it.'); await onChanged(); }} /> : null}
       </Wrap>
+      {/* Special is ours alone — no source has an opinion about it — and it is
+          what you say after you have been (owner, 4 Sep 2026). */}
+      {!place.visits && !place.special ? <Text style={type.tiny}>Special comes after you've been. Record the visit and it appears here.</Text> : null}
       {msg ? <StatusLine tone="good">{msg}</StatusLine> : null}
       {adding && household ? (
         <VisitForm venue={venue} household={household} onDone={async () => { setAdding(false); await load(); await onChanged(); }} onCancel={() => setAdding(false)}
@@ -485,7 +488,6 @@ function OursPanel({ place, household, country, cityName, viewer, onChanged }: {
           {detail.visits.map((v) => <VisitSummary key={v.id} visit={v} onPress={() => { setAdding(false); setEditing(v); }} />)}
         </View>
       ) : detail ? <Text style={type.small}>No visit recorded here yet.</Text> : <Text style={type.tiny}>Loading our history…</Text>}
-      <Text style={type.tiny}>Menus: none captured for this place yet — photographing a menu at the table is a later step (Requirements, Epic 6).</Text>
     </View>
   );
 }

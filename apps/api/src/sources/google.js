@@ -24,11 +24,13 @@ export const GOOGLE_ATTRIBUTION = 'Powered by Google';
 const SEARCH_FIELDS = [
   'places.id', 'places.displayName', 'places.formattedAddress', 'places.location', 'places.types', 'places.primaryType',
   'places.rating', 'places.userRatingCount', 'places.priceLevel', 'places.regularOpeningHours.weekdayDescriptions',
+  'places.regularOpeningHours.openNow', 'places.currentOpeningHours.openNow', 'places.currentOpeningHours.weekdayDescriptions',
+  'places.currentOpeningHours.nextCloseTime', 'places.currentOpeningHours.nextOpenTime', 'places.utcOffsetMinutes',
   'places.websiteUri', 'places.googleMapsUri', 'places.photos.name', 'places.photos.authorAttributions',
   'places.goodForChildren', 'places.menuForChildren', 'places.servesVegetarianFood', 'places.reservable', 'places.editorialSummary',
 ].join(',');
 const TEXT_SEARCH_FIELDS = `${SEARCH_FIELDS},contextualContents.justifications`;
-const DETAIL_FIELDS = 'id,displayName,formattedAddress,location,types,primaryType,rating,userRatingCount,priceLevel,regularOpeningHours.weekdayDescriptions,websiteUri,googleMapsUri,photos.name,photos.authorAttributions,goodForChildren,menuForChildren,servesVegetarianFood,reservable,editorialSummary,reviews,nationalPhoneNumber';
+const DETAIL_FIELDS = 'id,displayName,formattedAddress,location,types,primaryType,rating,userRatingCount,priceLevel,regularOpeningHours.weekdayDescriptions,regularOpeningHours.openNow,currentOpeningHours.openNow,currentOpeningHours.weekdayDescriptions,currentOpeningHours.nextCloseTime,currentOpeningHours.nextOpenTime,utcOffsetMinutes,websiteUri,googleMapsUri,photos.name,photos.authorAttributions,goodForChildren,menuForChildren,servesVegetarianFood,reservable,editorialSummary,reviews,nationalPhoneNumber';
 
 const FOOD_TYPES = ['restaurant', 'cafe', 'bar', 'pub', 'bakery', 'ice_cream_shop', 'coffee_shop'];
 const THING_TYPES = [
@@ -61,6 +63,44 @@ function cuisineFromTypes(types = []) {
 const LODGING = new Set(['hotel', 'lodging', 'motel', 'resort_hotel', 'extended_stay_hotel', 'bed_and_breakfast', 'guest_house', 'hostel', 'inn']);
 // Somewhere you go to look, shop or do — even when Google also lists a café inside it.
 const THING_FIRST = new Set([...THING_TYPES, 'department_store', 'shopping_mall', 'market', 'book_store', 'performing_arts_theater', 'movie_theater', 'stadium', 'concert_hall', 'church', 'place_of_worship', 'library', 'visitor_center']);
+
+// "Open today, or not" (owner, 4 Sep 2026). Google decides openNow in the
+// place's own timezone, which is the only way to be right about a restaurant in
+// Rome from a phone in London, so it is taken as given rather than worked out
+// here. currentOpeningHours is preferred over regularOpeningHours because it
+// covers the next seven days' exceptions — a bank holiday closure is exactly
+// the thing you need to know before setting off. Both sit in the Enterprise SKU
+// this call already pays for, so none of this adds to the bill.
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** A time in the place's own day, from an RFC 3339 instant. */
+function localClock(iso, offsetMinutes) {
+  if (!iso || !Number.isFinite(offsetMinutes)) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  const d = new Date(t + offsetMinutes * 60_000);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+function openState(place) {
+  const current = place.currentOpeningHours ?? null;
+  const hours = current ?? place.regularOpeningHours ?? null;
+  const offset = place.utcOffsetMinutes;
+  const descriptions = current?.weekdayDescriptions?.length ? current.weekdayDescriptions : place.regularOpeningHours?.weekdayDescriptions ?? [];
+  // The day where the place is, not where the phone is. Without an offset we
+  // fall back to the server's day rather than guessing at one.
+  const there = new Date(Date.now() + (Number.isFinite(offset) ? offset : 0) * 60_000);
+  const dayName = DAY_NAMES[Number.isFinite(offset) ? there.getUTCDay() : new Date().getDay()];
+  const line = descriptions.find((d) => d.startsWith(`${dayName}:`)) ?? null;
+  return {
+    openNow: hours?.openNow ?? null,
+    // "12:00 – 11:00 PM", or "Closed" — the day's own words, without the day.
+    hoursToday: line ? line.slice(dayName.length + 1).trim() || null : null,
+    hoursDay: line ? dayName : null,
+    closesAt: localClock(current?.nextCloseTime, offset),
+    opensAt: localClock(current?.nextOpenTime, offset),
+  };
+}
 
 function priceLevelNumber(p) {
   return { PRICE_LEVEL_FREE: 0, PRICE_LEVEL_INEXPENSIVE: 1, PRICE_LEVEL_MODERATE: 2, PRICE_LEVEL_EXPENSIVE: 3, PRICE_LEVEL_VERY_EXPENSIVE: 4 }[p] ?? null;
@@ -103,7 +143,8 @@ function toVenue(place, justification = null) {
     justification,
     matchedDish: null,
     address: place.formattedAddress ?? null,
-    openingHours: place.regularOpeningHours?.weekdayDescriptions?.join(' · ') ?? null,
+    openingHours: (place.currentOpeningHours ?? place.regularOpeningHours)?.weekdayDescriptions?.join(' · ') ?? null,
+    ...openState(place),
     website: place.websiteUri ?? null,
     phone: place.nationalPhoneNumber ?? null,
     mapsUrl: place.googleMapsUri ?? null,

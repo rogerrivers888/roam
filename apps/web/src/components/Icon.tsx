@@ -69,7 +69,29 @@ export function Rating({ value, children }: { value: number; children?: React.Re
   );
 }
 
+/**
+ * A rating drawn as stars (owner, 4 Sep 2026: reviews should have stars). Five
+ * glyphs, filled to the nearest half, in the icon colour — never a ★ character,
+ * and never red, which the guide keeps for the heart.
+ */
+export function Stars({ value, size = 15, children }: { value: number; size?: number; children?: React.ReactNode }) {
+  const halves = Math.max(0, Math.min(10, Math.round(value * 2)));
+  return (
+    <View style={styles.line} accessibilityRole="text" accessibilityLabel={`${value} out of 5`}>
+      <View style={[styles.stars, { paddingTop: 1 }]}>
+        {[0, 1, 2, 3, 4].map((i) => {
+          const filled = halves >= (i + 1) * 2;
+          const half = !filled && halves === i * 2 + 1;
+          return <Icon key={i} name={half ? 'halfStar' : 'favourite'} size={size} fill={filled || half} />;
+        })}
+      </View>
+      {children ? <Text style={type.small}>{children}</Text> : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   line: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  stars: { flexDirection: 'row', gap: 1 },
   lineIcon: { paddingTop: 2 },
 });

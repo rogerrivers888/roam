@@ -112,11 +112,22 @@ export type Venue = {
   priceLevel: number | null; rating: number | null; ratingCount?: number | null; goodForChildren: boolean | null; menuForChildren?: boolean | null; lat: number; lng: number;
   dishes: { concept: string; name: string; comment?: string; veg?: boolean }[];
   website?: string | null; phone?: string | null; openingHours?: string | null; address?: string | null; attribution?: string;
+  /** Whether it is open at this moment, decided by the source in the place's own timezone; null when the source does not say. */
+  openNow?: boolean | null;
+  /** Today's hours where the place is — "12:00 – 11:00 PM", or "Closed". */
+  hoursToday?: string | null; hoursDay?: string | null; closesAt?: string | null; opensAt?: string | null;
   summary?: string | null; mapsUrl?: string | null; externalUrl?: string | null; reviews?: Review[]; chain?: boolean; brand?: string | null;
   distanceKm?: number;
   photos?: VenuePhotoRef[];
   household?: { visits?: number; lastOn?: string; loved?: number; notForMe?: number; ledger?: string } | null;
 };
+
+/**
+ * Where a place publishes its menu, found by following its website when the
+ * drawer opens. `url` is null when there is nothing to follow, and `why` says
+ * so in words worth showing.
+ */
+export type MenuLink = { url: string | null; label: string | null; how: string | null; why?: string | null; checkedAt: string; cached?: boolean };
 
 export type Take = 'loved' | 'fine' | 'not_for_me';
 export type VisitTake = { id?: string; memberId: string; member?: string; subject: string; take: Take; comment: string | null; conceptKey?: string | null; concept?: string | null; /** Out of 5, in halves (owner, 3 Sep 2026). */ score?: number | null };
@@ -407,7 +418,7 @@ export const api = {
   searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number; sources?: string }) =>
     request<{ near: Place & { how: string }; radiusKm: number; results: Venue[]; sourcesQueried: string[]; degradedSources: { source: string; error: string }[]; attribution: string[] }>(`/api/places/search${qs(p)}`),
   place: (venueRef: string) =>
-    request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[]; sourceError?: string | null }>(`/api/places/detail${qs({ ref: venueRef })}`),
+    request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[]; menu?: MenuLink | null; sourceError?: string | null }>(`/api/places/detail${qs({ ref: venueRef })}`),
   savePlace: (venueRef: string, status: 'saved' | 'dismissed' | 'special' = 'saved', context?: { label?: string; venue?: Partial<Venue>; category?: string | null; lat?: number; lng?: number; note?: string; country?: string | null; countryCode?: string | null; locality?: string | null }) =>
     post<{ venueRef: string; status: string }>('/api/places/save', { ref: venueRef, status, ...(context ?? {}) }),
   /** A place the atlas held only by its identifier learns its name once the source has been asked. */

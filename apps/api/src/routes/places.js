@@ -11,6 +11,7 @@ import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
 import { searchAllSources, enabledSources, recallVenue, optInFrom } from '../sources/index.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
+import { findMenuUrl } from '../sources/menuLink.js';
 import { resolveConcept, conceptByKey } from '../domain/concepts.js';
 import { kmBetween } from '../domain/travel.js';
 import { currentHousehold, loadMembers } from './household.js';
@@ -20,6 +21,9 @@ export const places = Router();
 export const visits = Router();
 
 const TAKES = ['loved', 'fine', 'not_for_me'];
+
+// Somewhere you eat, where the menu is the thing you want on the way in.
+const EATING = new Set(['restaurant', 'cafe', 'bar', 'pub']);
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -220,10 +224,21 @@ places.get('/detail', async (req, res, next) => {
       // A detail fetch is a provider call too (Google: one Place Details request; Tripadvisor: two billable entities).
       if (Object.keys(meter).length) await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, source, 'places.detail', meter]);
     }
+    // The menu address, found now by following the website the source gave us:
+    // one request to the restaurant's own page, free, and only for somewhere
+    // you eat (owner, 4 Sep 2026). It runs beside our own records, so it costs
+    // the drawer nothing it was not already waiting for.
+    const menuLookup = venue?.website && EATING.has(venue.category)
+      ? findMenuUrl({ website: venue.website, name: venue.name }).catch((err) => ({ url: null, label: null, how: null, why: `Could not reach their site (${String(err?.message || err).slice(0, 80)}).`, checkedAt: new Date().toISOString() }))
+      : Promise.resolve(null);
+
     const { rows } = await query('select id from visits where household_id = $1 and venue_ref = $2 order by visited_on desc', [household.id, ref]);
-    const history = await Promise.all(rows.map((r) => visitPayload(r.id)));
-    const status = await householdStatus(household.id, [ref]);
-    res.json({ venueRef: ref, venue: venue ? { ...venue, venueRef: ref } : null, household: status[ref] ?? null, visits: history, sourceError });
+    const [history, status, menu] = await Promise.all([
+      Promise.all(rows.map((r) => visitPayload(r.id))),
+      householdStatus(household.id, [ref]),
+      menuLookup,
+    ]);
+    res.json({ venueRef: ref, venue: venue ? { ...venue, venueRef: ref } : null, household: status[ref] ?? null, visits: history, menu, sourceError });
   } catch (err) {
     next(err);
   }
@@ -236,6 +251,14 @@ places.post('/save', async (req, res, next) => {
     const { source, id } = splitRef(req.body?.ref);
     if (!source || !id) return res.status(400).json({ error: 'ref_required' });
     const status = ['saved', 'dismissed', 'special'].includes(req.body?.status) ? req.body.status : 'saved';
+    // Special is the household's own mark and comes from nowhere else — no
+    // source has an opinion about it — and it is what you say after you have
+    // been (owner, 4 Sep 2026). Somewhere you have not been can be saved to
+    // try; it cannot be special yet.
+    if (status === 'special') {
+      const { rows } = await query('select 1 from visits where household_id = $1 and venue_ref = $2 limit 1', [household.id, `${source}:${id}`]);
+      if (!rows.length) return res.status(409).json({ error: 'not_been', message: 'Special comes after you have been. Record the visit first, then mark it special.' });
+    }
     await query('insert into place_ledger (household_id, source, source_place_id, status) values ($1, $2, $3, $4)', [household.id, source, id, status]);
     if (status !== 'dismissed') await upsertHouseholdPlace({ query }, household.id, { venueRef: `${source}:${id}`, label: req.body?.label, venue: req.body?.venue, category: req.body?.category, lat: req.body?.lat, lng: req.body?.lng, note: req.body?.note, country: req.body?.country, countryCode: req.body?.countryCode, locality: req.body?.locality });
     res.json({ venueRef: `${source}:${id}`, status });
