@@ -14,20 +14,21 @@ import { parseStructured, spendSummary, SpendBoundError, MODEL } from '../claude
 
 // Rows fill while the household is still talking: a smaller, quicker model reads the words so far.
 const PREVIEW_MODEL = process.env.ROAM_PREVIEW_MODEL || 'claude-sonnet-5';
-import { searchAllSources, eventSources, optInFrom, defaultSourceKeys, enabledSources } from '../sources/index.js';
+import { searchAllSources, searchCorridor, eventSources, optInFrom, defaultSourceKeys, enabledSources } from '../sources/index.js';
 import { resolvePlace, KNOWN_PLACES } from '../sources/fixtures.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
-import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, TRAVEL_MODES, kmBetween } from '../domain/travel.js';
+import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, detourMinutes as estimateDetour, TRAVEL_MODES, kmBetween } from '../domain/travel.js';
 import { applyConstraints } from '../domain/ranking.js';
-import { composeOptions, PRICE_POINTS, eventInsideWindow } from '../domain/options.js';
+import { composeOptions, dwellFor, richFields, PRICE_POINTS, eventInsideWindow } from '../domain/options.js';
 import { lineByKey } from '../sources/pricing.js';
 import { paceOf, travelLimitFor, maxReachMinutes } from '../domain/pace.js';
 import { dayAsTrip, slotFor } from '../domain/days.js';
 import { ensureDays, placeTrip, addShortlistItem } from './trips.js';
 import { searchCached, searchKept } from '../sources/cache.js';
-import { routingEnabled, travelMatrixMinutes, routeBetween } from '../sources/routing.js';
+import { routingEnabled, travelMatrixMinutes, routeMatrixMinutes, routeBetween } from '../sources/routing.js';
 import { wallToUtc, wallClock, DEFAULT_TZ } from '../domain/time.js';
 import { INTENSITY_TARGETS } from '../domain/budget.js';
+import { corridorStops, scheduleCorridor, MAX_DETOUR_MINUTES } from '../domain/corridor.js';
 import { currentHousehold, loadMembers, toAttendees, loadLearnedPreferences } from './household.js';
 
 const router = Router();
@@ -136,7 +137,7 @@ The reply is spoken aloud as well as shown, so keep it to one plain sentence wit
 
 const REFINE_SYSTEM = `You interpret a family's reaction to suggested day plans.
 
-You are given the options currently on screen, each with stops that have IDs, and what the user said. Map their words ONLY onto those stop IDs. "The museum" means the stop whose name or category is a museum; "the first one" means the first stop of the option they are looking at; "this plan" means the option in view. If a phrase could mean more than one stop, put a short question in "ambiguous" and leave the ID lists empty for that reference. Never invent stops or IDs.
+You are given the options currently on screen, each with stops that have IDs, and what the user said. One group may be "on-the-way": places between home and where they are going, each marked as being on the way there or on the way home. Wanting one of those ("stop at the castle on the way", "we could eat there on the way home") is a liked stop id; not wanting one ("don't stop", "skip the pub on the way") is a disliked stop id. Never choose "on-the-way" as chosen_option_id — it is not a plan for the day. Map their words ONLY onto those stop IDs. "The museum" means the stop whose name or category is a museum; "the first one" means the first stop of the option they are looking at; "this plan" means the option in view. If a phrase could mean more than one stop, put a short question in "ambiguous" and leave the ID lists empty for that reference. Never invent stops or IDs.
 
 Likes go in liked_stop_ids, dislikes in disliked_stop_ids. "Swap X for a park" is a replacement. "Make it longer" or "more relaxed" are trip changes. If a remark reveals a lasting taste ("Ada hates museums", "we always want ramen"), offer it in suggested_preferences — the app will ask before saving anything.
 
@@ -443,7 +444,7 @@ async function outingTitle({ origin, destination, anchorPlace, anchor }) {
 }
 
 /** Turn an intent into a trip row in the database. */
-async function createTripFromIntent({ household, members, intent, origin, destination, anchorPlace, sources = null, title: givenTitle = null }) {
+export async function createTripFromIntent({ household, members, intent, origin, destination, anchorPlace, sources = null, title: givenTitle = null }) {
   const tz = household.timezone || DEFAULT_TZ;
   const dateStr = intent.date && /^\d{4}-\d{2}-\d{2}$/.test(intent.date) ? intent.date : wallClock(new Date(), tz).dateStr;
   const at = (hhmm) => wallToUtc(dateStr, hhmm, tz);
@@ -674,6 +675,139 @@ async function retrievePool({ household, trip, attendees, intent, sessionId, sou
   };
 }
 
+// Under this, there is no journey to speak of and nothing is "on the way".
+const CORRIDOR_MIN_JOURNEY_MINUTES = 30;
+
+/**
+ * What is on the way (Epic 4 C2). One retrieval per plan, beside the pool.
+ *
+ * The journey's own polyline goes to the place source's along-route search, so
+ * the corridor is the road actually driven rather than a box drawn round it.
+ * What comes back is put through the household's constraints exactly like the
+ * destination pool — allergens exclude, tastes rank — and then measured: what
+ * each place adds between home and where they are going, and how far into the
+ * journey it sits. Only the few worth breaking a journey for are proposed
+ * (domain/corridor.js); the rest are offered with the reason they were not.
+ */
+async function retrieveCorridor({ household, trip, dayTrip, attendees, sessionId, journey, polyline, sources = null, includeChains = false }) {
+  const origin = { lat: Number(trip.origin_lat), lng: Number(trip.origin_lng) };
+  const destination = { lat: Number(trip.base_lat ?? trip.destination_lat), lng: Number(trip.base_lng ?? trip.destination_lng) };
+  if (![origin.lat, origin.lng, destination.lat, destination.lng].every(Number.isFinite)) return null;
+  const mode = trip.travel_mode || 'driving';
+  const limit = MAX_DETOUR_MINUTES[mode] ?? 15;
+  const meter = {};
+  // The same shape whether or not anything was found, so the screen can always
+  // say what the journey is and that the road was looked at.
+  const nothing = (extra = {}) => ({
+    from: trip.origin_label, to: trip.base_label, mode, minutes: journey.minutes, estimated: journey.estimated !== false,
+    stops: [], picked: [], limitMinutes: limit, windowStart: dayTrip.depart_at, windowEnd: dayTrip.return_at, ...extra,
+  });
+  const { venues, degraded, sourcesQueried } = await searchCorridor({ encodedPolyline: polyline, origin, destination, sources, meter });
+  if (sourcesQueried.length) {
+    await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)',
+      [household.id, sessionId, sourcesQueried.join('+'), 'plan.corridor', meter]).catch(() => null);
+  }
+  if (!venues.length) return nothing({ degraded, sourcesQueried });
+
+  const { rows: specials } = await query("select source || ':' || source_place_id as ref from place_ledger where household_id = $1 and status = 'special'", [household.id]);
+  const specialRefs = new Set(specials.map((r) => r.ref));
+
+  // Measuring every result would bill for places nobody would stop at, so the
+  // straight-line estimate prunes first and the real numbers are fetched for
+  // what survives. A place the household already loves is never pruned.
+  const near = venues
+    .map((v) => ({ ...v, special: specialRefs.has(`${v.source}:${v.sourcePlaceId}`), estimatedDetour: estimateDetour({ origin, destination, venue: v, mode }) ?? 0 }))
+    .filter((v) => v.special || v.estimatedDetour <= limit + 10)
+    .sort((a, b) => (b.special ? 1 : 0) - (a.special ? 1 : 0) || (b.rating ?? 0) * Math.log10(Math.max(10, b.ratingCount ?? 10)) - (a.rating ?? 0) * Math.log10(Math.max(10, a.ratingCount ?? 10)))
+    .slice(0, 30);
+  if (!near.length) return nothing({ degraded, sourcesQueried });
+
+  // Detour is the honest cost: home → here → there, less home → there.
+  let measured = false;
+  let toThem = null;
+  let fromThem = null;
+  if (routingEnabled()) {
+    try {
+      const m = {};
+      const [a, b] = await Promise.all([
+        routeMatrixMinutes({ origins: [origin], destinations: near, mode, departAt: dayTrip.depart_at, meter: m }),
+        routeMatrixMinutes({ origins: near, destinations: [destination], mode, departAt: dayTrip.depart_at, meter: m }),
+      ]);
+      if (a && b) { toThem = a[0]; fromThem = b.map((row) => row[0]); measured = true; }
+      await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, sessionId, 'google-routes', 'plan.corridor.detour', m]).catch(() => null);
+    } catch { /* the estimate stands */ }
+  }
+  const direct = journey.minutes;
+  const withCost = near.map((v, i) => {
+    const there = measured && toThem?.[i] ? toThem[i].minutes : estimateTravelMinutes(origin, v, mode);
+    const on = measured && fromThem?.[i] ? fromThem[i].minutes : estimateTravelMinutes(v, destination, mode);
+    return {
+      ...v,
+      detourMinutes: Math.max(0, Math.round(there + on - direct)),
+      detourEstimated: !measured || !toThem?.[i] || !fromThem?.[i],
+      // How far into the journey it sits — not how far it is from home, which
+      // is not a cost here and must not be scored like one.
+      alongFraction: there + on > 0 ? Math.min(0.95, Math.max(0.05, there / (there + on))) : 0.5,
+    };
+  });
+
+  const learned = await loadLearnedPreferences(household.id);
+  const { candidates } = applyConstraints({ venues: withCost, attendees, learned });
+  const legs = corridorStops({
+    candidates,
+    mode,
+    journeyMinutes: direct,
+    leaveHomeAt: new Date(new Date(dayTrip.depart_at).getTime() - direct * 60_000).toISOString(),
+    backHomeAt: new Date(new Date(dayTrip.return_at).getTime() + direct * 60_000).toISOString(),
+    timezone: trip.timezone || household.timezone || DEFAULT_TZ,
+    dwellFor: (c) => dwellFor(c, household, attendees).minutes,
+    includeChains,
+  });
+
+  const asStop = (c) => ({
+    ...richFields(c, null),
+    pinned: false,
+    leg: c.leg, meal: c.meal, why: c.why, standout: c.standout ?? null, notProposed: c.notProposed ?? null,
+    detourMinutes: c.detourMinutes, detourEstimated: c.detourEstimated !== false, dwellMinutes: c.dwellMinutes,
+    alongFraction: Number((c.alongFraction ?? 0.5).toFixed(3)),
+    intoJourneyMinutes: Math.round(direct * (c.alongFraction ?? 0.5)),
+  });
+  const proposed = [...legs.out, ...legs.back].map(asStop);
+  return {
+    from: trip.origin_label, to: trip.base_label, mode, minutes: direct, estimated: journey.estimated !== false,
+    stops: [...proposed, ...legs.more.map(asStop)],
+    picked: proposed.map((s) => s.id),
+    limitMinutes: legs.limitMinutes, degraded, sourcesQueried,
+    windowStart: dayTrip.depart_at, windowEnd: dayTrip.return_at,
+  };
+}
+
+/**
+ * The journey as it stands: the stops chosen for it, timed, and what they do
+ * to when the day leaves home and gets back. Recomputed on every response so
+ * adding or dropping a stop moves the clock.
+ */
+function routeView(state) {
+  const route = state.route;
+  if (!route?.windowStart || !route.windowEnd) return null;
+  const picked = new Set(route.picked || []);
+  const chosen = (route.stops || []).filter((s) => picked.has(s.id));
+  const timed = scheduleCorridor({
+    stops: chosen,
+    journeyMinutes: route.minutes,
+    windowStart: route.windowStart,
+    windowEnd: route.windowEnd,
+  });
+  const byId = new Map([...timed.out, ...timed.back].map((s) => [s.id, s]));
+  return {
+    from: route.from, to: route.to, mode: route.mode, minutes: route.minutes, estimated: route.estimated,
+    limitMinutes: route.limitMinutes,
+    leaveHomeAt: timed.leaveHomeAt, backHomeAt: timed.backHomeAt,
+    addedMinutes: chosen.reduce((t, s) => t + s.detourMinutes + s.dwellMinutes, 0),
+    stops: (route.stops || []).map((s) => ({ ...s, chosen: picked.has(s.id), arriveAt: byId.get(s.id)?.arriveAt ?? null, leaveAt: byId.get(s.id)?.leaveAt ?? null })),
+  };
+}
+
 function publicTrip(trip) {
   return {
     id: trip.id,
@@ -840,6 +974,8 @@ async function respond(res, { session, household, reply, extra = {} }) {
     dayId: session.state.dayId ?? null,
     date: session.state.date ?? null,
     journey: session.state.journey ?? null,
+    // The journey as a thing to plan, not only a time to subtract.
+    route: routeView(session.state),
     anchor: session.state.anchor ?? null,
     trip: publicTrip(trip),
     reply,
@@ -1187,10 +1323,10 @@ router.get('/inspire/:sessionId', async (req, res, next) => {
 // The look around an idea: the same search a trip's Find tab runs at 5 km —
 // the place sources, no event listings, no scout — so the two share one cache
 // entry and the trip opens on what was already seen.
-const THINGS_RADIUS_KM = 5;
+export const THINGS_RADIUS_KM = 5;
 const placeSourceKeys = () => enabledSources().filter((src) => !src.events && src.key !== 'scout').map((src) => src.key);
 const thingsSearch = (place) => ({ center: { lat: place.lat, lng: place.lng }, radiusKm: THINGS_RADIUS_KM, categories: [], query: '', includeEvents: false, sources: placeSourceKeys(), locality: place.locality ?? null });
-async function thingsAround({ household, session, place }) {
+export async function thingsAround({ household, session, place }) {
   const r = await searchCached(thingsSearch(place));
   if (r.fetched) await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, session?.id ?? null, r.sourcesQueried.join('+') || 'none', 'plan.inspire.things', r.units]);
   return r;
@@ -1226,7 +1362,7 @@ router.get('/inspire/things', async (req, res, next) => {
 // go on the new trip's shortlist as must-dos ("St James's Park", "Circolo
 // Popolare"); a shorter name inside a longer one ("Tate" in "Tate Modern")
 // means the longer.
-async function seedShortlistFromIdea({ household, session, trip, idea }) {
+export async function seedShortlistFromIdea({ household, session, trip, idea }) {
   const lines = [idea.title, ...(idea.do || []), ...(idea.eat || [])];
   const text = ` ${lines.map(normName).join(' . ')} `;
   const { venues } = searchKept(thingsSearch(idea.place)) ?? await thingsAround({ household, session, place: idea.place });
@@ -1338,7 +1474,7 @@ router.get('/places', async (req, res, next) => {
     const list = r.place ? [{ label: r.place.label, say: r.place.label, kind: 'home', place: r.place }] : (r.choices || []);
     const places = list.map((c) => ({
       label: c.place.label, where: c.say.replace(c.place.label, '').replace(/^,\s*/, '') || '', kind: c.kind || 'place',
-      isRoad: ['road', 'river'].includes(c.kind), travelMinutes: home && c.place.lat != null ? estimateTravelMinutes(home, c.place, 'driving') : null,
+      isRoad: ['road', 'river'].includes(c.kind), travelMinutes: home && c.place.lat != null ? (() => { const m = estimateTravelMinutes(home, c.place, 'driving'); return m <= 12 * 60 ? m : null; })() : null,
       place: { label: c.place.label, lat: c.place.lat, lng: c.place.lng, locality: c.place.locality ?? null, country: c.place.country ?? null, countryCode: c.place.countryCode ?? null },
     }));
     res.json({ places });
@@ -1499,13 +1635,33 @@ async function executePlan({ household, members, session, state, res }) {
     state.date = trip.day.date;
     state.anchor = merged.anchor && anchorPlace ? { ...merged.anchor, place: anchorPlace } : null;
     state.journey = { from: trip.origin_label, to: trip.base_label, minutes: estimateTravelMinutes({ lat: trip.origin_lat, lng: trip.origin_lng }, { lat: trip.base_lat, lng: trip.base_lng }, trip.travel_mode), mode: trip.travel_mode, estimated: true };
-    if (routingEnabled() && (trip.origin_lat !== trip.base_lat || trip.origin_lng !== trip.base_lng)) {
+    let polyline = null;
+    const awayFromHome = trip.origin_lat !== trip.base_lat || trip.origin_lng !== trip.base_lng;
+    if (routingEnabled() && awayFromHome) {
       try {
         const meter = {};
         const r = await routeBetween({ from: { lat: trip.origin_lat, lng: trip.origin_lng }, to: { lat: trip.base_lat, lng: trip.base_lng }, mode: trip.travel_mode, departAt: new Date(new Date(dayTrip.depart_at).getTime() - 3 * 3600_000).toISOString(), meter });
-        if (r) state.journey = { ...state.journey, minutes: r.minutes, estimated: false, meters: r.meters };
+        if (r) { state.journey = { ...state.journey, minutes: r.minutes, estimated: false, meters: r.meters }; polyline = r.encodedPolyline ?? null; }
         await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, session.id, 'google-routes', 'plan.journey', meter]);
       } catch { /* estimate stands */ }
+    }
+    // Everything between home and the destination is invisible to a search
+    // around the destination (Requirements §1). Once the journey is long enough
+    // to be a journey, the road itself is searched as well.
+    state.route = null;
+    if (awayFromHome && state.journey.minutes >= CORRIDOR_MIN_JOURNEY_MINUTES) {
+      try {
+        state.route = await retrieveCorridor({
+          household, trip, dayTrip, attendees, sessionId: session.id, journey: state.journey, polyline,
+          sources: pickedSources, includeChains: merged.avoid_chains === false,
+        });
+      } catch (err) {
+        state.route = {
+          error: String(err?.message || err), from: trip.origin_label, to: trip.base_label, mode: trip.travel_mode,
+          minutes: state.journey.minutes, estimated: state.journey.estimated !== false, limitMinutes: MAX_DETOUR_MINUTES[trip.travel_mode] ?? 15,
+          stops: [], picked: [], windowStart: dayTrip.depart_at, windowEnd: dayTrip.return_at,
+        };
+      }
     }
     state.pool = pool.candidates;
     state.excludedByAllergen = pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons }));
@@ -1582,12 +1738,23 @@ router.post('/refine', async (req, res, next) => {
     if (!state.pool) return res.status(409).json({ error: 'no_options_yet', message: 'Describe the outing first.' });
 
     const { options, trip } = await recompose(session, household);
+    const route = routeView(state);
     const closedSet = options.map((o) => ({
       option_id: o.id,
       title: o.title,
       stops: o.stops.map((s) => ({ id: s.id, name: s.name, category: s.category })),
     }));
-    const validStopIds = new Set(options.flatMap((o) => o.stops.map((s) => s.id)));
+    // What is on the way is on screen too, so "stop at the castle on the way"
+    // is one of the things they can say (Epic 5 C7: the set is what they see).
+    if (route?.stops?.length) {
+      closedSet.push({
+        option_id: 'on-the-way',
+        title: `On the way between ${route.from} and ${route.to}`,
+        stops: route.stops.map((s) => ({ id: s.id, name: s.name, category: s.category, leg: s.leg === 'back' ? 'on the way home' : 'on the way there', in_the_plan: s.chosen })),
+      });
+    }
+    const routeIds = new Set((route?.stops || []).map((s) => s.id));
+    const validStopIds = new Set([...options.flatMap((o) => o.stops.map((s) => s.id)), ...routeIds]);
     const validOptionIds = new Set(options.map((o) => o.id));
 
     const recent = (state.transcript || []).slice(-6).map((t) => `${t.role}: ${t.text}`).join('\n');
@@ -1617,8 +1784,17 @@ router.post('/refine', async (req, res, next) => {
     const chosen = refinement.chosen_option_id && validOptionIds.has(refinement.chosen_option_id) ? refinement.chosen_option_id : null;
 
     state.transcript = [...(state.transcript || []), { role: 'user', text: utterance }, { role: 'assistant', text: refinement.reply }];
-    state.pinned = [...new Set([...state.pinned.filter((k) => !disliked.includes(k)), ...liked])];
-    state.excluded = [...new Set([...state.excluded, ...disliked, ...replacements.map((r) => r.stop_id)])];
+    // A stop on the way joins or leaves the journey; it is never pinned to the
+    // day at the destination, which is a different piece of the plan.
+    if (state.route && routeIds.size) {
+      const added = liked.filter((id) => routeIds.has(id));
+      const dropped = new Set(disliked.filter((id) => routeIds.has(id)));
+      state.route.picked = [...new Set([...(state.route.picked || []), ...added])].filter((id) => !dropped.has(id));
+    }
+    const likedHere = liked.filter((id) => !routeIds.has(id));
+    const dislikedHere = disliked.filter((id) => !routeIds.has(id));
+    state.pinned = [...new Set([...state.pinned.filter((k) => !dislikedHere.includes(k)), ...likedHere])];
+    state.excluded = [...new Set([...state.excluded, ...dislikedHere, ...replacements.map((r) => r.stop_id)])];
     state.pinned = state.pinned.filter((k) => !state.excluded.includes(k));
     if (chosen) state.chosenOptionId = chosen;
 
@@ -1686,6 +1862,14 @@ router.post('/act', async (req, res, next) => {
       case 'choose':
         state.chosenOptionId = action.optionId ?? null;
         break;
+      // A stop on the way in or out of the plan. The day at the destination is
+      // untouched: the journey grows at its ends and the leaving time moves.
+      case 'route_add':
+        if (state.route) state.route.picked = [...new Set([...(state.route.picked || []), action.stopId])];
+        break;
+      case 'route_drop':
+        if (state.route) state.route.picked = (state.route.picked || []).filter((k) => k !== action.stopId);
+        break;
       case 'set':
         if (action.minActivities != null) state.minActivities = Number(action.minActivities);
         if (action.minFood != null) state.minFood = Number(action.minFood);
@@ -1734,17 +1918,41 @@ async function commitOption({ household, session, optionId }) {
     } else {
       await query('delete from trip_stops where trip_id = $1 and not exists (select 1 from visits v where v.stop_id = trip_stops.id)', [session.trip_id]);
     }
-    for (const stop of option.stops) {
+    // The day is what was chosen at the destination, with whatever was chosen
+    // on the way in front of it and behind it, in the order they happen.
+    const view = routeView(session.state);
+    const onTheWay = (view?.stops || []).filter((s) => s.chosen && s.arriveAt);
+    const byTime = (a, b) => new Date(a.arriveAt) - new Date(b.arriveAt);
+    const plan = [
+      ...onTheWay.filter((s) => s.leg === 'out').sort(byTime),
+      ...option.stops,
+      ...onTheWay.filter((s) => s.leg === 'back').sort(byTime),
+    ];
+    let position = 0;
+    for (const stop of plan) {
+      position += 1;
       await query(
         `insert into trip_stops (trip_id, day_id, slot, start_time, position, venue_ref, venue_name, lat, lng, dwell_minutes)
          values ($1,$2,$3,$4::time,$5,$6,$7,$8,$9,$10)`,
         [session.trip_id, dayId, stop.arriveAt ? slotFor(stop.arriveAt, tzOf) : 'morning', stop.arriveAt ? wallClock(stop.arriveAt, tzOf).hhmm : null,
-         stop.position, stop.venueRef, stop.name, stop.lat, stop.lng, stop.dwellMinutes],
+         position, stop.venueRef, stop.name, stop.lat, stop.lng, stop.dwellMinutes],
       );
       await query(
         `insert into place_ledger (household_id, source, source_place_id, status)
          values ($1, split_part($2, ':', 1), split_part($2, ':', 2), 'saved')`,
         [household.id, stop.venueRef],
+      );
+    }
+    // A stop on the way happens before the day at the destination starts (or
+    // after it ends), so the day's own window stretches to hold it — otherwise
+    // the trip would open reporting an over-run that is not real.
+    if (dayId && onTheWay.length) {
+      const firstOut = onTheWay.filter((s) => s.leg === 'out').map((s) => s.arriveAt).sort()[0] ?? null;
+      const lastBack = onTheWay.filter((s) => s.leg === 'back').map((s) => s.leaveAt ?? s.arriveAt).sort().pop() ?? null;
+      // least()/greatest() leave the day alone where there is nothing to stretch to.
+      await query(
+        `update trip_days set start_time = least(start_time, $2::time), end_time = greatest(end_time, $3::time) where id = $1`,
+        [dayId, firstOut ? wallClock(firstOut, tzOf).hhmm : null, lastBack ? wallClock(lastBack, tzOf).hhmm : null],
       );
     }
     session.state.chosenOptionId = optionId;
