@@ -418,7 +418,8 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
       <View style={[styles.field, wide && styles.fieldWide]}>
         <Row style={{ justifyContent: 'space-between' }}>
           {!wide ? <Button label={backLabel} icon="back" kind="ghost" onPress={onBack} /> : <View />}
-          <Button label="Plan a trip here" icon="plan" onPress={onPlanTrip} />
+          {/* Nobody plans a trip to their own doorstep (owner, 4 Sep 2026). */}
+          {home ? <View /> : <Button label="Plan a trip here" icon="plan" onPress={onPlanTrip} />}
         </Row>
         <Row style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
           <View style={{ flex: 1, minWidth: 0 }}>
