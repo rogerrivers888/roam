@@ -445,9 +445,8 @@ router.get('/:id/shortlist/search', async (req, res, next) => {
 router.get('/:id/shortlist/search/stream', async (req, res) => {
   res.writeHead(200, {
     'content-type': 'text/event-stream',
-    // no-store, not no-cache: with no-cache a browser treats a second identical
-    // GET as a duplicate of the one in flight and holds it until the first
-    // finishes, so the second screen watching the same search sat blank.
+    // A stream is never a document to keep: no-store also keeps EventSource's
+    // own reconnect from being answered out of the browser's cache.
     'cache-control': 'no-store, no-transform',
     connection: 'keep-alive',
     // Railway's proxy buffers by default, which would hold every event back
@@ -455,13 +454,8 @@ router.get('/:id/shortlist/search/stream', async (req, res) => {
     'x-accel-buffering': 'no',
   });
   const send = (type, data) => { if (!res.writableEnded) res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`); };
-  // Two kilobytes of comment before anything else. Something between here and
-  // the browser holds a small first chunk back: a stream whose opening event is
-  // thirty bytes — "this search is riding on one already running" — arrived at
-  // curl at once and at Chrome not at all, while a stream that opens with a
-  // kilobyte of sources arrived immediately in both. Padding is the usual cure
-  // and costs one packet. The heartbeat is the belt to that pair of braces.
-  res.write(`:${' '.repeat(2048)}\n\n`);
+  // Every five seconds, so a source that has gone quiet is visible as quiet
+  // rather than as nothing happening.
   const beat = setInterval(() => send('waiting', { at: Date.now() }), 5_000);
   try {
     const payload = await runShortlistSearch(req, { onProgress: (e) => send(e.type, e) });
