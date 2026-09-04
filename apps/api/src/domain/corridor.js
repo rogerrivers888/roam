@@ -82,7 +82,7 @@ export function standoutReason(c, detourMinutes = 0, limitMinutes = 15) {
  */
 export function corridorStops({
   candidates, mode = 'driving', journeyMinutes, windowStart, windowEnd, timezone = 'Europe/London',
-  dwellFor = () => 45, includeChains = false, maxPerLeg = 2, maxMore = 8, earliestHour = 6.5,
+  dwellFor = () => 45, includeChains = false, maxPerLeg = 2, maxMore = 8, keepAtLeast = 0.5,
 }) {
   const limit = MAX_DETOUR_MINUTES[mode] ?? 15;
   const out = [];
@@ -90,14 +90,15 @@ export function corridorStops({
   const more = [];
   const seen = new Set();
 
-  // When they would actually be there. The time asked for at the destination
-  // does not move, so a stop on the way out is paid for by leaving home
-  // earlier — which is why a stop is timed backwards from the window and not
-  // forwards from a departure that the stop itself changes.
+  // When they would actually be there. A day out is as long as the household
+  // said it was: they leave home and get back at the times they always would,
+  // and a stop on the way is paid for out of the time at the far end — which
+  // is the trade the card has to show. (Requirements §5: the detour is
+  // subtracted from the time available, not added to the day.)
+  const window = Math.round((new Date(windowEnd) - new Date(windowStart)) / 60_000);
   const when = (leg, fraction, detour, dwell) => (leg === 'out'
-    ? new Date(new Date(windowStart).getTime() - (journeyMinutes * (1 - fraction) + detour / 2 + dwell) * 60_000)
-    : new Date(new Date(windowEnd).getTime() + (journeyMinutes * (1 - fraction) + detour / 2) * 60_000));
-  const leavingHomeFor = (fraction, detour, dwell) => new Date(new Date(windowStart).getTime() - (journeyMinutes + detour + dwell) * 60_000);
+    ? new Date(new Date(windowStart).getTime() - (journeyMinutes * (1 - fraction) - detour / 2) * 60_000)
+    : new Date(new Date(windowEnd).getTime() - (dwell + detour / 2 - journeyMinutes * (1 - fraction)) * 60_000));
 
   for (const c of candidates) {
     if (seen.has(c.key)) continue;
@@ -117,16 +118,17 @@ export function corridorStops({
     const f = c.alongFraction ?? 0.5;
     const atOut = when('out', f, detour, dwell);
     const atBack = when('back', f, detour, dwell);
-    // Getting up at five for a pub lunch is not a day out: a stop that drags
-    // the departure into the small hours is offered, never proposed.
-    const tooEarly = wallClock(leavingHomeFor(f, detour, dwell), timezone).hours < earliestHour;
+    // A stop that would swallow the day it is a detour from is offered, never
+    // proposed: half the time asked for at the destination has to survive it.
+    const costs = detour + dwell;
+    const tooDear = costs > window * (1 - keepAtLeast);
     const legs = [];
     if (isFood) {
-      const outMeal = tooEarly ? null : mealAt(atOut, timezone, c.category);
-      const backMeal = mealAt(atBack, timezone, c.category);
+      const outMeal = tooDear ? null : mealAt(atOut, timezone, c.category);
+      const backMeal = tooDear ? null : mealAt(atBack, timezone, c.category);
       if (outMeal) legs.push({ leg: 'out', why: `${outMeal.name[0].toUpperCase()}${outMeal.name.slice(1)} on the way`, meal: outMeal.name });
       if (backMeal) legs.push({ leg: 'back', why: `${backMeal.name[0].toUpperCase()}${backMeal.name.slice(1)} on the way home`, meal: backMeal.name });
-    } else if (isThing && !tooEarly) {
+    } else if (isThing && !tooDear) {
       legs.push({ leg: 'out', why: 'Worth stopping for on the way', meal: null });
     }
 
@@ -158,7 +160,7 @@ export function corridorStops({
     if (more.length < maxMore && (isFood || isThing) && !banned) {
       const why = tooFar ? `${detour} min off the road`
         : !standout ? (detour > 3 ? `Not enough to be worth ${detour} min off the road` : 'Nothing marks it out')
-        : tooEarly ? `You would have to leave home at ${wallClock(leavingHomeFor(f, detour, dwell), timezone).hhmm}`
+        : tooDear ? `${costs} min is too much of the time you asked for`
         : !legs.length ? 'Not at a time you would stop'
         : 'The leg is full';
       more.push({ ...stop, notProposed: why });
@@ -175,16 +177,16 @@ export function corridorStops({
 }
 
 /**
- * The clock, once the chosen stops are in: when to leave home, when each stop
- * happens, and when the day gets back. The window at the destination is left
- * exactly as the household set it — a stop on the way makes the day longer at
- * its ends, it does not eat the time they asked for.
+ * The clock, once the chosen stops are in.
+ *
+ * The day is as long as the household said: they leave home and get back at
+ * the times they always would, and what they stop for on the way comes out of
+ * the far end. So `arriveThereAt` is later than the window they asked for, and
+ * `leaveThereAt` earlier — which is exactly what the stop costs them.
  */
 export function scheduleCorridor({ stops, journeyMinutes, windowStart, windowEnd }) {
-  // On the way out the journey is walked from home; on the way back from the
-  // destination, so the same fractions are read from the far end. Each stop
-  // costs half its detour leaving the road and half rejoining it, which is
-  // what makes the legs add up to the journey plus everything the stops added.
+  // Each stop costs half its detour leaving the road and half rejoining it,
+  // which is what makes the legs add up to the journey plus what was added.
   const leg = (fromFraction, toFraction, leavingDetour, joiningDetour) =>
     Math.max(1, Math.round(journeyMinutes * Math.abs(toFraction - fromFraction) + leavingDetour / 2 + joiningDetour / 2));
 
@@ -206,9 +208,20 @@ export function scheduleCorridor({ stops, journeyMinutes, windowStart, windowEnd
   const outStops = stops.filter((s) => s.leg === 'out').sort((a, b) => (a.alongFraction ?? 0) - (b.alongFraction ?? 0));
   const backStops = stops.filter((s) => s.leg === 'back').sort((a, b) => (b.alongFraction ?? 0) - (a.alongFraction ?? 0));
   const addedOut = outStops.reduce((t, s) => t + s.detourMinutes + s.dwellMinutes, 0);
-  const leaveHome = new Date(new Date(windowStart).getTime() - (journeyMinutes + addedOut) * 60_000);
+  const addedBack = backStops.reduce((t, s) => t + s.detourMinutes + s.dwellMinutes, 0);
 
+  const leaveHome = new Date(new Date(windowStart).getTime() - journeyMinutes * 60_000);
+  const leaveThere = new Date(new Date(windowEnd).getTime() - addedBack * 60_000);
   const out = walk(outStops, leaveHome, 0, 1);
-  const back = walk(backStops, windowEnd, 1, 0);
-  return { leaveHomeAt: leaveHome.toISOString(), backHomeAt: back.endsAt.toISOString(), out: out.timed, back: back.timed };
+  const back = walk(backStops, leaveThere, 1, 0);
+  return {
+    leaveHomeAt: leaveHome.toISOString(),
+    arriveThereAt: out.endsAt.toISOString(),
+    leaveThereAt: leaveThere.toISOString(),
+    backHomeAt: back.endsAt.toISOString(),
+    addedOutMinutes: addedOut,
+    addedBackMinutes: addedBack,
+    out: out.timed,
+    back: back.timed,
+  };
 }

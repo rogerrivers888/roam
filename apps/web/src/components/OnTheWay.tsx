@@ -34,10 +34,6 @@ export function OnTheWay({ route, busy, onAdd, onDrop }: {
   const out = chosen.filter((s) => s.leg === 'out');
   const back = chosen.filter((s) => s.leg === 'back');
   const more = route.stops.filter((s) => !s.chosen);
-  // Only the stops on the way there move the time they leave home; the ones on
-  // the way back move the time they get in.
-  const addedOut = out.reduce((t, s) => t + s.detourMinutes + s.dwellMinutes, 0);
-  const plainLeave = new Date(new Date(route.leaveHomeAt).getTime() + addedOut * 60_000).toISOString();
 
   return (
     <View style={{ gap: spacing.sm }}>
@@ -46,11 +42,15 @@ export function OnTheWay({ route, busy, onAdd, onDrop }: {
         <Text style={[type.h3, { flex: 1 }]}>On the way</Text>
       </Row>
       <Text style={type.small}>
-        {route.from} → {route.to}, about {minutes(route.minutes)}{route.estimated ? ' (estimated)' : ''}.{' '}
-        {chosen.length
-          ? `Leaving at ${clock(route.leaveHomeAt)}${addedOut ? ` instead of ${clock(plainLeave)}` : ''} and home about ${clock(route.backHomeAt)} — your time at ${route.to} is unchanged.`
-          : `Leaving at ${clock(route.leaveHomeAt)}, home about ${clock(route.backHomeAt)}.`}
+        {route.from} → {route.to}, about {minutes(route.minutes)}{route.estimated ? ' (estimated)' : ''}. Leaving at{' '}
+        {clock(route.leaveHomeAt)}, home about {clock(route.backHomeAt)}.
       </Text>
+      {chosen.length ? (
+        <Text style={[type.small, { fontWeight: '700', color: colors.ink }]}>
+          The day is the same length: stopping puts you in {route.to} from {clock(route.arriveThereAt)} to{' '}
+          {clock(route.leaveThereAt)} — {minutes(route.minutesThere)} there instead of {minutes(route.minutesThereWithout)}.
+        </Text>
+      ) : null}
 
       {route.mode === 'transit' ? (
         <Text style={type.tiny}>On a train or a bus, stopping means breaking the journey — check your ticket allows it before you count on one of these.</Text>

@@ -184,7 +184,11 @@ export type RouteStop = BrowseItem & {
 
 export type PlanRoute = {
   from: string; to: string; mode: string; minutes: number; estimated: boolean; limitMinutes: number;
-  leaveHomeAt: string; backHomeAt: string; addedMinutes: number; stops: RouteStop[];
+  /** The day is the same length whatever is stopped for; the time at the far end is what pays. */
+  leaveHomeAt: string; arriveThereAt: string; leaveThereAt: string; backHomeAt: string;
+  minutesThere: number; minutesThereWithout: number;
+  addedOutMinutes: number; addedBackMinutes: number; addedMinutes: number;
+  stops: RouteStop[];
 };
 
 export type TripOption = {

@@ -847,13 +847,51 @@ function routeView(state) {
     windowEnd: route.windowEnd,
   });
   const byId = new Map([...timed.out, ...timed.back].map((s) => [s.id, s]));
+  const there = Math.round((new Date(timed.leaveThereAt) - new Date(timed.arriveThereAt)) / 60_000);
   return {
     from: route.from, to: route.to, mode: route.mode, minutes: route.minutes, estimated: route.estimated,
     limitMinutes: route.limitMinutes,
     leaveHomeAt: timed.leaveHomeAt, backHomeAt: timed.backHomeAt,
-    addedMinutes: chosen.reduce((t, s) => t + s.detourMinutes + s.dwellMinutes, 0),
+    // What the stops cost: the day is the same length, so the time at the far
+    // end is what pays for them.
+    arriveThereAt: timed.arriveThereAt, leaveThereAt: timed.leaveThereAt,
+    minutesThere: there,
+    minutesThereWithout: Math.round((new Date(route.windowEnd) - new Date(route.windowStart)) / 60_000),
+    addedOutMinutes: timed.addedOutMinutes, addedBackMinutes: timed.addedBackMinutes,
+    addedMinutes: timed.addedOutMinutes + timed.addedBackMinutes,
     stops: (route.stops || []).map((s) => ({ ...s, chosen: picked.has(s.id), arriveAt: byId.get(s.id)?.arriveAt ?? null, leaveAt: byId.get(s.id)?.leaveAt ?? null })),
   };
+}
+
+/**
+ * The day at the destination is shortened by whatever is being stopped for on
+ * the way, so the options are composed for the time actually there. The shift
+ * is relative, so a change the household makes to the day's length in between
+ * still stands.
+ */
+async function applyRouteToDay(session) {
+  const route = session.state.route;
+  if (!route?.windowStart || !session.state.dayId) return;
+  const view = routeView(session.state);
+  const prev = route.applied ?? { out: 0, back: 0 };
+  const next = { out: view.addedOutMinutes, back: view.addedBackMinutes };
+  if (prev.out === next.out && prev.back === next.back) return;
+  await query(
+    `update trip_days set start_time = start_time + ($2::int * interval '1 minute'),
+                          end_time = end_time - ($3::int * interval '1 minute') where id = $1`,
+    [session.state.dayId, next.out - prev.out, next.back - prev.back],
+  );
+  route.applied = next;
+}
+
+/** Re-read the day the household asked for, once they have changed its length themselves. */
+async function syncRouteWindow(session) {
+  const route = session.state.route;
+  if (!route?.windowStart || !session.state.dayId) return;
+  const { trip } = await sessionTrip(session);
+  const applied = route.applied ?? { out: 0, back: 0 };
+  route.windowStart = new Date(new Date(trip.depart_at).getTime() - applied.out * 60_000).toISOString();
+  route.windowEnd = new Date(new Date(trip.return_at).getTime() + applied.back * 60_000).toISOString();
 }
 
 function publicTrip(trip) {
@@ -976,6 +1014,9 @@ async function applyTripChanges(session, { durationMinutes, intensity, travelMod
       const start = new Date(trip.depart_at);
       const end = new Date(start.getTime() + Number(durationMinutes) * 60_000);
       await query('update trip_days set end_time = $2::time where id = $1', [session.state.dayId, wallClock(end, trip.timezone || DEFAULT_TZ).hhmm]);
+      // The end of the day was just rewritten from scratch, so the time taken
+      // out of it for a stop on the way home has to be taken out again.
+      if (session.state.route?.applied) session.state.route.applied = { out: session.state.route.applied.out, back: 0 };
     }
     if (intensity) await query('update trip_days set intensity = $2 where id = $1', [session.state.dayId, intensity]);
     if (travelMode) await query('update trip_days set travel_mode = $2 where id = $1', [session.state.dayId, travelMode]);
@@ -1692,6 +1733,10 @@ async function executePlan({ household, members, session, state, res }) {
     const { journey, route } = await roadside;
     state.journey = journey;
     state.route = route;
+    // Whatever is proposed on the way is time not spent at the destination, so
+    // the day is shortened before any option is composed for it.
+    session.state = state;
+    await applyRouteToDay(session);
     state.pool = pool.candidates;
     state.excludedByAllergen = pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons }));
     // Must-haves come from the time left once a fixed commitment is placed:
@@ -1845,6 +1890,11 @@ router.post('/refine', async (req, res, next) => {
     if (tc.duration_minutes != null || tc.intensity || tc.travel_mode) {
       await applyTripChanges(session, { durationMinutes: tc.duration_minutes, intensity: tc.intensity, travelMode: tc.travel_mode });
     }
+    // Last, so the day is shortened for what is being stopped for on the way
+    // whatever else the same sentence changed.
+    session.state = state;
+    await syncRouteWindow(session);
+    await applyRouteToDay(session);
 
     state.suggestedPreferences = refinement.suggested_preferences;
     await saveSession(session.id, state, null);
@@ -1895,9 +1945,11 @@ router.post('/act', async (req, res, next) => {
       // untouched: the journey grows at its ends and the leaving time moves.
       case 'route_add':
         if (state.route) state.route.picked = [...new Set([...(state.route.picked || []), action.stopId])];
+        await applyRouteToDay(session);
         break;
       case 'route_drop':
         if (state.route) state.route.picked = (state.route.picked || []).filter((k) => k !== action.stopId);
+        await applyRouteToDay(session);
         break;
       case 'set':
         if (action.minActivities != null) state.minActivities = Number(action.minActivities);
@@ -1919,6 +1971,9 @@ router.post('/act', async (req, res, next) => {
           durationMinutes: action.durationMinutes != null ? Number(action.durationMinutes) : null,
           travelMode: action.travelMode && TRAVEL_MODES.includes(action.travelMode) ? action.travelMode : null,
         });
+        // A day the household has just lengthened or shortened is the new day
+        // the stops on the way are measured against.
+        await syncRouteWindow(session);
         break;
       default:
         return res.status(400).json({ error: 'unknown_action' });
