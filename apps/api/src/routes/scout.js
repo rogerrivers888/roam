@@ -17,6 +17,9 @@ import { requires } from '../access.js';
 import * as scout from '../repositories/scout.js';
 import { fillMenus, rescore, sweep } from '../sources/scoutArea.js';
 import { geocode } from '../sources/geocode.js';
+import { readMenu } from '../sources/menuRead.js';
+import { recordMenuRead } from '../domain/placeMenus.js';
+import { currentHousehold } from './household.js';
 
 const router = express.Router();
 
@@ -84,6 +87,41 @@ router.post('/menus/fill', requires('manage_library'), async (req, res, next) =>
 router.get('/menus/missing', requires('view_library'), async (_req, res, next) => {
   try {
     res.json({ misses: await scout.menuMisses(200) });
+  } catch (err) { next(err); }
+});
+
+
+/**
+ * Read the menus whose address we already know, into dishes.
+ *
+ * This is the step that costs — one Claude call per menu, attributed to the
+ * owner's household in `provider_calls` like every other — so it is deliberately
+ * a separate ask from finding the address, which is free. Reading is what turns
+ * "there is a menu over there" into the thing the household actually wanted:
+ * "they do an arrabbiata, it is £14.50, and there are four things the
+ * vegetarian can eat".
+ *
+ * The result is pooled (`place_menus`, migration 028): the next household to
+ * open this restaurant does not pay to read it again.
+ */
+router.post('/menus/read', requires('manage_library'), async (req, res, next) => {
+  try {
+    const limit = Math.min(25, Number(req.body?.limit) || 3);
+    const household = await currentHousehold();
+    const due = await scout.menusToRead(limit);
+    const done = [];
+    for (const row of due) {
+      try {
+        const read = await readMenu({ url: row.menu_url, venueLabel: row.venue_label, householdId: household.id, sessionId: req.session?.id ?? null });
+        const stored = await recordMenuRead({ venueRef: row.venue_ref, venueLabel: row.venue_label, read });
+        done.push({ name: row.venue_label, items: stored.items ?? 0, kind: read.kind, url: row.menu_url });
+      } catch (err) {
+        const why = String(err.message).slice(0, 160);
+        await scout.recordMenuMiss(row.venue_ref, { venueLabel: row.venue_label, why, menuUrl: row.menu_url, nextAttemptAt: new Date(Date.now() + 24 * 3600_000) });
+        done.push({ name: row.venue_label, items: 0, why });
+      }
+    }
+    res.json({ read: due.length, done });
   } catch (err) { next(err); }
 });
 

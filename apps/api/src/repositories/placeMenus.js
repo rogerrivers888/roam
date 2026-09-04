@@ -20,10 +20,13 @@ const on = (client) => (client ? (text, params) => client.query(text, params) : 
  */
 export async function upsertPlaceMenu(client, m) {
   const { rows } = await on(client)(
-    `insert into place_menus (venue_ref, venue_label, source_url, source_kind, currency, note, section_count, item_count, read_at, reads)
-     values ($1,$2,$3,$4,$5,$6,$7,$8, now(), 1)
+    `insert into place_menus (venue_ref, venue_label, source_url, source_kind, currency, note, section_count, item_count, read_at, reads, state)
+     values ($1,$2,$3,$4,$5,$6,$7,$8, now(), 1, 'read')
      on conflict (venue_ref) do update set
        venue_label = coalesce(excluded.venue_label, place_menus.venue_label),
+       -- A read supersedes whatever the row said before, including a miss: the
+       -- state is what the tab shows, and there are dishes in it now.
+       state = 'read', why = null, next_attempt_at = null,
        source_url = excluded.source_url, source_kind = excluded.source_kind,
        currency = coalesce(excluded.currency, place_menus.currency), note = excluded.note,
        section_count = excluded.section_count, item_count = excluded.item_count,
