@@ -103,7 +103,33 @@ function metresBetween(a, b) {
  * No shared identifier exists across Google, Yelp and TripAdvisor, so this is
  * inferred from normalised name and coordinate proximity (Technical Constraints §5).
  */
+/**
+ * Two listings of one event (owner, 4 Sep 2026: "we don't want to show the same
+ * event twice if it's got the same name").
+ *
+ * Metres cannot carry this match the way they carry a restaurant's. Each source
+ * places an event at its own idea of where the venue is: PredictHQ and the local
+ * scout put the Henley Farm & Country Show 5.83 km apart on 12 September 2026,
+ * which the place rule scores 0.2 and keeps as two rows. What identifies an
+ * event is its name and the day it runs on, so those decide, and distance only
+ * guards against two towns sharing a name for their own event on one day —
+ * and in practice a town's own event carries the town's name ("Henley Farmers'
+ * Market"), so ten kilometres is generous rather than risky.
+ */
+function eventConfidence(a, b) {
+  if (normaliseName(a.name) !== normaliseName(b.name)) return 0;
+  const day = (s) => String(s ?? '').slice(0, 10);
+  if (!day(a.startsAt) || day(a.startsAt) !== day(b.startsAt)) return 0;
+  return metresBetween(a, b) <= 10_000 ? 0.9 : 0.4;
+}
+
 export function matchConfidence(a, b) {
+  // A timed event and a place to go are never the same record, whatever the
+  // name: merging them would fold a show into its theatre and lose its clock.
+  const aEvent = a.category === 'event';
+  if (aEvent !== (b.category === 'event')) return 0;
+  if (aEvent) return eventConfidence(a, b);
+
   const sameName = normaliseName(a.name) === normaliseName(b.name);
   const distance = metresBetween(a, b);
   if (!sameName) return 0;
@@ -152,7 +178,9 @@ export function resolveVenues(rawRecords) {
     // Per-field precedence (Technical Constraints §5): a licensed source that
     // carries ratings, photos, hours or family flags wins those fields; the
     // open source keeps what it uniquely knows (dietary tags, cuisines).
-    for (const field of ['rating', 'ratingCount', 'photos', 'openingHours', 'goodForChildren', 'menuForChildren', 'reservable', 'priceLevel', 'summary', 'website', 'mapsUrl', 'externalUrl', 'justification']) {
+    // venueName/startsAt/endsAt matter for a merged event: the listing that knew
+    // the showground's name, or the ticket page, fills what the other left blank.
+    for (const field of ['rating', 'ratingCount', 'photos', 'openingHours', 'goodForChildren', 'menuForChildren', 'reservable', 'priceLevel', 'summary', 'website', 'mapsUrl', 'externalUrl', 'justification', 'venueName', 'startsAt', 'endsAt']) {
       if (record[field] != null && (candidate[field] == null || (record.source === 'google' && candidate.source !== 'google'))) {
         candidate[field] = record[field];
         candidate.provenance[field] = { source: record.source, expiresAt: record.source === 'osm' ? null : 'session' };

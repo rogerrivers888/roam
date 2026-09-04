@@ -21,7 +21,10 @@ export function searchKey(p) {
   return [
     Number(c.lat).toFixed(4), Number(c.lng).toFixed(4), p.radiusKm ?? 3,
     [...(p.categories || [])].sort().join(','), String(p.query || '').trim().toLowerCase(),
-    [...optInFrom(p.sources)].sort().join(','), p.includeEvents ? 'events' : '',
+    [...optInFrom(p.sources)].sort().join(','),
+    // Two trips can share a point, a radius and a source set and still want
+    // different events: what is on is only the same search over the same window.
+    p.includeEvents ? `events:${p.outingStart ?? ''}:${p.outingEnd ?? ''}` : '',
   ].join('|');
 }
 

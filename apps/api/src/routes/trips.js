@@ -378,18 +378,29 @@ router.get('/:id/shortlist/search', async (req, res, next) => {
     const radiusKm = Math.min(25, Number(req.query.radiusKm) || 3);
     const categories = req.query.categories ? String(req.query.categories).split(',').filter(Boolean) : [];
     // The search form's picker wins; otherwise the trip's saved sources; otherwise the default set.
-    // Find asks the place sources only: event listings and the local scout add nothing to a place
-    // search, and the scout alone can run past the proxy's ninety-second cut-off.
+    // Find asks the event listings too (owner, 4 Sep 2026): "What's on is different from Things to
+    // do — Things to do are always there, What's on is for local events". A place search is not a
+    // substitute for one, so the listings run here and What's on fills. The local scout is left out
+    // of the default set — it can run past the proxy's ninety-second cut-off and costs money for
+    // every place and day — but it runs when it is picked by name in Find's source filter.
     const asked = req.query.sources != null ? optInFrom(req.query.sources) : (Array.isArray(trip.sources) ? trip.sources : []);
-    const sources = asked.length ? asked : enabledSources().filter((src) => !src.events && src.key !== 'scout').map((src) => src.key);
+    const sources = asked.length ? asked : enabledSources().filter((src) => src.key !== 'scout').map((src) => src.key);
     const q = String(req.query.q || '').trim();
     const { rows: existing } = await query('select venue_ref from trip_shortlist where trip_id = $1', [trip.id]);
     const have = new Set(existing.map((r) => r.venue_ref));
     const withFlags = (list) => list.map((v) => ({ ...v, onShortlist: have.has(v.venueRef) }));
     // A clear answer before the proxy's own cut-off: better "took too long" than a blank failure.
     const deadline = new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('The sources took too long to answer. Try again, or fetch from fewer sources.'), { status: 504, code: 'sources_timeout' })), 75_000));
+    // What's on covers the whole time away: on a night away that is every day of
+    // the trip, on a day out it is that day. The scout needs the place in words
+    // and who is asking, or it stays quiet rather than searching anonymously.
     const { venues, degraded, sourcesQueried, units, cached, fetchedAt, fetched } = await Promise.race([searchCached(
-      { center, radiusKm, categories, query: q, includeEvents: false, sources, locality: trip.locality ?? null },
+      {
+        center, radiusKm, categories, query: q, sources, locality: trip.locality ?? null,
+        includeEvents: true, outingStart: trip.depart_at, outingEnd: trip.return_at,
+        placeLabel: trip.base_label ?? trip.origin_label, timezone: trip.timezone ?? null,
+        householdId: household.id,
+      },
       { refresh: req.query.refresh === '1' },
     ), deadline]);
     if (fetched) await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search', units]);
