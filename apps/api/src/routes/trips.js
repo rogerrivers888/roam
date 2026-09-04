@@ -8,6 +8,7 @@ import { computeBudget, INTENSITY_TARGETS } from '../domain/budget.js';
 import { TRAVEL_MODES } from '../domain/travel.js';
 import { dayAsTrip, datesBetween, slotFor } from '../domain/days.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
+import { searchAreas } from '../sources/areas.js';
 import { optInFrom, enabledSources } from '../sources/index.js';
 import { searchCached } from '../sources/cache.js';
 import { kmBetween } from '../domain/travel.js';
@@ -193,7 +194,8 @@ router.post('/', async (req, res, next) => {
     if (kind === 'trip') {
       if (!b.startDate || !b.endDate || b.endDate < b.startDate) return res.status(400).json({ error: 'dates_required', message: 'Start and end dates are needed, end on or after start.' });
       let place = b.place?.lat != null ? b.place : null;
-      if (!place && b.placeText) [place] = await geocode(b.placeText, { limit: 1 });
+      // Typed rather than picked: a trip is to a city or a region, never to a street.
+      if (!place && b.placeText) [place] = await searchAreas(b.placeText, { limit: 1 });
       let base = b.base?.lat != null ? b.base : null;
       if (!base && b.baseText) [base] = await geocode(b.baseText, { limit: 1, near: place, countryCode: place?.countryCode ?? null, within: Boolean(place), kind: 'lodging' });
       if (!base && (b.baseKind === 'home' || (!place && home))) base = home;

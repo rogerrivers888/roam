@@ -475,6 +475,7 @@ The answer to §1 and to the "not amortisable" finding in §12.3. Not a cache of
 | Source | What it gives | Licence | Cost |
 |---|---|---|---|
 | OpenStreetMap (Overpass) | The same place in the open map: name, category, cuisine, diets, hours, address, phone, website | ODbL, attribution required | free |
+| Photon (Komoot) | Cities, towns and regions matched on a prefix, for the "where are we going?" box — the same OSM data, indexed for typing rather than for exact lookup | ODbL, attribution required | free, no key |
 | The venue's own website | The schema.org block a business publishes for machines: phone, address, hours, price band, booking link, menu URL | published for republication | free |
 | Wikipedia | A description for places with an article | CC BY-SA 4.0, credit and link required | free |
 | Wikidata | Official website, year opened | CC0 | free |

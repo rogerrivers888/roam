@@ -11,6 +11,7 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
 import { reverseGeocode, geocode } from '../sources/geocode.js';
+import { searchAreas } from '../sources/areas.js';
 import { recallVenue } from '../sources/index.js';
 import { currentHousehold } from './household.js';
 import { fillWhere } from '../sources/where.js';
@@ -256,7 +257,8 @@ atlas.post('/cities', async (req, res, next) => {
     const household = await currentHousehold();
     const b = req.body || {};
     let place = b.place?.lat != null ? b.place : null;
-    if (!place && b.placeText) [place] = await geocode(b.placeText, { limit: 1 });
+    // Typed rather than picked: it is still a city or a region that is wanted, so ask the source that only knows those.
+    if (!place && b.placeText) [place] = await searchAreas(b.placeText, { limit: 1 });
     if (!place) return res.status(404).json({ error: 'city_not_found', message: `Couldn't find "${b.placeText}". Try the city and country, e.g. "Lisbon, Portugal".` });
     // A city search returns the city itself; its locality is its own name.
     const locality = place.locality || place.label.split(',')[0];

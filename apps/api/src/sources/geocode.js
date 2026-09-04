@@ -11,14 +11,34 @@ const USER_AGENT = 'Roam/0.1 (private beta; +https://github.com/rogerrivers888/r
 export const GEOCODE_ATTRIBUTION = '© OpenStreetMap contributors';
 
 let lastCall = 0;
+
+// A short memory of what Nominatim has just said. Searching as somebody types
+// asks about "Ba", "Bat", "Bath" in a row, and backspacing asks the earlier
+// ones again; answering those from here is what makes the box feel instant,
+// and it keeps a shared service's one-request-a-second easy to honour.
+const recent = new Map();
+const RECENT_MS = 10 * 60_000;
+const RECENT_MAX = 400;
+
+// Real requests made, so a route only writes a provider_calls row when one
+// actually went out and a remembered answer costs the provider nothing.
+let calls = 0;
+export function providerCalls() { return calls; }
+
 async function politeFetch(url) {
+  const seen = recent.get(url);
+  if (seen && Date.now() - seen.at < RECENT_MS) return seen.body;
   // Nominatim asks for ≤1 request/second.
   const wait = Math.max(0, lastCall + 1100 - Date.now());
   if (wait) await new Promise((r) => setTimeout(r, wait));
   lastCall = Date.now();
+  calls += 1;
   const res = await fetch(url, { headers: { 'user-agent': USER_AGENT, accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
   if (!res.ok) throw new Error(`Nominatim ${res.status}`);
-  return res.json();
+  const body = await res.json();
+  recent.set(url, { at: Date.now(), body });
+  if (recent.size > RECENT_MAX) recent.delete(recent.keys().next().value);
+  return body;
 }
 
 /** A full postal address, in the order people read it, from Nominatim's parts. */
@@ -84,7 +104,7 @@ function shortLabel(row, locality) {
   return `${name}, ${locality}`;
 }
 
-async function searchOnce(q, { limit, near, countryCode, bounded = false }) {
+async function searchRaw(q, { limit, near, countryCode, bounded = false }) {
   const params = new URLSearchParams({ q, format: 'jsonv2', addressdetails: '1', limit: String(limit), 'accept-language': 'en' });
   if (near?.lat != null) {
     // Bias toward an area (home, or the city a trip is in). `bounded` turns the
@@ -95,8 +115,11 @@ async function searchOnce(q, { limit, near, countryCode, bounded = false }) {
     if (bounded) params.set('bounded', '1');
   }
   if (countryCode) params.set('countrycodes', String(countryCode).toLowerCase());
-  const rows = await politeFetch(`${BASE}/search?${params}`);
-  return rows.map(shape);
+  return politeFetch(`${BASE}/search?${params}`);
+}
+
+async function searchOnce(q, opts) {
+  return (await searchRaw(q, opts)).map(shape);
 }
 
 // UK-style postcodes; other countries' codes are usually plain digits that the
@@ -160,6 +183,81 @@ export async function geocode(text, { limit = 5, near = null, countryCode = null
     }
   }
   return [];
+}
+
+/**
+ * The kinds of thing you can say you are going to: somewhere people live, or a
+ * named region. Never a street, a house, a shop or a mountain — "Bath" typed in
+ * a box that asks for a city or region must not answer with Bath Road.
+ *
+ * Nominatim's own `featureType=settlement` filter is too narrow to use here: it
+ * loses the Lake District, which is a national park rather than a settlement.
+ * So we ask the ordinary way and keep the rows whose `addresstype` is a place
+ * people go to.
+ */
+const AREA_TYPES = new Set([
+  'city', 'town', 'village', 'hamlet', 'municipality', 'borough', 'city_district', 'district', 'suburb', 'quarter',
+  'county', 'state', 'state_district', 'province', 'region', 'island', 'archipelago',
+  'national_park', 'protected_area', 'nature_reserve',
+]);
+
+/** What to call it in one word, under the name. */
+const AREA_WORDS = {
+  city: 'city', town: 'town', village: 'village', hamlet: 'hamlet', municipality: 'municipality',
+  borough: 'borough', city_district: 'district', district: 'district', suburb: 'area', quarter: 'area',
+  county: 'county', state: 'state', state_district: 'region', province: 'province', region: 'region',
+  island: 'island', archipelago: 'islands',
+  national_park: 'national park', protected_area: 'national park', nature_reserve: 'nature reserve',
+};
+
+/** An area is its own locality: the atlas and a trip both file under this name. */
+function asArea(row, name) {
+  const a = row.address || {};
+  const where = String(row.display_name || '').split(',').map((s) => s.trim())
+    .filter((s, i) => i > 0 && s && !/\d/.test(s) && s.toLowerCase() !== name.toLowerCase());
+  return {
+    ...shape(row),
+    label: name,
+    // The name is the whole answer here; the line under it only says which one.
+    formatted: name,
+    where: where.slice(-3).join(' · '),
+    address: { line1: name, area: null, town: name, region: a.state || a.county || null, postcode: null, country: a.country || null },
+    locality: name,
+    kind: row.addresstype || row.type || null,
+    kindWord: AREA_WORDS[row.addresstype || row.type] || null,
+    matchedBy: 'area',
+  };
+}
+
+/**
+ * Somewhere you would say you were going: cities, towns and regions only.
+ *
+ * One request, no fallbacks: this runs while somebody is still typing, so it
+ * never degrades to postcodes or streets the way `geocode` does for an address.
+ * Nominatim matches the last word as a prefix, so three letters find Bath.
+ */
+export async function geocodeAreas(text, { limit = 6, near = null, countryCode = null } = {}) {
+  const q = String(text || '').trim();
+  if (q.length < 2) return [];
+  // Ask for more than we show: the filter throws away the peaks, the roads and
+  // the shops that a short prefix drags in.
+  const rows = await searchRaw(q, { limit: Math.min(40, Math.max(limit * 5, 20)), near, countryCode });
+  const out = [];
+  const seen = new Set();
+  for (const row of rows) {
+    if (!AREA_TYPES.has(row.addresstype || row.type)) continue;
+    const a = row.address || {};
+    const name = row.name || String(row.display_name || '').split(',')[0].trim();
+    if (!name) continue;
+    // A country is not a destination (owner, 3 Sep 2026).
+    if (a.country && name.trim().toLowerCase() === String(a.country).trim().toLowerCase()) continue;
+    const key = `${name.toLowerCase()}|${a.country || ''}|${a.state || a.county || ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(asArea(row, name));
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /** Coordinates → country and locality, for grouping trips by where they happened. */

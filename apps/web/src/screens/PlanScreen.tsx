@@ -16,6 +16,7 @@ import { OnTheWay } from '../components/OnTheWay';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { InspireMe } from '../components/InspireMe';
 import { Icon } from '../components/Icon';
+import { WhoLine, firstName } from '../components/Faces';
 import { getSpeakPref } from './SettingsScreen';
 import { recallScreen, rememberScreen } from '../screenState';
 
@@ -23,7 +24,6 @@ const speak = (text: string) => { if (getSpeakPref()) speakRaw(text); };
 
 type Turn = { role: 'user' | 'assistant'; text: string; voice?: boolean };
 
-const firstName = (n: string) => n.split(' ')[0];
 type Mode = 'tell' | 'inspire';
 // The rows are the screen from the first moment: empty until something is said.
 // Home and the family are the standing assumptions, so they are one line above the rows, not two rows.
@@ -336,26 +336,9 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
   const fromRow = rows.find((r) => r.key === 'from');
   const whoInRows = rows.find((r) => r.key === 'who');
   const travelBits = [fromRow ? null : 'from home', whoInRows ? null : 'with the family'].filter(Boolean);
-  const whoRow = members.length > 1 ? (
-    <View>
-      {/* One line: "The family" until someone is left out. Tap to open the ticks. */}
-      <Pressable onPress={() => setWhoOpen((o) => !o)} style={styles.whoRow} accessibilityRole="button" accessibilityLabel="Who's coming" accessibilityState={{ expanded: whoOpen }}>
-        <Text style={type.tiny}>Who's coming</Text>
-        <Text style={[type.small, { fontWeight: '600', color: colors.ink, flex: 1 }]} numberOfLines={1}>
-          {!attendingIds || attendingIds.size === members.length ? 'The family' : members.filter((m) => attendingIds.has(m.id)).map((m) => firstName(m.name)).join(', ')}
-        </Text>
-        <Icon name={whoOpen ? 'expand' : 'more'} size={14} color={colors.inkMuted} />
-      </Pressable>
-      {whoOpen ? (
-        <Row style={{ flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-          {members.map((m) => {
-            const on = attendingIds?.has(m.id) ?? true;
-            return <Chip key={m.id} label={firstName(m.name)} icon={on ? 'check' : undefined} selected={on} onPress={() => toggleMember(m.id)} />;
-          })}
-        </Row>
-      ) : null}
-    </View>
-  ) : null;
+  // One line: "The family" until someone is left out; the same control a new
+  // trip asks the question with (components/Faces.tsx).
+  const whoRow = <WhoLine members={members} attending={attendingIds} onToggle={toggleMember} />;
 
   const openRow = (r: PlanRow) => {
     if (speech.listening || busy) return;

@@ -10,7 +10,8 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
 import { searchAllSources, enabledSources, recallVenue, optInFrom } from '../sources/index.js';
-import { geocode, reverseGeocode } from '../sources/geocode.js';
+import { geocode, reverseGeocode, providerCalls as geocodeCalls } from '../sources/geocode.js';
+import { searchAreas, AREA_ATTRIBUTION, providerCalls as areaCalls } from '../sources/areas.js';
 import { findMenuUrl } from '../sources/menuLink.js';
 import { resolveConcept, conceptByKey } from '../domain/concepts.js';
 import { kmBetween } from '../domain/travel.js';
@@ -156,10 +157,22 @@ places.get('/geocode', async (req, res, next) => {
     const m = /^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/.exec(String(req.query.near || ''));
     const near = m ? { lat: Number(m[1]), lng: Number(m[3]) } : await homeOf(household);
     const countryCode = /^[A-Za-z]{2}$/.test(String(req.query.country || '')) ? String(req.query.country).toUpperCase() : null;
-    const kind = req.query.kind === 'lodging' ? 'lodging' : null;
-    const results = await geocode(String(req.query.q || ''), { limit: Number(req.query.limit) || 6, near, countryCode, within: Boolean(m), kind });
-    await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'osm-nominatim', 'places.geocode']);
-    res.json({ results, attribution: '© OpenStreetMap contributors' });
+    const kind = req.query.kind === 'lodging' ? 'lodging' : req.query.kind === 'area' ? 'area' : null;
+    const limit = Number(req.query.limit) || 6;
+    // Both sources answer from a short memory of what they have just been asked,
+    // so a row is only written when a request actually went out.
+    const before = { osm: geocodeCalls(), photon: areaCalls() };
+    const results = kind === 'area'
+      ? await searchAreas(String(req.query.q || ''), { limit, near, countryCode })
+      : await geocode(String(req.query.q || ''), { limit, near, countryCode, within: Boolean(m), kind });
+    const made = [
+      areaCalls() > before.photon ? 'photon' : null,
+      geocodeCalls() > before.osm ? 'osm-nominatim' : null,
+    ].filter(Boolean);
+    for (const provider of made) {
+      await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, provider, kind === 'area' ? 'places.areas' : 'places.geocode']);
+    }
+    res.json({ results, attribution: kind === 'area' ? AREA_ATTRIBUTION : '© OpenStreetMap contributors' });
   } catch (err) {
     next(err);
   }

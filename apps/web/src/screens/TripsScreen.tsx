@@ -4,12 +4,13 @@ import { useViewport } from '../hooks/useViewport';
 import { GroupPanel } from '../components/GroupPanel';
 import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, TripDay, TripDetail, TripSummary, Venue, DayStop } from '../api';
 import { colors, memberColors, radius, spacing, TARGET, type } from '../theme';
-import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap, clock, minutes } from '../components/ui';
+import { Button, Card, Chip, FoldLine, Row, Segmented, StatusLine, Wrap, clock, minutes } from '../components/ui';
 import { SourcePicker, TripSpendLine } from '../components/SourcePicker';
 import { TimeBar } from '../components/TimeBar';
-import { FaceRow } from '../components/Faces';
+import { WhoLine } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
 import { DateRangePicker, monthSpanLabel } from '../components/DateRangePicker';
+import { TimeRangePicker, timeLabel } from '../components/TimePicker';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { BrowsePool } from '../components/BrowsePool';
 import { MapView, MapPin } from '../components/MapView';
@@ -138,23 +139,30 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
     <ScrollView contentContainerStyle={[styles.page, wide && { maxWidth: 760 }]} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={type.title}>Trips</Text>
-          <Text style={type.small}>What's coming up in the next fortnight. Later and past trips are folded below.</Text>
+          <Text style={type.title}>{creating ? 'New trip' : 'Trips'}</Text>
+          <Text style={type.small}>{creating ? 'Where, when, and who — everything else can wait until it exists.' : "What's coming up in the next fortnight. Later and past trips are folded below."}</Text>
         </View>
         <Button label={creating ? 'Close' : 'New trip'} icon={creating ? 'close' : 'add'} kind={creating ? 'ghost' : 'primary'} onPress={() => { setCreating((c) => !c); onPrefillConsumed?.(); }} />
       </View>
 
+      {/* A new trip is its own page: the trips you already have are not part of
+          making one (owner, 4 Sep 2026). */}
       {creating && household ? (
-        <NewTripForm household={household} prefill={prefill ?? null} onCreated={async (t) => { setCreating(false); onPrefillConsumed?.(); await load(); setOpenId(t.trip.id); }} />
-      ) : null}
-
-      {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-      {data && !data.trips.length ? <Card><Text style={type.small}>No trips yet. Create one above, or open a city in Places and tap "Plan a trip here".</Text></Card> : null}
-      {buckets.up.length ? <Text style={[type.tiny, { letterSpacing: 0.4 }]}>UP NEXT · 14 DAYS</Text> : data && data.trips.length ? <Card><Text style={type.small}>Nothing in the next fortnight.</Text></Card> : null}
-      {buckets.up.map((t, i) => card(t, i === 0))}
-      {clashes.length ? <StatusLine tone="warn">{clashes.map(([k, n]) => `${n} trips on ${fmtDate(k)}`).join(' · ')}. Keep them all?</StatusLine> : null}
-      {foldRow('later', `Later · ${buckets.later.length}`, buckets.later)}
-      {foldRow('past', `Past · ${buckets.past.length}`, buckets.past)}
+        <>
+          <NewTripForm household={household} prefill={prefill ?? null} onCreated={async (t) => { setCreating(false); onPrefillConsumed?.(); await load(); setOpenId(t.trip.id); }} />
+          {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+        </>
+      ) : (
+        <>
+          {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+          {data && !data.trips.length ? <Card><Text style={type.small}>No trips yet. Create one above, or open a city in Places and tap "Plan a trip here".</Text></Card> : null}
+          {buckets.up.length ? <Text style={[type.tiny, { letterSpacing: 0.4 }]}>UP NEXT · 14 DAYS</Text> : data && data.trips.length ? <Card><Text style={type.small}>Nothing in the next fortnight.</Text></Card> : null}
+          {buckets.up.map((t, i) => card(t, i === 0))}
+          {clashes.length ? <StatusLine tone="warn">{clashes.map(([k, n]) => `${n} trips on ${fmtDate(k)}`).join(' · ')}. Keep them all?</StatusLine> : null}
+          {foldRow('later', `Later · ${buckets.later.length}`, buckets.later)}
+          {foldRow('past', `Past · ${buckets.past.length}`, buckets.past)}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -167,6 +175,10 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
   const home = household.household.home;
   const [kind, setKind] = useState<'trip' | 'outing'>('trip');
   const [title, setTitle] = useState('');
+  // The name is filled in from where you are going and keeps up with it until
+  // you type over it (owner, 4 Sep 2026: "It should just chuck in the location
+  // that I'm going to, and then I can just edit that name as I see fit").
+  const [named, setNamed] = useState(false);
   const [place, setPlace] = useState<Place | null>(prefill?.place ?? null);
   const [placeText, setPlaceText] = useState(prefill?.placeText ?? '');
   const [start, setStart] = useState(new Date().toISOString().slice(0, 10));
@@ -184,23 +196,23 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
   const [to, setTo] = useState<Place | null>(null);
   const [oStart, setOStart] = useState('10:00');
   const [oEnd, setOEnd] = useState('16:00');
+  // A day out is a drive unless it is said not to be (owner, 4 Sep 2026:
+  // "the means of transport should be defaulted to drive… walking and cycling,
+  // it's just too much noise"). The other three are behind the line.
   const [mode, setMode] = useState<'walking' | 'cycling' | 'driving' | 'transit'>('driving');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Where first, then the name: the name starts with the city, so two Rome
-  // trips read as "Rome · half-term" and "Rome · Oct 2026", never "Roma Oct 26" alone.
   const shortName = (p: Place | null) => (!p ? '' : home && p.lat === home.lat && p.lng === home.lng ? 'Home' : (p.locality ?? p.label.split(',')[0].trim()));
-  const city = kind === 'trip' ? (place ? shortName(place) : placeText.trim()) : shortName(to) || shortName(from);
+  // Half-typed letters are not a destination: the name fills in once somewhere
+  // has been picked, not while the box still says "bat".
+  const city = kind === 'trip' ? shortName(place) : shortName(to) || shortName(from);
   const defaultTitle = kind === 'trip'
     ? (city ? `${city} · ${monthSpanLabel(start, end)}` : '')
     : (to ? `${shortName(from) || 'Home'} → ${shortName(to)}` : from ? `Around ${shortName(from)}` : '');
-  const savedTitle = (() => {
-    const t = title.trim();
-    if (!t) return defaultTitle || undefined;
-    if (!city || t.toLowerCase().includes(city.toLowerCase())) return t;
-    return `${city} · ${t}`;
-  })();
+  // Where changes, so does the name — until it has been typed in.
+  useEffect(() => { if (!named) setTitle(defaultTitle); }, [defaultTitle, named]);
+  const savedTitle = title.trim() || defaultTitle || undefined;
 
   const submit = async () => {
     setBusy(true); setError(null);
@@ -208,7 +220,8 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
       if (kind === 'trip') {
         if (!place && !placeText.trim()) { setError('Where is the trip? Pick a city or region.'); setBusy(false); return; }
         const t = await api.createMultiDayTrip({
-          title: savedTitle, place: place ?? undefined, placeText: place ? undefined : placeText.trim(), startDate: start, endDate: end,
+          title: savedTitle ?? (placeText.trim() ? `${placeText.trim()} · ${monthSpanLabel(start, end)}` : undefined),
+          place: place ?? undefined, placeText: place ? undefined : placeText.trim(), startDate: start, endDate: end,
           base: base ?? undefined, baseKind: base ? baseKind : 'other', hasCar, dayStart, dayEnd, intensity, attendingMemberIds: [...attending], seedFromAtlas: seed,
         });
         await onCreated(t);
@@ -225,14 +238,24 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
   };
 
   const nameField = (
-    <>
+    <View style={{ gap: 4 }}>
       <Text style={type.h3}>Name</Text>
-      <Row>
-        {city ? <View style={styles.prefix}><Text style={type.h3}>{city} ·</Text></View> : null}
-        <TextInput value={title} onChangeText={setTitle} placeholder={city ? (kind === 'trip' ? `${monthSpanLabel(start, end)} (or your own — half-term, Gina's birthday…)` : 'Saturday at the coast…') : 'Pick where first'} placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
-      </Row>
-      {savedTitle ? <Text style={type.tiny}>Saved as “{savedTitle}”.</Text> : null}
-    </>
+      <TextInput
+        value={title}
+        onChangeText={(t) => { setNamed(true); setTitle(t); }}
+        placeholder={city ? defaultTitle : 'Pick where first'}
+        placeholderTextColor={colors.inkFaint}
+        style={styles.input}
+      />
+    </View>
+  );
+
+  const toggleWho = (id: string) => setAttending((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const whoLine = <WhoLine members={household.members} attending={attending} onToggle={toggleWho} />;
+  const paceLine = (
+    <FoldLine label="Pace" value={{ relaxed: 'Relaxed', balanced: 'Balanced', packed: 'Packed' }[intensity]}>
+      <Segmented value={intensity} options={[{ value: 'relaxed', label: 'Relaxed' }, { value: 'balanced', label: 'Balanced' }, { value: 'packed', label: 'Packed' }]} onChange={setIntensity} />
+    </FoldLine>
   );
 
   return (
@@ -241,66 +264,64 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
 
       {kind === 'trip' ? (
         <>
+          {/* One box, searched as the letters arrive. It asks for a city or a
+              region, so the box does not say so twice (owner, 4 Sep 2026). */}
           <Text style={type.h3}>Where</Text>
-          {place ? <PlacePicker value={place} onPick={setPlace} countryCode={prefill?.countryCode} /> : (
-            <>
-              <TextInput value={placeText} onChangeText={setPlaceText} placeholder="City or region — Lisbon, the Lake District, New York" placeholderTextColor={colors.inkFaint} style={styles.input} />
-              <Text style={type.tiny}>Or pick precisely:</Text>
-              <PlacePicker value={null} onPick={(p) => { setPlace(p); setPlaceText(''); }} placeholder="Search a city or region" countryCode={prefill?.countryCode} />
-            </>
-          )}
+          <PlacePicker value={place} onPick={(p) => { setPlace(p); if (p) setPlaceText(''); }} onText={setPlaceText} kind="area" countryCode={prefill?.countryCode} placeholder="Lisbon · Bath · the Lake District" />
           <Text style={type.h3}>Dates</Text>
           <DateRangePicker start={start} end={end} onApply={(s, e) => { setStart(s); setEnd(e); }} />
           {nameField}
           <Text style={type.h3}>Staying at</Text>
           <PlacePicker value={base} onPick={setBase} near={place} countryCode={place?.countryCode} kind="lodging" placeholder={city ? `Hotel, rental or address in ${city} (optional)` : 'Hotel, rental or address (optional — city centre if empty)'} />
           {base ? <Wrap>{(['hotel', 'rental', 'friends', 'other'] as const).map((k) => <Chip key={k} label={k} selected={baseKind === k} onPress={() => setBaseKind(k)} />)}</Wrap> : null}
-          <Row style={{ justifyContent: 'space-between' }}>
-            <Text style={type.body}>We'll have a car</Text>
-            <Switch value={hasCar} onValueChange={setHasCar} />
-          </Row>
-          <Row>
-            <Text style={[type.small, { flex: 1 }]}>Days usually run from</Text>
-            <TextInput value={dayStart} onChangeText={setDayStart} style={[styles.input, { width: 80 }]} />
-            <Text style={type.small}>to</Text>
-            <TextInput value={dayEnd} onChangeText={setDayEnd} style={[styles.input, { width: 80 }]} />
-          </Row>
-          <Row style={{ justifyContent: 'space-between' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={type.body}>Start from our atlas</Text>
-              <Text style={type.tiny}>Places we've been to or saved in this city go straight onto the shortlist.</Text>
+          {whoLine}
+          {paceLine}
+          <FoldLine label="Days run" value={`${timeLabel(dayStart)} – ${timeLabel(dayEnd)}${hasCar ? ' · with a car' : ' · no car'}${seed ? '' : ' · not from our atlas'}`}>
+            <View style={{ gap: spacing.sm }}>
+              <TimeRangePicker start={dayStart} end={dayEnd} onChange={(a, b) => { setDayStart(a); setDayEnd(b); }} labels={['Days start', 'Days end']} />
+              <Row style={{ justifyContent: 'space-between' }}>
+                <Text style={type.body}>We'll have a car</Text>
+                <Switch value={hasCar} onValueChange={setHasCar} />
+              </Row>
+              <Row style={{ justifyContent: 'space-between' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={type.body}>Start from our atlas</Text>
+                  <Text style={type.tiny}>Places we've been to or saved in this city go straight onto the shortlist.</Text>
+                </View>
+                <Switch value={seed} onValueChange={setSeed} />
+              </Row>
             </View>
-            <Switch value={seed} onValueChange={setSeed} />
-          </Row>
+          </FoldLine>
         </>
       ) : (
         <>
-          <Text style={type.h3}>From</Text>
-          <PlacePicker value={from} onPick={setFrom} extra={home ? [home] : []} />
-          <Text style={type.h3}>To (optional)</Text>
-          <PlacePicker value={to} onPick={setTo} near={from} />
+          <Text style={type.h3}>Where to</Text>
+          <PlacePicker value={to} onPick={setTo} near={from} kind="area" placeholder="Bath · Brighton · the Cotswolds" />
           <Text style={type.h3}>When</Text>
           <DateRangePicker start={start} end={start} single onApply={(s) => setStart(s)} />
-          <Row>
-            <Text style={[type.small, { flex: 1 }]}>Out from</Text>
-            <TextInput value={oStart} onChangeText={setOStart} style={[styles.input, { width: 80 }]} />
-            <Text style={type.small}>to</Text>
-            <TextInput value={oEnd} onChangeText={setOEnd} style={[styles.input, { width: 80 }]} />
-          </Row>
-          <Segmented value={mode} options={[{ value: 'walking', label: 'Walk' }, { value: 'cycling', label: 'Cycle' }, { value: 'driving', label: 'Drive' }, { value: 'transit', label: 'Transit' }]} onChange={setMode} />
+          <TimeRangePicker start={oStart} end={oEnd} onChange={(a, b) => { setOStart(a); setOEnd(b); }} labels={['Out from', 'Back by']} />
           {nameField}
+          {/* Starting from home and driving unless it is said otherwise. */}
+          <FoldLine label="Getting there" value={`${MODE_WORD[mode]} from ${shortName(from) || 'home'}`} icon={mode === 'cycling' ? 'walking' : mode}>
+            <View style={{ gap: spacing.sm }}>
+              <Wrap>{(['driving', 'transit', 'walking', 'cycling'] as const).map((m) => <Chip key={m} label={MODE_WORD[m]} selected={mode === m} onPress={() => setMode(m)} />)}</Wrap>
+              <Text style={type.tiny}>Starting from</Text>
+              <PlacePicker value={from} onPick={setFrom} extra={home ? [home] : []} />
+            </View>
+          </FoldLine>
+          {whoLine}
+          {paceLine}
         </>
       )}
 
-      <Text style={type.small}>Usual pace for this trip</Text>
-      <Segmented value={intensity} options={[{ value: 'relaxed', label: 'Relaxed' }, { value: 'balanced', label: 'Balanced' }, { value: 'packed', label: 'Packed' }]} onChange={setIntensity} />
-      <Text style={type.small}>Who's coming</Text>
-      <FaceRow members={household.members} attending={attending} onToggle={(id) => setAttending((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; })} />
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       <Button label={kind === 'trip' ? 'Create trip' : 'Create day out'} onPress={submit} loading={busy} />
     </Card>
   );
 }
+
+/** How a day out gets there, in the word somebody would say. */
+const MODE_WORD = { driving: 'Driving', transit: 'By train or bus', walking: 'Walking', cycling: 'Cycling' } as const;
 
 // ---------------------------------------------------------------------------
 // Trip page
@@ -698,7 +719,6 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   split: { gap: spacing.md },
   input: { minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink },
-  prefix: { minHeight: TARGET, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.accentSoft },
   statRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
   stat: { flex: 1, minWidth: 120, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, alignItems: 'center' },
   dayChip: { padding: spacing.md, borderRadius: radius.md, borderWidth: 2, borderColor: colors.line, backgroundColor: colors.surfaceMuted, minWidth: 140 },

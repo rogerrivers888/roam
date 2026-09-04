@@ -187,6 +187,35 @@ export function Meter({ used, limit, label }: { used: number; limit: number; lab
   );
 }
 
+/**
+ * One line that says what a setting is, with everything it could be folded
+ * behind it — "Who's coming · The family", "Getting there · Driving". The
+ * pattern the Plan screen already uses, so a form is a short list of answers
+ * rather than a wall of controls (owner, 4 Sep 2026: "compact it all down").
+ */
+export function FoldLine({ label, value, children, icon, startOpen = false }: {
+  label: string;
+  /** What it is set to now, in a few words. */
+  value: string;
+  /** The controls, shown only once the line is tapped. */
+  children: React.ReactNode;
+  icon?: IconName;
+  startOpen?: boolean;
+}) {
+  const [open, setOpen] = React.useState(startOpen);
+  return (
+    <View>
+      <Pressable onPress={() => setOpen((o) => !o)} style={styles.foldLine} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded: open }}>
+        {icon ? <Icon name={icon} size={14} color={colors.inkMuted} /> : null}
+        <Text style={type.tiny}>{label}</Text>
+        <Text style={[type.small, { fontWeight: '600', color: colors.ink, flex: 1 }]} numberOfLines={1}>{value}</Text>
+        <Icon name={open ? 'collapse' : 'more'} size={14} color={colors.inkMuted} />
+      </Pressable>
+      {open ? <View style={{ marginTop: 4 }}>{children}</View> : null}
+    </View>
+  );
+}
+
 export const Row = ({ children, style }: { children: React.ReactNode; style?: ViewStyle }) => (
   <View style={[styles.row, style]}>{children}</View>
 );
@@ -246,6 +275,7 @@ export const styles = StyleSheet.create({
   meterTrack: { height: 6, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted, overflow: 'hidden' },
   meterFill: { height: 6, borderRadius: radius.pill },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  foldLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 34, paddingHorizontal: 4 },
 });
 
 export const minutes = (m: number) => {

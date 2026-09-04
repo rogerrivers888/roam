@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, memberColor, TARGET, type } from '../theme';
+import { Chip, FoldLine, Row } from './ui';
 
 export type Face = { id: string; name: string; isMinor?: boolean; avatarUrl?: string | null };
 
@@ -49,6 +50,36 @@ export function FaceRow({
         );
       })}
     </View>
+  );
+}
+
+/** "Roger" from "Roger Sumner-Rivers": a family calls each other by one name. */
+export const firstName = (n: string) => n.split(/\s+/)[0];
+
+/**
+ * Who's coming, on one line — "The family" until somebody is left out — opening
+ * into a tick per person. The Plan screen's control, used wherever a form asks
+ * the same question, so a new trip is not a wall of faces (owner, 4 Sep 2026).
+ */
+export function WhoLine({ members, attending, onToggle }: {
+  members: Face[];
+  /** Nobody named yet means everybody. */
+  attending: Set<string> | null;
+  onToggle: (id: string) => void;
+}) {
+  if (members.length < 2) return null;
+  const all = !attending || attending.size === members.length;
+  const chosen = members.filter((m) => !attending || attending.has(m.id));
+  const value = all ? 'The family' : chosen.map((m) => firstName(m.name)).join(', ') || 'Nobody yet';
+  return (
+    <FoldLine label="Who's coming" value={value}>
+      <Row style={{ flexWrap: 'wrap', gap: 6 }}>
+        {members.map((m) => {
+          const on = !attending || attending.has(m.id);
+          return <Chip key={m.id} label={firstName(m.name)} icon={on ? 'check' : undefined} selected={on} onPress={() => onToggle(m.id)} />;
+        })}
+      </Row>
+    </FoldLine>
   );
 }
 
