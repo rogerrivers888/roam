@@ -560,9 +560,18 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                 ) : null}
               </ScrollView>
               <View style={styles.bar}>
-                <Button label="Start again" kind="ghost" style={styles.barBtn} onPress={startAgain} disabled={busy} />
-                <View style={{ flex: 1 }} />
-                <Button label="Add/Change" kind="secondary" style={styles.barBtn} onPress={() => setStep('menu')} disabled={busy} />
+                <Pressable
+                  onPress={startAgain}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Start again"
+                  style={styles.barIcon}
+                >
+                  <Icon name="refresh" size={18} color={colors.ink} />
+                </Pressable>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Button label="Add/Change" icon="edit" kind="secondary" style={styles.barBtn} onPress={() => setStep('menu')} disabled={busy} />
+                </View>
                 <Button label="Show staff" icon="list" style={styles.barBtn} onPress={() => setStep('staff')} disabled={!order.items.length} />
               </View>
             </>
@@ -751,7 +760,13 @@ const styles = StyleSheet.create({
   },
   // Three actions have to sit on one row inside 390px, so the bar's buttons are
   // tighter than the standard one (owner, 4 Sep 2026).
-  barBtn: { paddingHorizontal: 10 },
+  barBtn: { paddingHorizontal: 12 },
+  // Starting again is one refresh, not a word: it buys the room for the other
+  // two to keep their icons (owner, 4 Sep 2026).
+  barIcon: {
+    width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'center',
+    borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,
+  },
   orderRow: { paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.line },
   whatIs: { backgroundColor: colors.surfaceMuted, borderRadius: radius.sm, padding: spacing.sm, gap: 2 },
   rowBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 15, borderWidth: 1, borderColor: colors.line, marginLeft: 6 },
