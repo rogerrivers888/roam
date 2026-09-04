@@ -868,7 +868,12 @@ export const api = {
     if (typeof EventSource === 'undefined') return api.shortlistSearch(tripId, p);
     try {
       return await new Promise<SearchAnswer>((resolve, reject) => {
-        const es = new EventSource(`${API_URL}/api/trips/${tripId}/shortlist/search/stream${qs(p)}`);
+        // `withCredentials` is what carries the session cookie, and the stream
+        // is one of only two GETs the API accepts a cookie for (api/src/auth.js)
+        // — an EventSource cannot send a header. Deployed, the web app and the
+        // API are two origins, so without this every search would 401 on the
+        // stream and fall back to the plain request with no map drawn.
+        const es = new EventSource(`${API_URL}/api/trips/${tripId}/shortlist/search/stream${qs(p)}`, { withCredentials: true });
         const stop = () => { try { es.close(); } catch { /* already gone */ } };
         // Every event the API can send. A name missing from this list is an
         // event delivered and silently dropped, which looks exactly like a

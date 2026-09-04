@@ -21,24 +21,32 @@ test('reads the number a file leads with', () => {
 });
 
 test('a new file taking a used number is refused', () => {
-  const files = ['001_init.sql', '002_things.sql', '002_other_things.sql'];
   assert.throws(
-    () => assertNoNewDuplicateNumbers(files, new Set(['001_init.sql', '002_things.sql'])),
-    /two migrations share the number 002/,
+    () => assertNoNewDuplicateNumbers(['001_init.sql', '040_things.sql', '040_other_things.sql']),
+    /two migrations share the number 040/,
   );
 });
 
-test('duplicates that have already run everywhere are history, not an error', () => {
-  const files = ['009_favourites.sql', '009_timezone.sql'];
-  assert.doesNotThrow(() => assertNoNewDuplicateNumbers(files, new Set(files)));
+test('the six collisions that already happened are history, not an error', () => {
+  for (const n of ['009', '019', '021', '028', '029', '030']) {
+    assert.doesNotThrow(() => assertNoNewDuplicateNumbers([`${n}_one.sql`, `${n}_two.sql`]), `${n} should be grandfathered`);
+  }
 });
 
-test('the repository as it stands passes its own guard', async () => {
-  // The five historical duplicates are applied; anything added since must not
-  // have collided. This is the test that fails on the day somebody adds one.
+test('the repository builds from an empty database', async () => {
+  // The guard must not read history out of "what this database has applied":
+  // an empty one has applied nothing, and inferring from that would refuse to
+  // build a database from scratch. This is the case that would have blocked a
+  // deploy (found by review, 4 Sep 2026).
   const files = (await fs.readdir(migrationsDir)).filter((f) => f.endsWith('.sql')).sort();
-  const historical = new Set(files.filter((f) => /^(009|019|021|028|029|030)_/.test(f)));
-  assert.doesNotThrow(() => assertNoNewDuplicateNumbers(files, historical));
+  assert.doesNotThrow(() => assertNoNewDuplicateNumbers(files));
+});
+
+test('and from a database part-way through', async () => {
+  // The other failing case: a database applied through 029 sees both 030 files
+  // as new.
+  const files = (await fs.readdir(migrationsDir)).filter((f) => f.endsWith('.sql')).sort();
+  assert.doesNotThrow(() => assertNoNewDuplicateNumbers(files));
 });
 
 test('every migration is named number_words.sql', async () => {

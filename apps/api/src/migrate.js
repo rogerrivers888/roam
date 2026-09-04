@@ -12,28 +12,37 @@ const migrationsDir = path.resolve(
 export const numberOf = (file) => file.slice(0, file.indexOf('_'));
 
 /**
+ * Numbers that have already been used twice in this repository's history.
+ *
+ * Six collisions happened before there was anything to stop them. Every one is
+ * applied wherever it matters, they are ordered deterministically by full
+ * filename, and renaming an applied file would make it run a second time — so
+ * they are history, listed here once, and everything else must be unique.
+ *
+ * The list is explicit rather than derived from what a database has applied,
+ * because "has this been applied" is a different answer in every environment:
+ * an empty database has applied none of them, and a guard that inferred history
+ * from that would refuse to build a database from scratch.
+ */
+const HISTORICAL_DUPLICATES = new Set(['009', '019', '021', '028', '029', '030']);
+
+/**
  * Refuse a *new* migration whose number is already taken.
  *
  * Two files sharing a number is how two branches quietly disagree about the
- * order the schema was built in. It has happened five times here already
- * (009, 019, 021, 028, 029) and those are history: they are applied everywhere,
- * they are ordered deterministically by full filename, and renaming an applied
- * file would make it run a second time. So the ones already in
- * `schema_migrations` are grandfathered, and this stops the next one — while
- * renaming it is still free, because nothing has run it yet.
+ * order the schema was built in. It is caught here, while renumbering is still
+ * free, rather than on the day two environments disagree.
  */
-export function assertNoNewDuplicateNumbers(files, applied) {
+export function assertNoNewDuplicateNumbers(files) {
   const taken = new Map();
   for (const file of files) {
     const n = numberOf(file);
     if (!n) continue;
     const seen = taken.get(n);
-    // A clash only matters when at least one side has not been applied: two
-    // files that both ran long ago are a fact about the past.
-    if (seen && (!applied.has(file) || !applied.has(seen))) {
+    if (seen && !HISTORICAL_DUPLICATES.has(n)) {
       throw new Error(
         `two migrations share the number ${n}: ${seen} and ${file}. `
-        + `Renumber the one that has not been applied yet — a duplicate number is how environments start disagreeing about the order.`,
+        + 'Renumber the new one — a duplicate number is how environments start disagreeing about the order.',
       );
     }
     if (!seen) taken.set(n, file);
@@ -52,7 +61,7 @@ async function main() {
   const applied = new Set(rows.map((r) => r.name));
   const files = (await fs.readdir(migrationsDir)).filter((f) => f.endsWith('.sql')).sort();
 
-  assertNoNewDuplicateNumbers(files, applied);
+  assertNoNewDuplicateNumbers(files);
 
   let ran = 0;
   for (const file of files) {
