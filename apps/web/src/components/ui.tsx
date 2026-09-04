@@ -1,5 +1,5 @@
-import React from 'react';
-import { Pressable, StyleSheet, StyleProp, Text, View, ViewStyle, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, StyleProp, Text, TextInput, View, ViewStyle, ActivityIndicator } from 'react-native';
 import { colors, fonts, radius, spacing, type, TARGET } from '../theme';
 import { Icon, IconName } from './Icon';
 
@@ -136,13 +136,20 @@ export function Segmented<T extends string>({
   );
 }
 
+/**
+ * A number you type (owner, 4 Sep 2026: "I never want to see a plus/minus sign
+ * on a number… just click into the box and type your number instead of clicking
+ * plus 24 times"). The label is on the left, the box is small and on the right,
+ * and a `format` turns the number into words beside it — you type 90, it says
+ * 1h 30m. Out-of-range typing is clamped when the field is left, never as it
+ * is typed, so a 9 on the way to 90 is not fought with.
+ */
 export function Stepper({
   label,
   value,
   onChange,
   min = 0,
   max = 9,
-  step = 1,
   format,
 }: {
   label: string;
@@ -150,19 +157,34 @@ export function Stepper({
   onChange: (v: number) => void;
   min?: number;
   max?: number;
+  /** Ignored: kept so callers that used to nudge by a step still compile. */
   step?: number;
   format?: (v: number) => string;
 }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => { setText(String(value)); }, [value]);
+  const commit = () => {
+    const n = Number(String(text).replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(n) || text.trim() === '') { setText(String(value)); return; }
+    const next = Math.min(max, Math.max(min, Math.round(n)));
+    setText(String(next));
+    if (next !== value) onChange(next);
+  };
   return (
     <View style={styles.stepper}>
       <Text style={[type.small, { flex: 1 }]}>{label}</Text>
-      <Pressable onPress={() => onChange(Math.max(min, value - step))} style={styles.stepBtn} accessibilityLabel={`Decrease ${label}`}>
-        <Icon name="minus" size={18} color={colors.ink} />
-      </Pressable>
-      <Text style={[type.h3, { minWidth: 56, textAlign: 'center' }]}>{format ? format(value) : value}</Text>
-      <Pressable onPress={() => onChange(Math.min(max, value + step))} style={styles.stepBtn} accessibilityLabel={`Increase ${label}`}>
-        <Icon name="add" size={18} color={colors.ink} />
-      </Pressable>
+      {format ? <Text style={type.tiny}>{format(value)}</Text> : null}
+      <TextInput
+        value={text}
+        onChangeText={setText}
+        onBlur={commit}
+        onSubmitEditing={commit}
+        keyboardType="number-pad"
+        returnKeyType="done"
+        selectTextOnFocus
+        accessibilityLabel={label}
+        style={styles.numberBox}
+      />
     </View>
   );
 }
@@ -266,11 +288,10 @@ export const styles = StyleSheet.create({
   segmentText: { fontFamily: fonts.body, fontSize: 13, color: colors.inkMuted, fontWeight: '600' },
   segmentTextActive: { color: colors.primaryFg },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET },
-  stepBtn: {
-    width: TARGET, height: TARGET - 6, borderRadius: radius.md,
-    backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center',
+  numberBox: {
+    width: 72, minHeight: TARGET - 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,
+    backgroundColor: colors.surface, textAlign: 'center', fontFamily: fonts.body, fontSize: 16, fontWeight: '700', color: colors.ink,
   },
-  stepBtnText: { fontSize: 20, color: colors.ink, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   meterTrack: { height: 6, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted, overflow: 'hidden' },
   meterFill: { height: 6, borderRadius: radius.pill },
