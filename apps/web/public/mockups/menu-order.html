@@ -1,0 +1,771 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Roam · Menu, order and stars — Circolo Popolare</title><style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Caveat:wght@700&display=swap');
+:root{--ground:#FFFFFF;--ink:#201E1D;--muted:#6B6663;--rule:#E5EFEA;--panel:#EFF8F3;--mint:#B6E3CF;--leaf:#2E8A63;--leafDeep:#2F6A52;--red:#EC3013;
+  --primary:#201E1D;--primaryFg:#FFFFFF;--icon:#2E8A63;--well:transparent;--head:#B6E3CF;--headInk:#201E1D;--headSub:#2F6A52;--tabbar:#FFFFFF;--tile1:#B6E3CF;--tile2:#EFF8F3;--sel:#201E1D;--selFg:#FFFFFF;--handle:#201E1D;--range:#2E8A63;--scrim:rgba(32,30,29,.45)}
+[data-theme="dark"]{--ground:#17171A;--ink:#F3F2F2;--muted:#8F8D93;--rule:#2B2B30;--panel:#1E1E23;--mint:#B6E3CF;--leaf:#B6E3CF;--leafDeep:#8F8D93;--red:#EC3013;
+  --primary:#B6E3CF;--primaryFg:#17171A;--icon:#F3F2F2;--well:#24242A;--head:#17171A;--headInk:#F3F2F2;--headSub:#8F8D93;--tabbar:#101013;--tile1:#2E2E35;--tile2:#3A3A42;--sel:#B6E3CF;--selFg:#17171A;--handle:#F3F2F2;--range:#B6E3CF;--scrim:rgba(0,0,0,.55)}
+*{box-sizing:border-box}
+body{margin:0;background:#E9E6DF;font:15px/1.45 Archivo,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#201E1D;padding:32px}
+h1{font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+.lede{color:#6B6663;max-width:960px;margin:0 0 24px}
+section{margin:0 0 48px}
+h2{font-size:20px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+.sub{color:#6B6663;margin:0 0 16px;max-width:960px}
+.row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+.notes{width:300px;background:#fff;border:1px solid #E5EFEA;border-radius:4px;padding:14px 16px;font-size:13px}
+.notes h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em}.notes ul{margin:0 0 10px;padding-left:18px}.notes li{margin:0 0 4px}
+.cap{font-size:12px;color:#6B6663;text-align:center;margin:8px 0 0;max-width:390px}
+.modelab{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6B6663;margin:0 0 10px}
+a{color:#2E8A63}
+.ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
+.ic.s{width:13px;height:13px}.ic.l{width:20px;height:20px}
+/* phone */
+.phone{width:390px;height:844px;background:var(--ground);color:var(--ink);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;font-family:Archivo,sans-serif}
+.status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700;background:var(--head);color:var(--headInk)}
+.screen{flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.tabbar{height:64px;border-top:1px solid var(--rule);background:var(--tabbar);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--muted)}
+.tabbar div{display:flex;flex-direction:column;align-items:center;gap:3px}.tabbar .on{color:var(--ink);font-weight:700}
+.head{background:var(--head);color:var(--headInk);padding:4px 16px 26px;display:flex;flex-direction:column;gap:6px}
+.head .top{display:flex;justify-content:space-between;align-items:center}
+.head .back{font-size:12px;color:var(--headSub);display:flex;align-items:center;gap:4px;font-weight:600}
+.wordmark{font:700 24px/1 Caveat,cursive;display:inline-flex;align-items:center;gap:3px;color:var(--headInk)}
+.wordmark .pin{display:inline-flex;width:20px;height:24px;margin-left:2px}
+.wordmark .pin svg{display:block;width:20px;height:24px;overflow:visible}
+.head .title{font-size:24px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.head .sub{font-size:12px;color:var(--headSub);margin:0;font-weight:600}
+.tabs{display:flex;gap:6px;padding:0 16px;margin-top:-18px}
+.tabs div{flex:1;text-align:center;padding:10px 6px;border-radius:4px;background:var(--ground);border:1px solid var(--rule);font-weight:700;font-size:13px;color:var(--muted)}
+.tabs .on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.body{flex:1;overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.hdr{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.h3{font-weight:800;font-size:17px;letter-spacing:-.02em}.small{font-size:13px;color:var(--muted)}.tiny{font-size:12px;color:var(--muted)}
+.lab{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.iconbtn{width:38px;height:38px;border-radius:4px;background:var(--ground);border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;color:var(--ink);flex:none}
+[data-theme="dark"] .iconbtn{border-color:#F3F2F2}
+/* category tiles: mint tiles, deep-leaf text; the chosen one is ink */
+.cats{display:flex;gap:8px}
+.cat{flex:1;border-radius:4px;padding:10px 10px 8px;display:flex;flex-direction:column;gap:6px;background:var(--tile2);color:var(--ink)}
+.cat svg{color:var(--icon)}
+.cat .n{font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1}.cat .l{font-size:12px;font-weight:600;color:var(--muted)}
+.cat.sel{background:var(--sel);color:var(--selFg)}.cat.sel .l{color:var(--selFg);opacity:.8}.cat.sel svg{color:var(--selFg)}
+/* control bar: pills, outline in rule, selected ink */
+.bar{display:flex;gap:6px}
+.pill{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 12px;border-radius:999px;background:var(--ground);border:1px solid var(--rule);font-size:12px;font-weight:600;white-space:nowrap;color:var(--ink)}
+.pill svg{color:var(--icon)}
+.pill.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}.pill.on svg{color:var(--selFg)}
+[data-theme="dark"] .pill{background:var(--panel)}
+[data-theme="dark"] .pill.on{background:var(--sel);color:var(--selFg)}
+/* result cards: white on a rule; photo tiles mint / mint tint */
+.cardlist{display:flex;flex-direction:column}
+.pc{display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--rule)}
+.pc:first-child{border-top:0;padding-top:4px}
+.pc .ph{width:92px;height:92px;border-radius:4px;flex:none;background:var(--tile1);position:relative}
+.pc .ph.b{background:var(--tile2)}
+.pc .heart{position:absolute;right:-6px;top:-6px;width:22px;height:22px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;color:#fff;border:2px solid var(--ground)}
+.pc .heart svg{fill:#fff;stroke:#fff;width:11px;height:11px}
+.pc .t{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pc .name{font-weight:800;font-size:15px;letter-spacing:-.01em}
+.pc .meta{font-size:13px;color:var(--muted)}
+.pc .meta svg{color:var(--icon)}
+.why{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;padding:2px 9px;border-radius:999px;border:1px solid var(--rule);font-size:12px;font-weight:600;color:var(--ink);margin-top:2px}
+.why svg{color:var(--icon)}
+[data-theme="dark"] .why{background:var(--panel)}
+.pc .act{display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-end}
+.save{width:36px;height:36px;border-radius:50%;border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;color:var(--ink);background:var(--ground)}
+[data-theme="dark"] .save{border-color:#F3F2F2}
+.save.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+/* sheets */
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:6}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--rule);padding:12px 16px 18px;z-index:7;display:flex;flex-direction:column;gap:12px;color:var(--ink)}
+.handle{width:40px;height:4px;border-radius:2px;background:var(--rule);margin:0 auto}
+.grp{display:flex;flex-direction:column;gap:6px}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opt{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid var(--rule);background:var(--ground);font-size:13px;font-weight:600;color:var(--ink)}
+[data-theme="dark"] .opt{background:var(--well)}
+.opt.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.btn{display:flex;align-items:center;justify-content:center;gap:6px;height:44px;border-radius:4px;background:var(--primary);color:var(--primaryFg);font-weight:700;font-size:14px}
+.btn.sec{background:transparent;color:var(--ink);border:1px solid var(--ink)}
+[data-theme="dark"] .btn.sec{border-color:#F3F2F2}
+.btn.ghost{background:transparent;color:var(--muted);height:36px}
+.seg3{display:flex;background:var(--ground);border:1px solid var(--rule);border-radius:4px;padding:3px;gap:3px}
+[data-theme="dark"] .seg3{background:var(--well)}
+.seg3 div{flex:1;text-align:center;padding:8px 4px;border-radius:4px;font-size:12px;font-weight:700;color:var(--muted)}
+.seg3 .on{background:var(--sel);color:var(--selFg)}
+/* slider (same as the Plan screen) */
+.range{position:relative;height:56px;margin:6px 8px 0}
+.range .bars{position:absolute;left:0;right:0;bottom:22px;height:30px;display:flex;align-items:flex-end;gap:2px}
+.range .bars i{flex:1;background:var(--rule);border-radius:2px 2px 0 0}
+.range .bars i.in{background:var(--range);opacity:.5}
+.range .track{position:absolute;left:0;right:0;bottom:16px;height:2px;background:var(--rule)}
+.range .fill{position:absolute;bottom:16px;height:2px;background:var(--range)}
+.range .knob{position:absolute;bottom:5px;width:24px;height:24px;border-radius:50%;background:var(--ground);border:2px solid var(--handle);transform:translateX(-50%)}
+.range .lbl{position:absolute;bottom:-4px;font-size:12px;color:var(--muted);transform:translateX(-50%);font-weight:600}
+/* search */
+.searchbar{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px;border-radius:4px;background:var(--ground);border:1px solid var(--ink);outline:2px solid var(--leaf);outline-offset:2px;font-size:15px;color:var(--ink)}
+[data-theme="dark"] .searchbar{border-color:#F3F2F2}
+.searchbar .cur{width:2px;height:18px;background:var(--ink)}
+/* strands */
+.sec{display:flex;justify-content:space-between;align-items:baseline}
+.sec .t{font-size:17px;font-weight:800;letter-spacing:-.02em;display:flex;gap:6px;align-items:center}.sec .t svg{color:var(--icon)}.sec .m{font-size:12px;color:var(--leaf);font-weight:700}
+[data-theme="dark"] .sec .m{color:var(--mint)}
+.caro{display:flex;gap:10px;overflow:hidden}
+.tile{width:150px;flex:none;border-radius:4px;overflow:hidden;border:1px solid var(--rule);background:var(--ground)}
+[data-theme="dark"] .tile{background:var(--panel)}
+.tile .ph{height:84px;background:var(--tile1)}.tile .ph.b{background:var(--tile2)}
+.tile .t{padding:8px 10px;display:flex;flex-direction:column;gap:3px}
+.tile .name{font-weight:800;font-size:13px}.tile .meta{font-size:12px;color:var(--muted)}
+/* map */
+.map{position:relative;background:var(--panel);overflow:hidden}
+[data-theme="dark"] .map{background:#1E1E23}
+.map svg.bg{display:block;width:100%;height:100%}
+.map svg.bg path{stroke:var(--rule)}
+.pin{position:absolute;width:30px;height:30px;border-radius:50% 50% 50% 0;transform:translate(-50%,-100%) rotate(-45deg);transform-origin:bottom left;background:var(--ink);color:var(--ground);display:flex;align-items:center;justify-content:center;border:2px solid var(--ground)}
+.pin span{transform:rotate(45deg);display:flex}
+.pin.home{background:var(--ground);color:var(--ink);border-color:var(--ink)}
+.pin.big{width:40px;height:40px;z-index:2;outline:3px solid var(--leaf);outline-offset:2px}
+.float{position:absolute;left:12px;right:12px;display:flex;gap:6px;z-index:3}
+.carousel{position:absolute;left:0;right:0;bottom:12px;display:flex;gap:10px;padding:0 16px;overflow:hidden;z-index:3}
+.mcard{min-width:250px;background:var(--ground);border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+[data-theme="dark"] .mcard{background:var(--panel)}
+.mcard.sel{border-color:var(--ink)}
+/* desktop */
+.desk{width:1180px;height:760px;background:var(--ground);color:var(--ink);border-radius:8px;border:1px solid #cfc9bd;overflow:hidden;position:relative;display:flex;flex-direction:column;font-family:Archivo,sans-serif}
+.topbar{overflow:hidden;height:56px;background:var(--head);color:var(--headInk);display:flex;align-items:center;gap:22px;padding:0 20px}
+.topbar .nav{display:flex;gap:16px;font-size:13px;color:var(--headSub);font-weight:600}.topbar .nav b{color:var(--headInk)}
+.topbar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.topbar .src{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:7px 12px;border-radius:999px;border:1px solid var(--headInk);color:var(--headInk)}
+.dbody{flex:1;display:flex;gap:18px;padding:18px 20px;overflow:hidden}
+.dleft{width:300px;display:flex;flex-direction:column;gap:12px}
+.dmain{flex:1;display:flex;flex-direction:column;gap:12px;min-width:0}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.gc{border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--ground)}
+[data-theme="dark"] .gc{background:var(--panel)}
+.gc .ph{height:110px;background:var(--tile1)}.gc .ph.b{background:var(--tile2)}
+.gc .t{padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.gc .name{font-weight:800;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+.gc .meta{font-size:12px;color:var(--muted)}
+.panel{background:var(--panel);border-radius:4px;padding:14px;display:flex;flex-direction:column;gap:10px}
+table.cmp{border-collapse:collapse;width:100%;max-width:1100px;background:#fff;border:1px solid #E5EFEA;border-radius:4px;overflow:hidden;font-size:13px}
+table.cmp th,table.cmp td{padding:8px 12px;border-bottom:1px solid #E5EFEA;text-align:left;vertical-align:top}
+table.cmp th{background:#EFF8F3;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+
+/* ---- menu & order ---- */
+.body.scroll{overflow-y:auto;overflow-x:hidden}
+.body.scroll>*{flex:0 0 auto}
+.secbar{position:sticky;top:-14px;z-index:2;background:var(--ground);padding-top:6px}
+.provenance{background:var(--panel);border-radius:4px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.chain{display:flex;flex-direction:column;gap:6px}
+.chain .step{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--muted)}
+.chain .step b{color:var(--ink);font-weight:700}
+.chain .step svg{color:var(--icon);margin-top:2px}
+.secbar{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin:0 -16px;padding-left:16px;padding-right:16px}
+.secbar::-webkit-scrollbar{display:none}
+.mrow{display:flex;flex-direction:column;gap:6px;padding:11px 0;border-top:1px solid var(--rule)}
+.mrow:first-child{border-top:0}
+.mrow .l1{display:flex;gap:10px;align-items:baseline}
+.mrow .nm{font-weight:800;font-size:14px;letter-spacing:-.01em;flex:1;line-height:1.25}
+.mrow .pr{font-weight:700;font-size:13px;white-space:nowrap}
+.mrow .ds{font-size:12px;color:var(--muted);line-height:1.35}
+.mrow.picked{background:var(--panel);margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:4px}
+.flags{display:flex;flex-wrap:wrap;gap:4px}
+.flag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;border:1px solid var(--rule);color:var(--muted);white-space:nowrap}
+.flag svg{width:11px;height:11px}
+.flag.check{border-color:var(--ink);color:var(--ink)}
+[data-theme="dark"] .flag.check{border-color:#F3F2F2;color:#F3F2F2}
+.flag.allergen{border-color:#B3261E;color:#B3261E;background:#FBE9E7}
+[data-theme="dark"] .flag.allergen{background:transparent}
+.flag.veg{border-color:var(--leaf);color:var(--leaf)}
+[data-theme="dark"] .flag.veg{border-color:var(--mint);color:var(--mint)}
+.picks{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.face{width:30px;height:30px;border-radius:50%;border:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--muted);background:var(--ground);cursor:pointer;user-select:none}
+[data-theme="dark"] .face{background:var(--well)}
+.face.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.face.lg{width:44px;height:44px;font-size:15px}
+.tablechip{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:999px;border:1px solid var(--rule);font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;background:var(--ground)}
+[data-theme="dark"] .tablechip{background:var(--well)}
+.tablechip.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.tablechip.on svg{color:var(--selFg)}
+.qty{margin-left:auto;font-size:12px;font-weight:700;color:var(--muted)}
+.bottombar{border-top:1px solid var(--rule);background:var(--ground);padding:10px 16px;display:flex;gap:10px;align-items:center}
+[data-theme="dark"] .bottombar{background:var(--ground)}
+.bottombar .sum{flex:1;display:flex;flex-direction:column}
+.bottombar .sum b{font-size:14px;font-weight:800}
+.bottombar .sum span{font-size:12px;color:var(--muted)}
+.btn.sm{height:38px;padding:0 14px;border-radius:4px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.btn{cursor:pointer}
+.grpttl{display:flex;align-items:center;gap:8px;margin-top:6px}
+.grpttl .nmw{font-weight:800;font-size:15px}
+.orow{display:flex;gap:8px;padding:8px 0;border-top:1px solid var(--rule);font-size:13px}
+.orow .nm{flex:1}
+.orow .mod{font-size:12px;color:var(--muted)}
+.total{display:flex;justify-content:space-between;font-weight:800;font-size:15px;padding-top:10px;border-top:1px solid var(--ink);margin-top:6px}
+[data-theme="dark"] .total{border-color:#F3F2F2}
+.warn{display:flex;gap:8px;align-items:flex-start;border:1px solid #B3261E;background:#FBE9E7;color:#B3261E;border-radius:4px;padding:9px 11px;font-size:12px;font-weight:600}
+[data-theme="dark"] .warn{background:transparent}
+.warn svg{flex:none;margin-top:1px}
+/* show to staff */
+.staff{position:absolute;inset:0;background:var(--ground);color:var(--ink);z-index:9;display:flex;flex-direction:column;padding:16px 18px;gap:10px;overflow-y:auto}
+.staff .who{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:10px}
+.staff .dish{font-size:19px;font-weight:800;letter-spacing:-.02em;line-height:1.25;margin-top:6px}
+.staff .dish span{font-weight:600;font-size:14px;color:var(--muted);display:block}
+.staff .alert{font-size:15px;font-weight:800;color:#B3261E;border:2px solid #B3261E;border-radius:4px;padding:10px 12px;margin-top:4px;line-height:1.3}
+.staff .close{position:absolute;right:12px;top:12px}
+.staff .foot{margin-top:auto;font-size:11px;color:var(--muted);padding-top:12px}
+/* rating */
+.rrow{display:flex;flex-direction:column;gap:7px;padding:11px 0;border-top:1px solid var(--rule)}
+.rrow .top{display:flex;gap:8px;align-items:center}
+.rrow .nm{flex:1;font-size:13px;font-weight:700;line-height:1.25}
+.stars{display:flex;gap:3px;align-items:center}
+.stars svg{width:22px;height:22px;cursor:pointer;color:var(--muted)}
+.stars svg.s{width:15px;height:15px}
+.save.love{border-color:var(--red);color:var(--red)}
+.stars svg.on{color:var(--leaf);fill:var(--leaf)}
+[data-theme="dark"] .stars svg.on{color:var(--mint);fill:var(--mint)}
+.notgreat{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid var(--rule);color:var(--muted);cursor:pointer;background:var(--ground)}
+[data-theme="dark"] .notgreat{background:var(--well)}
+.notgreat.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.notein{width:100%;height:32px;border-radius:4px;border:1px solid var(--rule);background:var(--ground);color:var(--ink);font:600 12px Archivo,sans-serif;padding:0 10px}
+[data-theme="dark"] .notein{background:var(--well)}
+.learn{display:flex;flex-direction:column;gap:8px}
+.lrow{display:flex;gap:8px;align-items:center;font-size:13px;padding:7px 0;border-top:1px solid var(--rule)}
+.lrow .cn{flex:1}
+.lrow .cn b{font-weight:800}
+.lrow .cn span{display:block;font-size:11px;color:var(--muted)}
+/* wide */
+.dcols{flex:1;display:flex;gap:18px;padding:16px 20px;overflow:hidden}
+.dmenu{flex:1;overflow-y:auto;padding-right:6px}
+.dside{width:360px;display:flex;flex-direction:column;gap:10px;overflow-y:auto}
+.dsec{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 0 4px}
+.dgrid{display:grid;grid-template-columns:1fr;gap:0 22px;max-width:620px}
+.cardp{border:1px solid var(--rule);border-radius:4px;padding:14px;display:flex;flex-direction:column;gap:8px;background:var(--ground)}
+[data-theme="dark"] .cardp{background:var(--panel)}
+/* page furniture */
+.spec{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid #E5EFEA;font-size:13px}
+.spec:first-child{border-top:0}
+table.cmp td b{font-weight:800}
+.hint{font-size:12px;color:#6B6663;margin:6px 0 0}
+.pill.mini{height:26px;font-size:11px}
+</style></head><body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+<symbol id="i-arrow-down" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-down" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 5v14" /> <path d="m19 12-7 7-7-7" /></symbol>
+<symbol id="i-arrow-left" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-left" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m12 19-7-7 7-7" /> <path d="M19 12H5" /></symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24"><svg class="lucide lucide-arrow-right" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /></symbol>
+<symbol id="i-baby" viewBox="0 0 24 24"><svg class="lucide lucide-baby" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9 12h.01" /> <path d="M15 12h.01" /> <path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5" /> <path d="M19 6.3a9 9 0 0 1 1.8 3.9 2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5s-.9 2.5-2 2.5c-.8 0-1.5-.4-1.5-1" /></symbol>
+<symbol id="i-badge-check" viewBox="0 0 24 24"><svg class="lucide lucide-badge-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z" /> <path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="i-ban" viewBox="0 0 24 24"><svg class="lucide lucide-ban" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m4.9 4.9 14.2 14.2" /></symbol>
+<symbol id="i-bed" viewBox="0 0 24 24"><svg class="lucide lucide-bed" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2 4v16" /> <path d="M2 8h18a2 2 0 0 1 2 2v10" /> <path d="M2 17h20" /> <path d="M6 8v9" /></symbol>
+<symbol id="i-bookmark" viewBox="0 0 24 24"><svg class="lucide lucide-bookmark" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" /></symbol>
+<symbol id="i-building-2" viewBox="0 0 24 24"><svg class="lucide lucide-building-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" /> <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" /> <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" /> <path d="M10 6h4" /> <path d="M10 10h4" /> <path d="M10 14h4" /> <path d="M10 18h4" /></symbol>
+<symbol id="i-bus-front" viewBox="0 0 24 24"><svg class="lucide lucide-bus-front" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 6 2 7" /> <path d="M10 6h4" /> <path d="m22 7-2-1" /> <rect width="16" height="16" x="4" y="3" rx="2" /> <path d="M4 11h16" /> <path d="M8 15h.01" /> <path d="M16 15h.01" /> <path d="M6 19v2" /> <path d="M18 21v-2" /></symbol>
+<symbol id="i-bus" viewBox="0 0 24 24"><svg class="lucide lucide-bus" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 6v6" /> <path d="M15 6v6" /> <path d="M2 12h19.6" /> <path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3" /> <circle cx="7" cy="18" r="2" /> <path d="M9 18h5" /> <circle cx="16" cy="18" r="2" /></symbol>
+<symbol id="i-calendar-check" viewBox="0 0 24 24"><svg class="lucide lucide-calendar-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 2v4" /> <path d="M16 2v4" /> <rect width="18" height="18" x="3" y="4" rx="2" /> <path d="M3 10h18" /> <path d="m9 16 2 2 4-4" /></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24"><svg class="lucide lucide-calendar" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 2v4" /> <path d="M16 2v4" /> <rect width="18" height="18" x="3" y="4" rx="2" /> <path d="M3 10h18" /></symbol>
+<symbol id="i-car-taxi-front" viewBox="0 0 24 24"><svg class="lucide lucide-car-taxi-front" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10 2h4" /> <path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8" /> <path d="M7 14h.01" /> <path d="M17 14h.01" /> <rect width="18" height="8" x="3" y="10" rx="2" /> <path d="M5 18v2" /> <path d="M19 18v2" /></symbol>
+<symbol id="i-car" viewBox="0 0 24 24"><svg class="lucide lucide-car" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" /> <circle cx="7" cy="17" r="2" /> <path d="M9 17h6" /> <circle cx="17" cy="17" r="2" /></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><svg class="lucide lucide-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 6 9 17l-5-5" /></symbol>
+<symbol id="i-chevron-down" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-down" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m6 9 6 6 6-6" /></symbol>
+<symbol id="i-chevron-left" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-left" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m15 18-6-6 6-6" /></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-right" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /></symbol>
+<symbol id="i-chevron-up" viewBox="0 0 24 24"><svg class="lucide lucide-chevron-up" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m18 15-6-6-6 6" /></symbol>
+<symbol id="i-circle-check" viewBox="0 0 24 24"><svg class="lucide lucide-circle-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="i-circle-dot" viewBox="0 0 24 24"><svg class="lucide lucide-circle-dot" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <circle cx="12" cy="12" r="1" /></symbol>
+<symbol id="i-circle-x" viewBox="0 0 24 24"><svg class="lucide lucide-circle-x" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m15 9-6 6" /> <path d="m9 9 6 6" /></symbol>
+<symbol id="i-clock-3" viewBox="0 0 24 24"><svg class="lucide lucide-clock-3" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <polyline points="12 6 12 12 16.5 12" /></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><svg class="lucide lucide-clock" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <polyline points="12 6 12 12 16 14" /></symbol>
+<symbol id="i-coffee" viewBox="0 0 24 24"><svg class="lucide lucide-coffee" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10 2v2" /> <path d="M14 2v2" /> <path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" /> <path d="M6 2v2" /></symbol>
+<symbol id="i-compass" viewBox="0 0 24 24"><svg class="lucide lucide-compass" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" /> <circle cx="12" cy="12" r="10" /></symbol>
+<symbol id="i-door-open" viewBox="0 0 24 24"><svg class="lucide lucide-door-open" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M13 4h3a2 2 0 0 1 2 2v14" /> <path d="M2 20h3" /> <path d="M13 20h9" /> <path d="M10 12v.01" /> <path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z" /></symbol>
+<symbol id="i-ellipsis" viewBox="0 0 24 24"><svg class="lucide lucide-ellipsis" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="1" /> <circle cx="19" cy="12" r="1" /> <circle cx="5" cy="12" r="1" /></symbol>
+<symbol id="i-external-link" viewBox="0 0 24 24"><svg class="lucide lucide-external-link" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 3h6v6" /> <path d="M10 14 21 3" /> <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></symbol>
+<symbol id="i-footprints" viewBox="0 0 24 24"><svg class="lucide lucide-footprints" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z" /> <path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z" /> <path d="M16 17h4" /> <path d="M4 13h4" /></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><svg class="lucide lucide-globe" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /> <path d="M2 12h20" /></symbol>
+<symbol id="i-grip-vertical" viewBox="0 0 24 24"><svg class="lucide lucide-grip-vertical" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="9" cy="12" r="1" /> <circle cx="9" cy="5" r="1" /> <circle cx="9" cy="19" r="1" /> <circle cx="15" cy="12" r="1" /> <circle cx="15" cy="5" r="1" /> <circle cx="15" cy="19" r="1" /></symbol>
+<symbol id="i-heart" viewBox="0 0 24 24"><svg class="lucide lucide-heart" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" /></symbol>
+<symbol id="i-house" viewBox="0 0 24 24"><svg class="lucide lucide-house" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /> <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></symbol>
+<symbol id="i-ice-cream-cone" viewBox="0 0 24 24"><svg class="lucide lucide-ice-cream-cone" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m7 11 4.08 10.35a1 1 0 0 0 1.84 0L17 11" /> <path d="M17 7A5 5 0 0 0 7 7" /> <path d="M17 7a2 2 0 0 1 0 4H7a2 2 0 0 1 0-4" /></symbol>
+<symbol id="i-image" viewBox="0 0 24 24"><svg class="lucide lucide-image" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="18" height="18" x="3" y="3" rx="2" ry="2" /> <circle cx="9" cy="9" r="2" /> <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" /></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><svg class="lucide lucide-info" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M12 16v-4" /> <path d="M12 8h.01" /></symbol>
+<symbol id="i-landmark" viewBox="0 0 24 24"><svg class="lucide lucide-landmark" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <line x1="3" x2="21" y1="22" y2="22" /> <line x1="6" x2="6" y1="18" y2="11" /> <line x1="10" x2="10" y1="18" y2="11" /> <line x1="14" x2="14" y1="18" y2="11" /> <line x1="18" x2="18" y1="18" y2="11" /> <polygon points="12 2 20 7 4 7" /></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><svg class="lucide lucide-list" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 12h.01" /> <path d="M3 18h.01" /> <path d="M3 6h.01" /> <path d="M8 12h13" /> <path d="M8 18h13" /> <path d="M8 6h13" /></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><svg class="lucide lucide-lock" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="18" height="11" x="3" y="11" rx="2" ry="2" /> <path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
+<symbol id="i-map-pin" viewBox="0 0 24 24"><svg class="lucide lucide-map-pin" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" /> <circle cx="12" cy="10" r="3" /></symbol>
+<symbol id="i-map-pinned" viewBox="0 0 24 24"><svg class="lucide lucide-map-pinned" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 8c0 3.613-3.869 7.429-5.393 8.795a1 1 0 0 1-1.214 0C9.87 15.429 6 11.613 6 8a6 6 0 0 1 12 0" /> <circle cx="12" cy="8" r="2" /> <path d="M8.714 14h-3.71a1 1 0 0 0-.948.683l-2.004 6A1 1 0 0 0 3 22h18a1 1 0 0 0 .948-1.316l-2-6a1 1 0 0 0-.949-.684h-3.712" /></symbol>
+<symbol id="i-map" viewBox="0 0 24 24"><svg class="lucide lucide-map" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z" /> <path d="M15 5.764v15" /> <path d="M9 3.236v15" /></symbol>
+<symbol id="i-message-square" viewBox="0 0 24 24"><svg class="lucide lucide-message-square" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><svg class="lucide lucide-mic" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /> <path d="M19 10v2a7 7 0 0 1-14 0v-2" /> <line x1="12" x2="12" y1="19" y2="22" /></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><svg class="lucide lucide-minus" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /></symbol>
+<symbol id="i-music" viewBox="0 0 24 24"><svg class="lucide lucide-music" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9 18V5l12-2v13" /> <circle cx="6" cy="18" r="3" /> <circle cx="18" cy="16" r="3" /></symbol>
+<symbol id="i-navigation" viewBox="0 0 24 24"><svg class="lucide lucide-navigation" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <polygon points="3 11 22 2 13 21 11 13 3 11" /></symbol>
+<symbol id="i-palette" viewBox="0 0 24 24"><svg class="lucide lucide-palette" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /> <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /> <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /> <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /> <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" /></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24"><svg class="lucide lucide-pencil" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" /></symbol>
+<symbol id="i-phone-call" viewBox="0 0 24 24"><svg class="lucide lucide-phone-call" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /> <path d="M14.05 2a9 9 0 0 1 8 7.94" /> <path d="M14.05 6A5 5 0 0 1 18 10" /></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24"><svg class="lucide lucide-phone" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><svg class="lucide lucide-plus" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /></symbol>
+<symbol id="i-pound-sterling" viewBox="0 0 24 24"><svg class="lucide lucide-pound-sterling" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 7c0-5.333-8-5.333-8 0" /> <path d="M10 7v14" /> <path d="M6 21h12" /> <path d="M6 13h10" /></symbol>
+<symbol id="i-route" viewBox="0 0 24 24"><svg class="lucide lucide-route" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="6" cy="19" r="3" /> <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /> <circle cx="18" cy="5" r="3" /></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><svg class="lucide lucide-search" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="11" cy="11" r="8" /> <path d="m21 21-4.3-4.3" /></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><svg class="lucide lucide-settings" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /> <circle cx="12" cy="12" r="3" /></symbol>
+<symbol id="i-shopping-bag" viewBox="0 0 24 24"><svg class="lucide lucide-shopping-bag" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /> <path d="M3 6h18" /> <path d="M16 10a4 4 0 0 1-8 0" /></symbol>
+<symbol id="i-sliders-horizontal" viewBox="0 0 24 24"><svg class="lucide lucide-sliders-horizontal" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <line x1="21" x2="14" y1="4" y2="4" /> <line x1="10" x2="3" y1="4" y2="4" /> <line x1="21" x2="12" y1="12" y2="12" /> <line x1="8" x2="3" y1="12" y2="12" /> <line x1="21" x2="16" y1="20" y2="20" /> <line x1="12" x2="3" y1="20" y2="20" /> <line x1="14" x2="14" y1="2" y2="6" /> <line x1="8" x2="8" y1="10" y2="14" /> <line x1="16" x2="16" y1="18" y2="22" /></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24"><svg class="lucide lucide-sparkles" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /> <path d="M20 3v4" /> <path d="M22 5h-4" /> <path d="M4 17v2" /> <path d="M5 18H3" /></symbol>
+<symbol id="i-star" viewBox="0 0 24 24"><svg class="lucide lucide-star" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" /></symbol>
+<symbol id="i-tent-tree" viewBox="0 0 24 24"><svg class="lucide lucide-tent-tree" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="4" cy="4" r="2" /> <path d="m14 5 3-3 3 3" /> <path d="m14 10 3-3 3 3" /> <path d="M17 14V2" /> <path d="M17 14H7l-5 8h20Z" /> <path d="M8 14v8" /> <path d="m9 14 5 8" /></symbol>
+<symbol id="i-ticket-check" viewBox="0 0 24 24"><svg class="lucide lucide-ticket-check" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /> <path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="i-ticket" viewBox="0 0 24 24"><svg class="lucide lucide-ticket" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /> <path d="M13 5v2" /> <path d="M13 17v2" /> <path d="M13 11v2" /></symbol>
+<symbol id="i-train-front" viewBox="0 0 24 24"><svg class="lucide lucide-train-front" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M8 3.1V7a4 4 0 0 0 8 0V3.1" /> <path d="m9 15-1-1" /> <path d="m15 15 1-1" /> <path d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z" /> <path d="m8 19-2 3" /> <path d="m16 19 2 3" /></symbol>
+<symbol id="i-trash-2" viewBox="0 0 24 24"><svg class="lucide lucide-trash-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 6h18" /> <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /> <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /> <line x1="10" x2="10" y1="11" y2="17" /> <line x1="14" x2="14" y1="11" y2="17" /></symbol>
+<symbol id="i-user-round" viewBox="0 0 24 24"><svg class="lucide lucide-user-round" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="8" r="5" /> <path d="M20 21a8 8 0 0 0-16 0" /></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><svg class="lucide lucide-users" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /> <circle cx="9" cy="7" r="4" /> <path d="M22 21v-2a4 4 0 0 0-3-3.87" /> <path d="M16 3.13a4 4 0 0 1 0 7.75" /></symbol>
+<symbol id="i-utensils" viewBox="0 0 24 24"><svg class="lucide lucide-utensils" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" /> <path d="M7 2v20" /> <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" /></symbol>
+<symbol id="i-wand-sparkles" viewBox="0 0 24 24"><svg class="lucide lucide-wand-sparkles" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" /> <path d="m14 7 3 3" /> <path d="M5 6v4" /> <path d="M19 14v4" /> <path d="M10 2v2" /> <path d="M7 8H3" /> <path d="M21 16h-4" /> <path d="M11 3H9" /></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><svg class="lucide lucide-x" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /></symbol>
+
+<symbol id="i-triangle-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 17h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-star-fill" viewBox="0 0 24 24"><path d="m12 2.4 2.95 5.98 6.6.96-4.78 4.65 1.13 6.57L12 17.45l-5.9 3.11 1.13-6.57-4.78-4.65 6.6-.96z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+<symbol id="i-heart-fill" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="13" r="3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+<symbol id="i-cup-soda" viewBox="0 0 24 24"><path d="m6 8 1.75 12.28a2 2 0 0 0 2 1.72h4.54a2 2 0 0 0 2-1.72L18 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 8h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 15a6.47 6.47 0 0 1 5 0 6.47 6.47 0 0 0 5 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="m12 8 1-6 3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+
+<h1>Menu, order and stars — the table half of an evening</h1>
+<p class="lede">Google gives us the restaurant's <b>website</b>. Roam follows it, finds the menu, and reads it into dishes with prices and allergens — no photographing, no typing. At the table you tap who wants what; the order is grouped by person and shown to the waiter in big type. Afterwards you star only what stood out. This page is <b>live</b>: tap through the phones. Everything in it is the real menu at Circolo Popolare, fetched from <a href="https://menu.bigmammagroup.com/circolopopolare?service=all">menu.bigmammagroup.com</a> on 4 September 2026, against the real household — Roger (vegetarian), Gina (carrot allergy) and Phoenix (9).</p>
+
+<section><h2>1 · How the menu got here, and what it costs</h2>
+<p class="sub">The question was whether the website Google returns can be turned into a menu, and whether that is expensive. It can, and it is not — but only three of the four steps are reliable, and the fourth is why the camera stays.</p>
+<div class="row">
+<table class="cmp" style="max-width:820px">
+<tr><th style="width:190px">Step</th><th>What happened for Circolo Popolare</th><th style="width:150px">Cost</th></tr>
+<tr><td><b>1 · The website</b></td><td>Already in the Place Details call Roam makes when you open a place: <code>websiteUri</code> → <code>circolopopolare.com/restaurants/circolopopolare-london</code></td><td><b>Nothing extra.</b> Same request, a field we already ask for</td></tr>
+<tr><td><b>2 · Find the menu</b></td><td>Fetch the restaurant's page, look at the links: “Menu” → <code>menu.bigmammagroup.com/circolopopolare</code>, plus two set-menu PDFs</td><td><b>Nothing.</b> One HTTP request to their own site</td></tr>
+<tr><td><b>3 · Read the menu</b></td><td>The page is a JavaScript app, so a plain fetch returns an empty shell — it has to be rendered, or its data endpoint read. Here it yielded 226 items with prices, allergens and calories</td><td><b>Nothing</b> when the menu is HTML or JSON; a few pence when it is a PDF or a picture and Claude has to read it</td></tr>
+<tr><td><b>4 · Keep it</b></td><td>Held against this household and this visit, refreshed when it is older than the staleness threshold</td><td>Once per restaurant, not once per look</td></tr>
+</table>
+<div class="notes">
+<h4>The honest numbers</h4>
+<ul>
+<li><b>Google:</b> £0. The website comes back in the Place Details request Roam already makes.</li>
+<li><b>Fetching:</b> £0. It is the restaurant's own public page.</li>
+<li><b>Reading a hard one:</b> a menu PDF or photo through Claude Haiku is roughly <b>3–5p</b>, once per restaurant per refresh. Fifty restaurants a year is about £2.</li>
+<li><b>The catch:</b> a plain fetch worked for none of the three menus here. Two are PDFs; the main one needs the page rendered. Budget for a rendering step, not for a download.</li>
+</ul>
+<h4>What we may keep</h4>
+<ul>
+<li>Item names are not protected; the descriptive prose is. A menu <b>this household fetched</b> is the same thing as a menu they photographed — fine to hold against their visit.</li>
+<li>What we must not do yet is pool everyone's menus into something searchable. That is the copyright review still open in Technical Constraints (L9), and it gates menu search, not this.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section><h2>2 · The whole thing, live — light and dark</h2>
+<p class="sub">Tap a face on a dish to say who wants it, or <b>Table</b> for something to share. Tap a name to open it. Then <b>The order</b> → <b>Show to staff</b> → <b>We ate it</b> → stars.</p>
+<div class="row" style="gap:32px">
+  <div><div class="modelab">Light · Mint</div><div class="phone" data-theme="light" id="live-light"></div><p class="cap">Start on the place. The menu arrives from the website, not the camera.</p></div>
+  <div><div class="modelab">Dark · Night · mint</div><div class="phone" data-theme="dark" id="live-dark"></div><p class="cap">The same screens in the dark palette — a restaurant at 20:00 is where this gets used.</p></div>
+  <div class="notes">
+  <h4>What the ticks mean</h4>
+  <ul>
+  <li>A face is a person wanting that dish. Two faces on one dish is two of them.</li>
+  <li><b>Table</b> is the Italian way to eat and the way the order should read: shared plates first, then per person.</li>
+  <li>The note under a dish (“no chilli”) travels to the order and to the staff screen.</li>
+  </ul>
+  <h4>The flags, and what they are not</h4>
+  <ul>
+  <li><span class="flag check"><svg class="ic"><use href="#i-triangle-alert"/></svg>Gina · Carrot? soffritto — ask</span> A prompt, never a clearance. Carrot is <b>not</b> one of the fourteen allergens a menu must declare, so no fetched menu can ever say a ragù is safe.</li>
+  <li><span class="flag"><svg class="ic"><use href="#i-leaf"/></svg>Roger · Not vegetarian</span> Diet and dislikes are grey and never stop you — they rank.</li>
+  <li><span class="flag allergen"><svg class="ic"><use href="#i-circle-x"/></svg>Ada · tree nuts (almond)</span> A declared allergen from the fourteen would look like this and strike the dish out. Nothing on this menu triggers it for this family.</li>
+  </ul>
+  </div>
+</div>
+</section>
+
+<section><h2>3 · The evening, screen by screen</h2>
+<p class="sub">The same prototype, frozen at each step with a worked order: burrata and supplì for the table, the Norma for Roger (vegan version), the ragù for Gina, the truffle pizza for Phoenix.</p>
+<div class="row" style="gap:20px" id="story"></div>
+</section>
+
+<section><h2>4 · On the web</h2>
+<p class="sub">Same state, wide layout: the menu reads in a column, the order stays beside it, and “Show to staff” takes the screen. Both palettes.</p>
+<div class="row" style="gap:24px">
+  <div><div class="modelab">Light · Mint</div><div class="desk" data-theme="light" id="wide-light"></div></div>
+  <div><div class="modelab">Dark · Night · mint</div><div class="desk" data-theme="dark" id="wide-dark"></div></div>
+</div>
+</section>
+
+<section><h2>5 · The rating, as you described it</h2>
+<div class="row">
+<div class="notes" style="width:420px">
+<h4>The rule</h4>
+<ul>
+<li><b>Stars mean good.</b> One to five, on the dish, for the person who had it.</li>
+<li><b>Nothing means fine.</b> Not a gap in the data — an answer. Most plates end here and nobody has to touch them.</li>
+<li><b>“Not great” is one tap</b>, and only then does it ask why.</li>
+<li>Words are optional everywhere, and the mic fills the same rows rather than a separate screen.</li>
+</ul>
+<h4>Where it lands</h4>
+<ul>
+<li>A star goes to the <b>dish</b> as well as the plate — a starred carbonara raises carbonara everywhere, which is how a rating in London changes a suggestion in Rome.</li>
+<li>“Not great” lowers that one dish for that one person and nothing else.</li>
+<li>Fine changes nothing, so leaving a dish alone is safe.</li>
+</ul>
+</div>
+<div class="notes" style="width:420px">
+<h4>To sign off</h4>
+<ul>
+<li><b>Stars per person or per dish?</b> Built here as per person — Gina can love the ragù while Phoenix does not. It doubles the rows when two of you share a plate.</li>
+<li><b>How old is too old?</b> A fetched menu shows its date; at what age do the prices get marked “as printed, may have changed”? Requirements leave it open. Suggest 30 days.</li>
+<li><b>The “ask” chip.</b> The research called for amber; the style guide has no amber and reserves red for the heart and for real allergen warnings. Built here as an ink outline with a warning icon. Amber instead?</li>
+<li><b>Drinks.</b> Included, and they rate like dishes. Say if a bottle of wine should be a table thing that nobody stars.</li>
+<li><b>The set menu.</b> Pranzetto prices by how many courses (£17 / £22 / £26), not by dish — the order total cannot be right without modelling that. Worth doing now or later?</li>
+</ul>
+</div>
+</div>
+</section>
+
+<script>
+
+const MENU = {"sections": [{"id": "pranzetto-lunch-set", "title": "Pranzetto · lunch set", "source": "PRANZETTO - LUNCH MENU", "note": "Our lunch set menu is available Monday to Friday, from 12:00 to 15:45. \n\n1 main £17 \n1 antipasto & 1 main £22\n1 antipasto, 1 main & 1 dolce £26\n\nTo finish, one single espresso on the house!", "items": [{"id": "pranzetto-lunch-set-17362", "name": "Prosciutto di Parma DOP 24 mesi", "sub": "Antipasti", "desc": "Thin slices of Prosciutto di Parma DOP from Paolo and Gianfranco Leoncini.", "priceText": "", "price": null, "kcal": "321", "allergens": "", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}]}, {"id": "pranzetto-lunch-set-17528", "name": "Burrata e Pappa al Pomodoro", "sub": "Antipasti", "desc": "Burrata 250g dal Caseificio Montrone (Puglia), slow-roasted tomatoes 'pappa al pomodoro'.", "priceText": "", "price": null, "kcal": "984", "allergens": "", "flags": []}, {"id": "pranzetto-lunch-set-17486", "name": "Insalatina Greca", "sub": "Antipasti", "desc": "Datterini tomatoes, feta, cucumber, Taggiasca olives, and lemony herb yogurt", "priceText": "", "price": null, "kcal": "null", "allergens": "MILK,", "flags": []}, {"id": "pranzetto-lunch-set-17365", "name": "Pasta alla Norma", "sub": "Mains", "desc": "Mezzi rigatoni with San Marzano DOP tomato sauce, fried aubergine and lemon ricotta di bufala. *vegan version available*", "priceText": "", "price": null, "kcal": "861", "allergens": "", "flags": [{"kind": "dislike", "who": "Gina", "text": "Fried"}]}, {"id": "pranzetto-lunch-set-17396", "name": "SPAGHETTONI AL RAGÙ BOLOGNESE", "sub": "Mains", "desc": "Spaghettoni with the classical ragù from Bologna and Parmigiano.", "priceText": "", "price": null, "kcal": "1051", "allergens": "", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}, {"kind": "check", "who": "Gina", "text": "Carrot? soffritto — ask"}]}, {"id": "pranzetto-lunch-set-17369", "name": "Pizza La Norma", "sub": "Mains", "desc": "San Marzano DOP tomato sauce, fried aubergine, mozzarella and ricotta salata", "priceText": "", "price": null, "kcal": "", "allergens": "gluten (wheat), milk, traces of mustard, traces of soy", "flags": [{"kind": "dislike", "who": "Gina", "text": "Fried"}]}, {"id": "pranzetto-lunch-set-17524", "name": "Carpaccio Caprese", "sub": "Mains", "desc": "Mozzarella di bufala, seasonal tomatoes, basil pesto", "priceText": "", "price": null, "kcal": "600", "allergens": "", "flags": []}, {"id": "pranzetto-lunch-set-17376", "name": "Tigramisù", "sub": "Dolci", "desc": "The unbeatable classic, with a touch of marsala", "priceText": "", "price": null, "kcal": "634", "allergens": "", "flags": []}, {"id": "pranzetto-lunch-set-17534", "name": "Sorbetto al Limone e Basilico", "sub": "Dolci", "desc": "", "priceText": "", "price": null, "kcal": "324", "allergens": "", "flags": []}, {"id": "pranzetto-lunch-set-17533", "name": "Mousse al Cioccolato", "sub": "Dolci", "desc": "Dark chocolate mousse with praline and toasted hazelnut.", "priceText": "", "price": null, "kcal": "468", "allergens": "", "flags": []}]}, {"id": "antipasti", "title": "Antipasti", "source": "ANTIPASTI", "note": "Exceptional products delivered directly from Italy, twice a week.", "items": [{"id": "antipasti-17353", "name": "Stracciatella Affumicata", "sub": "BUONI PRODOTTI", "desc": "Burrata's creamy heart.", "priceText": "£5", "price": 5.0, "kcal": "741", "allergens": "Gluten (wheat), Milk, Mustard, Sulphites, Walnuts. May contain traces of: Peanuts, Sesame Seeds, Soya, Tree nuts.", "flags": []}, {"id": "antipasti-17362", "name": "Prosciutto di Parma DOP 24 mesi", "sub": "BUONI PRODOTTI", "desc": "Thin slices of Prosciutto di Parma DOP from Paolo and Gianfranco Leoncini.", "priceText": "£10", "price": 10.0, "kcal": "321", "allergens": "May contain traces of: Tree nuts.", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}]}, {"id": "antipasti-17528", "name": "Burrata e Pappa al Pomodoro", "sub": "BUONI PRODOTTI", "desc": "Burrata 250g dal Caseificio Montrone (Puglia), slow-roasted tomatoes 'pappa al pomodoro'.", "priceText": "£16", "price": 16.0, "kcal": "984", "allergens": "Gluten (wheat), Milk, Animal Rennet. May contain traces of: Peanuts, Sesame Seeds, Soya, Tree nuts.", "flags": []}, {"id": "antipasti-17516", "name": "Insalatina Greca", "sub": "ANTIPASTI", "desc": "Datterini tomatoes, feta, cucumber, Taggiasche olives and lemon yoghurt. *vegan version available*", "priceText": "£7", "price": 7.0, "kcal": "218", "allergens": "", "flags": []}, {"id": "antipasti-17394", "name": "Supplì alla Romana", "sub": "ANTIPASTI", "desc": "Fried rice croquettes, tomato sauce and melted mozzarella, Pecorino and Parmigiano.", "priceText": "£9", "price": 9.0, "kcal": "617", "allergens": "", "flags": [{"kind": "dislike", "who": "Gina", "text": "Fried"}]}, {"id": "antipasti-17358", "name": "Bruschetta Caprese", "sub": "ANTIPASTI", "desc": "Bruschetta with pappa al pomodoro and mozzarella di bufala", "priceText": "£10", "price": 10.0, "kcal": "537", "allergens": "", "flags": []}]}, {"id": "primi-piatti", "title": "Primi piatti", "source": "PRIMI PIATTI", "note": "Our fresh pasta is prepared daily with semola from Puglia", "items": [{"id": "primi-piatti-17365", "name": "Pasta alla Norma", "sub": null, "desc": "Mezzi rigatoni with filetti pomodori, fried aubergine and ricotta salata. *vegan version available*", "priceText": "£16", "price": 16.0, "kcal": "861", "allergens": "Gluten (wheat), Milk. May contain traces of: Mustard, Soya.", "flags": [{"kind": "dislike", "who": "Gina", "text": "Fried"}]}, {"id": "primi-piatti-17396", "name": "Spaghettoni al Ragù", "sub": null, "desc": "Spaghettoni with the classical ragù from Bologna and Parmigiano.", "priceText": "£17.50", "price": 17.5, "kcal": "1051", "allergens": "Gluten (wheat), Milk, Celery, Sulphites. May contain traces of: Soya, Mustard.", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}, {"kind": "check", "who": "Gina", "text": "Carrot? soffritto — ask"}]}, {"id": "primi-piatti-11658", "name": "Tagliarini Granchio e Limone", "sub": null, "desc": "Home-made tagliarini with fresh local hand-picked crab, thyme, chilli in a langoustine bisque and lemony butter sauce.", "priceText": "£21", "price": 21.0, "kcal": "332", "allergens": "Gluten (wheat), Milk, Crustaceans, Sulphites. May contain traces of: Fish, Mustard, Soya, Molluscs.", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}, {"kind": "dislike", "who": "Gina", "text": "Fish"}, {"kind": "dislike", "who": "Phoenix", "text": "Fish"}]}, {"id": "primi-piatti-17529", "name": "La Gran Carbonara per 2", "sub": null, "desc": "Spaghetti, egg yolk, guanciale and black pepper, served in a wheel of Pecorino.", "priceText": "£19 per person", "price": 19.0, "kcal": "1293", "allergens": "Gluten (wheat), Milk, Eggs, Animal Rennet. May contain traces of: Mustard, Soya, Tree nuts (Hazelnuts, Pistachios).", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}]}]}, {"id": "pizza-napoletana", "title": "Pizza napoletana", "source": "PIZZA NAPOLETANA", "note": "48 hours of leavening, baked at 400°C for 80 seconds.", "items": [{"id": "pizza-napoletana-17369", "name": "La Norma", "sub": null, "desc": "San Marzano DOP tomato sauce, fried aubergine, mozzarella and ricotta salata.", "priceText": "£15", "price": 15.0, "kcal": "", "allergens": "gluten (wheat), milk, traces of mustard, traces of soy", "flags": [{"kind": "dislike", "who": "Gina", "text": "Fried"}]}, {"id": "pizza-napoletana-17531", "name": "Doppio Tartufo", "sub": null, "desc": "Truffle cream, mozzarella, sautéed mushrooms and fresh truffle.", "priceText": "£21", "price": 21.0, "kcal": "1220", "allergens": "Gluten (wheat), Milk, Animal Rennet. May contain traces of: Mustard, Soya.", "flags": []}]}, {"id": "secondi", "title": "Secondi", "source": "SECONDI PIATTI", "note": "The great classics of traditional Italian cuisine.", "items": [{"id": "secondi-17524", "name": "Carpaccio Caprese", "sub": "Insalate e Carpaccio", "desc": "Mozzarella di bufala, seasonal tomatoes, basil pesto. *vegan version available*", "priceText": "£17", "price": 17.0, "kcal": "600", "allergens": "", "flags": []}, {"id": "secondi-17512", "name": "Carpaccio di Manzo", "sub": "Insalate e Carpaccio", "desc": "Beef carpaccio with confit tomatoes, rocket, balsamic and 22-month Parmigiano Reggiano. *add black truffle for £5*", "priceText": "£19", "price": 19.0, "kcal": "805", "allergens": "", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}]}, {"id": "secondi-17532", "name": "Michele's Big Balls", "sub": "Secondi", "desc": "Pork and beef polpette, tomato sauce, spinach, Parmigiano Reggiano.", "priceText": "£21", "price": 21.0, "kcal": "698", "allergens": "Gluten (wheat), Milk, Animal Rennet. May contain Mustard, Peanuts, Sesame Seeds, Soya, Tree Nuts.", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}]}, {"id": "secondi-17405", "name": "Controfiletto di Manzo", "sub": "Secondi", "desc": "Grilled 35-day aged beef sirloin, salsa verde.", "priceText": "£36", "price": 36.0, "kcal": "833", "allergens": "Gluten (wheat), Sulphites. May contain traces of: Mustard, Soya.", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}]}, {"id": "secondi-17525", "name": "Spiedino di Pollo Al Limone", "sub": "Secondi", "desc": "Grilled chicken skewer with chimichurri, Greek salad, lemon yoghurt", "priceText": "£24", "price": 24.0, "kcal": "1228", "allergens": "Milk, Sulphites.", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}]}, {"id": "secondi-18744", "name": "Gran Nizzarda", "sub": "Insalate e Carpaccio", "desc": "Romaine lettuce, soft boiled egg, tuna, anchovies, green beans, red peppers, tomatoes, potatoes and Taggiasche olives.", "priceText": "£20", "price": 20.0, "kcal": "813", "allergens": "Fish, Soya.", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}, {"kind": "dislike", "who": "Gina", "text": "Fish"}, {"kind": "dislike", "who": "Phoenix", "text": "Fish"}]}, {"id": "secondi-17383", "name": "Patate Croccanti", "sub": "sides", "desc": "", "priceText": "£5", "price": 5.0, "kcal": "47", "allergens": "", "flags": [{"kind": "dislike", "who": "Gina", "text": "Fried"}]}, {"id": "secondi-11671", "name": "Insalata verde", "sub": "sides", "desc": "", "priceText": "£5.50", "price": 5.5, "kcal": "132", "allergens": "Mustard, Sulphites.", "flags": []}, {"id": "secondi-18007", "name": "Spinaci saltati", "sub": "sides", "desc": "", "priceText": "£6", "price": 6.0, "kcal": "", "allergens": "", "flags": []}]}, {"id": "dolci", "title": "Dolci", "source": "DOLCI", "note": "Seasonal desserts, good for the soul and the body.", "items": [{"id": "dolci-17526", "name": "Coppetta di Fragole", "sub": null, "desc": "Strawberries with vegan chantilly cream", "priceText": "£9", "price": 9.0, "kcal": "307", "allergens": "Gluten (wheat; rye; barley; oat), Milk. May contain traces of: Mustard, Peanuts, Sesame Seeds, Soya, Tree Nuts", "flags": []}, {"id": "dolci-17430", "name": "Profiterole al pistacchio", "sub": null, "desc": "Choux pastry with pistachio gelato and warm Valrhona dark chocolate sauce.", "priceText": "£12", "price": 12.0, "kcal": "762", "allergens": "", "flags": []}, {"id": "dolci-17533", "name": "Mousse al Cioccolato", "sub": null, "desc": "Dark chocolate mousse with praline and toasted hazelnut.", "priceText": "£6", "price": 6.0, "kcal": "468", "allergens": "", "flags": []}, {"id": "dolci-7889", "name": "Gelato al Pistacchio", "sub": null, "desc": "Home-made pistacchio gelato topped crunchy pistacchio.", "priceText": "£7", "price": 7.0, "kcal": "250", "allergens": "Milk, Pistachios. May contain traces of: Celery, Gluten, Mustard, Peanuts, Sesame Seeds, Soya, Tree Nuts.", "flags": []}, {"id": "dolci-13062", "name": "Gelato Fior di Latte", "sub": null, "desc": "Gelato fior di latte with caramel sauce.", "priceText": "£7", "price": 7.0, "kcal": "229", "allergens": "Milk. May contain traces of: Celery, Gluten, Mustard, Peanuts, Sesame Seeds, Soya, Tree nuts.", "flags": []}, {"id": "dolci-17534", "name": "Sorbetto al Limone e Basilico", "sub": null, "desc": "", "priceText": "£7", "price": 7.0, "kcal": "324", "allergens": "May contain traces of: Milk.", "flags": []}]}, {"id": "for-children", "title": "For children", "source": "MENÙ PER BAMBINI", "note": "Pasta, Juice & Gelato £12", "items": [{"id": "for-children-17385", "name": "Pasta al Pomodoro or Pasta with Olive Oil", "sub": null, "desc": "", "priceText": "", "price": null, "kcal": "", "allergens": "", "flags": []}, {"id": "for-children-17386", "name": "Gelato Fior di Latte", "sub": null, "desc": "", "priceText": "", "price": null, "kcal": "", "allergens": "", "flags": []}, {"id": "for-children-17968", "name": "Pineapple or Orange juice", "sub": null, "desc": "", "priceText": "", "price": null, "kcal": "", "allergens": "", "flags": []}]}, {"id": "drinks", "title": "Drinks", "source": "COCKTAILS, BIRRE, SOFT", "note": "", "items": [{"id": "drinks-18245", "name": "Tropicolada", "sub": "Virgin Cocktails", "desc": "Pineapple, coconut, orange, turmeric, lime.", "priceText": "£8", "price": 8.0, "kcal": "197 kcal", "allergens": "", "flags": []}, {"id": "drinks-14009", "name": "Amore Piccante", "sub": "Virgin Cocktails", "desc": "Honey, a spicy mixture of ginger and chili, lemon juice, passion fruit, Fever Tree Ginger Ale.", "priceText": "£8", "price": 8.0, "kcal": "123", "allergens": "none", "flags": []}, {"id": "drinks-18246", "name": "Limonata di Fragole", "sub": "Virgin Cocktails", "desc": "Strawberry, chamomile, lemon, lime, sparkling water.", "priceText": "£8", "price": 8.0, "kcal": "110 kcal", "allergens": "", "flags": []}, {"id": "drinks-18247", "name": "Sicilian Mule", "sub": "Virgin Cocktails", "desc": "Siracusa lemon, basil, raspberry, ginger beer.", "priceText": "£9", "price": 9.0, "kcal": "100 kcal", "allergens": "", "flags": []}, {"id": "drinks-12814", "name": "Passion Be Mojito", "sub": "Virgin Cocktails", "desc": "Passion fruit purée, ginger, zesty lime, fresh mint.", "priceText": "£8", "price": 8.0, "kcal": "348", "allergens": "none", "flags": []}, {"id": "drinks-10939", "name": "Aperol Spritz", "sub": "ITALIAN CLASSICS", "desc": "Aperol, Prosecco, sparkling water", "priceText": "£12", "price": 12.0, "kcal": "", "allergens": "contains sulphites", "flags": []}, {"id": "drinks-10937", "name": "Garibaldi", "sub": "ITALIAN CLASSICS", "desc": "Campari, orange juice", "priceText": "£12", "price": 12.0, "kcal": "", "allergens": "none", "flags": []}, {"id": "drinks-10938", "name": "Americano", "sub": "ITALIAN CLASSICS", "desc": "Campari, Martini Riserva Speciale Rubino, sparkling water", "priceText": "£12", "price": 12.0, "kcal": "", "allergens": "contain sulphites", "flags": []}, {"id": "drinks-10940", "name": "Campari Spritz", "sub": "ITALIAN CLASSICS", "desc": "Campari, Prosecco, sparkling water", "priceText": "£12", "price": 12.0, "kcal": "", "allergens": "contains sulphites", "flags": []}, {"id": "drinks-10936", "name": "Negroni", "sub": "ITALIAN CLASSICS", "desc": "Beefeater gin, Campari, Martini Riserva Speciale Rubino", "priceText": "£13", "price": 13.0, "kcal": "", "allergens": "contains sulphites", "flags": [{"kind": "diet", "who": "Roger", "text": "Not vegetarian"}]}, {"id": "drinks-5913", "name": "PALE ALE", "sub": "DRAUGHT BEERS PIG & PORTER", "desc": "A hint of Amalfi lemon zest (4.2%)", "priceText": "£4 / £7.50", "price": 4.0, "kcal": "", "allergens": "gluten", "flags": []}, {"id": "drinks-5912", "name": "LAGER", "sub": "DRAUGHT BEERS PIG & PORTER", "desc": "Easy Italian style lager (4%)", "priceText": "£3.50 / £6.50", "price": 3.5, "kcal": "", "allergens": "gluten", "flags": []}, {"id": "drinks-5914", "name": "I.P.A.", "sub": "DRAUGHT BEERS PIG & PORTER", "desc": "A touch of blood orange (5.3%)", "priceText": "£4 / £7.50", "price": 4.0, "kcal": "", "allergens": "gluten", "flags": []}, {"id": "drinks-13984", "name": "Tribute Pink Grapefruit Soda", "sub": "SOFTS", "desc": "", "priceText": "£5.50", "price": 5.5, "kcal": "", "allergens": "", "flags": []}]}]};
+const MEMBERS = [
+  {k:'R', n:'Roger',   why:'vegetarian'},
+  {k:'G', n:'Gina',    why:'carrot allergy · not keen on fish or fried food'},
+  {k:'P', n:'Phoenix', why:'9 · not keen on fish'}
+];
+const NAME = {R:'Roger', G:'Gina', P:'Phoenix'};
+const ITEMS = {};
+MENU.sections.forEach(s => s.items.forEach(i => { ITEMS[i.id] = Object.assign({section:s.title}, i); }));
+
+const ic = (n, cls) => '<svg class="ic ' + (cls||'') + '"><use href="#i-' + n + '"/></svg>';
+const money = v => '£' + (Math.round(v*100)/100).toFixed(2).replace(/\.00$/, '');
+
+// A tick is one person wanting one dish; a dish can also be "for the table".
+function newState(preset){
+  return Object.assign({screen:'venue', section:MENU.sections[1].id, picks:{}, ratings:{}, staffBy:'person', sheet:null, saved:false}, preset||{});
+}
+
+function pickOf(st, id){ return st.picks[id] || (st.picks[id] = {p:{}, table:false, mod:''}); }
+function hasPick(st, id){ const p = st.picks[id]; return !!p && (p.table || Object.values(p.p).some(Boolean)); }
+function ordered(st){
+  const out = [];
+  Object.keys(st.picks).forEach(id => {
+    const p = st.picks[id];
+    if (!ITEMS[id]) return;
+    if (p.table) out.push({id, who:'table', mod:p.mod});
+    MEMBERS.forEach(m => { if (p.p[m.k]) out.push({id, who:m.k, mod:p.mod}); });
+  });
+  return out;
+}
+function total(st){
+  return ordered(st).reduce((n, o) => n + (ITEMS[o.id].price || 0), 0);
+}
+function flagsFor(item){
+  return (item.flags || []).map(f => {
+    const cls = f.kind === 'check' ? 'check' : (f.kind === 'allergen' ? 'allergen' : '');
+    const icon = f.kind === 'check' ? 'triangle-alert' : (f.kind === 'diet' ? 'leaf' : 'circle-x');
+    return '<span class="flag ' + cls + '">' + ic(icon) + f.who + ' · ' + f.text + '</span>';
+  }).join('');
+}
+
+/* ---------------- screens ---------------- */
+
+function headBar(st, title, sub, back){
+  return '<div class="head"><div class="top"><div class="back">' + (back ? ic('chevron-left','s') + back : '&nbsp;') +
+    '</div><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div>' +
+    '<div class="title">' + title + '</div><p class="sub">' + sub + '</p></div>';
+}
+
+function venueScreen(st){
+  return headBar(st, 'Circolo Popolare', 'Sat 5 Sep · 19:30 · Roger, Gina, Phoenix', 'The day') +
+   '<div class="body scroll">' +
+    '<div class="hdr"><div><div class="h3">40–41 Rathbone Place</div>' +
+      '<div class="tiny">' + ic('star','s') + ' 4.8 · 41,881 ratings · ££ · Italian</div></div>' +
+      '<div class="save love">' + ic('heart-fill') + '</div></div>' +
+    '<div class="provenance">' +
+      '<div class="lab">The menu</div>' +
+      '<div class="chain">' +
+        '<div class="step">' + ic('map-pin','s') + '<div>Google gave us the place — and its <b>website</b><br>circolopopolare.com</div></div>' +
+        '<div class="step">' + ic('globe','s') + '<div>Roam followed the site and found <b>the menu link</b><br>menu.bigmammagroup.com/circolopopolare</div></div>' +
+        '<div class="step">' + ic('list','s') + '<div>Read into <b>54 dishes and drinks</b> with prices, allergens and calories</div></div>' +
+      '</div>' +
+      '<div class="tiny">Fetched today, 12:04 · prices as printed then</div>' +
+    '</div>' +
+    '<div class="btn" data-a="go" data-v="menu">' + ic('utensils') + 'Open the menu</div>' +
+    '<div class="btn sec" data-a="none">' + ic('camera') + 'Photograph the menu instead</div>' +
+    '<div class="tiny">Nobody at the table has to type anything. If the site has no menu, or it is out of date, the camera is still there.</div>' +
+   '</div>';
+}
+
+function menuRow(st, it){
+  const p = st.picks[it.id];
+  const picked = hasPick(st, it.id);
+  const faces = MEMBERS.map(m => '<div class="face' + (p && p.p[m.k] ? ' on' : '') + '" data-a="tick" data-v="' + it.id + '" data-m="' + m.k + '">' + m.k + '</div>').join('');
+  const table = '<div class="tablechip' + (p && p.table ? ' on' : '') + '" data-a="table" data-v="' + it.id + '">' + ic('users','s') + 'Table</div>';
+  const fl = flagsFor(it);
+  return '<div class="mrow' + (picked ? ' picked' : '') + '">' +
+    '<div class="l1" data-a="sheet" data-v="' + it.id + '"><div class="nm">' + it.name + '</div><div class="pr">' + (it.priceText || '—') + '</div></div>' +
+    (it.desc ? '<div class="ds" data-a="sheet" data-v="' + it.id + '">' + it.desc + '</div>' : '') +
+    (fl ? '<div class="flags">' + fl + '</div>' : '') +
+    '<div class="picks">' + faces + table + (p && p.mod ? '<span class="qty">' + p.mod + '</span>' : '') + '</div>' +
+  '</div>';
+}
+
+function menuScreen(st){
+  const sec = MENU.sections.find(s => s.id === st.section) || MENU.sections[0];
+  const chips = MENU.sections.map(s => '<div class="pill mini' + (s.id === sec.id ? ' on' : '') + '" data-a="sec" data-v="' + s.id + '">' + s.title + '</div>').join('');
+  const n = ordered(st).length;
+  return headBar(st, 'Menu', 'Circolo Popolare · fetched today 12:04', 'Circolo Popolare') +
+   '<div class="body scroll">' +
+     '<div class="secbar">' + chips + '</div>' +
+     (sec.note ? '<div class="provenance"><div class="tiny">' + sec.note.replace(/\n/g, '<br>') + '</div></div>' : '') +
+     '<div>' + sec.items.map(i => menuRow(st, i)).join('') + '</div>' +
+     '<div class="tiny">Tap a name for what is in it. Tap a face to say who wants it, or Table for something to share.</div>' +
+   '</div>' +
+   '<div class="bottombar"><div class="sum"><b>' + (n ? n + (n === 1 ? ' thing' : ' things') + ' · ' + money(total(st)) : 'Nothing chosen yet') + '</b>' +
+     '<span>' + (n ? 'Tap to check it over' : 'Tap a face on a dish') + '</span></div>' +
+     '<div class="btn sm' + (n ? '' : ' sec') + '" data-a="go" data-v="order">The order' + ic('chevron-right','s') + '</div></div>';
+}
+
+function sheet(st){
+  const it = ITEMS[st.sheet]; if (!it) return '';
+  const p = pickOf(st, it.id);
+  const faces = MEMBERS.map(m => '<div style="display:flex;flex-direction:column;align-items:center;gap:4px">' +
+      '<div class="face lg' + (p.p[m.k] ? ' on' : '') + '" data-a="tick" data-v="' + it.id + '" data-m="' + m.k + '">' + m.k + '</div>' +
+      '<span class="tiny">' + m.n + '</span></div>').join('');
+  return '<div class="scrim" data-a="closesheet"></div><div class="sheet"><div class="handle"></div>' +
+    '<div><div class="h3">' + it.name + '</div><div class="tiny">' + (it.priceText || 'part of the set menu') + (it.kcal ? ' · ' + it.kcal + ' kcal' : '') + '</div></div>' +
+    (it.desc ? '<div class="small">' + it.desc + '</div>' : '') +
+    (flagsFor(it) ? '<div class="flags">' + flagsFor(it) + '</div>' : '') +
+    '<div class="grp"><div class="lab">Allergens, as the restaurant lists them</div><div class="tiny">' + (it.allergens || 'Not listed against this dish — ask.') + '</div></div>' +
+    '<div class="grp"><div class="lab">Who is having it</div><div class="picks" style="gap:14px">' + faces +
+      '<div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div class="face lg' + (p.table ? ' on' : '') + '" data-a="table" data-v="' + it.id + '">' + ic('users') + '</div><span class="tiny">Table</span></div></div></div>' +
+    '<div class="grp"><div class="lab">Anything to say about it</div>' +
+      '<input class="notein" placeholder="no chilli · sauce on the side" value="' + (p.mod || '') + '" data-i="mod" data-v="' + it.id + '"></div>' +
+    '<div class="btn" data-a="closesheet">Done</div></div>';
+}
+
+function orderGroups(st){
+  const list = ordered(st);
+  const groups = [{k:'table', n:'For the table'}].concat(MEMBERS.map(m => ({k:m.k, n:m.n})));
+  return groups.map(g => {
+    const rows = list.filter(o => o.who === g.k);
+    if (!rows.length && g.k === 'table') return '';
+    return '<div><div class="grpttl">' + (g.k === 'table' ? ic('users') : '<div class="face on">' + g.k + '</div>') +
+      '<div class="nmw">' + g.n + '</div><div class="qty">' + rows.length + '</div></div>' +
+      (rows.length ? rows.map(o => '<div class="orow"><div class="nm">' + ITEMS[o.id].name +
+        (o.mod ? '<div class="mod">' + o.mod + '</div>' : '') + '</div><div>' + (ITEMS[o.id].priceText || '') + '</div></div>').join('')
+        : '<div class="orow"><div class="nm mod">Nothing yet</div></div>') + '</div>';
+  }).join('');
+}
+
+function orderScreen(st){
+  const n = ordered(st).length;
+  return headBar(st, 'The order', 'Circolo Popolare · Sat 5 Sep', 'Menu') +
+   '<div class="body scroll">' +
+     (n ? '' : '<div class="tiny">Nothing chosen yet — go back to the menu and tap a face on a dish.</div>') +
+     orderGroups(st) +
+     (n ? '<div class="total"><span>Total</span><span>' + money(total(st)) + '</span></div>' : '') +
+     '<div class="warn">' + ic('triangle-alert','s') + '<div>Gina is allergic to carrots. Carrot is not one of the fourteen allergens a menu has to declare, so Roam cannot clear a dish — it asks. The ragù and anything with a soffritto need a word with the waiter.</div></div>' +
+     '<div class="tiny">Roger is vegetarian; nothing on this order is meat for him.</div>' +
+   '</div>' +
+   '<div class="bottombar"><div class="btn sm sec" data-a="go" data-v="rate">' + ic('star','s') + 'We ate it</div>' +
+     '<div class="btn sm" style="flex:1" data-a="staff">' + ic('message-square','s') + 'Show to staff</div></div>';
+}
+
+function staffOverlay(st){
+  const list = ordered(st);
+  const byPerson = st.staffBy === 'person';
+  let blocks = '';
+  if (byPerson){
+    const groups = [{k:'table', n:'For the table'}].concat(MEMBERS.map(m => ({k:m.k, n:m.n})));
+    blocks = groups.map(g => {
+      const rows = list.filter(o => o.who === g.k);
+      if (!rows.length) return '';
+      return '<div class="who">' + g.n + '</div>' + rows.map(o => '<div class="dish">' + ITEMS[o.id].name +
+        (o.mod ? '<span>' + o.mod + '</span>' : '') + '</div>').join('');
+    }).join('');
+  } else {
+    const secs = MENU.sections.map(s => s.title);
+    blocks = secs.map(t => {
+      const rows = list.filter(o => ITEMS[o.id].section === t);
+      if (!rows.length) return '';
+      return '<div class="who">' + t + '</div>' + rows.map(o => '<div class="dish">' + ITEMS[o.id].name +
+        '<span>' + (o.who === 'table' ? 'for the table' : 'for ' + NAME[o.who]) + (o.mod ? ' · ' + o.mod : '') + '</span></div>').join('');
+    }).join('');
+  }
+  return '<div class="staff"><div class="iconbtn close" data-a="closestaff">' + ic('x') + '</div>' +
+    '<div class="seg3" style="max-width:220px"><div class="' + (byPerson ? 'on' : '') + '" data-a="staffby" data-v="person">By person</div>' +
+      '<div class="' + (byPerson ? '' : 'on') + '" data-a="staffby" data-v="course">By course</div></div>' +
+    blocks +
+    '<div class="alert">Gina has a carrot allergy. Please check anything with a soffritto or a stock.</div>' +
+    '<div class="dish" style="font-size:15px;font-weight:600">Roger is vegetarian.</div>' +
+    '<div class="foot">Big type, no chrome, screen stays awake. Works with no signal.</div></div>';
+}
+
+function rateKey(o){ return o.id + ':' + o.who; }
+function rateScreen(st){
+  const list = ordered(st).filter(o => ITEMS[o.id].price !== null || true);
+  const rows = list.map(o => {
+    const k = rateKey(o), r = st.ratings[k] || {stars:0, no:false, note:''};
+    const stars = [1,2,3,4,5].map(i => '<svg class="ic' + (r.stars >= i ? ' on' : '') + '" data-a="star" data-v="' + k + '" data-m="' + i + '"><use href="#i-star' + (r.stars >= i ? '-fill' : '') + '"/></svg>').join('');
+    return '<div class="rrow"><div class="top">' +
+      (o.who === 'table' ? '<div class="face">' + ic('users','s') + '</div>' : '<div class="face on">' + o.who + '</div>') +
+      '<div class="nm">' + ITEMS[o.id].name + '</div></div>' +
+      '<div class="top"><div class="stars">' + stars + '</div>' +
+      '<div class="notgreat' + (r.no ? ' on' : '') + '" data-a="no" data-v="' + k + '">' + ic('circle-x') + 'Not great</div></div>' +
+      ((r.stars || r.no) ? '<input class="notein" placeholder="' + (r.no ? 'what was wrong with it?' : 'what made it good?') + '" value="' + (r.note || '') + '" data-i="note" data-v="' + k + '">' : '') +
+    '</div>';
+  }).join('');
+  const starred = Object.values(st.ratings).filter(r => r.stars).length;
+  const bad = Object.values(st.ratings).filter(r => r.no).length;
+  return headBar(st, 'How was it?', 'Circolo Popolare · Sat 5 Sep', 'The order') +
+   '<div class="body scroll">' +
+     '<div class="provenance"><div class="small"><b>Only star what stood out.</b> Anything you leave alone is taken as fine — that is the answer for most plates. Say so only when it was not.</div></div>' +
+     (rows || '<div class="tiny">Nothing was ordered.</div>') +
+     '<div class="tiny">' + ic('mic','s') + ' You can say it instead: “the carbonara was the best thing, Phoenix didn’t finish the pizza”. The words land in the same rows and nothing saves until you tap Save.</div>' +
+   '</div>' +
+   '<div class="bottombar"><div class="sum"><b>' + starred + ' starred · ' + bad + ' not great</b><span>' + (ordered(st).length - starred - bad) + ' left as fine</span></div>' +
+     '<div class="btn sm" data-a="go" data-v="learned">Save</div></div>';
+}
+
+function learnedScreen(st){
+  const list = ordered(st);
+  const rows = list.map(o => {
+    const r = st.ratings[rateKey(o)] || {stars:0, no:false, note:''};
+    const it = ITEMS[o.id];
+    const who = o.who === 'table' ? 'the table' : NAME[o.who];
+    let mark, line;
+    if (r.stars){ mark = '<div class="stars">' + [1,2,3,4,5].map(i => '<svg class="ic s' + (r.stars >= i ? ' on' : '') + '"><use href="#i-star' + (r.stars >= i ? '-fill' : '') + '"/></svg>').join('') + '</div>';
+      line = 'liked by ' + who + (r.note ? ' — “' + r.note + '”' : ''); }
+    else if (r.no){ mark = '<span class="flag">' + ic('circle-x') + 'not great</span>'; line = who + ' would not have it again' + (r.note ? ' — “' + r.note + '”' : ''); }
+    else { mark = '<span class="flag">fine</span>'; line = 'nothing said, so it counts as fine for ' + who; }
+    return '<div class="lrow"><div class="cn"><b>' + it.name + '</b><span>' + line + '</span></div>' + mark + '</div>';
+  }).join('');
+  return headBar(st, 'Saved', 'Circolo Popolare · Sat 5 Sep', 'How was it?') +
+   '<div class="body scroll">' +
+     '<div class="provenance"><div class="small"><b>The visit is in Places.</b> The order and what each of you thought sit under it. Circolo Popolare keeps its place in London; the opinions travel with the dish, not with the restaurant.</div></div>' +
+     '<div class="lab">This visit</div><div class="learn">' + (rows || '<div class="tiny">Nothing to save.</div>') + '</div>' +
+     '<div class="lab">What it changes</div>' +
+     '<div class="tiny">Stars go to the dish, not only to the plate you had: a starred carbonara raises carbonara everywhere, and raises Circolo Popolare for the family. “Not great” lowers that one dish and nothing else. Fine changes nothing — which is why leaving it alone is a real answer.</div>' +
+   '</div>' +
+   '<div class="bottombar"><div class="btn sm sec" style="flex:1" data-a="go" data-v="venue">Back to the place</div></div>';
+}
+
+/* ---------------- wide (web) ---------------- */
+
+function wideApp(st){
+  const menuCols = MENU.sections.map(s =>
+    '<div class="dsec">' + s.title + '</div>' +
+    (s.note ? '<div class="tiny" style="margin:0 0 6px">' + s.note.replace(/\n/g, ' ') + '</div>' : '') +
+    s.items.map(i => menuRow(st, i)).join('')).join('');
+  let side;
+  if (st.screen === 'rate' || st.screen === 'learned'){
+    side = (st.screen === 'rate' ? rateScreen(st) : learnedScreen(st));
+    side = side.substring(side.indexOf('<div class="body scroll">'));
+  } else {
+    side = '<div class="body scroll">' + (ordered(st).length ? orderGroups(st) + '<div class="total"><span>Total</span><span>' + money(total(st)) + '</span></div>' : '<div class="tiny">Tap a face on a dish to start the order.</div>') +
+      '<div class="warn">' + ic('triangle-alert','s') + '<div>Gina is allergic to carrots — not one of the fourteen declarable allergens, so ask about the ragù.</div></div></div>';
+  }
+  return '<div class="topbar"><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div>' +
+      '<div class="nav"><span>Plan</span><b>Trips</b><span>Places</span><span>Household</span></div>' +
+      '<div class="right"><span class="src">' + ic('globe','s') + 'Menu from circolopopolare.com · today 12:04</span></div></div>' +
+    '<div class="dcols"><div class="dmenu"><div class="hdr"><div><div class="h3">Circolo Popolare · menu</div><div class="tiny">54 dishes and drinks · prices as printed today</div></div>' +
+      '<div style="display:flex;gap:6px"><div class="btn sm sec" data-a="go" data-v="rate">' + ic('star','s') + 'We ate it</div><div class="btn sm" data-a="staff">' + ic('message-square','s') + 'Show to staff</div></div></div>' +
+      '<div class="dgrid"><div>' + menuCols + '</div></div></div>' +
+      '<div class="dside"><div class="cardp"><div class="h3">' + (st.screen === 'rate' ? 'How was it?' : st.screen === 'learned' ? 'Saved' : 'The order') + '</div>' + side + '</div></div></div>' +
+    (st.screen === 'staff' ? staffOverlay(st) : '');
+}
+
+/* ---------------- mount ---------------- */
+
+function mount(el, opts){
+  opts = opts || {};
+  const st = newState(opts.state);
+  const wide = !!opts.wide;
+  function render(){
+    let inner;
+    if (wide){ inner = wideApp(st); }
+    else {
+      const map = {venue:venueScreen, menu:menuScreen, order:orderScreen, rate:rateScreen, learned:learnedScreen};
+      inner = '<div class="status"><span>9:41</span><span>●●●</span></div><div class="screen">' +
+        (map[st.screen] || venueScreen)(st) +
+        (st.sheet ? sheet(st) : '') +
+        (st.screen === 'staff' ? staffOverlay(st) : '') +
+        '</div>' +
+        (st.screen === 'staff' ? '' : '<div class="tabbar"><div>' + ic('wand-sparkles') + 'Plan</div><div class="on">' + ic('map-pinned') + 'Trips</div><div>' + ic('bookmark') + 'Places</div><div>' + ic('users') + 'Household</div></div>');
+    }
+    el.innerHTML = inner;
+  }
+  el.addEventListener('click', e => {
+    const t = e.target.closest('[data-a]'); if (!t) return;
+    const a = t.dataset.a, v = t.dataset.v, m = t.dataset.m;
+    if (a === 'go'){ if (v === 'staff') st.screen = 'staff'; else st.screen = v; st.sheet = null; }
+    else if (a === 'sec'){ st.section = v; }
+    else if (a === 'tick'){ const p = pickOf(st, v); p.p[m] = !p.p[m]; }
+    else if (a === 'table'){ const p = pickOf(st, v); p.table = !p.table; }
+    else if (a === 'sheet'){ st.sheet = v; }
+    else if (a === 'closesheet'){ st.sheet = null; }
+    else if (a === 'staff'){ st.prev = st.screen; st.screen = 'staff'; }
+    else if (a === 'closestaff'){ st.screen = st.prev || 'order'; }
+    else if (a === 'staffby'){ st.staffBy = v; }
+    else if (a === 'star'){ const r = st.ratings[v] || (st.ratings[v] = {stars:0, no:false, note:''}); r.stars = (r.stars === +m ? 0 : +m); if (r.stars) r.no = false; }
+    else if (a === 'no'){ const r = st.ratings[v] || (st.ratings[v] = {stars:0, no:false, note:''}); r.no = !r.no; if (r.no) r.stars = 0; }
+    render();
+  });
+  el.addEventListener('input', e => {
+    const t = e.target.closest('[data-i]'); if (!t) return;
+    if (t.dataset.i === 'mod'){ pickOf(st, t.dataset.v).mod = t.value; }
+    if (t.dataset.i === 'note'){ const r = st.ratings[t.dataset.v] || (st.ratings[t.dataset.v] = {stars:0, no:false, note:''}); r.note = t.value; }
+  });
+  render();
+  return st;
+}
+
+// A worked evening: what the family actually chose, used by the storyboard frames.
+function worked(){
+  const find = n => Object.keys(ITEMS).find(k => ITEMS[k].section !== 'Pranzetto · lunch set' && ITEMS[k].name.toLowerCase().indexOf(n) > -1);
+  const burrata = find('burrata e pappa'), suppli = find('supplì'), norma = find('pasta alla norma'),
+        ragu = find('spaghettoni al ragù'), carb = find('la gran carbonara'), pizza = find('doppio tartufo'),
+        beef = find('controfiletto'), gelato = find('gelato fior di latte'), lemonade = find('home-made lemonade');
+  const picks = {};
+  picks[burrata] = {p:{}, table:true, mod:''};
+  picks[suppli] = {p:{}, table:true, mod:''};
+  picks[norma]  = {p:{R:true}, table:false, mod:'vegan version'};
+  picks[ragu]   = {p:{G:true}, table:false, mod:'ask about carrot'};
+  picks[pizza]  = {p:{P:true}, table:false, mod:'no truffle for Phoenix'};
+  picks[gelato] = {p:{P:true}, table:false, mod:''};
+  picks[lemonade] = {p:{P:true}, table:false, mod:''};
+  const ratings = {};
+  ratings[ragu + ':G'] = {stars:5, no:false, note:'best thing on the table'};
+  ratings[norma + ':R'] = {stars:4, no:false, note:'aubergine, properly done'};
+  ratings[pizza + ':P'] = {stars:0, no:true, note:'too much truffle'};
+  return {picks, ratings};
+}
+
+
+document.querySelectorAll('.phone,.desk').forEach(el => { el.style.cursor = 'default'; });
+mount(document.getElementById('live-light'), {});
+mount(document.getElementById('live-dark'), {});
+
+const w = worked();
+mount(document.getElementById('wide-light'), {wide:true, state:{picks:w.picks, ratings:w.ratings}});
+mount(document.getElementById('wide-dark'), {wide:true, state:{picks:w.picks, ratings:w.ratings, screen:'rate'}});
+
+const FRAMES = [
+  ['menu',   'Choosing', 'One line a dish, price on the right, and three faces. The flags are only the ones that concern this family.'],
+  ['order',  'The order', 'Shared plates first, then a group a person. The carrot line is a question, not a clearance.'],
+  ['staff',  'Show to staff', 'Big type, no chrome, screen awake. Toggle to read it out by course if the waiter goes round the table.'],
+  ['rate',   'How was it?', 'Stars for what stood out. Everything untouched counts as fine.'],
+  ['learned','What it kept', 'The visit, the order and the opinions — and the dish concepts that travel to the next city.']
+];
+const story = document.getElementById('story');
+FRAMES.forEach(([screen, title, cap]) => {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = '<div class="modelab">' + title + '</div><div class="phone" data-theme="light"></div><p class="cap">' + cap + '</p>';
+  story.appendChild(wrap);
+  const st = {picks:w.picks, ratings:w.ratings, screen:(screen === 'staff' ? 'staff' : screen), section:'primi-piatti'};
+  if (screen === 'staff') st.prev = 'order';
+  mount(wrap.querySelector('.phone'), {state:JSON.parse(JSON.stringify(st))});
+});
+</script>
+</body></html>
