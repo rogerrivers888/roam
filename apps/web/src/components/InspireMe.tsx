@@ -493,7 +493,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
               make asking again a tap rather than a guess (owner, 4 Sep 2026). */}
           {foundAt && !busy ? (
             <Row style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={type.tiny}>Found {howLongAgo(Date.now() - new Date(foundAt).getTime())} · kept until tonight</Text>
+              <Text style={type.tiny}>Found {howLongAgo(Date.now() - new Date(foundAt).getTime())} · kept for the day</Text>
               <Chip label="Refresh" icon="refresh" onPress={inspire} />
             </Row>
           ) : null}
