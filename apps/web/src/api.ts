@@ -131,6 +131,31 @@ export type Venue = {
  */
 export type MenuLink = { url: string | null; label: string | null; how: string | null; why?: string | null; checkedAt: string; cached?: boolean };
 
+
+/** A menu read into dishes from the restaurant's own page (owner, 4 Sep 2026). */
+export type MenuItem = {
+  id: string; name: string; description: string | null; price: number | null; priceText: string | null;
+  kcal: number | null; allergens: string | null; vegetarian: boolean | null;
+};
+export type MenuSection = { title: string; note: string | null; items: MenuItem[] };
+export type ReadMenu = {
+  id: string; venueRef: string; venueLabel: string | null; sourceUrl: string; sourceKind: 'html' | 'pdf' | 'json' | 'rendered' | 'claude' | 'photo';
+  how: string[]; currency: string | null; note: string | null; fetchedAt: string;
+  ageDays: number; stale: boolean; staleAfterDays: number; items: number; sections: MenuSection[];
+};
+export type MenuOpeners = { html: boolean; pdf: boolean; rendered: boolean; browser: string | null; claude: boolean; staleAfterDays: number };
+export type OrderItem = {
+  id: string; menuItemId: string | null; memberId: string | null; member: string | null;
+  name: string; price: number | null; priceText: string | null; note: string | null;
+  ratings: { memberId: string; score: number | null; take: Take; comment: string | null }[];
+  concept: { key: string; label: string } | null;
+  conceptSuggestion: { key: string; label: string; score: number } | null;
+};
+export type Order = {
+  id: string; clientId: string | null; venueRef: string; venueLabel: string | null; menuId: string | null;
+  visitId: string | null; createdAt: string; updatedAt: string; items: OrderItem[]; total: number;
+};
+
 export type Take = 'loved' | 'fine' | 'not_for_me';
 export type VisitTake = { id?: string; memberId: string; member?: string; subject: string; take: Take; comment: string | null; conceptKey?: string | null; concept?: string | null; /** Out of 5, in halves (owner, 3 Sep 2026). */ score?: number | null };
 export type Visit = {
@@ -417,6 +442,20 @@ export const api = {
   browse: () => request<{ food: { title: string; hint: string; items: { key: string; label: string; children: { key: string; label: string }[] }[] }[]; activities: { title: string; hint: string; items: { key: string; label: string; children: { key: string; label: string }[] }[] }[]; diets: { key: string; label: string }[] }>('/api/concepts/browse'),
   suggest: (q: string, kinds?: string[], limit = 8) =>
     request<{ suggestions: Suggestion[] }>(`/api/concepts/suggest${qs({ q, kinds: kinds?.join(','), limit })}`),
+
+  // menu, order and stars (the table half of an evening, owner 4 Sep 2026)
+  /** What we already hold for this place — and, when we hold nothing, where their menu is. */
+  heldMenu: (venueRef: string) => request<{ menu: ReadMenu | null; link: MenuLink | null }>(`/api/menu${qs({ ref: venueRef })}`),
+  /** Which of the four openers this deployment has: a browser makes a JavaScript menu readable for nothing. */
+  menuOpeners: () => request<MenuOpeners>('/api/menu/openers'),
+  /** Read their menu now. Slow on purpose: it fetches, may render, and reads. */
+  readMenu: (body: { ref: string; url?: string; label?: string; website?: string }) => post<{ menu: ReadMenu }>('/api/menu/read', body),
+  order: (venueRef: string) => request<{ order: Order | null }>(`/api/orders${qs({ ref: venueRef })}`),
+  saveOrder: (body: { clientId?: string; ref: string; label?: string; menuId?: string | null; items: { menuItemId?: string | null; memberId: string | null; name: string; priceText?: string | null; note?: string | null }[] }) =>
+    post<{ order: Order }>('/api/orders', body),
+  orderEaten: (id: string, body: { visitedOn?: string; attendeeIds?: string[] } = {}) => post<{ order: Order; visitId: string }>(`/api/orders/${id}/eaten`, body),
+  rateOrder: (id: string, ratings: { orderItemId: string; memberId?: string | null; score?: number | null; notGreat?: boolean; comment?: string | null; conceptKey?: string | null }[]) =>
+    post<{ order: Order }>(`/api/orders/${id}/ratings`, { ratings }),
 
   // places & visits
   /** `bias.near` keeps matches inside that area first (a trip's city); `bias.country` never leaves that country. */

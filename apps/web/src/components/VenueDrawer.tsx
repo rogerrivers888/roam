@@ -5,6 +5,7 @@ import { Icon, IconText, Rating, Stars } from './Icon';
 import { API_URL, api, BrowseItem, MenuLink, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
+import { MenuOrder } from './MenuOrder';
 import { SOURCE_LABEL, priceMarks, typeLine } from './StopCard';
 
 /**
@@ -71,6 +72,9 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   const [menu, setMenu] = useState<MenuLink | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // The table half of the evening: read the menu, tick who wants what, show the
+  // order to the waiter, star what stood out (owner, 4 Sep 2026).
+  const [ordering, setOrdering] = useState(false);
 
   useEffect(() => {
     setTab('overview'); setVenue(undefined); setMenu(undefined); setError(null); setSaved(false);
@@ -103,6 +107,10 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   ];
 
   return (
+    <>
+    {ordering ? (
+      <MenuOrder venueRef={item.venueRef} venueLabel={title} website={website ?? null} onClose={() => setOrdering(false)} />
+    ) : null}
     <Modal visible transparent animationType={wide ? 'fade' : 'slide'} onRequestClose={onClose}>
       <View style={styles.backdropWrap}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
@@ -183,6 +191,10 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                         <Text style={type.tiny}>{menu.why}</Text>
                       </>
                     ) : null}
+                    <Wrap style={{ marginTop: 4 }}>
+                      <Button label="Menu & order" icon="list" kind="secondary" onPress={() => setOrdering(true)} />
+                    </Wrap>
+                    <Text style={type.tiny}>Reads their menu into dishes you can tick off, one each, and makes the order to show the waiter.</Text>
                   </View>
                 ) : null}
               </View>
@@ -228,6 +240,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
         </View>
       </View>
     </Modal>
+    </>
   );
 }
 

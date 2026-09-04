@@ -90,12 +90,15 @@ export async function parseStructured({
   effort = 'medium',
   model = MODEL,
   thinking = 'adaptive',
+  // A long answer needs room: a menu of two hundred dishes does not fit in the
+  // planner's default (sources/menuRead.js).
+  maxTokens = 4096,
 }) {
   await assertWithinBounds({ householdId, sessionId });
 
   const response = await client.messages.parse({
     model,
-    max_tokens: 4096,
+    max_tokens: maxTokens,
     system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
     messages,
     // A quick read of half a sentence (the live rows) needs speed, not reasoning: thinking off.

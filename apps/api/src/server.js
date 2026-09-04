@@ -13,6 +13,7 @@ import conceptRoutes from './routes/concepts.js';
 import prototypeRoutes from './routes/prototypes.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 import { atlas as atlasRoutes } from './routes/atlas.js';
+import { menu as menuRoutes, orders as orderRoutes } from './routes/menus.js';
 import { fetchPhoto } from './sources/google.js';
 import { currentHousehold } from './routes/household.js';
 import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
@@ -50,6 +51,8 @@ app.use('/api/prototypes', prototypeRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/visits', visitRoutes);
 app.use('/api/atlas', atlasRoutes);
+app.use('/api/menu', menuRoutes);
+app.use('/api/orders', orderRoutes);
 
 /** Licensed review text must not be crawlable (Tripadvisor review implementation policy); the API is not a website. */
 app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
