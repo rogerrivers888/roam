@@ -34,6 +34,7 @@ type Kind = 'all' | 'do' | 'eat';
 type Status = 'any' | 'been' | 'try' | 'special';
 type Sort = 'name' | 'mine' | 'recent';
 
+const uuid = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1).replace(/-/g, ' ');
 const fmtScore = (s: number) => s.toFixed(1).replace('.0', '');
 
@@ -258,7 +259,7 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
         baseLabel={city?.name ?? (home ? 'home' : null)}
         onClose={() => setOpen(null)}
         onVenue={async (v) => { if (open?.unnamed && v.name) { try { await api.nameAtlasPlace(open.venueRef, v.name); await loadPlaces(); } catch { /* the drawer still shows the fetched name */ } } }}
-        ours={open ? <OursPanel place={open} household={household} ctx={country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {}} viewer={viewer} onChanged={refreshAll} /> : null}
+        ours={open ? <OursPanel place={open} household={household} ctx={country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {}} viewer={viewer} onChanged={refreshAll} onRemoved={() => setOpen(null)} /> : null}
       />
     </ScrollView>
   );
@@ -541,11 +542,12 @@ function PickSheet({ visible, title, options, value, onPick, onClose }: { visibl
 // Our side of a place, at the top of the drawer
 // ---------------------------------------------------------------------------
 
-function OursPanel({ place, household, ctx: where, viewer, onChanged }: { place: AtlasPlace; household: HouseholdResponse | null; ctx: { country?: string; countryCode?: string; locality?: string }; viewer: string | null; onChanged: () => Promise<void> }) {
+function OursPanel({ place, household, ctx: where, viewer, onChanged, onRemoved }: { place: AtlasPlace; household: HouseholdResponse | null; ctx: { country?: string; countryCode?: string; locality?: string }; viewer: string | null; onChanged: () => Promise<void>; onRemoved: () => void }) {
   const [detail, setDetail] = useState<{ visits: Visit[] } | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Visit | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const ctx = { label: place.name, category: place.category, lat: place.lat ?? undefined, lng: place.lng ?? undefined, ...where };
   const venue = atlasToVenue(place);
   const mine = myScore(place, viewer);
@@ -593,6 +595,22 @@ function OursPanel({ place, household, ctx: where, viewer, onChanged }: { place:
           initial={{ visitId: editing.id, date: editing.visitedOn, note: editing.note ?? '', rows: rowsForVisit(editing, household.members), attending: (editing.attendees as any[]).map((a) => (typeof a === 'string' ? household.members.find((m) => m.name === a)?.id ?? '' : a.id)).filter(Boolean) }} />
       ) : null}
       {place.note ? <Text style={type.small}>Our note: “{place.note}”</Text> : null}
+      {/* Curating means being able to take something out again (owner, 4 Sep 2026). */}
+      {place.visits ? null : (
+        <Row style={{ flexWrap: 'wrap' }}>
+          <Button
+            label={confirmRemove ? 'Tap again to remove' : 'Remove from Places'}
+            icon={confirmRemove ? 'allergen' : 'close'}
+            kind={confirmRemove ? 'danger' : 'ghost'}
+            onPress={async () => {
+              if (!confirmRemove) { setConfirmRemove(true); return; }
+              try { await api.deleteAtlasPlace(place.venueRef); onRemoved(); await onChanged(); }
+              catch (e: any) { setMsg(e.message); setConfirmRemove(false); }
+            }}
+          />
+          {confirmRemove ? <Button label="Keep it" kind="ghost" onPress={() => setConfirmRemove(false)} /> : null}
+        </Row>
+      )}
       <GettingThere place={place} />
       {detail?.visits.length ? (
         <View style={{ gap: spacing.sm }}>
@@ -621,6 +639,7 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
   ctx: { country?: string; countryCode?: string; locality?: string }; wide: boolean; onAdded: () => Promise<void>;
 }) {
   const [q, setQ] = useState('');
+  const [suggestions, setSuggestions] = useState<{ placeId: string; name: string; where: string | null }[]>([]);
   const [sources, setSources] = useState<string[] | null>(null);
   const [showSources, setShowSources] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -628,21 +647,53 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
   const [rating, setRating] = useState<Venue | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const admin = wide && isAdmin();
+  // One session of typing is one billable session at the provider.
+  const session = useRef(uuid());
+  const typing = useRef<any>(null);
 
-  const search = async () => {
-    if (!centre) { setMsg("Nowhere to look from yet — set your home address in Settings."); return; }
-    setBusy(true); setMsg(null);
+  // Predictions arrive as the household types, biased by where it is looking.
+  useEffect(() => {
+    const text = q.trim();
+    if (typing.current) clearTimeout(typing.current);
+    if (text.length < 2) { setSuggestions([]); return; }
+    typing.current = setTimeout(async () => {
+      try {
+        const r = await api.suggestPlaces({ q: text, near: centre ? `${centre.lat},${centre.lng}` : undefined, radiusKm: Math.max(radiusKm, 15), session: session.current });
+        setSuggestions(r.suggestions.slice(0, 6));
+      } catch { /* the Search button still works */ }
+    }, 250);
+    return () => { if (typing.current) clearTimeout(typing.current); };
+  }, [q, centre?.lat, centre?.lng]);
+
+  /** A chosen prediction: fetch that one place and offer it. */
+  const choose = async (placeId: string, name: string) => {
+    setSuggestions([]); setQ(name); setBusy(true); setMsg(null);
+    session.current = uuid();
     try {
-      // Ten kilometres is as wide as the open map data answers quickly; a named
-      // place further out is still found, since the licensed search treats the
-      // point as a bias rather than a fence.
+      const d = await api.place(`google:${placeId}`);
+      if (d.venue) setRes([{ ...d.venue, household: d.household } as Venue]);
+      else setMsg("Couldn't open that one.");
+    } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
+  };
+
+  /** Everything of this kind nearby, when you would rather browse than name something. */
+  const search = async () => {
+    if (!centre) { setMsg('Nowhere to look from yet — set your home address in Settings.'); return; }
+    setSuggestions([]); setBusy(true); setMsg(null);
+    try {
       const r = await api.searchPlaces({
         near: `${centre.lat},${centre.lng}`, categories: kind === 'do' ? 'things' : kind === 'eat' ? 'food' : undefined,
-        q: q.trim() || undefined, radiusKm: Math.min(radiusKm, 10), sources: sources?.join(',') || undefined,
+        q: q.trim() || undefined, radiusKm, sources: sources?.join(',') || undefined,
       });
       setRes(r.results);
-      if (!r.results.length) setMsg('Nothing found. Try the place\'s name.');
+      if (!r.results.length) setMsg('Nothing found nearby. Try the name of the place.');
     } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
+  };
+
+  const save = async (v: Venue, status: 'saved' | 'special' = 'saved') => {
+    await api.savePlace(v.venueRef, status, { label: v.name, venue: v, category: v.category, lat: v.lat, lng: v.lng, ...ctx });
+    setMsg(`Saved ${v.name} to try.`);
+    await onAdded();
   };
 
   return (
@@ -654,6 +705,19 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
         />
         <Button label="Search" icon="search" onPress={search} loading={busy} />
       </View>
+      {suggestions.length ? (
+        <View style={styles.list}>
+          {suggestions.map((sg, i) => (
+            <Pressable key={sg.placeId} onPress={() => choose(sg.placeId, sg.name)} style={[styles.row, i > 0 && styles.rowLine]} accessibilityRole="button">
+              <View style={{ width: 22, alignItems: 'center' }}><Icon name="address" size={16} /></View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={type.h3} numberOfLines={1}>{sg.name}</Text>
+                {sg.where ? <Text style={type.tiny} numberOfLines={1}>{sg.where}</Text> : null}
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {admin ? (
         <View style={styles.filters}>
           <FilterChip label={sources?.length ? `Sources · ${sources.length}` : 'Sources'} on={!!sources?.length} onPress={() => setShowSources((v) => !v)} />
@@ -669,7 +733,7 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
         <VenueRow key={v.venueRef} venue={v} stack={!wide} action={
           <Row>
             <Button label="Been" kind="secondary" onPress={() => setRating(v)} />
-            <Button label="To try" kind="ghost" onPress={async () => { await api.savePlace(v.venueRef, 'saved', { label: v.name, venue: v, category: v.category, lat: v.lat, lng: v.lng, ...ctx }); setMsg(`Saved ${v.name} to try.`); await onAdded(); }} />
+            <Button label="To try" kind="ghost" onPress={() => save(v)} />
           </Row>
         } />
       ))}

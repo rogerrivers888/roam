@@ -16,6 +16,7 @@ import { resolveConcept, conceptByKey } from '../domain/concepts.js';
 import { kmBetween } from '../domain/travel.js';
 import { currentHousehold, loadMembers } from './household.js';
 import { upsertHouseholdPlace } from './atlas.js';
+import { googleSource } from '../sources/google.js';
 import { claimPlace, ownedRecord, ownedRecords, enrich } from '../sources/own.js';
 
 export const places = Router();
@@ -183,9 +184,14 @@ places.get('/search', async (req, res, next) => {
     });
     await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'places.search', units]);
 
+    // A name is not a place on the map: searching "Sebastian's" from home must
+    // not throw the restaurant away for being 10.75 km out when the radius says
+    // 10 (owner, 4 Sep 2026). A browse is still fenced by the radius; a named
+    // search is only ranked by distance.
+    const fence = q ? Math.max(radiusKm, 40) : radiusKm;
     const inRange = venues
       .map((v) => ({ ...v, distanceKm: Number(kmBetween(near, v).toFixed(2)) }))
-      .filter((v) => v.distanceKm <= radiusKm)
+      .filter((v) => v.distanceKm <= fence)
       .sort((a, b) => a.distanceKm - b.distanceKm);
     const status = await householdStatus(household.id, inRange.map((v) => `${v.source}:${v.sourcePlaceId}`));
 
@@ -200,6 +206,29 @@ places.get('/search', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+/**
+ * GET /api/places/suggest?q=&near=lat,lng&session= — predictions as you type.
+ * One cheap call per keystroke-burst; nothing is fetched until one is chosen,
+ * and the point only biases the ranking.
+ */
+places.get('/suggest', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ suggestions: [] });
+    const near = await resolveNear(req.query.near ? String(req.query.near) : null, household);
+    const meter = {};
+    const suggestions = await googleSource.suggest(q, {
+      near: near ? { lat: near.lat, lng: near.lng } : null,
+      radiusKm: Math.min(50, Number(req.query.radiusKm) || 15),
+      sessionToken: String(req.query.session || '') || null,
+      meter,
+    });
+    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, 'google', 'places.suggest', JSON.stringify(meter)]).catch(() => null);
+    res.json({ suggestions });
+  } catch (err) { next(err); }
 });
 
 /** Venue refs are "source:id" and OSM ids contain a slash, so they travel as a query parameter. */

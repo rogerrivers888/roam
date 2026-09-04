@@ -1495,7 +1495,7 @@ export async function seedShortlistFromIdea({ household, session, trip, idea }) 
     if (names.some((o) => o !== n && o.includes(n))) continue;
     const c = matched.get(n);
     const line = lines.slice(1).find((l) => normName(l).includes(n)) ?? null;
-    await addShortlistItem(trip, household, { ...c, note: line ? `Roam suggested: ${line}` : 'Roam suggested it', mustDo: true });
+    await addShortlistItem(trip, household, { ...c, note: line ? `Roam suggested: ${line}` : 'Roam suggested it', mustDo: true, suggested: true });
     seeded.push(c.venueLabel);
     seededNorm.push(n);
   }
@@ -1518,7 +1518,7 @@ export async function seedShortlistFromIdea({ household, session, trip, idea }) 
       if (!hitNorm.includes(n) && !n.includes(hitNorm)) continue;
       const label = hit.name || phrase;
       const line = lines.slice(1).find((l) => normName(l).includes(n)) ?? null;
-      await addShortlistItem(trip, household, { venueRef: `${hit.source}:${hit.sourcePlaceId}`, venueLabel: label, kind: 'activity', category: 'attraction', lat: hit.lat, lng: hit.lng, note: line ? `Roam suggested: ${line}` : 'Roam suggested it', mustDo: true });
+      await addShortlistItem(trip, household, { venueRef: `${hit.source}:${hit.sourcePlaceId}`, venueLabel: label, kind: 'activity', category: 'attraction', lat: hit.lat, lng: hit.lng, note: line ? `Roam suggested: ${line}` : 'Roam suggested it', mustDo: true, suggested: true });
       seeded.push(label);
       seededNorm.push(hitNorm);
     } catch { /* not on the map: it stays in the idea's words */ }

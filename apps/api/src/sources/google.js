@@ -257,6 +257,32 @@ export const googleSource = {
   },
 
   /**
+   * Predictions as the household types (owner, 4 Sep 2026: "when I start
+   * searching, it knows the location, and so it actually just starts suggesting
+   * stuff as I type"). Autocomplete is the cheapest and fastest thing the
+   * provider sells — no place is fetched until one is chosen — and the point is
+   * a bias, not a fence, so a restaurant in the next town still appears.
+   */
+  async suggest(query, { near = null, radiusKm = 15, sessionToken = null, meter = null } = {}) {
+    if (!KEY() || !String(query || '').trim()) return [];
+    const body = { input: String(query).trim(), includedPrimaryTypes: [], languageCode: 'en-GB' };
+    delete body.includedPrimaryTypes;
+    if (near?.lat != null) body.locationBias = { circle: { center: { latitude: near.lat, longitude: near.lng }, radius: Math.min(50, Math.max(1, radiusKm)) * 1000 } };
+    if (sessionToken) body.sessionToken = sessionToken;
+    const data = await call('/places:autocomplete', { body, meter });
+    return (data.suggestions || [])
+      .map((s) => s.placePrediction)
+      .filter(Boolean)
+      .map((p) => ({
+        placeId: p.placeId,
+        name: p.structuredFormat?.mainText?.text ?? p.text?.text ?? '',
+        where: p.structuredFormat?.secondaryText?.text ?? null,
+        types: p.types || [],
+      }))
+      .filter((p) => p.placeId && p.name);
+  },
+
+  /**
    * Just what kind of place it is — the cheapest Details field mask there is
    * (Essentials), for the atlas: a row wants to say "Italian" or "Steakhouse"
    * rather than repeat "Restaurant", and the kind of thing is a taxonomy label,

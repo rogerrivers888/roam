@@ -8,7 +8,7 @@
 // from everything already known.
 
 import { Router } from 'express';
-import { query } from '../db.js';
+import { query, withTransaction } from '../db.js';
 import { reverseGeocode, geocode } from '../sources/geocode.js';
 import { recallVenue } from '../sources/index.js';
 import { currentHousehold } from './household.js';
@@ -222,6 +222,29 @@ atlas.patch('/places', async (req, res, next) => {
     if (!venueRef || !String(label || '').trim()) return res.status(400).json({ error: 'label_required' });
     await query('update household_places set label = $3 where household_id = $1 and venue_ref = $2 and label = venue_ref', [household.id, venueRef, String(label).trim()]);
     res.json({ venueRef, label: String(label).trim() });
+  } catch (err) { next(err); }
+});
+
+/**
+ * DELETE /api/atlas/places { venueRef } — take a place out of the atlas
+ * (owner, 4 Sep 2026: "I need to be able to delete stuff… manage my list, and
+ * curate it"). The saved and dismissed marks go with it, so it does not walk
+ * back in; a visit is a fact and is kept, so somewhere the household has
+ * actually been reappears rather than being quietly erased.
+ */
+atlas.delete('/places', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const venueRef = String(req.body?.venueRef || '').trim();
+    if (!venueRef) return res.status(400).json({ error: 'venue_ref_required' });
+    const { rows } = await query('select count(*)::int as n from visits where household_id = $1 and venue_ref = $2', [household.id, venueRef]);
+    if (rows[0].n) return res.status(409).json({ error: 'has_visits', message: "You've been here, so it stays in your atlas. Delete the visit first if it was a mistake." });
+    const [source, ...rest] = venueRef.split(':');
+    await withTransaction(async (client) => {
+      await client.query('delete from household_places where household_id = $1 and venue_ref = $2', [household.id, venueRef]);
+      await client.query('delete from place_ledger where household_id = $1 and source = $2 and source_place_id = $3', [household.id, source, rest.join(':')]);
+    });
+    res.status(204).end();
   } catch (err) { next(err); }
 });
 

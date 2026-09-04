@@ -431,7 +431,13 @@ export async function addShortlistItem(trip, household, b) {
      on conflict (trip_id, venue_ref) do update set note = coalesce(excluded.note, trip_shortlist.note), must_do = excluded.must_do, preferred_day_id = coalesce(excluded.preferred_day_id, trip_shortlist.preferred_day_id)`,
     [trip.id, b.venueRef, b.venueLabel, kind, b.category ?? null, b.lat ?? null, b.lng ?? null, snapshot ? JSON.stringify(snapshot) : null, b.note?.trim() || null, Boolean(b.mustDo), b.preferredDayId ?? null],
   );
-  await upsertHouseholdPlace({ query }, household.id, { venueRef: b.venueRef, label: b.venueLabel, kind, category: b.category, lat: b.lat, lng: b.lng, venue: b.venue, note: b.note, country: trip.country, countryCode: trip.country_code, locality: trip.locality });
+  // The atlas is what the household chose, not what Roam proposed (owner,
+  // 4 Sep 2026: "you have added stuff that I did not add… I want to see stuff
+  // that I like, that I've curated, not random stuff"). A suggestion lives on
+  // the trip's shortlist until someone keeps it; only then does it file here.
+  if (!b.suggested) {
+    await upsertHouseholdPlace({ query }, household.id, { venueRef: b.venueRef, label: b.venueLabel, kind, category: b.category, lat: b.lat, lng: b.lng, venue: b.venue, note: b.note, country: trip.country, countryCode: trip.country_code, locality: trip.locality });
+  }
   // Shortlisting is the household saying this one matters, which is what starts
   // our own research (sources/own.js). It runs behind the response: the answer
   // is the trip, not the record.
