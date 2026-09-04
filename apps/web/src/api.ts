@@ -147,6 +147,35 @@ export type OptionStop = {
 
 export type BrowseItem = Omit<OptionStop, 'position' | 'travelFromPrevMinutes' | 'pinned'> & { pinned: boolean; ticketed?: boolean; venueName?: string | null; externalUrl?: string | null; shortlisted?: boolean; score?: number | null; contributingSources?: string[] };
 
+/**
+ * A place on the way, with what it costs to stop there. The corridor is a bias
+ * and not a restriction — neither the source nor the estimate guarantees a
+ * place sits on the road — so the detour is always shown (Requirements §4).
+ */
+export type RouteStop = BrowseItem & {
+  leg: 'out' | 'back';
+  meal: string | null;
+  /** Why it is here at all: "Lunch on the way", "Worth stopping for on the way". */
+  why: string;
+  /** What marks it out; null when nothing does, and then it is offered, not proposed. */
+  standout: string | null;
+  /** Set on the ones not proposed: the reason they were not. */
+  notProposed: string | null;
+  detourMinutes: number;
+  detourEstimated: boolean;
+  dwellMinutes: number;
+  alongFraction: number;
+  intoJourneyMinutes: number;
+  chosen: boolean;
+  arriveAt: string | null;
+  leaveAt: string | null;
+};
+
+export type PlanRoute = {
+  from: string; to: string; mode: string; minutes: number; estimated: boolean; limitMinutes: number;
+  leaveHomeAt: string; backHomeAt: string; addedMinutes: number; stops: RouteStop[];
+};
+
 export type TripOption = {
   id: string; title: string; basis: string; stops: OptionStop[]; budget: Budget;
   counts: { activities: number; food: number }; shortfall: { activities: number; food: number };
@@ -211,6 +240,8 @@ export type Spend = { session_calls: number; session_cost_usd: number; month_cal
 export type PlanResponse = {
   sessionId: string; dayId?: string | null; date?: string | null; reply: string | null;
   journey?: { from: string; to: string; minutes: number; mode: string } | null;
+  /** The journey itself as something to plan: what is worth stopping for on the way there and back. */
+  route?: PlanRoute | null;
   anchor?: { name: string; start_time: string | null; duration_minutes: number | null; kind: string; place: Place } | null; intent?: Record<string, any>; missing?: string[]; trip?: Trip;
   options: TripOption[];
   selection?: { pinned: string[]; excluded: string[]; chosenOptionId: string | null };
@@ -250,6 +281,8 @@ export type IdeaThing = { venueRef: string; name: string; category: string; kind
 
 export type PlanAction =
   | { type: 'like' | 'unlike' | 'dislike' | 'restore'; stopId: string }
+  /** A stop on the way in or out of the journey; the day at the destination is untouched. */
+  | { type: 'route_add' | 'route_drop'; stopId: string }
   | { type: 'choose'; optionId: string | null }
   | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number; travelMode?: Trip['travelMode']; includeChains?: boolean; pricePoint?: PricePoint; attendingMemberIds?: string[] };
 
