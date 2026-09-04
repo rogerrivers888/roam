@@ -650,11 +650,14 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
   // One session of typing is one billable session at the provider.
   const session = useRef(uuid());
   const typing = useRef<any>(null);
+  // Choosing a prediction puts its name in the box; that must not ask for predictions again.
+  const justChose = useRef(false);
 
   // Predictions arrive as the household types, biased by where it is looking.
   useEffect(() => {
     const text = q.trim();
     if (typing.current) clearTimeout(typing.current);
+    if (justChose.current) { justChose.current = false; return; }
     if (text.length < 2) { setSuggestions([]); return; }
     typing.current = setTimeout(async () => {
       try {
@@ -667,6 +670,7 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
 
   /** A chosen prediction: fetch that one place and offer it. */
   const choose = async (placeId: string, name: string) => {
+    justChose.current = true;
     setSuggestions([]); setQ(name); setBusy(true); setMsg(null);
     session.current = uuid();
     try {
