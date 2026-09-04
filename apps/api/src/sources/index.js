@@ -325,13 +325,27 @@ export function pointsAlong(from, to, count) {
  * guarantee a result sits on the route, and a sampled circle certainly does
  * not. The caller must compute and display what each stop costs in detour.
  */
+// The same road, searched with the same sources, is the same search: planning
+// the same day twice must not ask the providers twice. In memory only and for
+// as long as the pool cache holds a search, because this is rented content.
+const corridors = new Map();
+const CORRIDOR_TTL_MS = 12 * 3600_000;
+
 export async function searchCorridor({ encodedPolyline, origin, destination, sources = null, meter = {}, samples = 2, radiusKm = null }) {
   const only = optInFrom(sources);
   const live = enabledSources({ only });
   const google = live.find((s) => s.key === 'google');
+  const cacheKey = [
+    encodedPolyline ? `p:${encodedPolyline.length}:${encodedPolyline.slice(0, 64)}` : `s:${[origin, destination].map((p) => `${Number(p?.lat).toFixed(3)},${Number(p?.lng).toFixed(3)}`).join('>')}`,
+    live.map((x) => x.key).sort().join(','),
+  ].join('|');
+  const held = corridors.get(cacheKey);
+  if (held && Date.now() - held.at < CORRIDOR_TTL_MS) return { ...held.result, cached: true, fetched: false };
+
   const raw = [];
   const degraded = [];
   const queried = new Set();
+  let fetched = false;
 
   if (google && encodedPolyline) {
     const searches = [
@@ -343,6 +357,7 @@ export async function searchCorridor({ encodedPolyline, origin, destination, sou
       if (outcome.status === 'fulfilled') { raw.push(...outcome.value); queried.add('google'); }
       else degraded.push({ source: `google (${searches[i][0]} along the route)`, error: String(outcome.reason?.message || outcome.reason) });
     });
+    fetched = true;
   } else if (origin && destination) {
     const km = metresBetween(origin, destination) / 1000;
     const radius = radiusKm ?? Math.min(15, Math.max(5, km / (samples * 1.6)));
@@ -361,9 +376,16 @@ export async function searchCorridor({ encodedPolyline, origin, destination, sou
       for (const k of outcome.value.sourcesQueried) queried.add(k);
       for (const [k, v] of Object.entries(outcome.value.units || {})) meter[k] = (meter[k] || 0) + v;
       degraded.push(...outcome.value.degraded);
+      fetched = true;
     }
   }
 
   rememberVenues(raw);
-  return { venues: resolveVenues(raw), degraded, sourcesQueried: [...queried], units: meter };
+  const result = { venues: resolveVenues(raw), degraded, sourcesQueried: [...queried], units: meter };
+  if (fetched) {
+    corridors.delete(cacheKey);
+    corridors.set(cacheKey, { at: Date.now(), result });
+    while (corridors.size > 100) corridors.delete(corridors.keys().next().value);
+  }
+  return { ...result, cached: false, fetched };
 }
