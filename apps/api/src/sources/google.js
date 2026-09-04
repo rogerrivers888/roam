@@ -52,12 +52,17 @@ const TYPE_TO_EXPERIENCE = {
 };
 
 // Types that describe the setting, not the food: kept out of the cuisine list.
-const NOT_A_CUISINE = new Set(['fine dining', 'fast food', 'family', 'buffet', 'brunch', 'breakfast', 'dessert']);
+const NOT_A_CUISINE = new Set(['fine dining', 'fast food', 'family', 'buffet', 'brunch', 'breakfast', 'dessert', 'restaurant']);
+// Kinds of food place the provider does not spell "…_restaurant": a steakhouse
+// is typed `steak_house`, so the row said nothing about it (owner, 4 Sep 2026).
+const FOOD_TYPE_WORDS = {
+  steak_house: 'steakhouse', bakery: 'bakery', coffee_shop: 'coffee', wine_bar: 'wine bar', bar_and_grill: 'bar and grill',
+  ice_cream_shop: 'ice cream', dessert_shop: 'desserts', sandwich_shop: 'sandwiches', bagel_shop: 'bagels',
+  donut_shop: 'doughnuts', juice_shop: 'juice', tea_house: 'tea', deli: 'deli', pizzeria: 'pizza',
+};
 function cuisineFromTypes(types = []) {
-  return types
-    .filter((t) => /_restaurant$/.test(t))
-    .map((t) => t.replace(/_restaurant$/, '').replace(/_/g, ' '))
-    .filter((c) => !NOT_A_CUISINE.has(c));
+  const words = types.map((t) => (/_restaurant$/.test(t) ? t.replace(/_restaurant$/, '').replace(/_/g, ' ') : FOOD_TYPE_WORDS[t] ?? null));
+  return [...new Set(words.filter((c) => c && !NOT_A_CUISINE.has(c)))];
 }
 
 const LODGING = new Set(['hotel', 'lodging', 'motel', 'resort_hotel', 'extended_stay_hotel', 'bed_and_breakfast', 'guest_house', 'hostel', 'inn']);
@@ -119,7 +124,8 @@ function toVenue(place, justification = null) {
     || 'attraction';
   const experiences = [...new Set([TYPE_TO_EXPERIENCE[primary], ...types.map((t) => TYPE_TO_EXPERIENCE[t])].filter(Boolean))];
   if (category === 'attraction' && !experiences.length && !types.some((t) => t in TYPE_TO_EXPERIENCE)) category = 'attraction';
-  const cuisines = cuisineFromTypes(types);
+  // The primary type first, so a row says what the place mostly is.
+  const cuisines = cuisineFromTypes([primary, ...types]);
   const dietary = [];
   if (place.servesVegetarianFood === true) dietary.push('vegetarian');
   return {
@@ -241,6 +247,23 @@ export const googleSource = {
       authorUri: r.authorAttribution?.uri ?? null, when: r.relativePublishTimeDescription ?? null,
     }));
     return v;
+  },
+
+  /**
+   * Just what kind of place it is — the cheapest Details field mask there is
+   * (Essentials), for the atlas: a row wants to say "Italian" or "Steakhouse"
+   * rather than repeat "Restaurant", and the kind of thing is a taxonomy label,
+   * not the rented content (reviews, photos, hours) that Pro and Enterprise bill for.
+   */
+  async types(id, { meter = null } = {}) {
+    if (!KEY()) return null;
+    const p = await call(`/places/${id}`, { method: 'GET', fieldMask: 'id,types,primaryType', meter });
+    const types = p.types || [];
+    const primary = p.primaryType || types[0] || '';
+    return {
+      cuisines: cuisineFromTypes([primary, ...types]),
+      experiences: [...new Set([TYPE_TO_EXPERIENCE[primary], ...types.map((t) => TYPE_TO_EXPERIENCE[t])].filter(Boolean))],
+    };
   },
 
   /** Search along an encoded polyline; results ranked by detour (Technical Constraints §3.1). */

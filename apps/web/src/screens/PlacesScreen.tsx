@@ -43,6 +43,14 @@ const LINE_COLOURS: Record<string, string> = {
   DLR: '#00A4A7', 'London Overground': '#EE7C0E', Liberty: '#5D6061', Lioness: '#FAA61A', Mildmay: '#0077AD', Suffragette: '#5BBD72', Weaver: '#823A62', Windrush: '#ED1B00', Tram: '#84B817',
 };
 
+/** The kinds of food or thing a place is known for, ignoring anything blank. */
+const cuisinesOf = (p: AtlasPlace) => (((p.venue ?? {}) as Partial<Venue>).cuisines ?? []).filter(Boolean);
+const experiencesOf = (p: AtlasPlace) => (((p.venue ?? {}) as Partial<Venue>).experiences ?? []).filter(Boolean);
+
+// In Food & drink a restaurant is the assumption, so only the exceptions are
+// named (owner, 4 Sep 2026: "if it's a bar, we put a bar pill in").
+const CATEGORY_PILL: Record<string, string> = { bar: 'Bar', pub: 'Pub', cafe: 'Café' };
+
 /** Which segment a place belongs to. A pub that serves food is under both. */
 function kindsOf(p: AtlasPlace): Kind[] {
   const v = (p.venue ?? {}) as Partial<Venue>;
@@ -59,14 +67,30 @@ function typeOf(p: AtlasPlace, kind: Kind): string {
   const c = p.category ?? '';
   const k = kind === 'all' ? kindsOf(p)[0] : kind;
   if (k === 'eat') {
+    const cuisines = cuisinesOf(p);
+    if (cuisines.length) return cap(cuisines[0]);
     if (c === 'pub' || c === 'bar') return 'Pub food';
-    if (v.cuisines?.length) return cap(v.cuisines[0]);
     return c === 'cafe' ? 'Cafés' : 'Restaurants';
   }
   if (c === 'pub' || c === 'bar') return 'Pubs & bars';
   if (c === 'event') return 'Events';
-  if (v.experiences?.length) return cap(v.experiences[0]);
+  const experiences = experiencesOf(p);
+  if (experiences.length) return cap(experiences[0]);
   return c === 'attraction' ? 'Attractions' : 'Other';
+}
+
+/**
+ * What the row itself says a place is. Under Food & drink the restaurant goes
+ * without saying, so the words are the kind of food — Italian, Steakhouse — and
+ * a bar, pub or café is marked by its pill instead (owner, 4 Sep 2026).
+ */
+function rowType(p: AtlasPlace, kind: Kind): string {
+  const c = p.category ?? '';
+  const cuisines = cuisinesOf(p);
+  if (kind === 'eat') return cuisines.length ? cap(cuisines[0]) : '';
+  if (kind === 'do' || kindsOf(p)[0] === 'do') return typeOf(p, 'do');
+  if (cuisines.length) return cap(cuisines[0]);
+  return CATEGORY_PILL[c] ?? 'Restaurant';
 }
 
 const statusOf = (p: AtlasPlace): Exclude<Status, 'any'> => (p.visits > 0 ? 'been' : 'try');
@@ -363,11 +387,60 @@ function FilterChip({ label, on, onPress }: { label: string; on: boolean; onPres
   );
 }
 
+/**
+ * How you get to it, in the drawer (owner, 4 Sep 2026: "we could actually show
+ * what line it's on or more information on getting there on the side drawer").
+ * The row says only the station's name; the lines, the walk and the postcode
+ * live here.
+ */
+function GettingThere({ place }: { place: AtlasPlace }) {
+  const lines = (place.stationLines ?? []).filter(Boolean);
+  if (!place.station && !place.postcode) return null;
+  const walk = place.stationDistanceM != null ? Math.max(1, Math.round(place.stationDistanceM / 80)) : null;
+  const what = place.stationKind === 'tube' ? 'Nearest Underground station'
+    : place.stationKind === 'elizabeth-line' ? 'Nearest Elizabeth line station'
+    : place.stationKind === 'dlr' ? 'Nearest DLR station'
+    : place.stationKind === 'overground' ? 'Nearest Overground station'
+    : place.stationKind === 'tram' ? 'Nearest tram stop'
+    : place.stationKind === 'metro' ? 'Nearest metro station'
+    : 'Nearest station';
+  return (
+    <View style={styles.getting}>
+      <Text style={type.h3}>Getting there</Text>
+      {place.station ? (
+        <>
+          <Text style={type.tiny}>{what}</Text>
+          <Text style={type.body}>
+            {place.station}
+            {walk ? <Text style={type.small}>{`  ${walk} min walk`}</Text> : null}
+          </Text>
+          {lines.length ? (
+            <Wrap>
+              {lines.map((l) => (
+                <View key={l} style={styles.line}>
+                  <View style={[styles.dot, { backgroundColor: LINE_COLOURS[l] ?? colors.inkMuted }]} />
+                  <Text style={styles.lineText}>{l}</Text>
+                </View>
+              ))}
+            </Wrap>
+          ) : null}
+        </>
+      ) : null}
+      {place.postcode ? <Text style={type.small}>Postcode {place.postcode}</Text> : null}
+    </View>
+  );
+}
+
 /** One place, one line: what it is, where it is, and my score. */
 function PlaceRow({ place, kind, viewer, first, selected, onPress }: { place: AtlasPlace; kind: Kind; viewer: string | null; first?: boolean; selected: boolean; onPress: () => void }) {
   const mine = myScore(place, viewer);
-  const lines = (place.stationLines ?? []).slice(0, 3);
   const been = statusOf(place) === 'been';
+  // Where it is, in as few words as possible: the station, not the district and
+  // the lines (owner, 4 Sep 2026: "that's too much detail… just show the tube
+  // station"). The lines and the walk are in the drawer.
+  const pill = kind === 'eat' ? CATEGORY_PILL[place.category ?? ''] : null;
+  const what = rowType(place, kind);
+  const where = [what, place.station].filter(Boolean).join(' · ');
   return (
     <Pressable onPress={onPress} style={[styles.prow, !first && styles.rowLine, selected && styles.rowOn]} accessibilityRole="button">
       <View style={styles.well}>
@@ -377,13 +450,8 @@ function PlaceRow({ place, kind, viewer, first, selected, onPress }: { place: At
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <Text style={[type.h3, place.unnamed && { fontStyle: 'italic', color: colors.inkMuted }]} numberOfLines={1}>{place.unnamed ? 'Unnamed place — open for its name' : place.name}</Text>
         <View style={styles.meta}>
-          <Text style={type.tiny} numberOfLines={1}>{typeOf(place, kind)}{place.postcode ? ` · ${place.postcode}` : ''}{place.station ? ' · ' : ''}</Text>
-          {place.station ? (
-            <>
-              {lines.map((l) => <View key={l} style={[styles.dot, { backgroundColor: LINE_COLOURS[l] ?? colors.inkMuted }]} />)}
-              <Text style={[type.tiny, { flexShrink: 1 }]} numberOfLines={1}>{place.station}</Text>
-            </>
-          ) : null}
+          {pill ? <View style={styles.pill}><Text style={styles.pillText}>{pill}</Text></View> : null}
+          {where ? <Text style={[type.tiny, { flexShrink: 1 }]} numberOfLines={1}>{where}</Text> : null}
         </View>
       </View>
       {mine != null ? (
@@ -481,6 +549,7 @@ function OursPanel({ place, household, country, cityName, viewer, onChanged }: {
           initial={{ visitId: editing.id, date: editing.visitedOn, note: editing.note ?? '', rows: rowsForVisit(editing, household.members), attending: (editing.attendees as any[]).map((a) => (typeof a === 'string' ? household.members.find((m) => m.name === a)?.id ?? '' : a.id)).filter(Boolean) }} />
       ) : null}
       {place.note ? <Text style={type.small}>Our note: “{place.note}”</Text> : null}
+      <GettingThere place={place} />
       {detail?.visits.length ? (
         <View style={{ gap: spacing.sm }}>
           <Text style={type.h3}>Our history here</Text>
@@ -576,6 +645,11 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4, borderWidth: 1, borderColor: colors.line },
   score: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 4 },
   scoreText: { fontSize: 13, fontWeight: '700', color: colors.ink },
+  pill: { height: 18, paddingHorizontal: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  pillText: { fontSize: 11, fontWeight: '700', color: colors.inkMuted },
+  getting: { gap: 4, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
+  line: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 24, paddingHorizontal: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line },
+  lineText: { fontSize: 12, fontWeight: '600', color: colors.ink },
   tryChip: { height: 24, paddingHorizontal: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   tryText: { fontSize: 11, fontWeight: '600', color: colors.inkMuted },
   mapWrap: { position: 'relative' },

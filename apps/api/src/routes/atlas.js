@@ -12,7 +12,8 @@ import { query } from '../db.js';
 import { reverseGeocode, geocode } from '../sources/geocode.js';
 import { recallVenue } from '../sources/index.js';
 import { currentHousehold } from './household.js';
-import { fillWhere } from '../sources/where.js';
+import { cleanStation, fillWhere } from '../sources/where.js';
+import { fillTaxonomy, needsTaxonomy, taxonomyKept } from '../sources/taxonomy.js';
 
 export const atlas = Router();
 
@@ -154,18 +155,31 @@ atlas.get('/places', async (req, res, next) => {
       status: r.visits > 0 ? 'been' : r.ledger === 'special' ? 'special' : 'saved',
       special: r.ledger === 'special',
       scores: r.scores ?? [],
-      postcode: r.postcode ?? null, station: r.station ?? null, stationLines: r.station_lines ?? [], stationKind: r.station_kind ?? null, whereChecked: r.where_checked ?? null,
+      postcode: r.postcode ?? null, station: r.station ? cleanStation(r.station) : null, stationLines: r.station_lines ?? [], stationKind: r.station_kind ?? null,
+      stationDistanceM: r.station_distance_m ?? null, whereChecked: r.where_checked ?? null,
       loved: (r.takes ?? []).filter((t) => t.take === 'loved').length,
       notForMe: (r.takes ?? []).filter((t) => t.take === 'not_for_me').length,
     }));
+    // A licensed source's kind of place is rented, so it is never stored: what
+    // has been fetched since the service started is held in memory and merged in here.
+    places = places.map((p) => {
+      const kinds = taxonomyKept(p.venueRef);
+      return kinds ? { ...p, venue: { ...(p.venue ?? {}), cuisines: kinds.cuisines, experiences: kinds.experiences } } : p;
+    });
     if (status) places = places.filter((p) => (status === 'special' ? p.special : p.status === status));
-    // Postcode and nearest station are looked up lazily, a few rows per read, after the response has gone;
-    // the web asks again shortly when any row is still waiting.
-    const pending = rows.filter((r) => r.lat != null && r.lng != null && !r.where_checked).length;
+    // Where a place is, and what kind of place it is, are looked up lazily a few
+    // rows per read, after the response has gone; the web asks again shortly
+    // while any row is still waiting.
+    const pending = rows.filter((r) => r.lat != null && r.lng != null && !r.where_checked).length
+      + rows.filter(needsTaxonomy).length;
     res.json({ places, wherePending: pending });
     if (pending && !whereRunning.has(household.id)) {
       whereRunning.add(household.id);
-      fillWhere(household.id, rows).catch(() => null).finally(() => whereRunning.delete(household.id));
+      Promise.resolve()
+        .then(() => fillWhere(household.id, rows))
+        .then(() => fillTaxonomy(household.id, rows))
+        .catch(() => null)
+        .finally(() => whereRunning.delete(household.id));
     }
   } catch (err) { next(err); }
 });

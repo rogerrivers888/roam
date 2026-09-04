@@ -23,7 +23,19 @@ export const postcodeDistrict = (pc) => {
   return s.split(/\s+/)[0] || null;
 };
 
-const cleanName = (n) => String(n || '').replace(/\s+(Underground|Rail|DLR|Overground|Tram)\s+Station$/i, '').replace(/\s+Station$/i, '').trim();
+/**
+ * The station as anyone would say it. Transport for London writes the line into
+ * the name where two stations share one ("Hammersmith (Dist&Picc Line)"), which
+ * is more than a row needs (owner, 4 Sep 2026: "just show the tube station").
+ */
+export const cleanStation = (n) => {
+  const s = String(n || '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  // "Battersea Power Station Underground Station" is Battersea Power Station:
+  // drop the qualified suffix if there is one, and only otherwise a bare "Station".
+  const unqualified = s.replace(/\s+(Underground|Rail|DLR|Overground|Tram)\s+Station$/i, '');
+  return (unqualified === s ? s.replace(/\s+Station$/i, '') : unqualified).trim();
+};
+const cleanName = cleanStation;
 
 async function tflStation(lat, lng) {
   const params = new URLSearchParams({ lat: String(lat), lon: String(lng), stopTypes: 'NaptanMetroStation,NaptanRailStation', radius: '1500' });
@@ -114,9 +126,9 @@ export async function fillWhere(householdId, rows, { limit = 6 } = {}) {
   for (const r of todo) {
     const w = await whereIs(r.lat, r.lng, { householdId });
     await query(
-      `update household_places set postcode = coalesce($3, postcode), station = $4, station_lines = $5, station_kind = $6, where_checked = $7
+      `update household_places set postcode = coalesce($3, postcode), station = $4, station_lines = $5, station_kind = $6, station_distance_m = $7, where_checked = $8
         where household_id = $1 and venue_ref = $2`,
-      [householdId, r.venue_ref, w.postcode, w.station?.name ?? null, w.station ? JSON.stringify(w.station.lines) : null, w.station?.kind ?? null, w.failed ? null : new Date()],
+      [householdId, r.venue_ref, w.postcode, w.station?.name ?? null, w.station ? JSON.stringify(w.station.lines) : null, w.station?.kind ?? null, w.station?.distanceM ?? null, w.failed ? null : new Date()],
     ).catch(() => null);
   }
   return todo.length;
