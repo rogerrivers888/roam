@@ -73,6 +73,10 @@ export function PlacePicker({
   const [searched, setSearched] = useState('');
   const [attribution, setAttribution] = useState('');
   const [home, setHome] = useState<{ code: string; name: string | null } | null>(null);
+  // Why there is nothing on screen. "Nothing matched" and "we could not ask"
+  // are different answers and must not wear the same words (owner, 4 Sep 2026:
+  // 'it says "No city or region called Bath"… so that's clearly not working').
+  const [failed, setFailed] = useState<string | null>(null);
   const [abroad, setAbroad] = useState(false);
   const timer = useRef<any>(null);
   // The last search wins even if an earlier one answers after it, and a question
@@ -110,10 +114,12 @@ export function PlacePicker({
         setItems(r.results as any);
         if (r.home) setHome(r.home);
         setAttribution(r.attribution);
+        setFailed(null);
         setSearched(text);
-      } catch {
+      } catch (e: any) {
         if (mine !== seq.current) return;
         setItems([]); setSearched(text);
+        setFailed(e?.message || 'The search could not be reached.');
       } finally { if (mine === seq.current) setBusy(false); }
     }, pause);
     return () => clearTimeout(timer.current);
@@ -220,9 +226,12 @@ export function PlacePicker({
       ) : null}
       {!busy && searched && searched === text && items.length === 0 ? (
         <Text style={[type.small, { color: colors.dislike }]}>
-          {areas
-            ? `No city or region called "${searched}". Try fewer letters, or add the country — "Lisbon, Portugal".`
-            : `Nothing matched "${searched}"${near ? ` in or around ${near.locality ?? near.label}` : ''}. Try the postcode on its own, or the street and town without the house name.`}
+          {failed
+            // The question never got asked. Say that, and say what it said.
+            ? `We couldn't search just now — ${failed}`
+            : areas
+              ? `No city or region called "${searched}". Try fewer letters, or add the country — "Lisbon, Portugal".`
+              : `Nothing matched "${searched}"${near ? ` in or around ${near.locality ?? near.label}` : ''}. Try the postcode on its own, or the street and town without the house name.`}
         </Text>
       ) : null}
       {shown.length ? <Text style={type.tiny}>{attribution}{areas ? '' : ' · Tap a result to use it.'}</Text> : null}
