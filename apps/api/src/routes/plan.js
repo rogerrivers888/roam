@@ -1561,7 +1561,13 @@ router.post('/inspire/more', async (req, res, next) => {
 // entry and the trip opens on what was already seen.
 export const THINGS_RADIUS_KM = 5;
 const placeSourceKeys = () => enabledSources().filter((src) => !src.events && src.key !== 'scout').map((src) => src.key);
-const thingsSearch = (place) => ({ center: { lat: place.lat, lng: place.lng }, radiusKm: THINGS_RADIUS_KM, categories: [], query: '', includeEvents: false, sources: placeSourceKeys(), locality: place.locality ?? null });
+// The look-around fills in behind a card that is already on screen, so it takes
+// what has arrived in a few seconds rather than waiting on the slowest source.
+// Google answers in about a second; OpenStreetMap takes fourteen and its entries
+// carry no rating, so they sort to the bottom of this list and are never seen —
+// waiting for them bought nothing and cost the picture (owner, 4 Sep 2026).
+const THINGS_DEADLINE_MS = Number(process.env.ROAM_THINGS_DEADLINE_MS || 8000);
+const thingsSearch = (place) => ({ center: { lat: place.lat, lng: place.lng }, radiusKm: THINGS_RADIUS_KM, categories: [], query: '', includeEvents: false, sources: placeSourceKeys(), locality: place.locality ?? null, deadlineMs: THINGS_DEADLINE_MS });
 export async function thingsAround({ household, session, place }) {
   const r = await searchCached(thingsSearch(place));
   if (r.fetched) await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, session?.id ?? null, r.sourcesQueried.join('+') || 'none', 'plan.inspire.things', r.units]);
@@ -1609,7 +1615,13 @@ router.get('/inspire/things', async (req, res, next) => {
     // says what is there; the trip's Find tab is where it is browsed and judged.
     const kindOf = (c) => (['restaurant', 'cafe', 'pub', 'bar'].includes(c.category) ? 'eat' : ['attraction', 'event', 'activity'].includes(c.category) ? 'do' : 'see');
     const weight = (c) => (c.rating ?? 0) * Math.log10((c.ratingCount ?? 0) + 2);
-    const sorted = [...venues].sort((a, b) => weight(b) - weight(a));
+    // Around this place, and only around it. The sample-data source ignores
+    // where it was asked about and hands back the same London venues wherever
+    // you are, so a look around Lisbon was listing a pub in Soho fifteen hundred
+    // kilometres away (found 4 Sep 2026). Every other source is already bounded
+    // by the radius it was given; this costs them nothing.
+    const around = venues.filter((c) => c.lat != null && c.lng != null && kmBetween(center, c) <= THINGS_RADIUS_KM + 1);
+    const sorted = [...around].sort((a, b) => weight(b) - weight(a));
     const items = sorted.map((c) => ({
       venueRef: `${c.source}:${c.sourcePlaceId}`, name: c.name, category: c.category, kind: kindOf(c), experiences: c.experiences ?? [],
       rating: c.rating ?? null, ratingCount: c.ratingCount ?? null, priceLevel: c.priceLevel ?? null,

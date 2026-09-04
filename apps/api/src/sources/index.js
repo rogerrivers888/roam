@@ -247,14 +247,78 @@ export const recallVenue = (ref) => recent.get(ref) ?? null;
  * scout reads the open web and keeps its own ninety-second clock.
  */
 const SOURCE_DEADLINE_MS = Number(process.env.ROAM_SOURCE_DEADLINE_MS || 25_000);
+
 function withDeadline(source, work) {
   const ms = source.deadlineMs ?? SOURCE_DEADLINE_MS;
   let timer;
   const clock = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${source.key} did not answer within ${Math.round(ms / 1000)}s`)), ms);
+    const err = new Error(`${source.key} did not answer within ${Math.round(ms / 1000)}s`);
+    // Told apart from a source that actually broke: we chose not to wait, which
+    // is not the same as being let down, and the cache treats them differently.
+    err.slow = true;
+    timer = setTimeout(() => reject(err), ms);
   });
   // The work carries on after the race: a source with a cache still fills it.
   return Promise.race([work, clock]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Wait for every source, but not for ever when the caller has somewhere to be.
+ *
+ * `deadlineMs` is the caller saying "I have a screen to fill; give me what has
+ * arrived". Google answers a look-around in about a second and OpenStreetMap in
+ * fourteen, and OSM's entries carry no rating, so they sort to the bottom of
+ * that list and are never seen — waiting for them bought nothing and cost the
+ * picture on the card (owner, 4 Sep 2026).
+ *
+ * The one thing it will not do is hand back nothing. If the deadline passes and
+ * not a single source has found anything, it waits for them properly: a
+ * household with no Google key has only OpenStreetMap, and for them slow is the
+ * whole service and empty is a broken screen.
+ */
+// How long the others get once one source has found something. Long enough for
+// a second fast source to join, short enough that nobody watches a blank tile.
+// Two and a half seconds: comfortably more than a licensed provider takes to
+// answer, and far less than the fourteen to twenty-five OpenStreetMap needs.
+const GRACE_MS = Number(process.env.ROAM_SOURCE_GRACE_MS || 2500);
+
+async function settleBy(sources, started, deadlineMs, isUseful) {
+  const results = new Array(sources.length).fill(null);
+  let releaseGrace = null;
+  const grace = new Promise((r) => { releaseGrace = r; });
+  let graceRunning = false;
+  const each = started.map((p, i) => p.then(
+    (value) => {
+      results[i] = { status: 'fulfilled', value };
+      // The first source to come back with something starts a short clock for
+      // the others. Waiting the whole deadline for a straggler that may never
+      // come is how a screen that could have been filled in a second takes
+      // eight.
+      // "Found something" means something this search would actually keep. The
+      // sample-data source answers instantly with the same London venues
+      // wherever you ask, so counting that as an answer would cut a real source
+      // off before it had spoken.
+      if (deadlineMs && !graceRunning && value.some(isUseful)) {
+        graceRunning = true;
+        setTimeout(releaseGrace, Math.min(GRACE_MS, deadlineMs));
+      }
+    },
+    (reason) => { results[i] = { status: 'rejected', reason }; },
+  ));
+  const all = Promise.all(each);
+  if (deadlineMs) {
+    let timer;
+    await Promise.race([all, grace, new Promise((r) => { timer = setTimeout(r, deadlineMs); })]);
+    clearTimeout(timer);
+    const anythingUseful = results.some((r) => r?.status === 'fulfilled' && r.value.some(isUseful));
+    if (!anythingUseful) await all;
+  } else {
+    await all;
+  }
+  return results.map((r, i) => r ?? {
+    status: 'rejected',
+    reason: Object.assign(new Error(`${sources[i].key} was still looking when the search was answered`), { slow: true }),
+  });
 }
 
 /** Fan out across every enabled source; one failing source must not block a search (Epic 2 C7). */
@@ -274,13 +338,15 @@ export async function searchAllSources(params, { onProgress = null } = {}) {
   const near = (v) => v.lat != null && v.lng != null
     && (!params.center || !params.radiusKm || kmBetween(params.center, v) <= params.radiusKm);
   say({ type: 'asking', sources: sources.map((s) => ({ key: s.key, label: s.label })) });
-  const settled = await Promise.allSettled(sources.map((s) => withDeadline(s, s.search({ ...params, meter, sources: sources.map((x) => x.key) }))
+  const started = sources.map((s) => withDeadline(s, s.search({ ...params, meter, sources: sources.map((x) => x.key) }))
     .then((found) => {
       const kept = found.filter(near);
       say({ type: 'answered', source: s.key, label: s.label, count: kept.length, points: kept.slice(0, 60).map((v) => [Number(v.lat.toFixed(5)), Number(v.lng.toFixed(5))]) });
       return found;
     })
-    .catch((err) => { say({ type: 'failed', source: s.key, label: s.label, error: String(err?.message || err) }); throw err; })));
+    .catch((err) => { say({ type: 'failed', source: s.key, label: s.label, error: String(err?.message || err) }); throw err; }));
+
+  const settled = await settleBy(sources, started, params.deadlineMs ?? null, near);
 
   const raw = [];
   const degraded = [];
@@ -291,7 +357,7 @@ export async function searchAllSources(params, { onProgress = null } = {}) {
       raw.push(...outcome.value);
       rawCounts[sources[i].key] = outcome.value.length;
     } else {
-      degraded.push({ source: sources[i].key, error: String(outcome.reason?.message || outcome.reason) });
+      degraded.push({ source: sources[i].key, error: String(outcome.reason?.message || outcome.reason), slow: Boolean(outcome.reason?.slow) });
     }
   });
 

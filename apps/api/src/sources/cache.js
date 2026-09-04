@@ -13,7 +13,13 @@ const DEGRADED_TTL_MS = 10 * 60_000;
 const MAX = 300;
 const kept = new Map();
 const inFlight = new Map();
-const fresh = (hit) => hit && Date.now() - hit.at < (hit.result.degraded?.length ? DEGRADED_TTL_MS : TTL_MS);
+// A source we chose not to wait for is not a source that let us down. The
+// look-around asks for an answer in a few seconds and takes what it has; that
+// answer is the one it wanted, so it keeps for the full twelve hours rather
+// than being re-asked every ten minutes — which would mean paying for the same
+// Google search all afternoon.
+const letUsDown = (result) => (result.degraded ?? []).some((d) => !d.slow);
+const fresh = (hit) => hit && Date.now() - hit.at < (letUsDown(hit.result) ? DEGRADED_TTL_MS : TTL_MS);
 
 /** The same area, radius, kind, words and sources are the same search; the label is not part of it. */
 export function searchKey(p) {
