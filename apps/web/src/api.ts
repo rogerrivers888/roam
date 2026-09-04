@@ -527,6 +527,8 @@ export const api = {
   order: (venueRef: string) => request<{ order: Order | null }>(`/api/orders${qs({ ref: venueRef })}`),
   saveOrder: (body: { clientId?: string; ref: string; label?: string; menuId?: string | null; items: { menuItemId?: string | null; memberId: string | null; name: string; priceText?: string | null; note?: string | null }[] }) =>
     post<{ order: Order }>('/api/orders', body),
+  /** Throw away an order in progress (one that has not become a visit). */
+  clearOrder: (id: string) => del<{ deleted: boolean }>(`/api/orders/${id}`),
   orderEaten: (id: string, body: { visitedOn?: string; attendeeIds?: string[] } = {}) => post<{ order: Order; visitId: string }>(`/api/orders/${id}/eaten`, body),
   rateOrder: (id: string, ratings: { orderItemId: string; memberId?: string | null; score?: number | null; notGreat?: boolean; comment?: string | null; conceptKey?: string | null }[]) =>
     post<{ order: Order }>(`/api/orders/${id}/ratings`, { ratings }),

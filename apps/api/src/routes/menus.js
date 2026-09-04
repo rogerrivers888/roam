@@ -294,6 +294,24 @@ orders.post('/', async (req, res, next) => {
 });
 
 /**
+ * DELETE /api/orders/:id — throw the order away.
+ *
+ * An order in progress is a working note, not a record: the table changes its
+ * mind, or somebody taps the wrong face. An order that has become a visit stays,
+ * because the visit and its stars are the household's history.
+ */
+orders.delete('/:id', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const { rows } = await query('select * from orders where id = $1 and household_id = $2', [req.params.id, household.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'order_not_found' });
+    if (rows[0].visit_id) return res.status(409).json({ error: 'already_eaten', message: 'This one became a visit. Change it there rather than here.' });
+    await query('delete from orders where id = $1', [req.params.id]);
+    res.json({ deleted: true });
+  } catch (err) { next(err); }
+});
+
+/**
  * POST /api/orders/:id/eaten { visitedOn?, attendeeIds?, lat?, lng?, category? }
  *
  * We ate it. That makes the visit — the join between the rented place and

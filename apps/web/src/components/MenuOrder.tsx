@@ -201,6 +201,15 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
+  /** The table changed its mind: the order in progress goes, the menu stays. */
+  async function startAgain() {
+    setBusy(true);
+    try {
+      if (order && !order.visitId) await api.clearOrder(order.id);
+      setOrder(null); setPicks({}); setMarks({}); setStep('menu');
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  }
+
   async function weAteIt() {
     if (!order) return;
     setBusy(true);
@@ -411,6 +420,7 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                 {dietLines.length ? <Text style={type.tiny}>{dietLines.join(' ')}</Text> : null}
               </ScrollView>
               <View style={styles.bar}>
+                <Button label="Start again" icon="close" kind="ghost" onPress={startAgain} disabled={busy} />
                 <Button label="We ate it" icon="favourite" kind="secondary" onPress={weAteIt} disabled={busy} />
                 <View style={{ flex: 1 }} />
                 <Button label="Show to staff" icon="list" onPress={() => setStep('staff')} />
@@ -422,11 +432,13 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
           {step === 'staff' && order ? (
             <ScrollView contentContainerStyle={[styles.body, { gap: spacing.sm }]}>
               <Row style={{ alignItems: 'flex-start' }}>
-                <Segmented
-                  value={staffBy}
-                  onChange={setStaffBy}
-                  options={[{ value: 'person', label: 'By person' }, { value: 'course', label: 'By course' }]}
-                />
+                <View style={{ flex: 1 }}>
+                  <Segmented
+                    value={staffBy}
+                    onChange={setStaffBy}
+                    options={[{ value: 'person', label: 'By person' }, { value: 'course', label: 'By course' }]}
+                  />
+                </View>
                 <Pressable onPress={() => setStep('order')} style={styles.close} accessibilityRole="button" accessibilityLabel="Close">
                   <Icon name="close" size={22} color={colors.ink} />
                 </Pressable>
