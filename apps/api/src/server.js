@@ -15,6 +15,7 @@ import groupRoutes, { startReminderLoop } from './routes/groups.js';
 import accountRoutes from './routes/accounts.js';
 import adminRoutes from './routes/admin.js';
 import { adminRouter as libraryAdminRoutes, atlasRouter as libraryAtlasRoutes, imageRouter as libraryImageRoutes } from './routes/library.js';
+import { recoverAbandonedRuns } from './repositories/library.js';
 import activityRoutes from './routes/activity.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 import { atlas as atlasRoutes } from './routes/atlas.js';
@@ -259,6 +260,14 @@ startOwnLoop();
 // Roam chases the group, the organiser does not (owner, 4 Sep 2026): any run
 // whose morning has passed is written once, whether or not anyone is looking.
 startReminderLoop();
+// A harvest of the atlas cannot survive a restart, and this process restarting
+// is exactly what has just happened. Anything the last one left saying
+// "running" is closed out, and the regions it had claimed go back to being
+// regions nothing has finished — otherwise one dead row refuses every harvest
+// afterwards (repositories/library.js).
+recoverAbandonedRuns()
+  .then((n) => { if (n) console.log(`roam-api: closed ${n} harvest run(s) abandoned by a restart`); })
+  .catch((err) => console.error('harvest recovery', err.message));
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`roam-api listening on 0.0.0.0:${port}`);
 });

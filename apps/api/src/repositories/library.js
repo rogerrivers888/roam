@@ -510,7 +510,8 @@ export async function startRun(scope, startedBy) {
 export async function noteRun(id, { stage, counts, line }) {
   await query(
     `update harvest_runs
-        set stage = coalesce($2, stage),
+        set touched_at = now(),
+            stage = coalesce($2, stage),
             counts = case when $3::jsonb is null then counts else counts || $3::jsonb end,
             log = case when $4::text is null then log
                        else (case when jsonb_array_length(log) > 200 then log - 0 else log end)
@@ -531,5 +532,39 @@ export const runById = async (id) => (await query('select * from harvest_runs wh
 export const recentRuns = async (limit = 12) =>
   (await query('select id, scope, stage, state, counts, error, started_by, started_at, finished_at from harvest_runs order by started_at desc limit $1', [limit])).rows;
 
-export const runningRun = async () =>
-  (await query(`select * from harvest_runs where state = 'running' order by started_at desc limit 1`)).rows[0] ?? null;
+/**
+ * The run that is actually running.
+ *
+ * "State says running" is not the same as "something is running": the API
+ * process can be restarted out from under a job at any moment, and the row it
+ * leaves behind would otherwise refuse every harvest afterwards. A run that has
+ * said nothing for five minutes has stopped — the pipeline writes a line every
+ * few seconds, so five is not a close call — and this closes it out rather than
+ * reporting it.
+ */
+const ABANDONED_AFTER = "5 minutes";
+
+export async function runningRun() {
+  await query(
+    `update harvest_runs
+        set state = 'failed', error = coalesce(error, 'The API restarted while this was running.'),
+            finished_at = now(), stage = null
+      where state = 'running' and touched_at < now() - interval '${ABANDONED_AFTER}'`);
+  const { rows } = await query(`select * from harvest_runs where state = 'running' order by started_at desc limit 1`);
+  return rows[0] ?? null;
+}
+
+/**
+ * Called once as the API comes up. Whatever a previous process was doing, it is
+ * not doing it now — so its run is closed and the regions it had claimed go
+ * back to being regions nothing has finished.
+ */
+export async function recoverAbandonedRuns() {
+  const { rowCount } = await query(
+    `update harvest_runs
+        set state = 'failed', error = coalesce(error, 'The API restarted while this was running.'),
+            finished_at = coalesce(finished_at, now()), stage = null
+      where state = 'running'`);
+  await query(`update regions set harvest_state = 'never', updated_at = now() where harvest_state in ('queued', 'running')`);
+  return rowCount;
+}

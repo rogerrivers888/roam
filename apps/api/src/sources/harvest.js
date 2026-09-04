@@ -399,7 +399,14 @@ export async function runHarvest({ slugs, withImages = true, refreshTypes = fals
   // polled onto a flag that the stages check synchronously as they go.
   let stop = false;
   const cancelled = async () => stop || ((await lib.runById(run.id))?.state === 'cancelled');
-  const poll = setInterval(async () => { if (await cancelled()) stop = true; }, 4000);
+  // The same timer is the heartbeat: `touched_at` moves every four seconds, so
+  // "has said nothing for five minutes" reliably means the process behind this
+  // run has gone (repositories/library.js `runningRun`). A stage that takes a
+  // long time — London's pictures are twenty minutes — must not look abandoned.
+  const poll = setInterval(async () => {
+    if (await cancelled()) stop = true;
+    await lib.noteRun(run.id, {}).catch(() => {});
+  }, 4000);
   poll.unref?.();
   const check = () => stop;
   const line = async (text) => { onLine?.(text); await lib.noteRun(run.id, { line: text }); };
