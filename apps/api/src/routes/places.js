@@ -346,11 +346,14 @@ places.get('/suggest', async (req, res, next) => {
     }));
 
     const meter = {};
+    // Wide enough that a place in the next town still counts — Sebastian's is
+    // 10.75 km from home — and tight enough that another county does not.
+    const askedRadius = Math.min(50, Number(req.query.radiusKm) || 15);
     const ask = (only) => googleSource.suggest(q, {
       near: near ? { lat: near.lat, lng: near.lng } : null,
-      radiusKm: Math.min(50, Number(req.query.radiusKm) || 15),
+      radiusKm: Math.max(askedRadius, 30),
       sessionToken: String(req.query.session || '') || null,
-      meter, only,
+      meter, only, restrict: Boolean(near),
     });
 
     // The provider returns five predictions, ranked by how well known a place
