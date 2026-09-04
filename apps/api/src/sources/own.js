@@ -264,6 +264,11 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   }
 
   const seed = await seedFor(venueRef, given, { householdId });
+  // Whether we can ask a well-formed question at all. Without a name and a
+  // point there is nothing to search the open map or the encyclopedias for, and
+  // "we could not ask" must never be mistaken for "they said no" — see
+  // `forgetSource`.
+  const canAsk = Boolean(seed.name && seed.lat != null);
   const matched = {};
   const problems = [];
   let found = 0;
@@ -277,8 +282,12 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     // got back (Technical Constraints §2).
     try { osm = await matchOsm({ venueRef, name: seed.name, lat: seed.lat, lng: seed.lng }); }
     finally { await logCall(householdId, 'osm-overpass', 'own.match'); }
-    // It answered, so whatever it said last time is superseded by what it says now.
-    await forgetSource(venueRef, ['osm']);
+    // It answered, so whatever it said last time is superseded by what it says
+    // now — but only if it was actually asked. A run with no name to search for
+    // returns null without troubling Overpass, and erasing a good match on the
+    // strength of that turned a researched Royal Crescent back into an empty
+    // record (found 4 Sep 2026).
+    if (osm || canAsk) await forgetSource(venueRef, ['osm']);
     if (osm) {
       const v = venueFromOsmElement({ type: osm.ref.split('/')[0], id: osm.ref.split('/')[1], lat: osm.lat, lon: osm.lng, tags: osm.tags });
       const t = osm.tags;
@@ -354,7 +363,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     // Wikidata is a second service and gets its own line, so the usage table
     // says who was actually asked.
     if (enc?.wikidataId) await logCall(householdId, 'wikidata', 'own.encyclopedia');
-    await forgetSource(venueRef, ['wikipedia', 'wikidata']);
+    if (canAsk) await forgetSource(venueRef, ['wikipedia', 'wikidata']);
     if (enc) {
       matched.wikipedia = { title: enc.title, url: enc.url, distanceM: enc.distanceM, confidence: enc.confidence };
       await Promise.all([
