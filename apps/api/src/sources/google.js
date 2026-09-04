@@ -263,7 +263,7 @@ export const googleSource = {
    * provider sells — no place is fetched until one is chosen — and the point is
    * a bias, not a fence, so a restaurant in the next town still appears.
    */
-  async suggest(query, { near = null, radiusKm = 15, sessionToken = null, meter = null } = {}) {
+  async suggest(query, { near = null, radiusKm = 15, sessionToken = null, meter = null, only = null } = {}) {
     // What kind of place a prediction is, in a word or two: "you've got the
     // right Sebastian's" needs the word restaurant next to the address
     // (owner, 4 Sep 2026).
@@ -281,8 +281,11 @@ export const googleSource = {
       return null;
     };
     if (!KEY() || !String(query || '').trim()) return [];
-    const body = { input: String(query).trim(), includedPrimaryTypes: [], languageCode: 'en-GB' };
-    delete body.includedPrimaryTypes;
+    const body = { input: String(query).trim(), languageCode: 'en-GB' };
+    // Asking for places rather than everything: a town's name brings back the
+    // town, its roads and its two golf clubs, and the restaurant of the same
+    // name never makes the five (owner, 4 Sep 2026).
+    if (only?.length) body.includedPrimaryTypes = only;
     if (near?.lat != null) body.locationBias = { circle: { center: { latitude: near.lat, longitude: near.lng }, radius: Math.min(50, Math.max(1, radiusKm)) * 1000 } };
     if (sessionToken) body.sessionToken = sessionToken;
     const data = await call('/places:autocomplete', { body, meter });

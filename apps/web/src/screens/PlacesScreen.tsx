@@ -809,7 +809,7 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded, onOpe
     typing.current = setTimeout(async () => {
       try {
         const r = await api.suggestPlaces({ q: text, near: centre ? `${centre.lat},${centre.lng}` : undefined, radiusKm: Math.max(radiusKm, 15), session: session.current });
-        setSuggestions(r.suggestions.slice(0, 6));
+        setSuggestions(r.suggestions.slice(0, 8));
       } catch { /* the Search button still works */ }
     }, 250);
     return () => { if (typing.current) clearTimeout(typing.current); };

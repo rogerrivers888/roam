@@ -36,6 +36,23 @@ async function homeOf(household) {
   return household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null;
 }
 
+/**
+ * The country the household lives in. Stored when home is set; a household that
+ * set its home before the column existed has it looked up once, from the map,
+ * and written down — so every search after the first knows which country to put
+ * first without asking anybody anything.
+ */
+async function homeCountryOf(household) {
+  if (household.home_country_code) return { code: household.home_country_code, name: household.home_country ?? null };
+  if (household.home_lat == null) return null;
+  const hit = await reverseGeocode(household.home_lat, household.home_lng, { zoom: 8 }).catch(() => null);
+  if (!hit?.countryCode) return null;
+  await query('update households set home_country_code = $2, home_country = $3 where id = $1', [household.id, hit.countryCode, hit.country ?? null]);
+  household.home_country_code = hit.countryCode;
+  household.home_country = hit.country ?? null;
+  return { code: hit.countryCode, name: hit.country ?? null };
+}
+
 /** "near" may be "lat,lng", free text, or absent (home). */
 async function resolveNear(nearParam, household) {
   const home = await homeOf(household);
@@ -158,13 +175,16 @@ places.get('/geocode', async (req, res, next) => {
     const near = m ? { lat: Number(m[1]), lng: Number(m[3]) } : await homeOf(household);
     const countryCode = /^[A-Za-z]{2}$/.test(String(req.query.country || '')) ? String(req.query.country).toUpperCase() : null;
     const kind = req.query.kind === 'lodging' ? 'lodging' : req.query.kind === 'area' ? 'area' : null;
-    const limit = Number(req.query.limit) || 6;
+    const limit = Math.min(24, Number(req.query.limit) || 6);
     // Both sources answer from a short memory of what they have just been asked,
     // so a row is only written when a request actually went out.
     const before = { osm: geocodeCalls(), photon: areaCalls() };
-    const results = kind === 'area'
-      ? await searchAreas(String(req.query.q || ''), { limit, near, countryCode })
-      : await geocode(String(req.query.q || ''), { limit, near, countryCode, within: Boolean(m), kind });
+    const [results, home] = await Promise.all([
+      kind === 'area'
+        ? searchAreas(String(req.query.q || ''), { limit, near, countryCode })
+        : geocode(String(req.query.q || ''), { limit, near, countryCode, within: Boolean(m), kind }),
+      kind === 'area' ? homeCountryOf(household) : null,
+    ]);
     const made = [
       areaCalls() > before.photon ? 'photon' : null,
       geocodeCalls() > before.osm ? 'osm-nominatim' : null,
@@ -172,7 +192,48 @@ places.get('/geocode', async (req, res, next) => {
     for (const provider of made) {
       await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, provider, kind === 'area' ? 'places.areas' : 'places.geocode']);
     }
-    res.json({ results, attribution: kind === 'area' ? AREA_ATTRIBUTION : '© OpenStreetMap contributors' });
+    res.json({ results, home: home ?? undefined, attribution: kind === 'area' ? AREA_ATTRIBUTION : '© OpenStreetMap contributors' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/places/where?at=51.5194,-0.1270 — the address a pair of coordinates
+ * sits at, for "where I am". The device gives the fix (the browser asks the
+ * household first, and only when they tap); the name comes from OpenStreetMap,
+ * the same map every other place here is resolved against, so what comes back
+ * is a Place a picker can hold like any other.
+ *
+ * Nothing is stored: a fix is where somebody is standing this minute, not a
+ * fact about them. It is logged as a provider call because a request went out.
+ */
+places.get('/where', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const m = /^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/.exec(String(req.query.at || ''));
+    if (!m) return res.status(400).json({ error: 'at_required', message: 'Say where, as "lat,lng".' });
+    const lat = Number(m[1]);
+    const lng = Number(m[3]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      return res.status(400).json({ error: 'at_invalid', message: 'That is not a point on the map.' });
+    }
+    // Street zoom, not building zoom: standing outside a parade of shops, the
+    // honest answer is the street, not whichever shopfront the map happened to
+    // tag nearest — we do not know they are inside it. If the map has nothing
+    // there at all (mid-Atlantic, a new estate), the point itself is still a
+    // usable starting place.
+    const hit = await reverseGeocode(lat, lng, { zoom: 17 });
+    await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'osm-nominatim', 'places.where']);
+    // The street and the bit of town, and no more: a picker prints this line
+    // above the town, region and postcode, so the full postal address would
+    // just say everything twice. "Great Court, Bloomsbury", not "Great Court,
+    // Bloomsbury, London, England, WC1B 3DG, United Kingdom".
+    const near = hit ? [hit.address?.line1, hit.address?.area].filter(Boolean).join(', ') : '';
+    const place = hit
+      ? { ...hit, lat, lng, label: near || hit.label, formatted: near || hit.label || hit.formatted }
+      : { label: `${lat.toFixed(4)}, ${lng.toFixed(4)}`, formatted: null, lat, lng, country: null, countryCode: null, locality: null, address: null };
+    res.json({ place, named: Boolean(hit), attribution: '© OpenStreetMap contributors' });
   } catch (err) {
     next(err);
   }
@@ -256,12 +317,31 @@ places.get('/suggest', async (req, res, next) => {
     }));
 
     const meter = {};
-    const suggestions = await googleSource.suggest(q, {
+    const ask = (only) => googleSource.suggest(q, {
       near: near ? { lat: near.lat, lng: near.lng } : null,
       radiusKm: Math.min(50, Number(req.query.radiusKm) || 15),
       sessionToken: String(req.query.session || '') || null,
-      meter,
+      meter, only,
     });
+
+    // A prediction is a place you could walk into, or it is a town, a road or a
+    // postcode. Typing "Sunningdale" came back with the town, a car park and two
+    // golf clubs, and the bistro of that name was never among the five the
+    // provider returns (owner, 4 Sep 2026). So: ask again for places only, but
+    // only when the first answer was mostly map, and merge — no extra call when
+    // the household typed something that already found what it meant.
+    const GEO = new Set(['locality', 'postal_town', 'route', 'street_address', 'premise', 'sublocality', 'postal_code', 'administrative_area_level_1', 'administrative_area_level_2', 'country', 'geocode', 'neighborhood', 'intersection', 'plus_code']);
+    const isPlace = (p) => (p.types || []).some((t) => !GEO.has(t));
+    let suggestions = await ask(null);
+    if (suggestions.filter(isPlace).length < 3) {
+      try {
+        const places = await ask(['establishment']);
+        const seen = new Set(suggestions.map((p) => p.placeId));
+        suggestions = [...suggestions, ...places.filter((p) => !seen.has(p.placeId))];
+      } catch { /* the provider may not take that filter; the first answer stands */ }
+    }
+    // Somewhere you can walk into comes before the map it sits on.
+    suggestions = suggestions.map((p, i) => ({ p, i })).sort((a, b) => (isPlace(b.p) ? 1 : 0) - (isPlace(a.p) ? 1 : 0) || a.i - b.i).map((x) => x.p);
     await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, 'google', 'places.suggest', JSON.stringify(meter)]).catch(() => null);
     const seen = new Set(ours.map((o) => o.placeId).filter(Boolean));
     res.json({ suggestions: [...ours, ...suggestions.filter((x) => !seen.has(x.placeId)).map((x) => ({ ...x, venueRef: `google:${x.placeId}`, mine: false }))] });
