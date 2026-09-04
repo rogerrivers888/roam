@@ -129,7 +129,11 @@ async function buildTable({ household, attending, attendees, session, taste, hom
     try {
       const rows = await travelMatrixMinutes({ origin: home, destinations: finalists, mode: 'driving', meter });
       rows?.forEach((row, i) => { if (row?.minutes != null) { finalists[i].travelMinutes = row.minutes; finalists[i].travelEstimated = false; } });
-    } catch { /* the estimate stands */ }
+    } catch (err) {
+      // The estimate stands, but a routing failure is worth seeing in the logs:
+      // an hour by road is not an hour as the crow flies.
+      console.warn(`taste table drive times fell back to the estimate: ${err?.message || err}`);
+    }
   }
 
   const places = finalists
