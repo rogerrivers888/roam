@@ -241,7 +241,7 @@ export async function groupPayload(groupId) {
   return {
     group: {
       id: group.id, tripId: group.trip_id, name: group.name, expectedCount: group.expected_count,
-      minimumCount: group.minimum_count, wantedBy: ymd(group.wanted_by), inviteToken: group.invite_token, closed: Boolean(group.closed_at),
+      minimumCount: group.minimum_count, maximumCount: group.maximum_count, wantedBy: ymd(group.wanted_by), inviteToken: group.invite_token, closed: Boolean(group.closed_at),
       remindersOn: group.reminders_on, cadence: group.reminder_cadence, setupDone: group.setup_done,
       cancelledAt: group.cancelled_at, cancelledNote: group.cancelled_note,
     },
@@ -372,7 +372,8 @@ router.patch('/groups/:id', async (req, res, next) => {
     if (b.name !== undefined) put('name', String(b.name).trim() || null);
     if (b.expectedCount !== undefined) put('expected_count', b.expectedCount == null ? null : Math.max(0, Number(b.expectedCount)));
     // The trip's own minimum means one thing: below it, the trip is cancelled.
-    if (b.minimumCount !== undefined) put('minimum_count', b.minimumCount == null || b.minimumCount === '' ? null : Math.max(0, Number(b.minimumCount)));
+    if (b.minimumCount !== undefined) put('minimum_count', num(b.minimumCount));
+    if (b.maximumCount !== undefined) put('maximum_count', num(b.maximumCount));
     if (b.wantedBy !== undefined) put('wanted_by', ymd(b.wantedBy));
     if (b.remindersOn !== undefined) put('reminders_on', Boolean(b.remindersOn));
     if (b.cadence !== undefined) { if (!CADENCES[b.cadence]) return res.status(400).json({ error: 'bad_cadence' }); put('reminder_cadence', b.cadence); }
@@ -843,7 +844,7 @@ async function joinPayload(group, participantToken) {
     group: {
       name: group.name, wantedBy: ymd(group.wanted_by), closed: Boolean(group.closed_at),
       cancelled: Boolean(group.cancelled_at), cancelledNote: group.cancelled_note,
-      organiser: organiser?.name ?? null, expectedCount: group.expected_count, minimumCount: group.minimum_count,
+      organiser: organiser?.name ?? null, expectedCount: group.expected_count, minimumCount: group.minimum_count, maximumCount: group.maximum_count,
       joined: active.filter((p) => p.joined_at).length, heads: active.filter((p) => p.joined_at).reduce((n, p) => n + p.heads, 0),
     },
     trip: {
@@ -901,6 +902,12 @@ router.post('/join/:token', async (req, res, next) => {
   try {
     const group = await groupByToken(req.params.token);
     if (group.closed_at) return res.status(409).json({ error: 'group_closed', message: 'This group is not taking any more people.' });
+    if (group.maximum_count) {
+      const { rows: full } = await query('select coalesce(sum(heads), 0)::int as heads from group_participants where group_id = $1 and joined_at is not null and withdrawn_at is null', [group.id]);
+      if (full[0].heads >= group.maximum_count) {
+        return res.status(409).json({ error: 'group_full', message: `This trip is full — ${full[0].heads} of ${group.maximum_count}. Ask whoever invited you.` });
+      }
+    }
     const b = req.body || {};
     const name = b.name?.trim();
     if (!name) return res.status(400).json({ error: 'name_required', message: 'Give a name they will recognise.' });
