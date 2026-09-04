@@ -555,19 +555,15 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                     </Text>
                     <Wrap>
                       <Button label="We ate it" icon="favourite" kind="secondary" onPress={weAteIt} disabled={busy} />
-                      <Button label="Start again" icon="close" kind="ghost" onPress={startAgain} disabled={busy} />
                     </Wrap>
                   </Card>
-                ) : (
-                  <Wrap>
-                    <Button label="Start again" icon="close" kind="ghost" onPress={startAgain} disabled={busy} />
-                  </Wrap>
-                )}
+                ) : null}
               </ScrollView>
               <View style={styles.bar}>
-                <Button label="Add or change" icon="add" kind="secondary" onPress={() => setStep('menu')} disabled={busy} />
+                <Button label="Start again" kind="ghost" style={styles.barBtn} onPress={startAgain} disabled={busy} />
                 <View style={{ flex: 1 }} />
-                <Button label="Show to staff" icon="list" onPress={() => setStep('staff')} disabled={!order.items.length} />
+                <Button label="Add/Change" kind="secondary" style={styles.barBtn} onPress={() => setStep('menu')} disabled={busy} />
+                <Button label="Show staff" icon="list" style={styles.barBtn} onPress={() => setStep('staff')} disabled={!order.items.length} />
               </View>
             </>
           ) : null}
@@ -753,6 +749,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.surface,
   },
+  // Three actions have to sit on one row inside 390px, so the bar's buttons are
+  // tighter than the standard one (owner, 4 Sep 2026).
+  barBtn: { paddingHorizontal: 10 },
   orderRow: { paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.line },
   whatIs: { backgroundColor: colors.surfaceMuted, borderRadius: radius.sm, padding: spacing.sm, gap: 2 },
   rowBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 15, borderWidth: 1, borderColor: colors.line, marginLeft: 6 },
