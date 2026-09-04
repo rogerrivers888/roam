@@ -124,7 +124,7 @@ menu.get('/openers', async (req, res, next) => {
     const browser = await chromePath();
     // ?probe=1 actually drives the browser once, because "the binary is there"
     // and "it runs in this container" are different questions.
-    const probe = req.query.probe ? await renderProbe() : null;
+    const probe = req.query.probe ? await renderProbe(String(req.query.probe)) : null;
     res.json({
       html: true,
       pdf: true,

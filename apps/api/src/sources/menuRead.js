@@ -233,13 +233,32 @@ export async function renderText(url) {
   }
 }
 
+/** How much memory this container is actually allowed — a browser lives or dies by it. */
+export async function memoryCeiling() {
+  const { readFile } = await import('node:fs/promises');
+  for (const path of ['/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes']) {
+    try {
+      const raw = (await readFile(path, 'utf8')).trim();
+      if (raw === 'max') return null;
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > 0 && n < 1e15) return Math.round(n / 1048576);
+    } catch { /* not this one */ }
+  }
+  return null;
+}
+
 /** Can this machine actually drive its browser? A one-page check for the openers endpoint. */
-export async function renderProbe() {
+export async function renderProbe(url) {
   const executablePath = await chromePath();
   if (!executablePath) return { ok: false, why: 'no browser on this machine' };
   const started = Date.now();
-  const { text, why } = await renderText('data:text/html,<h1>Roam can render</h1>' + 'x'.repeat(THIN_TEXT));
-  return { ok: !why && text.length > 0, why, ms: Date.now() - started, executablePath };
+  const target = url && /^https?:\/\//i.test(url) ? url : 'data:text/html,<h1>Roam can render</h1>' + 'x'.repeat(THIN_TEXT);
+  const { text, why } = await renderText(target);
+  return {
+    ok: !why && text.length > 0, why, ms: Date.now() - started, executablePath, chars: text.length,
+    memoryLimitMb: await memoryCeiling(),
+    rssMb: Math.round(process.memoryUsage().rss / 1048576),
+  };
 }
 
 /* ----------------------------------------------------------- the last resort */
