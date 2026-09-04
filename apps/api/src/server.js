@@ -2,7 +2,7 @@ import express from 'express';
 import { perSearchCost } from './sources/pricing.js';
 import { usageBetween, windows } from './sources/usage.js';
 import cors from 'cors';
-import { pool, query } from './db.js';
+import { ping, pool } from './db.js';
 import householdRoutes from './routes/household.js';
 import discoverRoutes from './routes/discover.js';
 import tripRoutes from './routes/trips.js';
@@ -12,6 +12,7 @@ import tasteRoutes from './routes/tastes.js';
 import conceptRoutes from './routes/concepts.js';
 import prototypeRoutes from './routes/prototypes.js';
 import groupRoutes, { startReminderLoop } from './routes/groups.js';
+import accountRoutes from './routes/accounts.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 import { atlas as atlasRoutes } from './routes/atlas.js';
 import { menu as menuRoutes, orders as orderRoutes } from './routes/menus.js';
@@ -23,10 +24,11 @@ import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
 import { enabledSources, defaultSourceKeys, loadSourceSettings, setSourceOff, sourceHasKey, sourceOff, sourceKeys } from './sources/index.js';
 import { routingEnabled } from './sources/routing.js';
 import sessionRoutes, { devices as deviceRoutes } from './routes/session.js';
-import { authConfigured, deployed, originAllowed, requireSession } from './auth.js';
+import { authConfigured, deployed, originAllowed, requireOwner, requireSession } from './auth.js';
 import { generalLimit, signInLimit, spendLimit } from './limits.js';
 import { sweepDeadSessions } from './repositories/sessions.js';
 import { sweepExpiredPlanSessions } from './repositories/planSessions.js';
+import * as providerCalls from './repositories/providerCalls.js';
 
 const app = express();
 
@@ -45,7 +47,7 @@ app.use(cors({ origin: (origin, cb) => cb(null, originAllowed(origin)), credenti
 
 app.get('/health', async (_req, res) => {
   try {
-    await query('select 1');
+    await ping();
     // Which build answered: Railway sets the commit on the deployment, so
     // "is my change live yet" is a question the API can answer itself.
     // `auth` is reported because an API that is not asking for a passcode is a
@@ -77,6 +79,13 @@ app.use('/api', deviceRoutes);
 // Provider money is spent under these, so they are held to a tighter number
 // than the rest of the API (limits.js).
 for (const path of ['/api/discover', '/api/plan', '/api/atlas', '/api/menu', '/api/photos', '/api/places']) app.use(path, spendLimit);
+
+// The admin module, behind the owner's own door inside the household one
+// (auth.js `requireOwner`): who has Roam, what they are on, and what their
+// searching has cost. Mounted before the household routes so that nothing about
+// other people's accounts can be reached through a path that resolves to the
+// caller's own household.
+app.use('/api/accounts', requireOwner, accountRoutes);
 
 app.use('/api/household', householdRoutes);
 app.use('/api/discover', discoverRoutes);
@@ -170,7 +179,7 @@ app.get('/api/photos/google', async (req, res) => {
     const photo = await photoFor(name, Math.min(1200, Number(req.query.w) || 480));
     if (!photo) return res.status(404).json({ error: 'no_photo', message: 'The provider has no photo by that name.' });
     if (!photo.cached) {
-      await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, 'google-places', 'photo', { 'google-photos': 1 }]).catch(() => null);
+      await providerCalls.record(household.id, 'google-places', 'photo', { 'google-photos': 1 }).catch(() => null);
     }
     res.setHeader('content-type', photo.contentType);
     res.setHeader('cache-control', 'private, max-age=3600');

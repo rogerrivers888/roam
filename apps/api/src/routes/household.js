@@ -10,6 +10,7 @@ import { enabledSources } from '../sources/index.js';
 import { routingEnabled } from '../sources/routing.js';
 import { paceOf, DEFAULT_PACE } from '../domain/pace.js';
 import { isValidTimezone } from '../domain/time.js';
+import { currentAccount } from '../context.js';
 
 const router = Router();
 
@@ -18,9 +19,35 @@ const KINDS = ['allergen', 'diet', 'dislike', 'like'];
 export const LEARN_THRESHOLD = Number(process.env.ROAM_LEARN_THRESHOLD || 3);
 const HALF_LIFE_DAYS = Number(process.env.ROAM_LEARN_HALF_LIFE_DAYS || 180);
 
-// V1 is a single founding household (Requirements §3). Multi-household
-// onboarding is V2, so the household is looked up rather than routed to.
+/**
+ * Whose household this request is about — the one seam every read and write in
+ * the API goes through, all 86 of them.
+ *
+ * It used to be "the first row in the table", which was true while Roam was one
+ * family's app and became a way to serve one household's data to another the
+ * moment it was not. It now answers from the account the request is being
+ * served as (context.js, set by `requireSession` in auth.js), and falls back to
+ * the founding household for the two callers that legitimately have no account:
+ * the owner's shared passcode, and work that runs outside any request — the
+ * seed script, the reminder sweep.
+ *
+ * The fallback is the part to be careful with. It is safe only because nothing
+ * reaches here without having passed the door first. A route added to `PUBLIC`
+ * in auth.js must resolve its household explicitly — as the group invite link
+ * does through `householdOf` — rather than inheriting the founding one.
+ */
 export async function currentHousehold() {
+  const account = currentAccount();
+  if (account) {
+    const household = await households.householdById(account.household_id);
+    if (household) return household;
+    // An account whose household was deleted underneath it. Falling back to
+    // the founding household here is the one thing that must never happen.
+    const err = new Error('This account has no household.');
+    err.status = 404;
+    err.code = 'no_household';
+    throw err;
+  }
   const household = await households.firstHousehold();
   if (!household) {
     const err = new Error('No household exists. Run `npm run seed`.');
@@ -30,6 +57,13 @@ export async function currentHousehold() {
   }
   return household;
 }
+
+/**
+ * One named household, for work that knows which one it is about and must not
+ * guess: a group's invite link (public, so no account is in the air) and the
+ * reminder sweep (which walks every household there is).
+ */
+export const householdOf = (householdId) => households.householdById(householdId);
 
 const ageOf = (birthYear) => (birthYear ? new Date().getFullYear() - birthYear : null);
 /** Exact age from a birthday, else a rough one from the year. */

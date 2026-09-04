@@ -1,9 +1,9 @@
 // The web app talks to the Roam API over HTTP and nothing else. No provider
 // key ever reaches this bundle (Technical Constraints §13.7).
 
-import { recall, remember, servingSaved, warm, warmQuietly } from './offline/cache';
+import { forgetCopy, recall, remember, servingSaved, warm, warmQuietly } from './offline/cache';
 import { flush as flushOutbox, queue as queueWrite, refreshOutbox } from './offline/outbox';
-import { deviceLabel, sessionExpired, sessionToken, setSessionToken } from './session';
+import { copyHolder, deviceLabel, holderOf, sessionExpired, sessionToken, setCopyHolder, setSessionToken } from './session';
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
 
@@ -670,6 +670,21 @@ export type PrototypeStatus = 'new' | 'approved' | 'rejected' | 'archived';
 // Calls
 // ---------------------------------------------------------------------------
 
+/**
+ * The device's saved copy belongs to one household.
+ *
+ * Called before the token is set, on every way in. If the person signing in is
+ * not who the copy was saved for, it goes — otherwise a friend signing in on a
+ * browser somebody else used would be served that household's atlas straight
+ * out of IndexedDB, without a request the API could refuse.
+ */
+async function claimDeviceCopy(account: AccountSummary | null | undefined): Promise<void> {
+  const holder = holderOf(account);
+  const before = copyHolder();
+  if (before && before !== holder) await forgetCopy();
+  setCopyHolder(holder);
+}
+
 export const api = {
   health: () => request<{ ok: boolean; db: string }>('/health'),
   sources: () => request<SourcesStatus>('/api/sources'),
@@ -953,11 +968,14 @@ export const api = {
    * cookie the API also sets exists only so an `<img>` can load a photograph.
    */
   signIn: async (passcode: string): Promise<SessionState> => {
-    const r = await post<{ token: string; session: SessionSummary }>('/api/session', { passcode, label: deviceLabel() });
+    const r = await post<{ token: string; session: SessionSummary; account?: AccountSummary | null }>('/api/session', { passcode, label: deviceLabel() });
+    await claimDeviceCopy(r.account);
     setSessionToken(r.token);
     // Anything written while they were signed out goes now.
     void api.sendWaitingWrites();
-    return { signedIn: true, configured: true, session: r.session };
+    // The passcode is the owner's own way in, whether or not he has claimed an
+    // account row yet (api/src/auth.js `requireOwner`).
+    return { signedIn: true, configured: true, session: r.session, account: r.account ?? null, isOwner: true };
   },
 
   /**
@@ -971,8 +989,54 @@ export const api = {
     setSessionToken(null);
   },
 
-  /** The devices signed in, for Settings. */
+  /** The devices signed in, for Settings. Their own, never the whole estate's. */
   devices: () => request<{ sessions: (SessionSummary & { lastSeen: string })[] }>('/api/sessions'),
+
+  /**
+   * A magic link, exchanged for a session.
+   *
+   * The token is in the address the person opened (`?signin=…`). It works once,
+   * so this is called exactly once and the address is cleaned immediately
+   * afterwards — a link left in the URL bar is a link that gets bookmarked,
+   * shared and pasted into a chat.
+   */
+  signInWithLink: async (token: string): Promise<SessionState> => {
+    const r = await post<{ token: string; session: SessionSummary; account: AccountSummary }>(
+      '/api/session/link', { token, label: deviceLabel() },
+    );
+    await claimDeviceCopy(r.account);
+    setSessionToken(r.token);
+    void api.sendWaitingWrites();
+    return { signedIn: true, configured: true, session: r.session, account: r.account, isOwner: r.account?.role === 'owner' };
+  },
+
+  /**
+   * "E-mail me a link." Answers the same whether or not the address has an
+   * account, so it cannot be used to find out who else uses Roam.
+   */
+  requestSignInLink: (email: string) => post<{ sent: boolean; message: string }>('/api/session/request-link', { email }),
+
+  // --- the admin module: only the owner's API answers any of these ----------
+
+  /** Everybody who has Roam, with what they are on and what they have spent. */
+  accounts: () => request<AccountsResponse>('/api/accounts'),
+  /** One of them, with the sign-ins behind the count. */
+  account: (id: string) => request<{ account: Account; signIns: { id: string; method: string; label: string | null; at: string }[]; lastInvite: AccountInvite | null }>(`/api/accounts/${id}`),
+  /** Add a person: a household of their own, and an invitation unless told not to. */
+  addAccount: (body: { email: string; name?: string; plan?: string; trialEndsOn?: string | null; monthlyCallBound?: number | null; note?: string; invite?: boolean }) =>
+    post<{ account: Account; invitation: Invitation | null }>('/api/accounts', body),
+  /** The owner's own account, on the household he already has. */
+  claimOwnerAccount: (body: { email: string; name?: string }) => post<{ account: Account }>('/api/accounts/owner', body),
+  /** Plan, status, ceiling, note. */
+  updateAccount: (id: string, body: Partial<{ name: string; plan: string; status: string; trialEndsOn: string | null; monthlyCallBound: number | null; note: string }>) =>
+    patch<{ account: Account }>(`/api/accounts/${id}`, body),
+  /** A fresh link — sent if there is a sender, and shown either way so it can be sent by hand. */
+  inviteAccount: (id: string) => post<{ account: Account; invitation: Invitation }>(`/api/accounts/${id}/invite`, {}),
+  /** Sign every device that account is on out. */
+  signOutAccount: (id: string) => post<{ account: Account; signedOut: boolean }>(`/api/accounts/${id}/sign-out`, {}),
+  /** Remove the account. Their household's data only goes with it when asked. */
+  removeAccount: (id: string, { withHousehold = false } = {}) =>
+    del<{ removed: boolean; withHousehold: boolean; message: string }>(`/api/accounts/${id}${withHousehold ? '?withHousehold=1' : ''}`),
 
   // --- writes that have not gone yet ----------------------------------------
 
@@ -983,7 +1047,56 @@ export const api = {
 };
 
 export type SessionSummary = { id: string; label: string | null; since: string; until: string };
-export type SessionState = { signedIn: boolean; configured: boolean; session?: SessionSummary | null; message?: string };
+export type AccountSummary = { id: string; email: string; name: string | null; role: 'owner' | 'customer'; plan: string };
+export type SessionState = {
+  signedIn: boolean;
+  configured: boolean;
+  session?: SessionSummary | null;
+  message?: string;
+  /** Who is signed in, when they are on an account rather than the shared passcode. */
+  account?: AccountSummary | null;
+  /** Whether the admin module is theirs to see. The API decides this, not the app. */
+  isOwner?: boolean;
+  /** Their account was suspended while they were signed in. */
+  suspended?: boolean;
+};
+
+// --- the admin module -------------------------------------------------------
+
+export type AccountPlan = { key: string; label: string; note: string };
+export type AccountInvite = { at: string; expiresAt: string; usedAt: string | null; delivery: string | null; error: string | null };
+export type Account = {
+  id: string;
+  householdId: string;
+  householdName: string | null;
+  email: string;
+  name: string | null;
+  role: 'owner' | 'customer';
+  status: 'invited' | 'active' | 'suspended';
+  plan: string;
+  trialEndsOn: string | null;
+  note: string | null;
+  createdAt: string;
+  invitedAt: string | null;
+  activatedAt: string | null;
+  lastSeenAt: string | null;
+  signInCount: number;
+  liveDevices: number;
+  members: number;
+  trips: number;
+  usage: { callsMonth: number; costMonth: number; callsEver: number; costEver: number; bound: number; boundIsOwn: boolean };
+  lastInvite?: AccountInvite | null;
+};
+export type Invitation = { url: string; expiresAt: string; delivery: string; message: string | null };
+export type AccountsResponse = {
+  accounts: Account[];
+  plans: AccountPlan[];
+  mail: { configured: boolean; reason?: string; message?: string; from?: string };
+  defaults: { monthlyCallBound: number; guestMonthlyCallBound: number };
+  ownerClaimed: boolean;
+  foundingHousehold: { id: string; name: string } | null;
+  totals: { costMonth: number; costEver: number; callsMonth: number };
+};
 
 export type OfflineManifest = {
   generatedAt: string;

@@ -11,7 +11,7 @@
  */
 
 import React, { useState } from 'react';
-import { Platform, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button } from '../components/ui';
 import { Icon } from '../components/Icon';
@@ -19,11 +19,35 @@ import { Wordmark } from '../components/Wordmark';
 import { useViewport } from '../hooks/useViewport';
 import { api, ApiError } from '../api';
 
-export function LockScreen({ onIn, configured = true }: { onIn: () => void; configured?: boolean }) {
+export function LockScreen({ onIn, configured = true, notice = null }: {
+  onIn: () => void;
+  configured?: boolean;
+  /** Why they are looking at this rather than the app — a link that had been used, say. */
+  notice?: string | null;
+}) {
   const { width } = useViewport();
   const [passcode, setPasscode] = useState('');
   const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(notice);
+  // Somebody whose ninety days ran out, or who has a new phone: they never had
+  // a passcode and are not going to be given one, so the way back in is a link.
+  const [asking, setAsking] = useState(Boolean(notice));
+  const [email, setEmail] = useState('');
+  const [asked, setAsked] = useState<string | null>(null);
+
+  const askForLink = async () => {
+    if (!email.includes('@') || busy) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const r = await api.requestSignInLink(email.trim());
+      setAsked(r.message);
+    } catch (err: any) {
+      setProblem(err instanceof ApiError ? err.message : 'Could not reach Roam. Check your connection and try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async () => {
     if (!passcode.trim() || busy) return;
@@ -95,6 +119,48 @@ export function LockScreen({ onIn, configured = true }: { onIn: () => void; conf
 
         <Button label="Open Roam" onPress={submit} loading={busy} disabled={!passcode.trim()} style={{ alignSelf: 'stretch' }} />
         <Text style={type.tiny}>This device stays signed in for 90 days. You can sign it out from Settings.</Text>
+
+        {/* The other way in. Everybody except the owner signs in by link, so
+            this is not a fallback for them — it is their front door. */}
+        <View style={styles.other}>
+          {asked ? (
+            <View style={styles.problem}>
+              <Icon name="mail" size={14} color={colors.icon} />
+              <Text style={[type.small, { flex: 1 }]}>{asked}</Text>
+            </View>
+          ) : asking ? (
+            <>
+              <Text style={type.small}>Roam will e-mail you a link.</Text>
+              <TextInput
+                value={email}
+                onChangeText={(t) => { setEmail(t); if (problem) setProblem(null); }}
+                onSubmitEditing={askForLink}
+                placeholder="you@example.com"
+                placeholderTextColor={colors.inkFaint}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                inputMode="email"
+                returnKeyType="go"
+                accessibilityLabel="Your e-mail address"
+                style={styles.input}
+              />
+              <Button
+                label="E-mail me a link"
+                icon="send"
+                kind="secondary"
+                onPress={askForLink}
+                loading={busy}
+                disabled={!email.includes('@')}
+                style={{ alignSelf: 'stretch' }}
+              />
+            </>
+          ) : (
+            <Pressable onPress={() => setAsking(true)} accessibilityRole="button">
+              <Text style={[type.small, styles.quiet]}>I sign in with a link instead</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -118,4 +184,9 @@ const styles = StyleSheet.create({
   inputWrong: { borderColor: colors.overrun },
   problem: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, alignSelf: 'stretch' },
   mono: { fontFamily: Platform.OS === 'web' ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined, color: colors.ink },
+  other: {
+    alignSelf: 'stretch', alignItems: 'center', gap: spacing.sm,
+    marginTop: spacing.sm, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.line,
+  },
+  quiet: { color: colors.inkMuted, textDecorationLine: 'underline' },
 });

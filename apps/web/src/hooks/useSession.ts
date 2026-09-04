@@ -7,18 +7,25 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, AccountSummary } from '../api';
 import { onSessionChange, sessionToken } from '../session';
 
 export type SessionState = 'checking' | 'in' | 'out' | 'unconfigured' | 'unreachable';
 
-export function useSession(): { state: SessionState; recheck: () => void } {
+export function useSession(): { state: SessionState; isOwner: boolean; account: AccountSummary | null; recheck: () => void } {
   const [state, setState] = useState<SessionState>('checking');
+  // Whether the admin module is theirs to see. The API decides this and the app
+  // only draws what it is told: a customer who edited their own copy of the
+  // bundle would still get 404 from every route behind `requireOwner`.
+  const [isOwner, setIsOwner] = useState(false);
+  const [account, setAccount] = useState<AccountSummary | null>(null);
 
   const check = useCallback(async () => {
     try {
       const r = await api.sessionState();
       if (!r.configured) return setState('unconfigured');
+      setIsOwner(Boolean(r.isOwner));
+      setAccount(r.account ?? null);
       setState(r.signedIn ? 'in' : 'out');
     } catch (err: any) {
       // A 401 is a clear answer; anything else means the API could not be
@@ -33,7 +40,10 @@ export function useSession(): { state: SessionState; recheck: () => void } {
 
   // A token dropped mid-session (the API answered 401 to something) puts the
   // passcode screen up without a reload.
-  useEffect(() => onSessionChange((token) => setState(token ? 'in' : 'out')), []);
+  useEffect(() => onSessionChange((token) => {
+    setState(token ? 'in' : 'out');
+    if (!token) { setIsOwner(false); setAccount(null); }
+  }), []);
 
-  return { state, recheck: check };
+  return { state, isOwner, account, recheck: check };
 }

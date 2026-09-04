@@ -13,6 +13,7 @@ import { HouseholdScreen } from './src/screens/HouseholdScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { PrototypesScreen } from './src/screens/PrototypesScreen';
 import { JoinScreen } from './src/screens/JoinScreen';
+import { AccountsScreen } from './src/screens/AccountsScreen';
 import { LockScreen } from './src/screens/LockScreen';
 import { Wordmark } from './src/components/Wordmark';
 import { useViewport, ViewportProvider } from './src/hooks/useViewport';
@@ -21,13 +22,16 @@ import { useOutbox } from './src/hooks/useOutbox';
 import { useSession } from './src/hooks/useSession';
 import { Icon, IconName } from './src/components/Icon';
 
-type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes';
-const TABS: { key: Tab; label: string; icon: IconName }[] = [
+type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes' | 'accounts';
+const TABS: { key: Tab; label: string; icon: IconName; owner?: true }[] = [
   { key: 'plan', label: 'Plan', icon: 'plan' },
   { key: 'places', label: 'Places', icon: 'places' },
   { key: 'trips', label: 'Trips', icon: 'trips' },
   { key: 'household', label: 'Household', icon: 'household' },
   { key: 'settings', label: 'Settings', icon: 'settings' },
+  // The admin module. Drawn only for the owner, and the API answers 404 to
+  // everybody else whether or not it is drawn (api/src/auth.js `requireOwner`).
+  { key: 'accounts', label: 'Accounts', icon: 'accounts', owner: true },
 ];
 
 // Mobile-first (V1 is the installed web app on a phone), but on a wide screen
@@ -54,6 +58,27 @@ const joinToken = () => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
   return new URLSearchParams(window.location.search).get('join');
 };
+
+/**
+ * A magic link (?signin=<token>) is how everybody except the owner gets in.
+ *
+ * Read once, before anything else, and taken out of the address bar the moment
+ * it has been used: a link left in the URL is a link that gets bookmarked, sent
+ * on and pasted into a chat, and this one signs somebody in.
+ */
+const signInToken = () => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('signin');
+};
+
+function forgetSignInToken() {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  const q = new URLSearchParams(window.location.search);
+  if (!q.has('signin')) return;
+  q.delete('signin');
+  const rest = q.toString();
+  window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+}
 
 export default function App() {
   const window = useWindowDimensions();
@@ -128,15 +153,45 @@ export default function App() {
  * take away the one thing that still works.
  */
 function Gate() {
-  const { state, recheck } = useSession();
-  if (state === 'checking') return <View style={styles.waiting} />;
-  if (state === 'out' || state === 'unconfigured') return <LockScreen onIn={recheck} configured={state !== 'unconfigured'} />;
-  return <Shell />;
+  const { state, isOwner, recheck } = useSession();
+  // A link in the address is redeemed before the passcode screen can appear:
+  // the person holding it has never seen a Roam passcode and never will.
+  const link = useMemo(signInToken, []);
+  const [redeeming, setRedeeming] = useState(Boolean(link));
+  const [linkFailed, setLinkFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!link) return;
+    let dropped = false;
+    (async () => {
+      try {
+        await api.signInWithLink(link);
+        if (dropped) return;
+        recheck();
+      } catch (err: any) {
+        if (!dropped) setLinkFailed(err?.message ?? 'That link did not work. Ask for a new one.');
+      } finally {
+        // Whether it worked or not, the token comes out of the address bar: a
+        // spent link in a URL is still a link somebody pastes into a chat.
+        if (!dropped) { forgetSignInToken(); setRedeeming(false); }
+      }
+    })();
+    return () => { dropped = true; };
+  }, [link, recheck]);
+
+  if (redeeming || state === 'checking') return <View style={styles.waiting} />;
+  if (state === 'out' || state === 'unconfigured') {
+    return <LockScreen onIn={recheck} configured={state !== 'unconfigured'} notice={linkFailed} />;
+  }
+  return <Shell isOwner={isOwner} />;
 }
 
-function Shell() {
+function Shell({ isOwner }: { isOwner: boolean }) {
   const { width } = useViewport();
   const desktop = width >= DESKTOP;
+  // The admin module is the owner's. Everybody else's app is exactly what it
+  // was before accounts existed.
+  const tabs = useMemo(() => TABS.filter((t) => !t.owner || isOwner), [isOwner]);
   // A link can open a tab, and a trip, straight away (?tab=trips&trip=<id>): the address Roger keeps on his phone.
   const fromUrl = useMemo(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return { tab: null as Tab | null, trip: null as string | null };
@@ -144,7 +199,7 @@ function Shell() {
     const t = q.get('tab');
     const section = q.get('section');
     return {
-      tab: TABS.some((x) => x.key === t) || t === 'prototypes' ? (t as Tab) : null,
+      tab: TABS.some((x) => x.key === t && (!x.owner || isOwner)) || t === 'prototypes' ? (t as Tab) : null,
       trip: q.get('trip'),
       // ?section= opens the trip on one of its own tabs, so a group has an address too.
       section: ['find', 'shortlist', 'day', 'group'].includes(section ?? '') ? (section as TripPrefill['section']) : undefined,
@@ -179,7 +234,7 @@ function Shell() {
     const onPop = () => {
       const q = new URLSearchParams(window.location.search);
       const t = q.get('tab');
-      if (TABS.some((x) => x.key === t) || t === 'prototypes') setTab(t as Tab);
+      if (TABS.some((x) => x.key === t && (!x.owner || isOwner)) || t === 'prototypes') setTab(t as Tab);
       const trip = q.get('trip');
       if (trip) setTripPrefill({ openTripId: trip });
     };
@@ -228,6 +283,7 @@ function Shell() {
       {tab === 'household' ? <HouseholdScreen data={household} refresh={refreshHousehold} /> : null}
       {tab === 'settings' ? <SettingsScreen data={household} refresh={refreshHousehold} /> : null}
       {tab === 'prototypes' ? <PrototypesScreen /> : null}
+      {tab === 'accounts' && isOwner ? <AccountsScreen /> : null}
     </>
   );
 
@@ -289,7 +345,7 @@ function Shell() {
           <View style={styles.sidebar}>
             <View style={styles.sideBrand}><Wordmark height={44} ground={colors.surface} /></View>
             <Text style={[type.tiny, { marginBottom: spacing.lg }]}>Remember every place you love</Text>
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <Pressable key={t.key} onPress={() => setTab(t.key)} style={[styles.navItem, tab === t.key && styles.navItemActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }}>
                 <View style={styles.navIcon}><Icon name={t.icon} size={18} color={tab === t.key ? colors.ink : colors.inkMuted} /></View>
                 <Text style={[styles.navLabel, tab === t.key && { color: colors.ink }]}>{t.label}</Text>
@@ -316,7 +372,7 @@ function Shell() {
         </View>
         {!desktop ? (
           <View style={styles.tabs} accessibilityRole="tablist">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <Pressable key={t.key} onPress={() => setTab(t.key)} style={styles.tab} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }}>
                 <Icon name={t.icon} size={20} color={tab === t.key ? colors.ink : colors.inkMuted} />
                 <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>

@@ -30,6 +30,8 @@
 
 import crypto from 'node:crypto';
 import { findLiveSession, insertSession, revokeSession, touchSession } from './repositories/sessions.js';
+import { accountById, touchAccount } from './repositories/accounts.js';
+import { runAsAccount } from './context.js';
 
 export const COOKIE = 'roam_session';
 
@@ -61,10 +63,17 @@ function sameSecret(given, expected) {
 
 export const passcodeMatches = (given) => authConfigured() && sameSecret(given, passcode());
 
-/** A new session. The token is returned once and never stored in full. */
-export async function openSession(label) {
+/**
+ * A new session. The token is returned once and never stored in full.
+ *
+ * `accountId` is who it is for. Null is the shared passcode, which is the owner
+ * on the founding household — the arrangement that existed before accounts, and
+ * which keeps working so that adding accounts does not sign the owner out of
+ * his own app.
+ */
+export async function openSession(label, accountId = null) {
   const token = crypto.randomBytes(32).toString('base64url');
-  const session = await insertSession(token, label);
+  const session = await insertSession(token, label, accountId);
   return { token, session };
 }
 
@@ -156,6 +165,13 @@ export function clearSessionCookie(res) {
  *
  *  - `/health`, `/robots.txt` — say nothing about the household.
  *  - `/api/session` — the door itself; rate-limited hard in `limits.js`.
+ *  - `/api/session/link` — redeeming a magic link. It has to answer without a
+ *    session because it is how a session is obtained; the unguessable,
+ *    single-use, expiring token is the credential (repositories/accounts.js),
+ *    and it is held to the same sign-in limit as the passcode.
+ *  - `/api/session/request-link` — asking for a new link by e-mail. Answers the
+ *    same way whether or not the address has an account, so it cannot be used
+ *    to find out who Roam's customers are.
  *  - `/api/join/:token` and below — somebody else's door into one trip. The
  *    unguessable link *is* the credential (routes/groups.js), and it shows a
  *    checklist and never the roster.
@@ -164,6 +180,8 @@ const PUBLIC = [
   (req) => req.path === '/health',
   (req) => req.path === '/robots.txt',
   (req) => req.path === '/api/session',
+  (req) => req.path === '/api/session/link',
+  (req) => req.path === '/api/session/request-link',
   (req) => req.path === '/api/join' || req.path.startsWith('/api/join/'),
 ];
 
@@ -188,10 +206,47 @@ export async function requireSession(req, res, next) {
       return res.status(401).json({ error: 'signed_out', message: 'Sign in to Roam to continue.' });
     }
 
+    // Whose session this is. A session with no account is the shared passcode:
+    // the owner, on the founding household, exactly as before accounts existed.
+    const account = session.account_id ? await accountById(session.account_id) : null;
+
+    // A suspended account keeps its data and loses its way in. Checked on every
+    // request rather than only at sign-in, so suspending somebody takes effect
+    // on the device they are already holding.
+    if (session.account_id && (!account || account.status === 'suspended')) {
+      return res.status(403).json({
+        error: 'account_suspended',
+        message: 'This Roam account is not active. Ask whoever invited you.',
+      });
+    }
+
     req.session = session;
+    req.account = account;
     void touchSession(session.id);
-    return next();
+    if (account) void touchAccount(account.id);
+
+    // Everything downstream — including `currentHousehold()`, 86 call sites
+    // deep — is served inside this account's context (context.js).
+    return runAsAccount(account, next);
   } catch (err) {
     return next(err);
   }
+}
+
+
+/**
+ * The admin module's door, inside the household one.
+ *
+ * Two callers pass: an account marked `owner`, and the shared passcode. The
+ * second is deliberate — the passcode is the owner's own way in and predates
+ * accounts, so locking the admin screen to an account row would mean the owner
+ * could not reach the screen that creates the first account row.
+ *
+ * Everyone else gets 404, not 403. A customer has no business learning that an
+ * admin module exists on the API they are using.
+ */
+export function requireOwner(req, res, next) {
+  const isOwner = !req.session?.account_id || req.account?.role === 'owner';
+  if (isOwner) return next();
+  return res.status(404).json({ error: 'not_found', message: 'Not found.' });
 }

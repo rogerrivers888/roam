@@ -242,7 +242,7 @@ Tasks that must be completed before the private beta can run.
 | Over what period does an older rating stop carrying weight? | [Owner: TBC] |
 | Are pace defaults held per household or per member? | [Owner: TBC] |
 | Which allergen set is canonical, given US and EU regimes recognise different numbers? | [Owner: TBC] |
-| What authentication method is used for the household account? | [Owner: TBC] |
+| What authentication method is used for the household account? | **Answered (owner, 4 Sep 2026).** A single-use magic link, e-mailed to the address the owner enters on the Accounts screen; a session lasts 90 days and only its hash is stored. The owner keeps a passcode (`ROAM_PASSCODE`) as his own way in, so the estate is never locked out by a mail sender that is not configured. No passwords. |
 
 </details>
 

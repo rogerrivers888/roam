@@ -27,7 +27,7 @@ import crypto from 'node:crypto';
 import { withTransaction } from '../db.js';
 import * as groupsRepo from '../repositories/groups.js';
 import * as tripsRepo from '../repositories/trips.js';
-import { currentHousehold } from './household.js';
+import { currentHousehold, householdOf } from './household.js';
 import { CADENCES, DEFAULT_CADENCE, QUIET_HOURS, dueRuns, nextRun, reminderBody, schedule } from '../domain/reminders.js';
 import { channelReady, sendReminder } from '../sources/notify.js';
 import { DEFAULT_TZ } from '../domain/time.js';
@@ -144,7 +144,11 @@ const isAnswered = (state) => Boolean(state) && ALL_STATUSES.includes(state.stat
 export async function groupPayload(groupId) {
   const group = await loadGroup(groupId);
   const trip = await loadTrip(group.trip_id);
-  const household = await currentHousehold();
+  // The group's own household, not the caller's. This is read through the
+  // invite link too, which is public and has no account in the air, so "the
+  // household this request is being served as" is the wrong question here —
+  // whose group it is, is the right one.
+  const household = (await householdOf(group.household_id)) ?? await currentHousehold();
   const tz = household.timezone || DEFAULT_TZ;
   const [items, people, states, reminders] = await Promise.all([
     groupsRepo.itemsOf(groupId),
@@ -630,7 +634,10 @@ router.post('/groups/:id/items/:itemId/close', async (req, res, next) => {
  */
 async function writeReminders(group, { runOn = null, only = null, itemId = null } = {}) {
   const payload = await groupPayload(group.id);
-  const household = await currentHousehold();
+  // Reminders are written by the loop as well as by the organiser tapping, and
+  // the loop belongs to nobody: the organiser's name comes from the group's own
+  // household rather than from whoever's request is in flight.
+  const household = (await householdOf(group.household_id)) ?? await currentHousehold();
   const organiser = payload.participants.find((p) => p.memberId)?.name ?? household.name ?? 'The organiser';
   const written = [];
   const now = Date.now();
@@ -693,11 +700,14 @@ router.post('/groups/:id/reminders', async (req, res, next) => {
  * done once. Started from server.js; safe to call at any time.
  */
 export async function runDueReminders(now = new Date()) {
-  const household = await currentHousehold().catch(() => null);
-  const tz = household?.timezone || DEFAULT_TZ;
   const groups = await groupsRepo.groupsToChase();
   let runs = 0;
   for (const group of groups) {
+    // Each group is chased in its own household's timezone. With one household
+    // that was the same thing as "the household"; with accounts it is not, and
+    // a friend's Saturday must not be chased on the owner's clock.
+    const household = await householdOf(group.household_id).catch(() => null);
+    const tz = household?.timezone || DEFAULT_TZ;
     const done = await groupsRepo.reminderRunsDone(group.id);
     const doneDates = new Set(done.map((r) => ymd(r.run_on)));
     for (const run of dueRuns(group, tz, now, doneDates)) {

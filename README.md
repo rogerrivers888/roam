@@ -55,12 +55,17 @@ Postgres is a Railway Postgres service in the same project; the `api` needs its 
 
 ### The door
 
-Every `/api` path needs a session, except four: `/health`, `/robots.txt`, `/api/session`
-(signing in) and `/api/join/:token` (a group invite link, where the unguessable link is
-itself the credential).
+Every `/api` path needs a session, except six: `/health`, `/robots.txt`, `/api/session`
+(signing in), `/api/session/link` and `/api/session/request-link` (magic links, which are how
+a session is obtained and so cannot need one), and `/api/join/:token` (a group invite link,
+where the unguessable link is itself the credential).
 
-- One passcode for the household, `ROAM_PASSCODE`, set by the owner in Doppler and never in
-  the repo. V1 is one household (Requirements §3), so there is nobody to choose between yet.
+- **Two ways in.** The owner's passcode, `ROAM_PASSCODE`, set in Doppler and never in the
+  repo; and a **magic link** for everybody else, issued from Accounts (see below).
+- Which household a request is about is decided by the account behind its session, in
+  `apps/api/src/context.js` — an async-local store that `currentHousehold()` reads. A session
+  with no account is the passcode, which is the owner on the founding household, exactly as
+  before accounts existed.
 - The passcode is exchanged once for a token that lasts 90 days; only a hash of that token is
   stored (`api_sessions`). Settings › Account lists the devices signed in and can sign out one
   or all of them.
@@ -74,6 +79,31 @@ itself the credential).
 `auth_not_configured`, and `/health` reports `"auth": "not-configured"`. That is deliberate:
 the alternative is quietly serving the household to the internet, which is what this replaced.
 
+### Accounts
+
+An account owns one household. Nothing is shared between them: a household's places, people,
+trips and ratings are reachable only through a session belonging to its own account, and every
+provider call is billed against it (`provider_calls`).
+
+- **Accounts** (owner-only tab, and `/api/accounts`) lists everybody with Roam, how long they
+  have been here, when they were last in, how many times they have signed in, and what their
+  searching has cost this month and in total. The owner adds a person by e-mail; Roam makes
+  them a household of their own and issues a single-use link that expires in a week.
+- **Sending needs a key.** With `RESEND_API_KEY` and `ROAM_MAIL_FROM` set, Roam e-mails the
+  link. Without them it still makes the link and shows it on the screen to be copied and sent
+  by hand — nothing is silently dropped. Adding those keys is the owner's, in Doppler.
+- **Every household draws on the same provider allowances**, because a Google or Tripadvisor
+  free tier is per provider account, not per household. So each account carries its own
+  monthly ceiling on provider calls (`accounts.monthly_call_bound`, editable per person on the
+  Accounts screen). Somebody new starts at a quarter of `ROAM_HOUSEHOLD_MONTHLY_CALL_BOUND`.
+  Roam declining to spend is not a spend cap: the cap at the provider is still the owner's to
+  set in their console.
+- **Suspending** an account signs its devices out and refuses new links; its data is untouched.
+  **Removing** an account takes its way in; removing it *with* its household deletes everything
+  that household saved, and says so before it does.
+- The admin routes answer **404** to anybody who is not the owner, not 403: a customer has no
+  business learning that they exist.
+
 ### Where variables live
 
 **Secrets come from Doppler at runtime** — never in the repo and never set directly as Railway variables (see `CLAUDE.md`). If the Doppler → Railway sync is configured to manage *all* variables on a service, the non-secret entries above must be mirrored in Doppler too, or the sync will remove them.
@@ -85,6 +115,10 @@ the alternative is quietly serving the household to the internet, which is what 
 | `PORT` | set by the platform | |
 | `DATABASE_URL` | yes | Postgres connection string (Doppler) |
 | `ROAM_PASSCODE` | **yes, deployed** | The household's passcode (Doppler, owner-set). **Without it the deployed API answers 503 to every `/api` request and serves nothing** — see "The door" above. Locally, unset falls back to `roam-dev`. |
+| `RESEND_API_KEY` | optional | Mail sender (Doppler, owner-set) used for account invitations and sign-in links. Unset, Roam still makes the link and the Accounts screen shows it to be sent by hand. |
+| `ROAM_MAIL_FROM` | with the above | The address invitations come from, on a domain verified with the sender, e.g. `Roam <hello@example.com>`. Non-secret, but a sender is not configured until both this and the key are set. |
+| `ROAM_WEB_URL` | recommended | Where the web app is served, e.g. `https://roam-web.up.railway.app`. Non-secret. Sign-in links are built against it; unset, they fall back to the request's own origin. |
+| `ROAM_HOUSEHOLD_MONTHLY_CALL_BOUND` | optional | Provider calls a household may make in a calendar month before Roam stops searching for it (default 3000). Per-account ceilings on the Accounts screen override it; a new account starts at a quarter of it. |
 | `ROAM_WEB_ORIGIN` | recommended | Comma-separated list of origins the web app is served from, e.g. `https://roam-web.up.railway.app`. Non-secret. Restricts which sites may open a session-carrying request; unset, any origin is answered and the passcode is the only guard. |
 | `ANTHROPIC_API_KEY` | yes | conversational planner (Doppler) |
 | `ANTHROPIC_WORKSPACE_ID` | if the key is identity-linked | The Anthropic workspace the key acts in (`wrkspc_…`). Console-issued keys that are linked to a person require it; a legacy workspace key does not. |

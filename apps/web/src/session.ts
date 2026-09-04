@@ -56,3 +56,30 @@ export function deviceLabel(): string {
   const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /Firefox\//.test(ua) ? 'Firefox' : 'Browser';
   return `${kind} · ${browser}`;
 }
+
+
+/**
+ * Whose data the device's saved copy is.
+ *
+ * Signing out deliberately keeps the offline copy — it is the same household's
+ * data and they will sign back in. With accounts that reasoning only holds while
+ * it is the *same* household: a friend signing in on a browser the owner used
+ * would otherwise be served the owner's atlas out of IndexedDB, with no request
+ * to the API to refuse it.
+ *
+ * So the copy is stamped with who it belongs to, and a sign-in by anybody else
+ * throws it away before the first screen is drawn. The owner on the shared
+ * passcode is 'owner', and stays 'owner' when he later claims an account row,
+ * so claiming does not cost him the copy on his phone.
+ */
+const HOLDER_KEY = 'roam.copyHolder';
+
+export const copyHolder = (): string | null => store?.getItem(HOLDER_KEY) ?? null;
+
+export function setCopyHolder(holder: string) {
+  store?.setItem(HOLDER_KEY, holder);
+}
+
+/** Who a signed-in session's saved copy belongs to: the account, or the owner. */
+export const holderOf = (account: { id: string; role: string } | null | undefined): string =>
+  (!account || account.role === 'owner' ? 'owner' : account.id);
