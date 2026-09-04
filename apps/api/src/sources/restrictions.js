@@ -24,7 +24,7 @@ export const restrictionsEnabled = () => Boolean(process.env.ANTHROPIC_API_KEY?.
 
 const SYSTEM = `You find out who is allowed on each ride at one theme park, zoo or attraction, from that place's own published information.
 
-Look at the park's own website: its rides pages, its height restrictions or "ride restrictions" page, its accessibility guide, its park map or guide PDF. Those pages exist for exactly this. Use a well-known enthusiast reference only to fill a gap, and say when you have.
+Nearly every park publishes one table or PDF covering every ride at once — "ride restrictions", "rider requirements", "body measurements", "height guide", often inside the accessibility pages. Find that document first: it answers the whole list in one read, and it is the park's own word. Only then go to individual ride pages for what it leaves out. Use a well-known enthusiast reference to fill a last gap, and say when you have.
 
 For each ride you are given, find:
 - the minimum height to ride, in centimetres
@@ -70,10 +70,10 @@ export async function researchRestrictions({ parentRef, parentName, website, hou
     website ? `Its website: ${website}` : null,
     '',
     'Its rides, as the open map names them:',
-    ...rides.slice(0, 60).map((r) => `- ${r.name}${r.kindLabel ? ` (${r.kindLabel.toLowerCase()})` : ''}`),
+    ...rides.slice(0, 45).map((r) => `- ${r.name}${r.kindLabel ? ` (${r.kindLabel.toLowerCase()})` : ''}`),
   ].filter((l) => l !== null).join('\n');
 
-  const { text } = await searchWeb({ system: SYSTEM, prompt, householdId, sessionId, purpose: 'inside.restrictions', maxSearches: 5, maxFetches: 6, effort: 'medium' });
+  const { text } = await searchWeb({ system: SYSTEM, prompt, householdId, sessionId, purpose: 'inside.restrictions', maxSearches: 6, maxFetches: 14, effort: 'medium' });
   const answer = extractJson(text);
   if (!answer?.rides?.length) return { learned: 0, skipped: 'no-answer' };
 
