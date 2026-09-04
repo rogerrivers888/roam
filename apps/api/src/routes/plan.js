@@ -1670,13 +1670,16 @@ router.get('/inspire/:sessionId', async (req, res, next) => {
     const s = session.state || {};
     if (s.kind !== 'inspire') return res.status(404).json({ error: 'session_not_found' });
     const stale = s.running && s.runStartedAt && Date.now() - new Date(s.runStartedAt).getTime() > 3 * 60_000;
+    // A run whose process went away mid-thought leaves no ideas and no error.
+    // That is not "nothing came to mind"; it is a run that never finished.
+    const interrupted = !s.running && !s.error && !(s.ideas || []).length;
     res.json({
       sessionId: session.id, ref: runRef(session.id),
       running: Boolean(s.running) && !stale,
       ideas: s.ideas ?? null, reply: s.reply ?? null, budget: s.input?.budget ?? 'any',
       stage: stale ? 'error' : s.stage ?? null, placed: s.placed ?? 0,
       startedAt: s.runStartedAt ?? null,
-      error: stale ? 'That run was interrupted — try Inspire me again.' : s.error ?? null,
+      error: stale || interrupted ? 'That run was interrupted before it finished — tap Inspire me again.' : s.error ?? null,
     });
   } catch (err) {
     next(err);

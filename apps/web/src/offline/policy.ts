@@ -27,6 +27,7 @@ const isTripDetail = (p: string) => /^\/api\/trips\/[^/]+$/.test(p);
 const isJourney = (p: string) => /^\/api\/trips\/[^/]+\/journey$/.test(p);
 const isDirections = (p: string) => /^\/api\/trips\/[^/]+\/directions$/.test(p);
 const isVisit = (p: string) => /^\/api\/visits\/[^/]+$/.test(p);
+const isJoin = (p: string) => /^\/api\/join\/[^/]+$/.test(p);
 
 /**
  * A place row carries a `venue` snapshot. For an open source that snapshot is
@@ -71,6 +72,16 @@ export function storable(fullPath: string, body: any): any | null {
       shortlist: (body.shortlist ?? []).map(cleanPlaceRow),
     };
   }
+
+  // --- a group trip: the participant's own list, and never the roster ----
+  // Someone in a group is often the person with the worst signal — a car park,
+  // a stadium, a coach — and what they need is their own three things, the
+  // addresses and the dates. The organiser's view (/api/trips/:id/group) holds
+  // every other participant's payment and booking state and is deliberately
+  // absent from this file: it is a live read, and another person's money is not
+  // written to anybody's phone. `expecting` is the list of names the organiser
+  // added and is dropped for the same reason.
+  if (isJoin(p)) return { ...body, expecting: [] };
 
   // --- the day itself, when the times in it are our own -----------------
   // A journey worked out from straight-line distance is Roam's own arithmetic
