@@ -99,11 +99,6 @@ function metresBetween(a, b) {
 }
 
 /**
- * Confidence that two provider records describe the same establishment.
- * No shared identifier exists across Google, Yelp and TripAdvisor, so this is
- * inferred from normalised name and coordinate proximity (Technical Constraints §5).
- */
-/**
  * Two listings of one event (owner, 4 Sep 2026: "we don't want to show the same
  * event twice if it's got the same name").
  *
@@ -123,6 +118,12 @@ function eventConfidence(a, b) {
   return metresBetween(a, b) <= 10_000 ? 0.9 : 0.4;
 }
 
+/**
+ * Confidence that two provider records describe the same establishment.
+ * No shared identifier exists across Google, Yelp and TripAdvisor, so this is
+ * inferred from normalised name and coordinate proximity (Technical Constraints §5);
+ * a timed event is matched by name and day instead (see above).
+ */
 export function matchConfidence(a, b) {
   // A timed event and a place to go are never the same record, whatever the
   // name: merging them would fold a show into its theatre and lose its clock.
@@ -233,13 +234,35 @@ export function rememberVenues(venues) {
 }
 export const recallVenue = (ref) => recent.get(ref) ?? null;
 
+/**
+ * One slow source must not take the search down with it (Epic 2 C7). A source
+ * that fails fast already degrades on its own, but one that simply never
+ * answers used to hold the whole fan-out: Overpass tries its mirrors one after
+ * another at thirty seconds each, so a rate-limited Overpass held Find past the
+ * route's own cut-off and the request failed outright — throwing away Google
+ * and the event listings, which had answered in under a second.
+ *
+ * A source may set `deadlineMs` when it is meant to take longer: the local
+ * scout reads the open web and keeps its own ninety-second clock.
+ */
+const SOURCE_DEADLINE_MS = Number(process.env.ROAM_SOURCE_DEADLINE_MS || 25_000);
+function withDeadline(source, work) {
+  const ms = source.deadlineMs ?? SOURCE_DEADLINE_MS;
+  let timer;
+  const clock = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${source.key} did not answer within ${Math.round(ms / 1000)}s`)), ms);
+  });
+  // The work carries on after the race: a source with a cache still fills it.
+  return Promise.race([work, clock]).finally(() => clearTimeout(timer));
+}
+
 /** Fan out across every enabled source; one failing source must not block a search (Epic 2 C7). */
 export async function searchAllSources(params) {
   const only = optInFrom(params.sources);
   const sources = enabledSources({ only });
   // What each provider billed for during this search (see meter.js).
   const meter = params.meter && typeof params.meter === 'object' ? params.meter : {};
-  const settled = await Promise.allSettled(sources.map((s) => s.search({ ...params, meter, sources: sources.map((x) => x.key) })));
+  const settled = await Promise.allSettled(sources.map((s) => withDeadline(s, s.search({ ...params, meter, sources: sources.map((x) => x.key) }))));
 
   const raw = [];
   const degraded = [];
@@ -259,7 +282,7 @@ export async function searchAllSources(params) {
   for (const s of sources) {
     if (typeof s.enrich !== 'function' || sources.length < 2) continue;
     try {
-      const extra = await s.enrich(raw, { ...params, meter });
+      const extra = await withDeadline(s, s.enrich(raw, { ...params, meter }));
       rawCounts[s.key] = (rawCounts[s.key] || 0) + extra.length;
       raw.push(...extra);
     } catch (err) {

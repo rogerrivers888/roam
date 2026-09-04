@@ -78,6 +78,8 @@ export const localScoutSource = {
   key: 'scout',
   label: 'Local scout',
   events: true,
+  // It reads the open web, so it keeps its own clock rather than the fan-out's.
+  deadlineMs: DEADLINE_MS + 10_000,
   retention: { placeId: 'indefinite', displayFields: 'none' },
   attribution: { text: SCOUT_ATTRIBUTION, requiresAuthorCredit: false },
   enabled: () => /^(on|true|1|yes)$/i.test(process.env.ROAM_LOCAL_SCOUT || '') && Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
