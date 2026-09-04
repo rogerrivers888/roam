@@ -34,7 +34,10 @@ export function OnTheWay({ route, busy, onAdd, onDrop }: {
   const out = chosen.filter((s) => s.leg === 'out');
   const back = chosen.filter((s) => s.leg === 'back');
   const more = route.stops.filter((s) => !s.chosen);
-  const plainLeave = new Date(new Date(route.leaveHomeAt).getTime() + route.addedMinutes * 60_000).toISOString();
+  // Only the stops on the way there move the time they leave home; the ones on
+  // the way back move the time they get in.
+  const addedOut = out.reduce((t, s) => t + s.detourMinutes + s.dwellMinutes, 0);
+  const plainLeave = new Date(new Date(route.leaveHomeAt).getTime() + addedOut * 60_000).toISOString();
 
   return (
     <View style={{ gap: spacing.sm }}>
@@ -45,8 +48,8 @@ export function OnTheWay({ route, busy, onAdd, onDrop }: {
       <Text style={type.small}>
         {route.from} → {route.to}, about {minutes(route.minutes)}{route.estimated ? ' (estimated)' : ''}.{' '}
         {chosen.length
-          ? `Leaving at ${clock(route.leaveHomeAt)} instead of ${clock(plainLeave)} for ${chosen.length === 1 ? 'this stop' : 'these stops'} — your time at ${route.to} is unchanged.`
-          : `Leaving at ${clock(route.leaveHomeAt)}.`}
+          ? `Leaving at ${clock(route.leaveHomeAt)}${addedOut ? ` instead of ${clock(plainLeave)}` : ''} and home about ${clock(route.backHomeAt)} — your time at ${route.to} is unchanged.`
+          : `Leaving at ${clock(route.leaveHomeAt)}, home about ${clock(route.backHomeAt)}.`}
       </Text>
 
       {route.mode === 'transit' ? (
