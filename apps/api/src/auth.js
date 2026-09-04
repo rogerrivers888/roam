@@ -8,11 +8,18 @@
  * `delete /api/household`. It also spent Google quota on their bill for whoever
  * asked. This file closes that.
  *
- * One passcode, because V1 is one household (Requirements §3). The passcode
- * lives in Doppler and is the owner's to set (CLAUDE.md: anything that holds a
- * secret is the owner's to do); it is never in the repo, never in
- * `.env.example`, and never written to the database. What is written down is a
- * hash of the session token it opens, in `repositories/sessions.js`.
+ * Two credentials, not one. The owner has a passcode, which lives in Doppler
+ * and is his to set (CLAUDE.md: anything that holds a secret is the owner's to
+ * do); everybody else signs in with a single-use link sent to their e-mail
+ * (routes/accounts.js). Neither is ever in the repo, in `.env.example` or in
+ * the database — what is written down is a hash of the session each opens, in
+ * `repositories/sessions.js`, and a hash of the link, in
+ * `repositories/accounts.js`.
+ *
+ * With no passcode set the API serves nothing to anybody it does not already
+ * know. An account holder with a live session is somebody it knows, so they
+ * keep working: the 503 exists to stop the household being served to the
+ * internet, not to stop Roam being run on accounts alone.
  *
  * Two ways in, on purpose:
  *
@@ -191,24 +198,28 @@ export async function requireSession(req, res, next) {
   try {
     if (req.method === 'OPTIONS' || isPublicPath(req)) return next();
 
-    if (!authConfigured()) {
-      // Fail closed. An API with nobody's passcode on it is the thing we were
-      // asked to fix, so it says so plainly rather than serving the household.
-      return res.status(503).json({
-        error: 'auth_not_configured',
-        message: 'This Roam API has no passcode set. The owner adds ROAM_PASSCODE in Doppler; nothing is served until then.',
-      });
-    }
-
     const token = bearer(req) || (cookieAllowed(req) ? cookieToken(req) : null);
     const session = token ? await findLiveSession(token) : null;
-    if (!session) {
-      return res.status(401).json({ error: 'signed_out', message: 'Sign in to Roam to continue.' });
-    }
 
     // Whose session this is. A session with no account is the shared passcode:
     // the owner, on the founding household, exactly as before accounts existed.
-    const account = session.account_id ? await accountById(session.account_id) : null;
+    const account = session?.account_id ? await accountById(session.account_id) : null;
+
+    if (!authConfigured()) {
+      // Fail closed for anybody who is not already somebody. An API with
+      // nobody's passcode on it must not serve the household to the internet —
+      // but an account holder signed in on their own link is not the internet,
+      // and refusing them would mean the owner could never take the shared
+      // passcode away without locking every friend out of their own Roam.
+      if (!account) {
+        return res.status(503).json({
+          error: 'auth_not_configured',
+          message: 'This Roam API has no passcode set. The owner adds ROAM_PASSCODE in Doppler; nothing is served until then.',
+        });
+      }
+    } else if (!session) {
+      return res.status(401).json({ error: 'signed_out', message: 'Sign in to Roam to continue.' });
+    }
 
     // A suspended account keeps its data and loses its way in. Checked on every
     // request rather than only at sign-in, so suspending somebody takes effect

@@ -75,9 +75,12 @@ where the unguessable link is itself the credential).
 - Sign-in attempts are limited to 10 per 15 minutes per caller; provider-spending paths to
   120 per 5 minutes; everything else to 900 per 5 minutes (`apps/api/src/limits.js`).
 
-**Deployed with no passcode set, the API serves nothing** — every `/api` request answers 503
-`auth_not_configured`, and `/health` reports `"auth": "not-configured"`. That is deliberate:
-the alternative is quietly serving the household to the internet, which is what this replaced.
+**Deployed with no passcode set, the API serves nothing to anybody it does not already
+know** — every `/api` request answers 503 `auth_not_configured`, and `/health` reports
+`"auth": "not-configured"`. That is deliberate: the alternative is quietly serving the
+household to the internet, which is what this replaced. An account holder with a live session
+is somebody it knows and keeps working, so taking the shared passcode away does not lock
+every other household out of its own Roam.
 
 ### Accounts
 
