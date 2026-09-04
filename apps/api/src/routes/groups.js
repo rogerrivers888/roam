@@ -46,7 +46,7 @@ const shortName = (name) => {
 const inWords = (d) => (d ? new Date(`${ymd(d)}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '');
 
 async function loadGroup(groupId) {
-  const { rows } = await query('select * from trip_groups where id = $1', [groupId]);
+  const rows = [await groupsRepo.groupById(groupId)].filter(Boolean);
   if (!rows[0]) { const e = new Error('That group does not exist.'); e.status = 404; e.code = 'group_not_found'; throw e; }
   return rows[0];
 }
@@ -145,10 +145,10 @@ export async function groupPayload(groupId) {
   const household = await currentHousehold();
   const tz = household.timezone || DEFAULT_TZ;
   const [{ rows: items }, { rows: people }, { rows: states }, { rows: reminders }] = await Promise.all([
-    query('select * from group_items where group_id = $1 order by position, created_at', [groupId]),
-    query('select * from group_participants where group_id = $1 order by withdrawn_at nulls first, joined_at nulls last, name', [groupId]),
-    query('select s.* from group_item_states s join group_items i on i.id = s.item_id where i.group_id = $1', [groupId]),
-    query('select * from group_reminders where group_id = $1 order by created_at desc limit 200', [groupId]),
+    groupsRepo.itemsOf(groupId),
+    groupsRepo.participantsOf(groupId),
+    groupsRepo.statesOf(groupId),
+    groupsRepo.remindersOf(groupId),
   ]);
 
   const stateFor = new Map(states.map((s) => [`${s.item_id}:${s.participant_id}`, s]));
@@ -243,6 +243,7 @@ export async function groupPayload(groupId) {
       id: group.id, tripId: group.trip_id, name: group.name, expectedCount: group.expected_count,
       minimumCount: group.minimum_count, maximumCount: group.maximum_count, wantedBy: ymd(group.wanted_by), inviteToken: group.invite_token, closed: Boolean(group.closed_at),
       remindersOn: group.reminders_on, cadence: group.reminder_cadence, setupDone: group.setup_done,
+      firstReminderOn: ymd(group.first_reminder_on),
       cancelledAt: group.cancelled_at, cancelledNote: group.cancelled_note,
     },
     trip: {
@@ -263,7 +264,7 @@ export async function groupPayload(groupId) {
     reminders: {
       on: group.reminders_on,
       cadence: group.reminder_cadence,
-      cadences: Object.entries(CADENCES).map(([key, c]) => ({ key, label: c.label, runs: c.days.length })),
+      cadences: Object.entries(CADENCES).map(([key, c]) => ({ key, label: c.label, runs: c.count })),
       channelReady: channelReady(),
       schedule: schedule(group, tz).map((r) => ({ date: r.date, daysBefore: r.daysBefore, at: r.instant, done: runsDone.has(r.date) })),
       next: next ? { date: next.date, daysBefore: next.daysBefore, at: next.instant, recipients: nextRecipients } : null,
@@ -285,7 +286,7 @@ export async function groupPayload(groupId) {
 /** GET /api/trips/:id/group — null when the trip is still a household trip. */
 router.get('/trips/:id/group', async (req, res, next) => {
   try {
-    const { rows } = await query('select id from trip_groups where trip_id = $1', [req.params.id]);
+    const rows = [await groupsRepo.groupIdForTrip(req.params.id)].filter(Boolean).map((id) => ({ id }));
     if (!rows[0]) return res.json({ group: null });
     res.json(await groupPayload(rows[0].id));
   } catch (err) { next(err); }
@@ -302,8 +303,8 @@ router.post('/trips/:id/group', async (req, res, next) => {
     const household = await currentHousehold();
     const trip = await loadTrip(req.params.id);
     const b = req.body || {};
-    const existing = await query('select id from trip_groups where trip_id = $1', [trip.id]);
-    if (existing.rows[0]) return res.status(409).json({ error: 'group_exists', message: 'This trip already has a group.', ...(await groupPayload(existing.rows[0].id)) });
+    const existingId = await groupsRepo.groupIdForTrip(trip.id);
+    if (existingId) return res.status(409).json({ error: 'group_exists', message: 'This trip already has a group.', ...(await groupPayload(existingId)) });
 
     // Everything is wanted three weeks before the trip, unless that is already
     // past — a date to chase against is what gives "outstanding" its urgency.
@@ -313,48 +314,48 @@ router.post('/trips/:id/group', async (req, res, next) => {
     const wantedBy = ymd(b.wantedBy) ?? (threeWeeksBefore && threeWeeksBefore > today ? threeWeeksBefore : start);
 
     const group = await withTransaction(async (client) => {
-      const { rows } = await client.query(
-        `insert into trip_groups (trip_id, household_id, name, expected_count, minimum_count, wanted_by, invite_token, reminders_on, reminder_cadence)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
-        [trip.id, household.id, b.name?.trim() || trip.title || trip.place_label || 'The group', num(b.expectedCount), num(b.minimumCount), wantedBy, token(),
-         b.remindersOn !== false, CADENCES[b.cadence] ? b.cadence : DEFAULT_CADENCE],
-      );
-      const created = rows[0];
+      const created = await groupsRepo.insertGroup(trip.id, household.id, {
+        name: b.name?.trim() || trip.title || trip.place_label || 'The group',
+        expectedCount: num(b.expectedCount), minimumCount: num(b.minimumCount),
+        wantedBy, inviteToken: token(),
+        remindersOn: b.remindersOn !== false,
+        cadence: CADENCES[b.cadence] ? b.cadence : DEFAULT_CADENCE,
+        // Chasing starts today unless the organiser moves it.
+        firstReminderOn: new Date().toISOString().slice(0, 10),
+      }, client);
       if (b.items !== false) {
         let position = 0;
         if (trip.base_label && trip.base_kind !== 'home') {
-          await client.query(
-            `insert into group_items (group_id, kind, required, label, detail, position)
-             values ($1,'stay',true,$2,$3,$4)`,
-            [created.id, `A room at ${trip.base_label}`, start && ymd(trip.end_date) ? `${inWords(start)} – ${inWords(ymd(trip.end_date))} · everyone books their own` : 'Everyone books their own', position++],
-          );
+          await groupsRepo.insertItem(created.id, {
+            kind: 'stay', required: true, label: `A room at ${trip.base_label}`,
+            detail: start && ymd(trip.end_date) ? `${inWords(start)} – ${inWords(ymd(trip.end_date))} · everyone books their own` : 'Everyone books their own',
+            position: position++, perHead: true,
+          }, client);
         }
-        const { rows: shortlist } = await client.query('select * from trip_shortlist where trip_id = $1 order by position nulls last, added_at', [trip.id]);
+        const shortlist = await groupsRepo.shortlistForChecklist(trip.id, client);
         for (const s of shortlist.slice(0, 8)) {
-          await client.query(
-            `insert into group_items (group_id, kind, required, label, detail, venue_ref, position)
-             values ($1,'activity',$2,$3,$4,$5,$6)`,
-            // A meal is asked about, not required: the organiser books the table, and what they need is a number.
-            [created.id, s.kind !== 'food', s.venue_label, s.kind === 'food' ? 'Are you coming to this?' : null, s.venue_ref, position++],
-          );
+          // A meal is asked about, not required: the organiser books the table, and what they need is a number.
+          await groupsRepo.insertItem(created.id, {
+            kind: 'activity', required: s.kind !== 'food', label: s.venue_label,
+            detail: s.kind === 'food' ? 'Are you coming to this?' : null,
+            venueRef: s.venue_ref, position: position++, perHead: true,
+          }, client);
         }
       }
       // The household's own people are in the group already; they never need a link.
-      const { rows: attendees } = await client.query(
-        // Oldest member first: whoever set the household up is the organiser.
-        `select m.id, m.name, m.is_minor from trip_attendees ta join members m on m.id = ta.member_id where ta.trip_id = $1 order by m.is_minor, m.created_at`,
-        [trip.id],
-      );
+      // Oldest member first: whoever set the household up is the organiser.
+      const attendees = await groupsRepo.tripAttendeesOldestFirst(trip.id, client);
       // Whoever is looking at the app is the organiser (the web passes their
       // member id); otherwise the household's first grown-up.
       const adults = attendees.filter((a) => !a.is_minor).sort((x, y) => (x.id === b.organiserMemberId ? -1 : y.id === b.organiserMemberId ? 1 : 0));
       const minors = attendees.filter((a) => a.is_minor);
       if (adults[0]) {
-        await client.query(
-          `insert into group_participants (group_id, name, heads, brings, member_id, joined_at, token)
-           values ($1,$2,$3,$4,$5,now(),$6)`,
-          [created.id, adults[0].name, attendees.length || 1, [...adults.slice(1), ...minors].map((a) => a.name).join(', ') || null, adults[0].id, token()],
-        );
+        await groupsRepo.insertParticipant(created.id, {
+          name: adults[0].name,
+          heads: attendees.length || 1,
+          brings: [...adults.slice(1), ...minors].map((a) => a.name).join(', ') || null,
+          memberId: adults[0].id, joinedAt: new Date(), token: token(),
+        }, client);
       }
       return created;
     });
@@ -377,11 +378,12 @@ router.patch('/groups/:id', async (req, res, next) => {
     if (b.wantedBy !== undefined) put('wanted_by', ymd(b.wantedBy));
     if (b.remindersOn !== undefined) put('reminders_on', Boolean(b.remindersOn));
     if (b.cadence !== undefined) { if (!CADENCES[b.cadence]) return res.status(400).json({ error: 'bad_cadence' }); put('reminder_cadence', b.cadence); }
+    if (b.firstReminderOn !== undefined) put('first_reminder_on', ymd(b.firstReminderOn));
     if (b.closed !== undefined) put('closed_at', b.closed ? new Date() : null);
     if (b.setupDone !== undefined) put('setup_done', Boolean(b.setupDone));
     if (b.newLink) put('invite_token', token());
     if (!sets.length) return res.json(await groupPayload(group.id));
-    await query(`update trip_groups set ${sets.join(', ')}, updated_at = now() where id = $1`, params);
+    await groupsRepo.updateGroup(group.id, sets, params);
     res.json(await groupPayload(group.id));
   } catch (err) { next(err); }
 });
@@ -390,9 +392,9 @@ router.patch('/groups/:id', async (req, res, next) => {
 router.delete('/groups/:id', async (req, res, next) => {
   try {
     const group = await loadGroup(req.params.id);
-    const { rows } = await query('select count(*)::int as n from group_participants where group_id = $1 and joined_at is not null and member_id is null', [group.id]);
-    if (rows[0].n > 0) return res.status(409).json({ error: 'group_in_use', message: `${rows[0].n} people have already joined. Remove them first, or close the group instead.` });
-    await query('delete from trip_groups where id = $1', [group.id]);
+    const joined = await groupsRepo.outsidersJoined(group.id);
+    if (joined > 0) return res.status(409).json({ error: 'group_in_use', message: `${joined} people have already joined. Remove them first, or close the group instead.` });
+    await groupsRepo.deleteGroup(group.id);
     res.json({ deleted: true });
   } catch (err) { next(err); }
 });
@@ -407,19 +409,18 @@ router.post('/groups/:id/items', async (req, res, next) => {
     if (!b.label?.trim()) return res.status(400).json({ error: 'label_required', message: 'Say what you are asking people to do.' });
     if (kind === 'fee' && b.pricing !== 'variable' && !(Number(b.amountPence) > 0)) return res.status(400).json({ error: 'amount_required', message: 'An amount of nothing is not a thing to ask for.' });
     if (b.pricing === 'variable' && !(Number(b.totalPence) > 0)) return res.status(400).json({ error: 'total_required', message: 'Say what you have to get back in total.' });
-    const { rows: last } = await query('select coalesce(max(position), -1) + 1 as n from group_items where group_id = $1', [group.id]);
+    const position = await groupsRepo.nextItemPosition(group.id);
     const pricing = b.pricing === 'variable' ? 'variable' : (b.amountPence != null || kind === 'fee' ? 'fixed' : null);
-    await query(
-      `insert into group_items (group_id, kind, required, label, detail, venue_ref, stop_id, amount_pence, refund_rule, refund_until, position,
-                                pricing, total_pence, per_head, expected_count, minimum_count, capacity, closes_on, late_joiners)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
-      [group.id, kind, b.required !== false, b.label.trim(), b.detail?.trim() || null, b.venueRef ?? null, b.stopId ?? null,
-       b.amountPence == null ? null : Math.round(Number(b.amountPence)),
-       b.refundRule ?? null, ymd(b.refundUntil), last[0].n,
-       pricing, b.totalPence == null ? null : Math.round(Number(b.totalPence)), b.perHead !== false,
-       num(b.expectedCount), num(b.minimumCount), num(b.capacity), ymd(b.closesOn),
-       ['capacity', 'no', 'ask'].includes(b.lateJoiners) ? b.lateJoiners : 'capacity'],
-    );
+    await groupsRepo.insertItem(group.id, {
+      kind, required: b.required !== false, label: b.label.trim(), detail: b.detail?.trim() || null,
+      venueRef: b.venueRef ?? null, stopId: b.stopId ?? null,
+      amountPence: b.amountPence == null ? null : Math.round(Number(b.amountPence)),
+      refundRule: b.refundRule ?? null, refundUntil: ymd(b.refundUntil), position,
+      pricing, totalPence: b.totalPence == null ? null : Math.round(Number(b.totalPence)), perHead: b.perHead !== false,
+      expectedCount: num(b.expectedCount), minimumCount: num(b.minimumCount), capacity: num(b.capacity),
+      closesOn: ymd(b.closesOn),
+      lateJoiners: ['capacity', 'no', 'ask'].includes(b.lateJoiners) ? b.lateJoiners : 'capacity',
+    });
     res.status(201).json(await groupPayload(group.id));
   } catch (err) { next(err); }
 });
@@ -447,10 +448,10 @@ router.patch('/groups/:id/items/:itemId', async (req, res, next) => {
     if (b.lateJoiners !== undefined && ['capacity', 'no', 'ask'].includes(b.lateJoiners)) put('late_joiners', b.lateJoiners);
     if (b.state !== undefined && ['open', 'closed', 'cancelled'].includes(b.state)) put('state', b.state);
     if (!sets.length) return res.json(await groupPayload(group.id));
-    const { rows: before } = await query('select * from group_items where id = $1 and group_id = $2', [req.params.itemId, group.id]);
-    await query(`update group_items set ${sets.join(', ')} where id = $1 and group_id = $2`, params);
-    const { rows: after } = await query('select * from group_items where id = $1 and group_id = $2', [req.params.itemId, group.id]);
-    await reofferIfDearer(group, before[0], after[0]);
+    const before = await groupsRepo.itemOfGroup(req.params.itemId, group.id);
+    await groupsRepo.updateItem(req.params.itemId, group.id, sets, params);
+    const after = await groupsRepo.itemOfGroup(req.params.itemId, group.id);
+    await reofferIfDearer(group, before, after);
     res.json(await groupPayload(group.id));
   } catch (err) { next(err); }
 });
@@ -466,13 +467,9 @@ async function reofferIfDearer(group, before, after) {
   const was = costOf(before, group, 0).ceilingPence;
   const now = costOf(after, group, 0).ceilingPence;
   if (!now || (was && now <= was)) return;
-  const { rows: onIt } = await query(
-    `select p.* from group_item_states s join group_participants p on p.id = s.participant_id
-      where s.item_id = $1 and s.status = 'in' and p.withdrawn_at is null`,
-    [after.id],
-  );
+  const onIt = await groupsRepo.participantsOnItem(after.id);
   if (!onIt.length) return;
-  await query(`delete from group_item_states where item_id = $1 and status = 'in'`, [after.id]);
+  await groupsRepo.clearAllYesses(after.id);
   for (const p of onIt) {
     await tellOne(group, p, `${after.label} could now cost up to £${(now / 100).toFixed(2)} each, not £${((was ?? 0) / 100).toFixed(2)}. Say again whether you want it.`, 'reoffer', after.id);
   }
@@ -482,13 +479,9 @@ async function reofferIfDearer(group, before, after) {
 router.delete('/groups/:id/items/:itemId', async (req, res, next) => {
   try {
     const group = await loadGroup(req.params.id);
-    const { rows } = await query(
-      `select count(*)::int as n from group_item_states s join group_items i on i.id = s.item_id
-        where i.id = $1 and i.group_id = $2 and s.status in ('booked','declared','paid','in')`,
-      [req.params.itemId, group.id],
-    );
-    if (rows[0].n > 0) return res.status(409).json({ error: 'item_in_use', message: `${rows[0].n} ${rows[0].n === 1 ? 'person has' : 'people have'} already done this one. Change what it says instead of removing it.` });
-    await query('delete from group_items where id = $1 and group_id = $2', [req.params.itemId, group.id]);
+    const acted = await groupsRepo.actedOnCount(req.params.itemId, group.id);
+    if (acted > 0) return res.status(409).json({ error: 'item_in_use', message: `${acted} ${acted === 1 ? 'person has' : 'people have'} already done this one. Change what it says instead of removing it.` });
+    await groupsRepo.deleteItem(req.params.itemId, group.id);
     res.json(await groupPayload(group.id));
   } catch (err) { next(err); }
 });
@@ -501,12 +494,14 @@ router.post('/groups/:id/participants', async (req, res, next) => {
     const group = await loadGroup(req.params.id);
     const b = req.body || {};
     if (!b.name?.trim()) return res.status(400).json({ error: 'name_required', message: 'A name is the whole point of adding somebody.' });
-    await query(
-      `insert into group_participants (group_id, name, contact, contact_kind, heads, brings, note, invited_at, token)
-       values ($1,$2,$3,$4,$5,$6,$7,now(),$8)`,
-      [group.id, b.name.trim(), b.contact?.trim() || null, b.contactKind ?? (String(b.contact ?? '').includes('@') ? 'email' : b.contact ? 'mobile' : null),
-       Math.max(1, Number(b.heads) || 1), b.brings?.trim() || null, b.note?.trim() || null, token()],
-    );
+    await groupsRepo.insertParticipant(group.id, {
+      name: b.name.trim(),
+      contact: b.contact?.trim() || null,
+      contactKind: b.contactKind ?? (String(b.contact ?? '').includes('@') ? 'email' : b.contact ? 'mobile' : null),
+      heads: Math.max(1, Number(b.heads) || 1),
+      brings: b.brings?.trim() || null, note: b.note?.trim() || null,
+      invitedAt: new Date(), token: token(),
+    });
     res.status(201).json(await groupPayload(group.id));
   } catch (err) { next(err); }
 });
@@ -525,7 +520,7 @@ router.patch('/groups/:id/participants/:pid', async (req, res, next) => {
     if (b.note !== undefined) put('note', String(b.note).trim() || null);
     if (b.withdrawn !== undefined) { put('withdrawn_at', b.withdrawn ? new Date() : null); put('withdrawn_note', b.withdrawn ? (b.withdrawnNote?.trim() || null) : null); }
     if (!sets.length) return res.json(await groupPayload(group.id));
-    await query(`update group_participants set ${sets.join(', ')} where id = $1 and group_id = $2`, params);
+    await groupsRepo.updateParticipant(req.params.pid, group.id, sets, params);
     res.json(await groupPayload(group.id));
   } catch (err) { next(err); }
 });
@@ -533,7 +528,7 @@ router.patch('/groups/:id/participants/:pid', async (req, res, next) => {
 router.delete('/groups/:id/participants/:pid', async (req, res, next) => {
   try {
     const group = await loadGroup(req.params.id);
-    await query('delete from group_participants where id = $1 and group_id = $2', [req.params.pid, group.id]);
+    await groupsRepo.deleteParticipant(req.params.pid, group.id);
     res.json(await groupPayload(group.id));
   } catch (err) { next(err); }
 });
@@ -547,22 +542,19 @@ router.post('/groups/:id/participants/:pid/items/:itemId', async (req, res, next
   try {
     const group = await loadGroup(req.params.id);
     const b = req.body || {};
-    const { rows: item } = await query('select * from group_items where id = $1 and group_id = $2', [req.params.itemId, group.id]);
-    if (!item[0]) return res.status(404).json({ error: 'item_not_found' });
+    const item = await groupsRepo.itemOfGroup(req.params.itemId, group.id);
+    if (!item) return res.status(404).json({ error: 'item_not_found' });
     if (b.status === 'clear' || b.status === null) {
-      await query('delete from group_item_states where item_id = $1 and participant_id = $2', [req.params.itemId, req.params.pid]);
+      await groupsRepo.clearState(req.params.itemId, req.params.pid);
       return res.json(await groupPayload(group.id));
     }
     if (!ALL_STATUSES.includes(b.status)) return res.status(400).json({ error: 'bad_status', message: `status must be one of ${ALL_STATUSES.join(', ')}` });
-    await query(
-      `insert into group_item_states (item_id, participant_id, status, booking_ref, where_booked, starts_on, ends_on, amount_pence, note, marked_by, on_date)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'organiser',now())
-       on conflict (item_id, participant_id) do update set status = excluded.status, booking_ref = excluded.booking_ref,
-         where_booked = excluded.where_booked, starts_on = excluded.starts_on, ends_on = excluded.ends_on,
-         amount_pence = excluded.amount_pence, note = excluded.note, marked_by = 'organiser', on_date = now()`,
-      [req.params.itemId, req.params.pid, b.status, b.bookingRef?.trim() || null, b.whereBooked?.trim() || null,
-       ymd(b.startsOn), ymd(b.endsOn), b.amountPence ?? item[0].amount_pence ?? null, b.note?.trim() || null],
-    );
+    await groupsRepo.setState(req.params.itemId, req.params.pid, {
+      status: b.status, bookingRef: b.bookingRef?.trim() || null, whereBooked: b.whereBooked?.trim() || null,
+      startsOn: ymd(b.startsOn), endsOn: ymd(b.endsOn),
+      amountPence: b.amountPence ?? item.amount_pence ?? null, note: b.note?.trim() || null,
+      markedBy: 'organiser',
+    });
     res.json(await groupPayload(group.id));
   } catch (err) { next(err); }
 });
@@ -575,29 +567,28 @@ router.post('/groups/:id/participants/:pid/items/:itemId', async (req, res, next
 router.post('/groups/:id/items/:itemId/close', async (req, res, next) => {
   try {
     const group = await loadGroup(req.params.id);
-    const { rows } = await query('select * from group_items where id = $1 and group_id = $2', [req.params.itemId, group.id]);
-    const item = rows[0];
+    const item = await groupsRepo.itemOfGroup(req.params.itemId, group.id);
     if (!item) return res.status(404).json({ error: 'item_not_found' });
     const action = req.body?.action;
 
     if (action === 'extend') {
       const until = ymd(req.body?.closesOn);
       if (!until) return res.status(400).json({ error: 'date_required', message: 'Say the new date.' });
-      await query('update group_items set closes_on = $2, state = $3 where id = $1', [item.id, until, 'open']);
+      await groupsRepo.setItemState(item.id, { closesOn: until, state: 'open' });
       return res.json(await groupPayload(group.id));
     }
     if (action === 'cancel') {
-      await query('update group_items set state = $2, cancelled_note = $3 where id = $1', [item.id, 'cancelled', req.body?.note?.trim() || 'Called off by the organiser.']);
+      await groupsRepo.setItemState(item.id, { state: 'cancelled', cancelledNote: req.body?.note?.trim() || 'Called off by the organiser.' });
       return res.json(await groupPayload(group.id));
     }
     if (action === 'reopen') {
-      await query('update group_items set state = $2, settled_pence = null, settled_heads = null, settled_at = null, due_on = null, cancelled_note = null where id = $1', [item.id, 'open']);
+      await groupsRepo.setItemState(item.id, { state: 'open', clearSettlement: true });
       return res.json(await groupPayload(group.id));
     }
     // Close it: whoever is on it now is who it is divided by, and that is the price.
-    const [{ rows: people }, { rows: states }] = await Promise.all([
-      query('select * from group_participants where group_id = $1 and withdrawn_at is null and joined_at is not null', [group.id]),
-      query('select s.* from group_item_states s join group_items i on i.id = s.item_id where i.group_id = $1', [group.id]),
+    const [people, states] = await Promise.all([
+      groupsRepo.joinedParticipants(group.id),
+      groupsRepo.statesOf(group.id),
     ]);
     const stateFor = new Map(states.map((st) => [`${st.item_id}:${st.participant_id}`, st]));
     const onIt = people.filter((p) => (item.required ? true : ['in', 'paid'].includes(stateFor.get(`${item.id}:${p.id}`)?.status)));
@@ -618,8 +609,7 @@ router.post('/groups/:id/items/:itemId/close', async (req, res, next) => {
     const closesOn = ymd(item.closes_on) ?? ymd(group.wanted_by) ?? new Date().toISOString().slice(0, 10);
     const due = new Date(`${closesOn}T12:00:00Z`);
     due.setUTCDate(due.getUTCDate() + 4);
-    await query('update group_items set state = $2, settled_heads = $3, settled_pence = $4, settled_at = now(), due_on = $5 where id = $1',
-      [item.id, 'closed', shares, cost.perSharePence, ymd(due.toISOString())]);
+    await groupsRepo.setItemState(item.id, { state: 'closed', settledHeads: shares, settledPence: cost.perSharePence, settledAt: true, dueOn: ymd(due.toISOString()) });
     for (const p of onIt) {
       const owed = (cost.perSharePence ?? 0) * (item.per_head ? p.heads : 1);
       await tellOne(group, p, `${item.label} is settled: £${(owed / 100).toFixed(2)} — ${shares} of us, by ${inWords(ymd(due.toISOString()))}.`, 'bill', item.id);
@@ -663,25 +653,22 @@ async function writeReminders(group, { runOn = null, only = null, itemId = null 
 
     const body = reminderBody({ organiser, groupName: payload.group.name, participant: p, outstanding, wantedBy: payload.group.wantedBy, joined, short });
     const outcome = await sendReminder({ to: p.contact, contactKind: p.contactKind, body, group: payload.group.name, participant: p.name });
-    const { rows } = await query(
-      `insert into group_reminders (group_id, participant_id, item_id, run_on, kind, status, reason, channel, body, sent_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       on conflict (group_id, participant_id, run_on) where run_on is not null do nothing
-       returning *`,
-      [group.id, p.id, itemId, runOn, joined ? 'outstanding' : 'join', outcome.status === 'failed' ? 'no_channel' : outcome.status,
-       outcome.detail, outcome.channel, body, outcome.status === 'sent' ? new Date() : null],
-    );
-    if (rows[0]) written.push({ participant: p.name, status: rows[0].status });
+    const written_ = await groupsRepo.writeReminder(group.id, {
+      participantId: p.id, itemId, runOn, kind: joined ? 'outstanding' : 'join',
+      status: outcome.status === 'failed' ? 'no_channel' : outcome.status,
+      reason: outcome.detail, channel: outcome.channel, body,
+      sentAt: outcome.status === 'sent' ? new Date() : null,
+    });
+    if (written_) written.push({ participant: p.name, status: written_.status });
   }
 
   // A run always leaves a mark, even when it had nothing to write, so it is
   // never done twice and the organiser can see it happened.
   if (runOn) {
-    await query(
-      `insert into group_reminders (group_id, participant_id, run_on, kind, status, reason, body)
-       values ($1, null, $2, 'run', 'skipped', $3, $4)`,
-      [group.id, runOn, written.length ? null : 'Nobody had anything outstanding.',
-       `${written.length} reminder${written.length === 1 ? '' : 's'} written on ${runOn}.`],
+    await groupsRepo.markRun(
+      group.id, runOn,
+      written.length ? null : 'Nobody had anything outstanding.',
+      `${written.length} reminder${written.length === 1 ? '' : 's'} written on ${runOn}.`,
     );
   }
   return written;
@@ -706,10 +693,10 @@ router.post('/groups/:id/reminders', async (req, res, next) => {
 export async function runDueReminders(now = new Date()) {
   const household = await currentHousehold().catch(() => null);
   const tz = household?.timezone || DEFAULT_TZ;
-  const { rows: groups } = await query('select * from trip_groups where reminders_on = true and wanted_by is not null');
+  const groups = await groupsRepo.groupsToChase();
   let runs = 0;
   for (const group of groups) {
-    const { rows: done } = await query('select distinct run_on from group_reminders where group_id = $1 and run_on is not null', [group.id]);
+    const done = await groupsRepo.reminderRunsDone(group.id);
     const doneDates = new Set(done.map((r) => ymd(r.run_on)));
     for (const run of dueRuns(group, tz, now, doneDates)) {
       await writeReminders(group, { runOn: run.date });
@@ -733,13 +720,13 @@ export async function runDueReminders(now = new Date()) {
  */
 export async function runDueClosings(now = new Date()) {
   const today = now.toISOString().slice(0, 10);
-  const { rows: groups } = await query('select * from trip_groups where cancelled_at is null');
+  const groups = await groupsRepo.liveGroups();
   let closed = 0;
   for (const group of groups) {
-    const [{ rows: people }, { rows: items }, { rows: states }] = await Promise.all([
-      query('select * from group_participants where group_id = $1 and withdrawn_at is null', [group.id]),
-      query('select * from group_items where group_id = $1', [group.id]),
-      query('select s.* from group_item_states s join group_items i on i.id = s.item_id where i.group_id = $1', [group.id]),
+    const [people, items, states] = await Promise.all([
+      groupsRepo.activeParticipants(group.id),
+      groupsRepo.itemsOf(group.id),
+      groupsRepo.statesOf(group.id),
     ]);
     const joined = people.filter((p) => p.joined_at);
     const stateFor = new Map(states.map((st) => [`${st.item_id}:${st.participant_id}`, st]));
@@ -748,8 +735,7 @@ export async function runDueClosings(now = new Date()) {
     const heads = joined.reduce((n, p) => n + p.heads, 0);
     if (group.minimum_count && ymd(group.wanted_by) && ymd(group.wanted_by) <= today && heads < group.minimum_count) {
       const note = `${heads} of the ${group.minimum_count} needed by ${inWords(group.wanted_by)}.`;
-      await query('update trip_groups set cancelled_at = now(), cancelled_note = $2 where id = $1', [group.id, note]);
-      await query('update group_items set state = $2, cancelled_note = $3 where group_id = $1 and state = $4', [group.id, 'cancelled', 'The trip was called off.', 'open']);
+      await groupsRepo.cancelGroup(group.id, note);
       await tellEveryone(group, joined, `${group.name ?? 'The trip'} is off — ${note} Nothing has been taken from you.`, 'cancelled');
       closed += 1;
       continue;
@@ -765,15 +751,12 @@ export async function runDueClosings(now = new Date()) {
 
       if (cost.minimum && shares < cost.minimum) {
         const note = `${shares} of the ${cost.minimum} it needed.`;
-        await query('update group_items set state = $2, cancelled_note = $3 where id = $1', [item.id, 'cancelled', note]);
+        await groupsRepo.setItemState(item.id, { state: 'cancelled', cancelledNote: note });
         await tellEveryone(group, onIt, `${item.label} is off — ${note} Nothing to pay.`, 'cancelled', item.id);
       } else {
         const due = new Date(`${closesOn}T12:00:00Z`);
         due.setUTCDate(due.getUTCDate() + 4);
-        await query(
-          'update group_items set state = $2, settled_heads = $3, settled_pence = $4, settled_at = now(), due_on = $5 where id = $1',
-          [item.id, 'closed', shares, cost.perSharePence, ymd(due.toISOString())],
-        );
+        await groupsRepo.setItemState(item.id, { state: 'closed', settledHeads: shares, settledPence: cost.perSharePence, settledAt: true, dueOn: ymd(due.toISOString()) });
         for (const p of onIt) {
           const owed = (cost.perSharePence ?? 0) * (item.per_head ? p.heads : 1);
           await tellOne(group, p, `${item.label} is settled: £${(owed / 100).toFixed(2)} — ${shares} of us, by ${inWords(ymd(due.toISOString()))}.`, 'bill', item.id);
@@ -792,11 +775,12 @@ async function tellEveryone(group, people, body, kind, itemId = null) {
 
 async function tellOne(group, participant, body, kind, itemId = null) {
   const outcome = await sendReminder({ to: participant.contact, contactKind: participant.contact_kind, body, group: group.name, participant: participant.name });
-  await query(
-    `insert into group_reminders (group_id, participant_id, item_id, kind, status, reason, channel, body, sent_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [group.id, participant.id, itemId, kind, outcome.status === 'failed' ? 'no_channel' : outcome.status, outcome.detail, outcome.channel, body, outcome.status === 'sent' ? new Date() : null],
-  );
+  await groupsRepo.writeReminder(group.id, {
+    participantId: participant.id, itemId, kind,
+    status: outcome.status === 'failed' ? 'no_channel' : outcome.status,
+    reason: outcome.detail, channel: outcome.channel, body,
+    sentAt: outcome.status === 'sent' ? new Date() : null,
+  });
 }
 
 export function startReminderLoop({ everyMinutes = 15 } = {}) {

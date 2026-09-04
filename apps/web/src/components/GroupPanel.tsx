@@ -5,6 +5,7 @@ import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Meter, Row, Segmented, StatusLine, Wrap } from './ui';
 import { Icon, IconName } from './Icon';
 import { QrCode } from './QrCode';
+import { DateRangePicker } from './DateRangePicker';
 import Svg, { Circle, ClipPath, Defs, G, Image as SvgImage, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { useViewport } from '../hooks/useViewport';
 import { getViewer } from '../viewer';
@@ -33,14 +34,15 @@ import { getViewer } from '../viewer';
 type StepKey = 'what' | 'wanted' | 'costs' | 'chasing' | 'invite';
 const STEPS: { key: StepKey; title: string; blurb: string }[] = [
   { key: 'what', title: 'What this is', blurb: 'Name it, and say how many it needs, expects and can take.' },
-  { key: 'wanted', title: 'What must everyone do?', blurb: 'Mark what you want from every person, and what you are only asking about.' },
+  { key: 'wanted', title: 'What must everyone do?', blurb: 'Mark which of these are mandatory. The rest are optional — Roam only asks who is coming to them.' },
   { key: 'costs', title: 'Anything you are paying for?', blurb: 'A coach, tickets, a kitty. Everyone pays a share, or only the people who opt in.' },
-  { key: 'chasing', title: 'How often Roam chases', blurb: 'Roam writes to whoever still has something outstanding, so you never ask twice.' },
+  { key: 'chasing', title: 'Notifications and reminders', blurb: 'Roam writes to whoever still has something outstanding, so you never ask twice.' },
   { key: 'invite', title: 'Ask them in', blurb: 'A code to hold up, a link, a WhatsApp group, or the names you already know.' },
 ];
 
 const WIDE = 1000;
 const money = (p?: number | null) => (p == null ? '—' : `£${(p / 100).toFixed(p % 100 === 0 ? 0 : 2)}`);
+const longDay = (iso?: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
 const day = (iso?: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) : '');
 const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '');
 const daysUntil = (iso?: string | null) => (iso ? Math.round((new Date(`${iso.slice(0, 10)}T12:00:00`).getTime() - Date.now()) / 86400000) : null);
@@ -49,16 +51,21 @@ const pence = (text: string) => (text.trim() === '' ? null : Math.round(Number(t
 const numberOrNull = (text: string) => (text.trim() === '' ? null : Math.max(0, Math.round(Number(text.replace(/[^0-9]/g, '')))));
 
 /** A number is typed, never nudged (owner, 4 Sep 2026). */
-function NumberBox({ value, onChange, onCommit, placeholder, width = 88, prefix }: {
-  value: string; onChange: (v: string) => void; onCommit?: () => void; placeholder?: string; width?: number; prefix?: string;
+function NumberBox({ value, onChange, onCommit, onFocus, placeholder, width = 88, prefix }: {
+  value: string; onChange: (v: string) => void; onCommit?: () => void; onFocus?: () => void;
+  placeholder?: string; width?: number; prefix?: string;
 }) {
+  // The box is the control, so the box takes the focus ring — a browser drawing
+  // its own outline round the input inside it is a box in a box (owner, 4 Sep 2026).
+  const [on, setOn] = useState(false);
   return (
-    <View style={[styles.numberBox, { width }]}>
+    <View style={[styles.numberBox, { width }, on && styles.numberBoxOn]}>
       {prefix ? <Text style={[type.small, { color: colors.inkMuted }]}>{prefix}</Text> : null}
       <TextInput
         value={value}
         onChangeText={onChange}
-        onBlur={onCommit}
+        onFocus={() => { setOn(true); onFocus?.(); }}
+        onBlur={() => { setOn(false); onCommit?.(); }}
         onSubmitEditing={onCommit}
         placeholder={placeholder}
         placeholderTextColor={colors.inkFaint}
@@ -243,7 +250,7 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
         <AddCost group={g} onAdd={(body) => run(() => api.addGroupItem(group.id, body))} />
       </>
     ),
-    chasing: <Chasing group={g} busy={busy} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onSendNow={() => run(() => api.chaseGroup(group.id))} />,
+    chasing: <Chasing group={g} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} />,
     invite: <Invite group={g} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onAdd={(body) => run(() => api.addGroupParticipant(group.id, body))} />,
   };
 
@@ -394,8 +401,19 @@ function Wizard({ content, summaries, onDone }: {
   );
 }
 
+/** The sentence under the three numbers, about whichever one is being typed in. */
+function sizeLine(at: 'minimum' | 'expecting' | 'maximum' | null, g: TripGroup['group'], minimum: string, maximum: string) {
+  const min = numberOrNull(minimum) ?? g.minimumCount;
+  const max = numberOrNull(maximum) ?? g.maximumCount;
+  if (at === 'minimum') return min ? `Under ${min} and the trip is called off — everybody is told and nothing is taken.` : 'The fewest people it works with. Below it the trip is called off.';
+  if (at === 'maximum') return max ? `Nobody can join once ${max} are in.` : 'The most people who can join. Leave it empty for no limit.';
+  if (at === 'expecting') return 'Roughly how many will come. A shared cost divides by this until people actually join.';
+  return min ? `Under ${min} and the trip is called off.${max ? ` Nobody can join past ${max}.` : ''}` : 'Leave the minimum empty and it goes ahead with whoever comes.';
+}
+
 /** Step 1: what it is called, and the three numbers that describe its size. */
 function WhatThisIs({ group: g, onChange }: { group: TripGroup; onChange: (body: any) => void }) {
+  const [at, setAt] = useState<'minimum' | 'expecting' | 'maximum' | null>(null);
   const [name, setName] = useState(g.group.name ?? '');
   const [minimum, setMinimum] = useState(g.group.minimumCount == null ? '' : String(g.group.minimumCount));
   const [expected, setExpected] = useState(g.group.expectedCount == null ? '' : String(g.group.expectedCount));
@@ -418,25 +436,20 @@ function WhatThisIs({ group: g, onChange }: { group: TripGroup; onChange: (body:
         style={styles.input}
       />
       <Row style={{ gap: spacing.lg }}>
-        <View style={{ gap: 4 }}>
+        <View>
           <Text style={type.label}>Minimum</Text>
-          <NumberBox value={minimum} onChange={setMinimum} onCommit={save} placeholder="—" />
+          <NumberBox value={minimum} onChange={setMinimum} onCommit={save} onFocus={() => setAt('minimum')} />
         </View>
-        <View style={{ gap: 4 }}>
+        <View>
           <Text style={type.label}>Expecting</Text>
-          <NumberBox value={expected} onChange={setExpected} onCommit={save} placeholder="24" />
+          <NumberBox value={expected} onChange={setExpected} onCommit={save} onFocus={() => setAt('expecting')} placeholder="24" />
         </View>
-        <View style={{ gap: 4 }}>
+        <View>
           <Text style={type.label}>Maximum</Text>
-          <NumberBox value={maximum} onChange={setMaximum} onCommit={save} placeholder="—" />
+          <NumberBox value={maximum} onChange={setMaximum} onCommit={save} onFocus={() => setAt('maximum')} />
         </View>
       </Row>
-      <Text style={type.small}>
-        {g.group.minimumCount
-          ? `Under ${g.group.minimumCount} by ${day(g.group.wantedBy)} and the trip is called off.`
-          : 'Leave the minimum empty and it goes ahead with whoever comes.'}
-        {g.group.maximumCount ? ` Nobody can join past ${g.group.maximumCount}.` : ''}
-      </Text>
+      <Text style={type.small}>{sizeLine(at, g.group, minimum, maximum)}</Text>
     </View>
   );
 }
@@ -500,12 +513,12 @@ function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup)
  * The picture, because the sentence cannot be made short enough: the trip on
  * the left, and three of the people on it each holding their own bill.
  *
- * The faces are drawn, not photographed. Roam ships no stock photography — the
- * owner would rather have real people here (4 Sep 2026), so `FACES` is the slot
- * for them: drop images into `apps/web/public/people/` and name them here and
- * they take over from the drawing, in the same circles, with no other change.
+ * The faces are real people (owner, 4 Sep 2026), three Unsplash portraits
+ * served by us rather than hot-linked, so the page costs no third-party request
+ * and works with no signal. Provenance and licence: public/people/README.md.
+ * Drop other files in and rename them here and nothing else changes.
  */
-const FACES: string[] = [];
+const FACES = ['/people/1.jpg', '/people/2.jpg', '/people/3.jpg'];
 
 function GroupScene({ wide }: { wide: boolean }) {
   const rows = [
@@ -517,7 +530,7 @@ function GroupScene({ wide }: { wide: boolean }) {
     <View style={[styles.scene, wide && { width: 300, height: 190 }]}>
       <Svg width="100%" height="100%" viewBox="0 0 300 186">
         <Defs>
-          <ClipPath id="face"><Circle cx={0} cy={0} r={16} /></ClipPath>
+          {rows.map((r, i) => <ClipPath key={r.y} id={`face${i}`}><Circle cx={168} cy={r.y} r={16} /></ClipPath>)}
         </Defs>
 
         {/* the trip itself */}
@@ -533,7 +546,7 @@ function GroupScene({ wide }: { wide: boolean }) {
             <Line x1={106} y1={90} x2={150} y2={r.y} stroke={colors.ink} strokeWidth={1.2} strokeOpacity={0.3} strokeDasharray="3 4" />
             <Circle cx={168} cy={r.y} r={16} fill={colors.surfaceMuted} stroke={colors.ink} strokeWidth={2} />
             {FACES[i] ? (
-              <SvgImage x={152} y={r.y - 16} width={32} height={32} href={FACES[i]} preserveAspectRatio="xMidYMid slice" clipPath="url(#face)" />
+              <SvgImage x={152} y={r.y - 16} width={32} height={32} href={{ uri: FACES[i] }} preserveAspectRatio="xMidYMid slice" clipPath={`url(#face${i})`} />
             ) : (
               <G>
                 {/* a person, rather than their initial */}
@@ -743,6 +756,33 @@ const plusWeek = (iso?: string | null) => {
 };
 
 /**
+ * A date, written the way it is said, with a calendar to change it — not a box
+ * of hyphens (owner, 4 Sep 2026).
+ */
+function DayPick({ value, onChange }: { value: string; onChange: (iso: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <Pressable onPress={() => setOpen(!open)} accessibilityRole="button">
+        <Row>
+          <Icon name="calendar" size={16} />
+          <Text style={type.h3}>{value ? longDay(value) : 'Pick a date'}</Text>
+          <Icon name={open ? 'collapse' : 'expand'} size={14} />
+        </Row>
+      </Pressable>
+      {open ? (
+        <DateRangePicker
+          single
+          start={value || null}
+          end={value || null}
+          onApply={(start) => { onChange(start); setOpen(false); }}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+/**
  * Adding a cost: one form, not a wizard inside a wizard (owner, 4 Sep 2026 —
  * "we've got 2 Next buttons on this screen"). Every control is one row of two
  * choices, and nothing has a sentence under it explaining what it meant.
@@ -751,7 +791,6 @@ function AddCost({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIte
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState('');
   const [everyone, setEveryone] = useState(false);
-  const [perHead, setPerHead] = useState(true);
   const [pricing, setPricing] = useState<'fixed' | 'variable'>('variable');
   const [amount, setAmount] = useState('');
   const [total, setTotal] = useState('');
@@ -781,11 +820,6 @@ function AddCost({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIte
         <Chip label="Everyone" selected={everyone} onPress={() => setEveryone(true)} />
         <Chip label="Only those who opt in" selected={!everyone} onPress={() => setEveryone(false)} />
       </Wrap>
-      <Text style={type.label}>A share each</Text>
-      <Wrap>
-        <Chip label="Person" selected={perHead} onPress={() => setPerHead(true)} />
-        <Chip label="Household" selected={!perHead} onPress={() => setPerHead(false)} />
-      </Wrap>
       <Text style={type.label}>Price</Text>
       <Segmented
         value={pricing}
@@ -805,28 +839,22 @@ function AddCost({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIte
             <Text style={type.small}>to get back in total</Text>
           </Row>
           <Row style={{ gap: spacing.lg, alignItems: 'flex-start' }}>
-            <View style={{ gap: 4 }}>
+            <View>
               <Text style={type.label}>Expecting</Text>
               <NumberBox value={everyone ? String(g.group.expectedCount ?? '') : expected} onChange={setExpected} placeholder="24" />
-              <Text style={type.h3}>{per(exp) ? `${money(per(exp))} each` : ' '}</Text>
+              <Text style={[type.h2, { marginTop: 6 }]}>{per(exp) ? `${money(per(exp))} each` : ' '}</Text>
             </View>
-            <View style={{ gap: 4 }}>
+            <View>
               <Text style={type.label}>Minimum</Text>
               <NumberBox value={everyone ? String(g.group.minimumCount ?? '') : minimum} onChange={setMinimum} placeholder="12" />
-              <Text style={type.h3}>{per(min) ? `${money(per(min))} at worst` : ' '}</Text>
+              <Text style={[type.h2, { marginTop: 6 }]}>{per(min) ? `${money(per(min))} each` : ' '}</Text>
             </View>
           </Row>
         </View>
       )}
 
       <Text style={type.label}>Settles on</Text>
-      <TextInput
-        value={closesOn}
-        onChangeText={setClosesOn}
-        placeholder="YYYY-MM-DD"
-        placeholderTextColor={colors.inkFaint}
-        style={[styles.input, { width: 170 }]}
-      />
+      <DayPick value={closesOn} onChange={setClosesOn} />
       <Text style={type.small}>
         {pricing === 'variable'
           ? `Nobody pays until then. ${min ? `Under ${min} and it does not run.` : ''}`
@@ -840,7 +868,8 @@ function AddCost({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIte
           onPress={() => {
             if (!label.trim()) return;
             onAdd({
-              kind: 'fee', label: label.trim(), required: everyone, perHead, pricing,
+              // Always a share a head: who a head is was settled when they joined.
+              kind: 'fee', label: label.trim(), required: everyone, perHead: true, pricing,
               amountPence: pricing === 'fixed' ? pence(amount) : null,
               totalPence: pricing === 'variable' ? totalP : null,
               expectedCount: everyone ? null : numberOrNull(expected),
@@ -860,75 +889,67 @@ function AddCost({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIte
 /**
  * The chasing card: what Roam is doing on the organiser's behalf, and when.
  */
-function Chasing({ group: g, busy, settingUp, onChange, onSendNow }: { group: TripGroup; busy: boolean; settingUp: boolean; onChange: (body: any) => void; onSendNow: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [wantedBy, setWantedBy] = useState(g.group.wantedBy ?? '');
+function Chasing({ group: g, settingUp, onChange }: {
+  group: TripGroup; settingUp: boolean; onChange: (body: any) => void;
+}) {
   const r = g.reminders;
-  const nextIn = r.next ? daysUntil(r.next.date) : null;
+  const sent = r.schedule.filter((x) => x.done).length;
+  const howMany = r.schedule.length || r.cadences.find((c) => c.key === g.group.cadence)?.runs || 0;
   return (
-    <Card>
+    <View style={{ gap: spacing.md }}>
       <Row style={{ justifyContent: 'space-between' }}>
-        <Row><Icon name="hours" size={16} /><Text style={type.h2}>{settingUp ? 'Roam will do the chasing' : 'Roam is chasing'}</Text></Row>
+        <Text style={[type.h3, { flex: 1 }]}>
+          {r.on
+            ? `${howMany} reminders, spread evenly between the first and the day it is all wanted by.`
+            : 'Nobody is being chased. You are doing it yourself.'}
+        </Text>
         <Chip label={r.on ? 'On' : 'Off'} icon={r.on ? 'check' : 'close'} selected={r.on} onPress={() => onChange({ remindersOn: !r.on })} />
       </Row>
+
       {r.on ? (
-        <Text style={type.small}>
-          {r.next
-            ? `Next reminder ${day(r.next.date)}${nextIn != null && nextIn >= 0 ? nextIn === 0 ? ', today' : ` — in ${nextIn} day${nextIn === 1 ? '' : 's'}` : ''}` +
-              (r.next.recipients
-                ? `, to ${r.next.recipients} ${r.next.recipients === 1 ? 'person' : 'people'} with something outstanding.`
-                : settingUp ? ', to anyone who has joined by then and still has something to do.' : ' — nobody has anything outstanding, so it may go to no one.')
-            : g.group.wantedBy ? 'Every reminder for this group has been sent.' : 'Set a date everything is wanted by and Roam will start chasing.'}
-        </Text>
-      ) : (
-        <Text style={type.small}>Nobody is being chased. You are doing it yourself.</Text>
-      )}
-      <Row style={{ flexWrap: 'wrap' }}>
-        <Text style={type.small}><Text style={{ fontWeight: '700', color: colors.ink }}>{r.written}</Text> written so far</Text>
-        {r.schedule.length ? <Text style={type.small}>· {r.schedule.filter((s) => s.done).length} of {r.schedule.length} runs done</Text> : null}
-      </Row>
-      {!r.channelReady && r.on ? (
-        <View style={styles.warnBox}>
-          <Icon name="allergen" size={15} color={colors.overrun} />
-          <Text style={[type.small, { flex: 1 }]}>
-            {r.undelivered > 0
-              ? `${r.undelivered} ${r.undelivered === 1 ? 'reminder is' : 'reminders are'} written and waiting. `
-              : 'Roam will write these and keep them for you. '}
-            <Text style={{ fontWeight: '700', color: colors.ink }}>Nothing can be delivered yet</Text> — no way to send messages is connected.
-            Add one and every reminder goes out on the next run.
-          </Text>
-        </View>
-      ) : null}
-      <Pressable onPress={() => setOpen(!open)} accessibilityRole="button"><Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>{open ? 'Hide the schedule' : 'See the schedule'}</Text></Pressable>
-      {open ? (
-        <View style={{ gap: spacing.sm }}>
-          {r.schedule.map((s) => (
-            <Row key={s.date} style={{ justifyContent: 'space-between' }}>
-              <Row><Icon name={s.done ? 'booked' : 'hours'} size={14} color={s.done ? colors.like : colors.inkMuted} /><Text style={type.small}>{day(s.date)} · 9am</Text></Row>
-              <Text style={type.small}>{s.done ? 'sent' : `${s.daysBefore} days before`}</Text>
-            </Row>
-          ))}
-          <Text style={type.label}>HOW OFTEN</Text>
-          <Segmented value={g.group.cadence} options={r.cadences.map((c) => ({ value: c.key, label: `${c.label} (${c.runs})` }))} onChange={(c) => onChange({ cadence: c })} />
-          <Text style={type.label}>EVERYTHING WANTED BY</Text>
-          <Row>
-            <TextInput value={wantedBy} onChangeText={setWantedBy} onBlur={() => wantedBy !== g.group.wantedBy && onChange({ wantedBy: wantedBy || null })} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { width: 160 }]} />
-          </Row>
-          <Button label={busy ? 'Writing…' : 'Send one now'} icon="forward" kind="secondary" onPress={onSendNow} />
-          <Text style={type.small}>You should not need this. It is here for the week everything changes.</Text>
-          {r.recent.length ? (
-            <View style={{ gap: 4 }}>
-              <Text style={type.label}>WHAT HAS GONE OUT</Text>
-              {r.recent.filter((x) => x.who).slice(0, 6).map((x) => (
-                <Text key={x.id} style={type.small}>{when(x.on)} · {x.who} · {x.status === 'sent' ? 'sent' : 'waiting to send'} — “{x.body.slice(0, 90)}…”</Text>
+        <>
+          <View>
+            <Text style={type.label}>First one on</Text>
+            <DayPick value={g.group.firstReminderOn ?? r.schedule[0]?.date ?? ''} onChange={(iso) => onChange({ firstReminderOn: iso })} />
+          </View>
+          <View>
+            <Text style={type.label}>Everything wanted by</Text>
+            <DayPick value={g.group.wantedBy ?? ''} onChange={(iso) => onChange({ wantedBy: iso })} />
+          </View>
+          <View>
+            <Text style={type.label}>How often</Text>
+            <Segmented
+              value={g.group.cadence}
+              options={r.cadences.map((c) => ({ value: c.key, label: `${c.label} · ${c.runs}` }))}
+              onChange={(c) => onChange({ cadence: c })}
+            />
+          </View>
+          {r.schedule.length ? (
+            <View style={{ gap: spacing.sm }}>
+              {r.schedule.map((x) => (
+                <Row key={x.date} style={{ justifyContent: 'space-between' }}>
+                  <Row>
+                    <Icon name={x.done ? 'booked' : 'hours'} size={14} color={x.done ? colors.like : colors.inkMuted} />
+                    <Text style={type.small}>{longDay(x.date)}, 9am</Text>
+                  </Row>
+                  {x.done ? <Text style={type.small}>sent</Text> : null}
+                </Row>
               ))}
+              <Text style={type.small}>
+                {settingUp
+                  ? 'Each one goes to whoever still has something outstanding, and to nobody who has finished.'
+                  : `${sent} of ${r.schedule.length} sent. Each goes to whoever still has something outstanding.`}
+              </Text>
             </View>
-          ) : null}
-        </View>
+          ) : (
+            <Text style={type.small}>Pick the two dates and Roam spaces the reminders between them.</Text>
+          )}
+        </>
       ) : null}
-    </Card>
+    </View>
   );
 }
+
 
 function PersonRow({ p, items, open, busy, onOpen, onMark, onChange, onRemind }: {
   p: GroupParticipant; items: GroupItem[]; open: boolean; busy: boolean;
@@ -1011,7 +1032,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm,
     minHeight: TARGET - 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
   },
-  numberInput: { flex: 1, textAlign: 'center', fontFamily: fonts.body, fontSize: 17, fontWeight: '700', color: colors.ink, minWidth: 40 },
+  numberBoxOn: { borderColor: colors.accent, borderWidth: 2 },
+  numberInput: { flex: 1, textAlign: 'center', fontFamily: fonts.body, fontSize: 17, fontWeight: '700', color: colors.ink, minWidth: 40, outlineStyle: 'none' as any },
   wantedRow: { gap: 6, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
   hero: {
     // The one mint field in light; in dark the header ground is the page ground,
@@ -1037,6 +1059,8 @@ const styles = StyleSheet.create({
   input: {
     minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink, fontFamily: fonts.body,
+    // The focus ring is the leaf, not the browser's blue (style guide).
+    outlineColor: colors.accent as any, outlineWidth: 2 as any, outlineOffset: 1 as any,
   },
   person: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: spacing.sm, marginTop: spacing.sm },
   warnBox: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.overrun, backgroundColor: colors.overrunSoft },

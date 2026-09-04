@@ -14,11 +14,11 @@
 
 import { wallToUtc, DEFAULT_TZ } from './time.js';
 
-/** Days before `wanted_by` on which Roam writes to whoever still has something outstanding. */
+/** How many times Roam writes to somebody who still has something outstanding. */
 export const CADENCES = {
-  gentle: { label: 'Gentle', days: [21, 7, 2] },
-  standard: { label: 'Standard', days: [28, 14, 7, 3, 1] },
-  firm: { label: 'Firm', days: [28, 21, 14, 10, 7, 4, 2, 1] },
+  gentle: { label: 'Gentle', count: 3 },
+  standard: { label: 'Standard', count: 5 },
+  firm: { label: 'Firm', count: 8 },
 };
 export const DEFAULT_CADENCE = 'standard';
 /** Reminders land at breakfast, in the household's own time. */
@@ -27,26 +27,41 @@ export const REMINDER_AT = '09:00';
 export const QUIET_HOURS = 48;
 
 const iso = (d) => d.toISOString().slice(0, 10);
+// Dates arrive as 'YYYY-MM-DD' from a date column and as a Date from a
+// timestamp one; both have to come out the same.
+const ymd = (d) => {
+  if (!d) return null;
+  if (d instanceof Date) return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  return String(d).slice(0, 10);
+};
 const addDays = (dateStr, n) => {
   const d = new Date(`${String(dateStr).slice(0, 10)}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return iso(d);
 };
+const daysBetween = (a, b) => Math.round((new Date(`${b}T12:00:00Z`) - new Date(`${a}T12:00:00Z`)) / 86_400_000);
 
 /**
  * Every run for a group, oldest first: `{ date, instant, daysBefore }`.
- * A group with no date to work to is not chased at all — there is nothing to
- * say beyond "some time", which is what a group chat already says badly.
+ *
+ * The cadence says how many reminders there are; they are spread evenly between
+ * the day the chasing starts and the day everything is wanted by. A group with
+ * no date to work to is not chased at all — there is nothing to say beyond
+ * "some time", which is what a group chat already says badly.
  */
 export function schedule(group, tz = DEFAULT_TZ) {
-  if (!group?.wanted_by) return [];
-  const wanted = String(group.wanted_by).slice(0, 10);
-  const days = (CADENCES[group.reminder_cadence] ?? CADENCES[DEFAULT_CADENCE]).days;
-  return days
-    .map((daysBefore) => ({ daysBefore, date: addDays(wanted, -daysBefore) }))
-    .filter((r) => r.date <= wanted) // never after the date itself
-    .map((r) => ({ ...r, instant: wallToUtc(r.date, REMINDER_AT, tz) }))
-    .sort((a, b) => a.instant - b.instant);
+  const end = ymd(group?.wanted_by);
+  if (!end) return [];
+  const from = ymd(group.first_reminder_on) ?? ymd(group.created_at) ?? iso(new Date());
+  const count = (CADENCES[group.reminder_cadence] ?? CADENCES[DEFAULT_CADENCE]).count;
+  const span = daysBetween(from, end);
+  if (span <= 0) return [{ daysBefore: 0, date: end, instant: wallToUtc(end, REMINDER_AT, tz) }];
+  const dates = [];
+  for (let i = 0; i < count; i += 1) {
+    const at = addDays(from, count === 1 ? 0 : Math.round((span * i) / (count - 1)));
+    if (!dates.includes(at)) dates.push(at);
+  }
+  return dates.map((date) => ({ date, daysBefore: daysBetween(date, end), instant: wallToUtc(date, REMINDER_AT, tz) }));
 }
 
 /** The runs whose moment has passed and which have not been done yet. */

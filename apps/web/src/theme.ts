@@ -164,7 +164,9 @@ export const type = {
   body: { fontFamily: fonts.body, fontSize: 15, color: colors.ink, lineHeight: 21 },
   small: { fontFamily: fonts.body, fontSize: 13, color: colors.inkMuted, lineHeight: 18 },
   tiny: { fontFamily: fonts.body, fontSize: 11, color: colors.inkFaint, lineHeight: 15 },
-  label: { fontFamily: fonts.body, fontSize: 12, fontWeight: '700' as const, color: colors.inkMuted, letterSpacing: 0.72, textTransform: 'uppercase' as const },
+  // A label needs room between it and the thing it names (owner, 4 Sep 2026:
+  // "you need to give the headers room to breathe").
+  label: { fontFamily: fonts.body, fontSize: 12, fontWeight: '700' as const, color: colors.inkMuted, letterSpacing: 0.72, textTransform: 'uppercase' as const, marginBottom: 6, marginTop: 4 },
 };
 
 // Every interactive target is at least 44pt (research §12).

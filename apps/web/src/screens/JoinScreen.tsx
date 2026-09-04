@@ -70,7 +70,7 @@ export function JoinScreen({ token }: { token: string }) {
     <ScrollView contentContainerStyle={[styles.page, width >= 900 && { maxWidth: 720, alignSelf: 'center' }]}>
       <Row style={{ justifyContent: 'space-between' }}>
         <Wordmark height={30} />
-        {v.group.organiser ? <Text style={type.tiny}>INVITED BY {v.group.organiser.toUpperCase()}</Text> : null}
+        {v.group.organiser ? <Text style={type.small}>INVITED BY {v.group.organiser.toUpperCase()}</Text> : null}
       </Row>
       <View style={{ gap: 2 }}>
         <Text style={type.title}>{v.group.name ?? v.trip.title ?? 'A trip'}</Text>
@@ -109,7 +109,7 @@ export function JoinScreen({ token }: { token: string }) {
       {!you ? (
         joining || v.group.closed ? null : <Button label={`Tell ${v.group.organiser ?? 'them'} I'm coming`} icon="add" onPress={() => setJoining(true)} />
       ) : (
-        <Text style={type.tiny}>
+        <Text style={type.small}>
           You are in this trip as {you.name}{you.heads > 1 ? ` and ${you.heads - 1} other${you.heads > 2 ? 's' : ''}${you.brings ? ` (${you.brings})` : ''}` : ''}.
           {' '}Only {v.group.organiser ?? 'the organiser'} sees this list. Nobody else in the group does, and you cannot see theirs.
         </Text>
@@ -135,11 +135,11 @@ export function JoinScreen({ token }: { token: string }) {
         <Card style={{ borderColor: colors.overrun }}>
           <Row><Icon name="allergen" size={16} color={colors.overrun} /><Text style={type.h2}>This trip is off</Text></Row>
           <Text style={type.small}>{v.group.cancelledNote} Nothing has been taken from you and there is nothing to pay.</Text>
-          <Text style={type.tiny}>Anything you booked yourself — a room, a ticket — is yours to cancel with them, on their terms.</Text>
+          <Text style={type.small}>Anything you booked yourself — a room, a ticket — is yours to cancel with them, on their terms.</Text>
         </Card>
       ) : null}
       {v.group.closed ? <StatusLine tone="warn">This group is not taking any more people. Ask {v.group.organiser ?? 'the organiser'} if you think that is wrong.</StatusLine> : null}
-      <Text style={type.tiny}>
+      <Text style={type.small}>
         No account, no password. Roam keeps your name and the one way to reach you that you gave, for this trip.
         {optional.length ? ' Saying yes or no to the optional things is how a table gets booked for the right number.' : ''}
       </Text>
@@ -169,12 +169,12 @@ function ItemCard({ item, organiser, joined, trip, onAsk, onSet }: {
           <Text style={type.h3}>{item.label}{item.kind === 'fee' && item.amountPence ? ` · ${money(item.amountPence)}` : ''}</Text>
           {item.detail ? <Text style={type.small}>{item.detail}</Text> : null}
           {!item.required ? (
-            <Text style={type.tiny}>
+            <Text style={type.small}>
               {item.money ? 'OPTIONAL — only if you want it' : `OPTIONAL — ${organiser ?? 'they'} just need${organiser ? 's' : ''} to know if you are coming`}
             </Text>
           ) : null}
           {item.kind === 'fee' && item.refundRule === 'until' && item.refundUntil ? (
-            <Text style={type.tiny}>Refundable until {day(item.refundUntil)}. Pay {organiser ?? 'the organiser'} directly — Roam does not take the money.</Text>
+            <Text style={type.small}>Refundable until {day(item.refundUntil)}. Pay {organiser ?? 'the organiser'} directly — Roam does not take the money.</Text>
           ) : null}
           {s ? (
             <Text style={[type.small, { color: colors.like, fontWeight: '700' }]}>
@@ -192,20 +192,20 @@ function ItemCard({ item, organiser, joined, trip, onAsk, onSet }: {
       {item.kind === 'fee' ? null : item.required ? (
         declaring ? (
           <View style={{ gap: spacing.sm }}>
-            <Text style={type.tiny}>WHERE DID YOU BOOK?</Text>
+            <Text style={type.small}>WHERE DID YOU BOOK?</Text>
             <TextInput value={where} onChangeText={setWhere} placeholder="Booking.com, or the hotel itself" placeholderTextColor={colors.inkFaint} style={styles.input} />
-            <Text style={type.tiny}>REFERENCE, IF YOU HAVE ONE</Text>
+            <Text style={type.small}>REFERENCE, IF YOU HAVE ONE</Text>
             <TextInput value={ref} onChangeText={setRef} placeholder="Only so they can ask about it" placeholderTextColor={colors.inkFaint} style={styles.input} />
             {item.kind === 'stay' ? (
               <View style={{ gap: spacing.sm }}>
-                <Text style={type.tiny}>WHICH NIGHTS?</Text>
+                <Text style={type.small}>WHICH NIGHTS?</Text>
                 <Row>
                   <TextInput value={from} onChangeText={setFrom} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
                   <TextInput value={to} onChangeText={setTo} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
                 </Row>
               </View>
             ) : null}
-            <Text style={type.tiny}>Because you booked it away from Roam, nobody can confirm it. It shows on their list as your word for it.</Text>
+            <Text style={type.small}>Because you booked it away from Roam, nobody can confirm it. It shows on their list as your word for it.</Text>
             <Row>
               <Button label="That's booked" onPress={() => { onSet({ status: 'declared', whereBooked: where.trim() || null, bookingRef: ref.trim() || null, startsOn: item.kind === 'stay' ? from || null : null, endsOn: item.kind === 'stay' ? to || null : null }); setDeclaring(false); }} />
               <Button label="Cancel" kind="ghost" onPress={() => setDeclaring(false)} />
@@ -251,7 +251,7 @@ function Money({ item, organiser, joined, onAsk, onSet }: {
     return (
       <View style={{ gap: 4 }}>
         <Text style={[type.small, { fontWeight: '700' }]}>This is off — {item.cancelledNote ?? 'not enough people wanted it'}.</Text>
-        <Text style={type.tiny}>Nothing has been taken from you and there is nothing to pay.</Text>
+        <Text style={type.small}>Nothing has been taken from you and there is nothing to pay.</Text>
       </View>
     );
   }
@@ -264,9 +264,9 @@ function Money({ item, organiser, joined, onAsk, onSet }: {
           {money(item.totalPence)} ÷ {item.settledHeads} {item.perHead ? 'seats' : 'parties'} = {money(item.settledPence)} each
           {m.shares > 1 ? ` × ${m.shares} = ${money(m.yoursPence)}` : ''}.
         </Text>
-        {m.ceilingPence ? <Text style={type.tiny}>You were told no more than {money(m.ceilingYoursPence)}. It came out at {money(m.yoursPence)}.</Text> : null}
-        <Text style={type.tiny}>{them} needs it by {day(m.dueOn)}. It is not refundable now — the booking is made on the strength of it.</Text>
-        <Text style={type.tiny}>{mine?.status === 'paid' ? `${them} has ticked this off.` : `Pay ${them} however you normally do; they tick it off here.`}</Text>
+        {m.ceilingPence ? <Text style={type.small}>You were told no more than {money(m.ceilingYoursPence)}. It came out at {money(m.yoursPence)}.</Text> : null}
+        <Text style={type.small}>{them} needs it by {day(m.dueOn)}. It is not refundable now — the booking is made on the strength of it.</Text>
+        <Text style={type.small}>{mine?.status === 'paid' ? `${them} has ticked this off.` : `Pay ${them} however you normally do; they tick it off here.`}</Text>
       </View>
     );
   }
@@ -275,7 +275,7 @@ function Money({ item, organiser, joined, onAsk, onSet }: {
     return (
       <View style={{ gap: 4 }}>
         <Text style={type.h3}>{money(m.yoursPence ?? item.amountPence)}</Text>
-        <Text style={type.tiny}>{mine?.status === 'paid' ? `${them} has ticked this off.` : `${them} ticks this off when it reaches them.`}</Text>
+        <Text style={type.small}>{mine?.status === 'paid' ? `${them} has ticked this off.` : `${them} ticks this off when it reaches them.`}</Text>
       </View>
     );
   }
@@ -283,18 +283,18 @@ function Money({ item, organiser, joined, onAsk, onSet }: {
   // Varying, and still open: a ceiling, a likely figure, and nothing to pay.
   return (
     <View style={{ gap: 4 }}>
-      <Text style={type.tiny}>IT WILL NOT COST YOU MORE THAN</Text>
+      <Text style={type.small}>IT WILL NOT COST YOU MORE THAN</Text>
       <Text style={type.title}>{money(m.ceilingYoursPence)}</Text>
       <Text style={type.small}>
         {item.perHead && m.shares > 1 ? `for your ${m.shares} · ` : ''}probably about {money(m.likelyYoursPence)} — {money(item.totalPence)} split between whoever wants it.
       </Text>
       <Text style={type.small}>{m.heads} on it so far{m.perSharePence ? `, which is ${money(m.perSharePence)} each today` : ''}.</Text>
       {m.minimum ? (
-        <Text style={type.tiny}>
+        <Text style={type.small}>
           It needs {m.minimum}{short ? ` — ${m.minimum - m.heads} more` : ''} by {day(m.closesOn)}. If fewer want it, it does not happen and you pay nothing.
         </Text>
       ) : null}
-      <Text style={type.tiny}>Settled on {day(m.closesOn)}, and nothing to pay until then.</Text>
+      <Text style={type.small}>Settled on {day(m.closesOn)}, and nothing to pay until then.</Text>
       {item.required ? null : (
         <Wrap>
           <Chip label="I'm in" icon="check" selected={mine?.status === 'in'} onPress={tap(() => onSet({ status: mine?.status === 'in' ? 'clear' : 'in' }))} />
@@ -318,7 +318,7 @@ function JoinForm({ v, busy, onJoin, onCancel }: { v: JoinView; busy: boolean; o
       <Text style={type.small}>{v.group.organiser ?? 'The organiser'} sees your name and how to reach you, and nothing else about you.</Text>
       {v.expecting.length ? (
         <View style={{ gap: spacing.sm }}>
-          <Text style={type.tiny}>THEY ARE EXPECTING</Text>
+          <Text style={type.label}>They are expecting</Text>
           <Wrap>
             {v.expecting.map((p) => (
               <Chip key={p.id} label={p.name} selected={matchId === p.id} onPress={() => { setMatchId(p.id); setName(p.name); }} />
@@ -326,22 +326,34 @@ function JoinForm({ v, busy, onJoin, onCancel }: { v: JoinView; busy: boolean; o
           </Wrap>
         </View>
       ) : null}
-      <Text style={type.tiny}>YOUR NAME</Text>
+      <Text style={type.label}>Your name</Text>
       <TextInput value={name} onChangeText={(t) => { setName(t); setMatchId(null); }} placeholder="The name they know you by" placeholderTextColor={colors.inkFaint} style={styles.input} autoFocus />
-      <Text style={type.tiny}>MOBILE OR EMAIL</Text>
+      <Text style={type.label}>Mobile or email</Text>
       <TextInput value={contact} onChangeText={setContact} placeholder="So they can remind you — nothing else uses it" placeholderTextColor={colors.inkFaint} style={styles.input} autoCapitalize="none" />
-      <Text style={type.tiny}>ANYONE WITH YOU?</Text>
+      <Text style={type.label}>Who is coming?</Text>
       <Wrap>
         <Chip label="Just me" selected={heads === 1} onPress={() => { setHeads(1); setBrings(''); }} />
-        <Chip label="One other" selected={heads === 2} onPress={() => setHeads(2)} />
-        <Chip label="Two others" selected={heads === 3} onPress={() => setHeads(3)} />
+        <Chip label="My whole household" selected={heads > 1} onPress={() => setHeads(Math.max(2, heads))} />
       </Wrap>
-      {heads > 1 ? <TextInput value={brings} onChangeText={setBrings} placeholder="Who is with you — a name and an age if they are a child" placeholderTextColor={colors.inkFaint} style={styles.input} /> : null}
+      {heads > 1 ? (
+        <View style={{ gap: spacing.sm }}>
+          <Text style={type.label}>How many of you, including you?</Text>
+          <Row>
+            <Chip label="2" selected={heads === 2} onPress={() => setHeads(2)} />
+            <Chip label="3" selected={heads === 3} onPress={() => setHeads(3)} />
+            <Chip label="4" selected={heads === 4} onPress={() => setHeads(4)} />
+            <Chip label="5" selected={heads === 5} onPress={() => setHeads(5)} />
+            <Chip label="6" selected={heads === 6} onPress={() => setHeads(6)} />
+          </Row>
+          <TextInput value={brings} onChangeText={setBrings} placeholder="Who else is coming — names, and ages for children" placeholderTextColor={colors.inkFaint} style={styles.input} />
+          <Text style={type.small}>Everything priced per person counts all {heads} of you, and one bill comes to you.</Text>
+        </View>
+      ) : null}
       <Button
         label={busy ? 'Telling them…' : "That's me — I'm coming"}
         onPress={() => { if (!name.trim() || busy) return; onJoin({ name: name.trim(), contact: contact.trim() || undefined, heads, brings: brings.trim() || undefined, matchId }); }}
       />
-      <Button label="Not now" kind="ghost" onPress={onCancel} />
+      <Button label="Cancel" kind="ghost" onPress={onCancel} />
     </Card>
   );
 }
@@ -351,5 +363,7 @@ const styles = StyleSheet.create({
   input: {
     minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink, fontFamily: fonts.body,
+    // The focus ring is the leaf, not the browser's blue (style guide).
+    outlineColor: colors.accent as any, outlineWidth: 2 as any, outlineOffset: 1 as any,
   },
 });
