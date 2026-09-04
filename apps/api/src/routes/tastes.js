@@ -21,7 +21,7 @@ import { defaultSourceKeys, sourceHasKey, sourceOff } from '../sources/index.js'
 import { applyConstraints } from '../domain/ranking.js';
 import { estimateTravelMinutes, kmBetween } from '../domain/travel.js';
 import { routingEnabled, travelMatrixMinutes } from '../sources/routing.js';
-import { foodTastes, likedConcepts, whyForUs, dishEvidence, driveRadiusKm } from '../domain/tastes.js';
+import { foodTastes, likedConcepts, whyForUs, dishEvidence, driveRadiusKm, firstName } from '../domain/tastes.js';
 import { checkMenu, menuCheckEnabled, menuCheckUsage } from '../sources/menu.js';
 import { createTripFromIntent, seedShortlistFromIdea, thingsAround, THINGS_RADIUS_KM } from './plan.js';
 import { addShortlistItem } from './trips.js';
@@ -60,11 +60,12 @@ function getRun(sessionId) {
 
 const addDays = (dateStr, n) => new Date(new Date(`${dateStr}T12:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
 const dayWords = (dateStr) => new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-const namesOf = (list) => list.map((l) => l.name).filter(Boolean).reduce((s, n, i, a) => (i === 0 ? n : i === a.length - 1 ? `${s} and ${n}` : `${s}, ${n}`), '');
+const namesOf = (list) => list.map((l) => l.first || l.name).filter(Boolean).reduce((s, n, i, a) => (i === 0 ? n : i === a.length - 1 ? `${s} and ${n}` : `${s}, ${n}`), '');
 
 /** What to ask the sources for this food. A dish is asked for as a person would ask. */
 function queryFor(taste) {
-  return ['dish', 'ingredient'].includes(taste.kind) ? `best ${taste.label}` : `best ${taste.label} restaurant`;
+  const label = taste.label.toLowerCase();
+  return ['dish', 'ingredient'].includes(taste.kind) ? `best ${label}` : `best ${label} restaurant`;
 }
 
 /** How well the price of a place matches what they said the day should cost. */
@@ -81,17 +82,24 @@ function budgetFit(priceLevel, budget) {
 const REASON_TONE = { favourite: 'good', like: 'good', 'diet-ok': 'good', kids: 'good', 'learned-like': 'good', rating: 'fact', chain: 'fact', diet: 'warn', dislike: 'warn', note: 'warn', 'learned-dislike': 'warn', learning: 'fact' };
 function fitLines(venue, attending) {
   const out = [];
+  // The ranking layer writes each person's full name; on a card they are Roger,
+  // Gina and Phoenix. The line also starts as a sentence does.
+  const say = (text) => {
+    let t = String(text);
+    for (const m of attending) t = t.split(m.name).join(firstName(m.name));
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  };
   for (const r of venue.reasons || []) {
     const tone = REASON_TONE[r.kind];
     if (!tone) continue;
-    out.push({ tone, kind: r.kind, member: r.member ?? null, text: r.text });
+    out.push({ tone, kind: r.kind, member: r.member ? firstName(r.member) : null, text: say(r.text) });
   }
   // Allergens are safety: no listing states ingredients, so the honest line is
   // that it cannot be checked from here (Requirements §5; menus are Epic 6).
   const withAllergens = attending.filter((m) => (m.allergens || []).length);
   for (const m of withAllergens) {
     const named = m.allergens.map((a) => a.value ?? a).join(', ');
-    out.push({ tone: 'allergen', kind: 'allergen-unknown', member: m.name, text: `${named} — an allergen for ${m.name} — is not something any listing states. Read the menu or ask when you book.` });
+    out.push({ tone: 'allergen', kind: 'allergen-unknown', member: firstName(m.name), text: `${named} — an allergen for ${firstName(m.name)} — is not something any listing states. Read the menu or ask when you book.` });
   }
   return out;
 }
@@ -125,14 +133,18 @@ async function buildTable({ household, attending, attendees, session, taste, hom
   // Real drive times for the finalists only — one matrix call, a handful of
   // elements, so "within an hour" is the road and not a straight line.
   const finalists = scored.slice(0, PLACES_PER_TABLE + 3);
+  let travelNote = routingEnabled() ? null : 'Google Routes is not switched on here, so the drive is worked out from the distance.';
   if (routingEnabled() && finalists.length) {
     try {
       const rows = await travelMatrixMinutes({ origin: home, destinations: finalists, mode: 'driving', meter });
+      if (!rows) travelNote = 'Google Routes returned nothing for these places.';
+      else if (!rows.some((row) => row?.minutes != null)) travelNote = 'Google Routes found no road route to any of these places.';
       rows?.forEach((row, i) => { if (row?.minutes != null) { finalists[i].travelMinutes = row.minutes; finalists[i].travelEstimated = false; } });
     } catch (err) {
-      // The estimate stands, but a routing failure is worth seeing in the logs:
-      // an hour by road is not an hour as the crow flies.
-      console.warn(`taste table drive times fell back to the estimate: ${err?.message || err}`);
+      // The estimate stands, but the reason is said out loud in the log and on
+      // the table: an hour by road is not an hour as the crow flies.
+      travelNote = String(err?.message || err).slice(0, 200);
+      console.warn(`taste table drive times fell back to the estimate: ${travelNote}`);
     }
   }
 
@@ -179,6 +191,7 @@ async function buildTable({ household, attending, attendees, session, taste, hom
       : `You asked for ${taste.label.toLowerCase()}`,
     searched: params.query,
     radiusKm: Number(radiusKm.toFixed(1)),
+    travelNote,
     places,
     excluded: excluded.slice(0, 5).map((v) => ({ name: v.name, reasons: v.exclusionReasons })),
     found: venues.length,
@@ -310,14 +323,20 @@ router.get('/tastes/around', async (req, res, next) => {
       reasons: [],
     }));
     // The handful worth naming: something for as many of them as possible, best first.
+    // Somebody different each time where the place allows it, best-rated first,
+    // then the best of the rest — so a day out is not four museums for one person.
+    const candidates = items.filter((i) => i.kind !== 'eat' && i.why.length).sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
     const forUs = [];
     const spoken = new Set();
-    for (const it of items.filter((i) => i.kind !== 'eat' && i.why.length).sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))) {
-      const fresh = it.why.filter((w) => !spoken.has(w.memberId));
-      if (!fresh.length && forUs.length >= 2) continue;
+    for (const it of candidates) {
+      if (!it.why.some((w) => !spoken.has(w.memberId))) continue;
       forUs.push(it);
       for (const w of it.why) spoken.add(w.memberId);
-      if (forUs.length >= 4) break;
+      if (forUs.length >= 3) break;
+    }
+    for (const it of candidates) {
+      if (forUs.length >= 3) break;
+      if (!forUs.includes(it)) forUs.push(it);
     }
     res.json({ items, forUs, cached: Boolean(cached), radiusKm: THINGS_RADIUS_KM });
   } catch (err) {

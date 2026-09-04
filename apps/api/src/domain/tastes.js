@@ -17,6 +17,9 @@ const FOOD_KINDS = new Set(['dish', 'cuisine', 'ingredient', 'style']);
 /** A concrete dish searches better than a broad cuisine, so it leads. */
 const KIND_WEIGHT = { dish: 2, ingredient: 1.4, style: 1, cuisine: 0.8 };
 
+/** What this family calls each other: the name on the card is the one they use. */
+export const firstName = (name) => String(name || '').trim().split(/\s+/)[0] || String(name || '');
+
 const conceptFor = (pref) => (pref.conceptKey ? conceptByKey(pref.conceptKey) : resolveConcept(pref.value));
 
 /**
@@ -33,7 +36,7 @@ export function foodTastes(attendees, { brief = '' } = {}) {
     if (!byKey.has(concept.key)) byKey.set(concept.key, { key: concept.key, kind: concept.kind, label: concept.label, concept, loved: [], notFor: [], named: false });
     const taste = byKey.get(concept.key);
     if (member && !taste.loved.some((l) => l.memberId === member.id)) {
-      taste.loved.push({ memberId: member.id, name: member.name, favourite: Boolean(pref?.favourite), said: pref?.value ?? concept.label });
+      taste.loved.push({ memberId: member.id, name: member.name, first: firstName(member.name), favourite: Boolean(pref?.favourite), said: pref?.value ?? concept.label });
     }
     return taste;
   };
@@ -55,7 +58,7 @@ export function foodTastes(attendees, { brief = '' } = {}) {
       for (const pref of m.dislikes || []) {
         const c = conceptFor(pref);
         if (!c) continue;
-        if (c.key === taste.key || sameFood(c, taste.concept)) taste.notFor.push({ memberId: m.id, name: m.name, value: pref.value });
+        if (c.key === taste.key || sameFood(c, taste.concept)) taste.notFor.push({ memberId: m.id, name: m.name, first: firstName(m.name), value: pref.value });
       }
     }
   }
@@ -76,8 +79,12 @@ function sameFood(a, b) {
   if (a.kind === 'cuisine' && b.cuisine === a.slug) return true;
   if (b.kind === 'cuisine' && a.cuisine === b.slug) return true;
   if (a.kind === 'ingredient' || b.kind === 'ingredient') {
+    // The ingredient has to be in what the food IS, not in one variant of it:
+    // "fish tacos" is an alias of tacos, and a dislike of fish must not put
+    // "not for Gina" on the whole taco table.
     const [ing, other] = a.kind === 'ingredient' ? [a, b] : [b, a];
-    return ing.aliases.some((al) => other.aliases.some((o) => o.includes(norm(al))));
+    const hay = ` ${norm(other.label)} ${norm(other.slug)} `;
+    return ing.aliases.some((al) => al.length >= 3 && hay.includes(` ${norm(al)} `));
   }
   return false;
 }
@@ -122,7 +129,7 @@ export function whyForUs(venue, liked) {
   const out = [];
   for (const { concept, who } of liked) {
     if (!venueHasConcept(venue, concept)) continue;
-    for (const w of who) out.push({ memberId: w.memberId, name: w.name, favourite: w.favourite, label: concept.label, text: `${w.name} loves ${concept.label.toLowerCase()}` });
+    for (const w of who) out.push({ memberId: w.memberId, name: w.name, first: firstName(w.name), favourite: w.favourite, label: concept.label, text: `${firstName(w.name)} loves ${concept.label.toLowerCase()}` });
   }
   // One line per person: the first thing they love about it is enough.
   const seen = new Set();
