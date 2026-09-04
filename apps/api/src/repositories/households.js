@@ -12,9 +12,21 @@ import { query, withTransaction } from '../db.js';
 // the household
 // ---------------------------------------------------------------------------
 
-/** V1 is a single founding household (Requirements §3), so it is looked up. */
+/**
+ * The founding household — the owner's own.
+ *
+ * Before accounts this was *the* household and `currentHousehold()` was this
+ * function. It is now the fallback for the two callers with no account behind
+ * them: the owner's shared passcode, and work that runs outside any request.
+ */
 export async function firstHousehold() {
   const { rows } = await query('select * from households order by created_at limit 1');
+  return rows[0] ?? null;
+}
+
+/** One named household: an account's own, or a group's, resolved rather than assumed. */
+export async function householdById(id) {
+  const { rows } = await query('select * from households where id = $1', [id]);
   return rows[0] ?? null;
 }
 
@@ -232,4 +244,40 @@ export async function everythingFor(householdId) {
     query('select * from place_ledger where household_id = $1 order by created_at', [householdId]),
   ]);
   return { trips: trips.rows, stops: stops.rows, visits: visits.rows, ratings: ratings.rows, ledger: ledger.rows };
+}
+
+// ---------------------------------------------------------------------------
+// setting one up
+// ---------------------------------------------------------------------------
+
+export async function anyHouseholdExists() {
+  const { rows } = await query('select id from households limit 1');
+  return rows.length > 0;
+}
+
+/** Only ever from `npm run seed --force`, which says so before it runs. */
+export async function deleteAllHouseholds(client) {
+  await client.query('delete from households');
+}
+
+export async function createHousehold(client, h) {
+  const { rows } = await client.query(
+    `insert into households (name, default_visit_minutes, max_travel_minutes, default_intensity)
+     values ($1, $2, $3, $4) returning id`,
+    [h.name, h.defaultVisitMinutes, h.maxTravelMinutes, h.defaultIntensity],
+  );
+  return rows[0].id;
+}
+
+export async function createMember(client, householdId, m) {
+  const { rows } = await client.query(
+    `insert into members (household_id, name, is_minor, relationship, birth_year, typical_visit_minutes)
+     values ($1, $2, $3, $4, $5, $6) returning id`,
+    [householdId, m.name, m.isMinor, m.relationship ?? null, m.birthYear ?? null, m.typicalVisitMinutes],
+  );
+  return rows[0].id;
+}
+
+export async function createConstraint(client, memberId, kind, value) {
+  await client.query('insert into member_constraints (member_id, kind, value) values ($1, $2, $3)', [memberId, kind, value]);
 }

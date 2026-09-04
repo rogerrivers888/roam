@@ -16,6 +16,15 @@ export const pool = new pg.Pool({
 
 export const query = (text, params) => pool.query(text, params);
 
+/**
+ * Is the database answering?
+ *
+ * The one statement outside `repositories/` on purpose: it is not a question
+ * about anything the household owns, it is the connection saying it is alive,
+ * and it belongs with the pool it is testing.
+ */
+export const ping = () => pool.query('select 1');
+
 export async function withTransaction(fn) {
   const client = await pool.connect();
   try {

@@ -22,7 +22,7 @@
 // Nothing here is Google's and nothing expires, which is what makes it fit to
 // go on the device and stay there.
 
-import { query } from '../db.js';
+import * as placeContents from '../repositories/placeContents.js';
 import { OSM_ATTRIBUTION } from './osm.js';
 
 const ENDPOINTS = (process.env.ROAM_OVERPASS_URLS || 'https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter').split(',');
@@ -231,24 +231,18 @@ async function fromWikipedia(items) {
 export async function researchInside({ parentRef, name, lat, lng, radiusKm, force = false }) {
   if (!parentRef || lat == null || lng == null || !radiusKm) return [];
   if (!force) {
-    const { rows } = await query('select contents_state, contents_at from place_records where venue_ref = $1', [parentRef]);
-    const held = rows[0];
+    const held = await placeContents.contentsState(parentRef);
     if (held?.contents_state === 'done' && held.contents_at && Date.now() - new Date(held.contents_at).getTime() < 30 * 86_400_000) {
       return contentsOf(parentRef);
     }
   }
-  await query(
-    `insert into place_records (venue_ref, name, lat, lng, contents_state)
-     values ($1,$2,$3,$4,'pending')
-     on conflict (venue_ref) do update set contents_state = 'pending'`,
-    [parentRef, name ?? null, lat, lng],
-  );
+  await placeContents.markResearching(parentRef, name, lat, lng);
 
   let items = [];
   try {
     items = await fromOsm({ lat, lng, radiusKm });
   } catch (err) {
-    await query('update place_records set contents_state = $2 where venue_ref = $1', [parentRef, 'failed']);
+    await placeContents.markResearchFailed(parentRef);
     throw err;
   }
 
@@ -268,38 +262,21 @@ export async function researchInside({ parentRef, name, lat, lng, radiusKm, forc
     if (Object.keys(extra).length) attribution.push('Wikidata, CC0');
     if (article) attribution.push('Wikipedia, CC BY-SA 4.0');
     const provenance = { ...item.provenance, ...Object.fromEntries(Object.keys(extra).map((k) => [k, 'wikidata'])), ...(article ? { summary: 'wikipedia' } : {}) };
-    await query(
-      `insert into place_contents (parent_ref, item_ref, name, kind, kind_label, lat, lng, facts, summary, summary_source, website, wikidata_id, wikipedia_url, attribution, provenance, position, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, now())
-       on conflict (parent_ref, item_ref) do update set
-         name = excluded.name, kind = excluded.kind, kind_label = excluded.kind_label,
-         lat = excluded.lat, lng = excluded.lng, facts = excluded.facts,
-         summary = excluded.summary, summary_source = excluded.summary_source, website = excluded.website,
-         wikidata_id = excluded.wikidata_id, wikipedia_url = excluded.wikipedia_url,
-         attribution = excluded.attribution, provenance = excluded.provenance,
-         position = excluded.position, updated_at = now()`,
-      [
-        parentRef, item.itemRef, item.name, item.kind, item.kindLabel, item.lat, item.lng,
-        JSON.stringify({ ...item.facts, ...extra }), article?.summary ?? null, article ? 'wikipedia' : null,
-        item.website, item.wikidataId, article?.url ?? null,
-        JSON.stringify(attribution), JSON.stringify(provenance), position,
-      ],
-    );
+    await placeContents.upsertContent(parentRef, {
+      itemRef: item.itemRef, name: item.name, kind: item.kind, kindLabel: item.kindLabel,
+      lat: item.lat, lng: item.lng, facts: { ...item.facts, ...extra },
+      summary: article?.summary ?? null, summarySource: article ? 'wikipedia' : null,
+      website: item.website, wikidataId: item.wikidataId, wikipediaUrl: article?.url ?? null,
+      attribution, provenance, position,
+    });
   }
-  await query(
-    `update place_records set contents_state = 'done', contents_count = $2, contents_at = now(), updated_at = now() where venue_ref = $1`,
-    [parentRef, items.length],
-  );
+  await placeContents.markResearchDone(parentRef, items.length);
   return contentsOf(parentRef);
 }
 
 /** What we hold about the inside of a place. */
 export async function contentsOf(parentRef) {
-  const { rows } = await query(
-    `select item_ref, name, kind, kind_label, lat, lng, facts, summary, summary_source, website, wikidata_id, wikipedia_url, attribution
-       from place_contents where parent_ref = $1 order by position`,
-    [parentRef],
-  );
+  const rows = await placeContents.contentsRows(parentRef);
   return rows.map((r) => ({
     itemRef: r.item_ref, name: r.name, kind: r.kind, kindLabel: r.kind_label,
     lat: r.lat, lng: r.lng, facts: r.facts ?? {}, summary: r.summary, summarySource: r.summary_source,

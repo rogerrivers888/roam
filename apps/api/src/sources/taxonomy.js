@@ -9,7 +9,7 @@
 // The lookup uses the cheapest field mask the provider sells — the taxonomy
 // alone, no reviews, photos or hours.
 
-import { query } from '../db.js';
+import * as providerCalls from '../repositories/providerCalls.js';
 import { googleSource } from './google.js';
 import { recallVenue } from './index.js';
 
@@ -58,7 +58,7 @@ export async function taxonomyFor(venueRef, { householdId = null } = {}) {
   const value = await googleSource.types(rest.join(':'));
   if (!value) return null;
   remember(venueRef, value);
-  await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [householdId, 'google', 'atlas.types', JSON.stringify({ google: 1 })]).catch(() => null);
+  await providerCalls.record(householdId, 'google', 'atlas.types', JSON.stringify({ google: 1 })).catch(() => null);
   return value;
 }
 

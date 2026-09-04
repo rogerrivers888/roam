@@ -17,7 +17,7 @@
 //     pinned and dismissed exactly like any other stop — no new UI path.
 
 import { searchWeb } from '../claude.js';
-import { query } from '../db.js';
+import * as providerCalls from '../repositories/providerCalls.js';
 import { geocode } from './geocode.js';
 import { wallClock, wallToUtc, DEFAULT_TZ } from '../domain/time.js';
 
@@ -34,11 +34,7 @@ const DEADLINE_MS = Number(process.env.ROAM_SCOUT_DEADLINE_MS || 90_000);
 export const SCOUT_MONTHLY_RUNS = Number(process.env.ROAM_SCOUT_MONTHLY_RUNS || 60);
 
 async function assertScoutBudget(householdId) {
-  const { rows: [{ n }] } = await query(
-    `select count(*)::int as n from provider_calls
-      where household_id = $1 and purpose = 'scout.events' and created_at >= date_trunc('month', now())`,
-    [householdId],
-  );
+  const n = await providerCalls.countOfPurpose(householdId, 'scout', 'scout.events');
   if (n >= SCOUT_MONTHLY_RUNS) throw new Error(`local scout paused: ${n} of ${SCOUT_MONTHLY_RUNS} runs used this month (ROAM_SCOUT_MONTHLY_RUNS)`);
   return n;
 }

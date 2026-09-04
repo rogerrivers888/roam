@@ -28,7 +28,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { query } from '../db.js';
+import * as sketches from '../repositories/sketches.js';
 import { areaOutline, GEOCODE_ATTRIBUTION } from './geocode.js';
 
 const OUTLINES = JSON.parse(fs.readFileSync(
@@ -104,8 +104,7 @@ function inKnownArea(areas, x, y) {
  */
 export async function sketchFor({ lat, lng, radiusKm = 3 }) {
   const key = keyFor(lat, lng);
-  const { rows } = await query('select * from map_sketches where key = $1', [key]);
-  const row = rows[0];
+  const row = await sketches.sketchAt(key);
   if (row && (row.complete || Number(row.radius_km) >= radiusKm)) {
     if (!row.complete) fillNeighbours(key, lat, lng, radiusKm);
     return { place: row.place, areas: row.areas, complete: row.complete };
@@ -115,14 +114,7 @@ export async function sketchFor({ lat, lng, radiusKm = 3 }) {
   try { centre = await areaOutline(lat, lng); } catch { centre = null; }
   const area = centre ? shapeArea(centre) : null;
   const areas = area ? [area] : [];
-  await query(
-    `insert into map_sketches (key, lat, lng, radius_km, place, areas, complete)
-     values ($1,$2,$3,$4,$5,$6,false)
-     on conflict (key) do update set radius_km = greatest(map_sketches.radius_km, excluded.radius_km),
-       place = coalesce(excluded.place, map_sketches.place),
-       areas = case when jsonb_array_length(excluded.areas) > jsonb_array_length(map_sketches.areas) then excluded.areas else map_sketches.areas end`,
-    [key, lat, lng, radiusKm, area?.name ?? null, JSON.stringify(areas)],
-  );
+  await sketches.upsertSketch(key, { lat, lng, radiusKm, place: area?.name ?? null, areas });
   fillNeighbours(key, lat, lng, radiusKm);
   return { place: area?.name ?? null, areas, complete: false };
 }
@@ -137,8 +129,7 @@ function fillNeighbours(key, lat, lng, radiusKm) {
   filling.add(key);
   (async () => {
     try {
-      const { rows } = await query('select areas from map_sketches where key = $1', [key]);
-      const seen = new Map((rows[0]?.areas ?? []).map((a) => [a.ref, a]));
+      const seen = new Map((await sketches.areasAt(key)).map((a) => [a.ref, a]));
       const km = kmPerUnit(lat);
       const r = Math.max(1.5, Math.min(12, radiusKm * 0.7));
       for (let i = 0; i < 6; i += 1) {
@@ -153,10 +144,7 @@ function fillNeighbours(key, lat, lng, radiusKm) {
           if (shaped && !seen.has(shaped.ref)) seen.set(shaped.ref, shaped);
         } catch { /* one missing neighbour is not worth failing the sketch for */ }
       }
-      await query(
-        'update map_sketches set areas = $2, complete = true, radius_km = greatest(radius_km, $3), fetched_at = now() where key = $1',
-        [key, JSON.stringify([...seen.values()]), radiusKm],
-      );
+      await sketches.completeSketch(key, [...seen.values()], radiusKm);
     } catch { /* the sketch is a nicety; it never breaks a search */ }
     finally { filling.delete(key); }
   })();

@@ -22,7 +22,7 @@
 //     allergens on the safety path, not the preference path.
 
 import { searchWeb } from '../claude.js';
-import { query } from '../db.js';
+import * as providerCalls from '../repositories/providerCalls.js';
 
 export const MENU_ATTRIBUTION = 'Read from the venue’s own menu';
 const CACHE_TTL_MS = 6 * 3600_000;
@@ -36,11 +36,7 @@ const inflight = new Map();
 export const menuCheckEnabled = () => Boolean(process.env.ANTHROPIC_API_KEY?.trim());
 
 async function assertMenuBudget(householdId) {
-  const { rows: [{ n }] } = await query(
-    `select count(*)::int as n from provider_calls
-      where household_id = $1 and purpose = 'menu.check' and created_at >= date_trunc('month', now())`,
-    [householdId],
-  );
+  const n = await providerCalls.countOfPurpose(householdId, 'claude', 'menu.check');
   if (n >= MENU_CHECKS_MONTHLY) throw new Error(`menu reading paused: ${n} of ${MENU_CHECKS_MONTHLY} reads used this month (ROAM_MENU_CHECKS_MONTHLY)`);
   return n;
 }
@@ -159,10 +155,6 @@ export async function checkMenu({ householdId, sessionId = null, venue, dish = n
 
 /** How many menus this household has read this month, against the month's purse. */
 export async function menuCheckUsage(householdId) {
-  const { rows: [{ n }] } = await query(
-    `select count(*)::int as n from provider_calls
-      where household_id = $1 and purpose = 'menu.check' and created_at >= date_trunc('month', now())`,
-    [householdId],
-  );
+  const n = await providerCalls.countOfPurpose(householdId, 'claude', 'menu.check');
   return { used: n, limit: MENU_CHECKS_MONTHLY };
 }

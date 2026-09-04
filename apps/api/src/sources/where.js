@@ -8,7 +8,8 @@
 // Everything here is looked up once per place and stored on household_places:
 // a station name and a postcode district are open data, not licensed content.
 
-import { query } from '../db.js';
+import * as providerCalls from '../repositories/providerCalls.js';
+import * as atlasRepo from '../repositories/atlas.js';
 import { reverseGeocode } from './geocode.js';
 
 const TFL = 'https://api.tfl.gov.uk/StopPoint';
@@ -96,7 +97,7 @@ export async function whereIs(lat, lng, { householdId = null } = {}) {
   try {
     const geo = await reverseGeocode(lat, lng, { zoom: 18 });
     postcode = postcodeDistrict(geo?.address?.postcode);
-    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [householdId, 'osm-nominatim', 'atlas.where', JSON.stringify({ 'osm-nominatim': 1 })]).catch(() => null);
+    await providerCalls.record(householdId, 'osm-nominatim', 'atlas.where', JSON.stringify({ 'osm-nominatim': 1 })).catch(() => null);
   } catch { /* the postcode is a nicety */ }
   let station = null;
   // The bounding box is generous, so somewhere just outside Transport for
@@ -115,7 +116,7 @@ export async function whereIs(lat, lng, { householdId = null } = {}) {
   if (inLondon(lat, lng)) await attempt('tfl', () => tflStation(lat, lng));
   await attempt('osm-overpass', () => osmStation(lat, lng));
   for (const provider of tried) {
-    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [householdId, provider, 'atlas.where', JSON.stringify({ [provider]: 1 })]).catch(() => null);
+    await providerCalls.record(householdId, provider, 'atlas.where', JSON.stringify({ [provider]: 1 })).catch(() => null);
   }
   return { postcode, station, failed };
 }
@@ -125,11 +126,7 @@ export async function fillWhere(householdId, rows, { limit = 6 } = {}) {
   const todo = rows.filter((r) => r.lat != null && r.lng != null && !r.where_checked).slice(0, limit);
   for (const r of todo) {
     const w = await whereIs(r.lat, r.lng, { householdId });
-    await query(
-      `update household_places set postcode = coalesce($3, postcode), station = $4, station_lines = $5, station_kind = $6, station_distance_m = $7, where_checked = $8
-        where household_id = $1 and venue_ref = $2`,
-      [householdId, r.venue_ref, w.postcode, w.station?.name ?? null, w.station ? JSON.stringify(w.station.lines) : null, w.station?.kind ?? null, w.station?.distanceM ?? null, w.failed ? null : new Date()],
-    ).catch(() => null);
+    await atlasRepo.saveWhere(householdId, r.venue_ref, { ...w, checkedAt: w.failed ? null : new Date() }).catch(() => null);
   }
   return todo.length;
 }

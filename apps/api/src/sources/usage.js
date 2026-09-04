@@ -3,7 +3,7 @@
 // Feeds Settings › Usage and the source picker (Technical Constraints §14
 // "cost per household per period, and cost per source").
 
-import { query } from '../db.js';
+import * as providerCalls from '../repositories/providerCalls.js';
 import { LINES, legacyLines } from './pricing.js';
 
 const EPOCH = new Date(0);
@@ -17,13 +17,7 @@ export async function usageBetween(householdId, from = EPOCH, to = FAR) {
   const total = { calls: 0, costUsd: 0 };
 
   // Rows written with units: the provider counted what it billed for.
-  const { rows: metered } = await query(
-    `select k.key, count(*)::int as calls, coalesce(sum(k.value::numeric), 0)::float as units
-       from provider_calls pc cross join lateral jsonb_each_text(case when jsonb_typeof(pc.units) = 'object' then pc.units else '{}'::jsonb end) k
-      where pc.household_id = $1 and pc.created_at >= $2 and pc.created_at < $3
-      group by k.key`,
-    [householdId, from, to],
-  );
+  const metered = await providerCalls.meteredUnits(householdId, from, to);
   for (const r of metered) {
     if (!lines[r.key]) lines[r.key] = empty();
     lines[r.key].calls += r.calls;
@@ -35,13 +29,7 @@ export async function usageBetween(householdId, from = EPOCH, to = FAR) {
   // A row whose units is a bare number (a routes call that recorded its
   // element count without naming the line) is placed like a legacy row but
   // keeps its real count.
-  const { rows } = await query(
-    `select provider, purpose, (units is null or jsonb_typeof(units) <> 'object') as legacy, count(*)::int as calls, coalesce(sum(estimated_cost_usd), 0)::float as cost_usd,
-            coalesce(sum(case when jsonb_typeof(units) = 'number' then (units #>> '{}')::numeric end), 0)::float as num_units
-       from provider_calls where household_id = $1 and created_at >= $2 and created_at < $3
-      group by provider, purpose, (units is null or jsonb_typeof(units) <> 'object')`,
-    [householdId, from, to],
-  );
+  const rows = await providerCalls.callsByPurpose(householdId, from, to);
   for (const r of rows) {
     total.calls += r.calls;
     total.costUsd += r.cost_usd;
@@ -60,12 +48,7 @@ export async function usageBetween(householdId, from = EPOCH, to = FAR) {
 
 /** The calendar windows allowances live in, from the database clock so they match the caps' own queries. */
 export async function windows() {
-  const { rows: [w] } = await query(
-    `select date_trunc('month', now()) as month_start, date_trunc('month', now()) - interval '1 month' as last_month_start,
-            date_trunc('month', now()) + interval '1 month' as next_month_start, date_trunc('day', now()) as today_start,
-            date_trunc('day', now()) + interval '1 day' as tomorrow_start, now() as now`,
-  );
-  return w;
+  return providerCalls.windows();
 }
 
 /**
@@ -113,22 +96,10 @@ export async function usageByMonth(householdId, months = 12) {
   const total = Object.fromEntries(labels.map((m) => [m, { calls: 0, costUsd: 0 }]));
   const bucket = (m) => (lines[m] ? lines[m] : (lines[m] = blank()));
 
-  const { rows: metered } = await query(
-    `select to_char(date_trunc('month', pc.created_at), 'YYYY-MM') as month, k.key, count(*)::int as calls, coalesce(sum(k.value::numeric), 0)::float as units
-       from provider_calls pc cross join lateral jsonb_each_text(case when jsonb_typeof(pc.units) = 'object' then pc.units else '{}'::jsonb end) k
-      where pc.household_id = $1 and pc.created_at >= $2
-      group by 1, 2`,
-    [householdId, start],
-  );
+  const metered = await providerCalls.meteredUnitsByMonth(householdId, start);
   for (const r of metered) { if (!labels.includes(r.month)) continue; const b = bucket(r.key)[r.month]; b.calls += r.calls; b.units += r.units; }
 
-  const { rows } = await query(
-    `select to_char(date_trunc('month', created_at), 'YYYY-MM') as month, provider, purpose, (units is null or jsonb_typeof(units) <> 'object') as legacy, count(*)::int as calls, coalesce(sum(estimated_cost_usd), 0)::float as cost_usd,
-            coalesce(sum(case when jsonb_typeof(units) = 'number' then (units #>> '{}')::numeric end), 0)::float as num_units
-       from provider_calls where household_id = $1 and created_at >= $2
-      group by 1, 2, 3, 4`,
-    [householdId, start],
-  );
+  const rows = await providerCalls.callsByPurposeByMonth(householdId, start);
   for (const r of rows) {
     if (!labels.includes(r.month)) continue;
     total[r.month].calls += r.calls;

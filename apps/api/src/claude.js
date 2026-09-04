@@ -7,7 +7,8 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
-import { query } from './db.js';
+import * as providerCalls from './repositories/providerCalls.js';
+import { callBoundFor } from './repositories/accounts.js';
 
 export const MODEL = 'claude-opus-5';
 
@@ -50,17 +51,28 @@ export class SpendBoundError extends Error {
   }
 }
 
+/**
+ * The ceiling this household is held to.
+ *
+ * Every household added draws on the same provider allowances the owner's own
+ * searching does — Google's free searches are per Google account, not per
+ * household — so a guest account carries its own smaller number
+ * (accounts.monthly_call_bound, set on the admin screen). Nobody's number set
+ * means the estate default, which is what the founding household runs on.
+ */
+export async function monthlyBoundFor(householdId) {
+  const own = await callBoundFor(householdId).catch(() => null);
+  return own ?? HOUSEHOLD_MONTHLY_CALL_BOUND;
+}
+
 export async function assertWithinBounds({ householdId, sessionId }) {
-  const [{ rows: s }, { rows: h }] = await Promise.all([
-    query('select count(*)::int as n from provider_calls where session_id = $1', [sessionId]),
-    query(
-      `select count(*)::int as n from provider_calls
-        where household_id = $1 and created_at >= date_trunc('month', now())`,
-      [householdId],
-    ),
+  const [sessionCalls, monthCalls, bound] = await Promise.all([
+    providerCalls.countForSession(sessionId),
+    providerCalls.countThisMonth(householdId),
+    monthlyBoundFor(householdId),
   ]);
-  if (s[0].n >= SESSION_CALL_BOUND) throw new SpendBoundError('session', SESSION_CALL_BOUND);
-  if (h[0].n >= HOUSEHOLD_MONTHLY_CALL_BOUND) throw new SpendBoundError('household', HOUSEHOLD_MONTHLY_CALL_BOUND);
+  if (sessionCalls >= SESSION_CALL_BOUND) throw new SpendBoundError('session', SESSION_CALL_BOUND);
+  if (monthCalls >= bound) throw new SpendBoundError('household', bound);
 }
 
 async function recordCall({ householdId, sessionId, provider, purpose, usage, model = MODEL }) {
@@ -72,18 +84,12 @@ async function recordCall({ householdId, sessionId, provider, purpose, usage, mo
       (usage.cache_creation_input_tokens || 0) * RATE.cacheWrite +
       (usage.server_tool_use?.web_search_requests || 0) * WEB_SEARCH_RATE
     : null;
-  await query(
-    `insert into provider_calls
-       (household_id, session_id, provider, purpose, input_tokens, output_tokens,
-        cache_read_tokens, cache_write_tokens, estimated_cost_usd)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [
-      householdId, sessionId, provider, purpose,
-      usage?.input_tokens ?? null, usage?.output_tokens ?? null,
-      usage?.cache_read_input_tokens ?? null, usage?.cache_creation_input_tokens ?? null,
-      cost,
-    ],
-  );
+  await providerCalls.recordTokens({
+    householdId, sessionId, provider, purpose,
+    inputTokens: usage?.input_tokens ?? null, outputTokens: usage?.output_tokens ?? null,
+    cacheReadTokens: usage?.cache_read_input_tokens ?? null, cacheWriteTokens: usage?.cache_creation_input_tokens ?? null,
+    costUsd: cost,
+  });
 }
 
 /**
@@ -167,18 +173,10 @@ export async function searchWeb({ system, prompt, householdId, sessionId, purpos
 
 /** Cost and call counts, for the session and for the household this month. */
 export async function spendSummary({ householdId, sessionId }) {
-  const { rows } = await query(
-    `select
-       count(*) filter (where session_id = $2)::int                                   as session_calls,
-       coalesce(sum(estimated_cost_usd) filter (where session_id = $2), 0)::float      as session_cost_usd,
-       count(*) filter (where created_at >= date_trunc('month', now()))::int          as month_calls,
-       coalesce(sum(estimated_cost_usd) filter (where created_at >= date_trunc('month', now())), 0)::float as month_cost_usd
-     from provider_calls where household_id = $1`,
-    [householdId, sessionId],
-  );
+  const rows = [await providerCalls.summary(householdId, sessionId)];
   return {
     ...rows[0],
     sessionBound: SESSION_CALL_BOUND,
-    householdMonthlyBound: HOUSEHOLD_MONTHLY_CALL_BOUND,
+    householdMonthlyBound: await monthlyBoundFor(householdId),
   };
 }

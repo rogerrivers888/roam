@@ -16,7 +16,7 @@ import { datathistleSource } from './datathistle.js';
 import { localScoutSource } from './localscout.js';
 import { detectChain } from '../domain/chains.js';
 import { kmBetween } from '../domain/travel.js';
-import { query } from '../db.js';
+import * as settings from '../repositories/settings.js';
 
 // Licensed sources register here and switch on when their key exists;
 // ROAM_SOURCES still narrows the set (Epic 2 C10: no code change to enable/disable).
@@ -43,8 +43,7 @@ export const eventSources = () => enabledSources().filter((s) => s.events);
 let offKeys = new Set();
 export async function loadSourceSettings() {
   try {
-    const { rows } = await query("select value from app_settings where key = 'sources.off'");
-    offKeys = new Set(Array.isArray(rows[0]?.value) ? rows[0].value.map(String) : []);
+    offKeys = new Set(await settings.sourcesOff());
   } catch (err) {
     console.warn(`source settings not loaded: ${err.message}`);
   }
@@ -53,7 +52,7 @@ export async function loadSourceSettings() {
 export async function setSourceOff(key, off) {
   const next = new Set(offKeys);
   if (off) next.add(key); else next.delete(key);
-  await query("insert into app_settings (key, value, updated_at) values ('sources.off', $1, now()) on conflict (key) do update set value = excluded.value, updated_at = now()", [JSON.stringify([...next])]);
+  await settings.setSourcesOff([...next]);
   offKeys = next;
   return [...offKeys];
 }

@@ -66,3 +66,65 @@ export async function recordSessionCall(householdId, sessionId, provider, purpos
     [householdId, sessionId, provider, purpose, units],
   );
 }
+
+/**
+ * A session by its short reference — the eight characters a run is quoted by.
+ *
+ * Matched as a prefix of the id with the dashes taken out, because that is the
+ * form the number is shown in. Not expiry-filtered: "no run here begins that"
+ * and "that run has expired" are different answers and the route says which.
+ */
+export async function planSessionByRef(householdId, ref) {
+  const { rows } = await query(
+    `select id, trip_id, created_at, updated_at, state from plan_sessions
+      where household_id = $1 and replace(id::text, '-', '') like $2 || '%'
+      order by created_at desc limit 1`,
+    [householdId, ref],
+  );
+  return rows[0] ?? null;
+}
+
+/** Every provider call one run made, in order, for the run's own receipt. */
+export async function callsOfSession(sessionId) {
+  const { rows } = await query(
+    `select provider, purpose, units, estimated_cost_usd, created_at from provider_calls
+      where session_id = $1 order by created_at`,
+    [sessionId],
+  );
+  return rows;
+}
+
+/** What every planning session for one trip has cost so far. */
+export async function spendOnTrip(tripId) {
+  const { rows } = await query(
+    `select count(pc.*)::int as trip_calls, coalesce(sum(pc.estimated_cost_usd), 0)::float as trip_cost_usd
+       from provider_calls pc join plan_sessions ps on ps.id = pc.session_id where ps.trip_id = $1`,
+    [tripId],
+  );
+  return rows[0];
+}
+
+/** What the household has spent since a moment, for the run's own budget. */
+export async function spentSince(householdId, since) {
+  const { rows } = await query(
+    'select coalesce(sum(estimated_cost_usd), 0)::float as usd from provider_calls where household_id = $1 and created_at >= $2',
+    [householdId, since],
+  );
+  return rows[0].usd;
+}
+
+/**
+ * Mark every run that was in flight as interrupted.
+ *
+ * Called once on start-up. A deploy lands every few minutes while several
+ * sessions are working, and a run killed mid-flight would otherwise sit saying
+ * "running" until it expired — so the screen is told at once and retries.
+ */
+export async function markRunsInterrupted() {
+  const { rowCount } = await query(
+    `update plan_sessions
+        set state = state || '{"running": false, "outcome": {"kind": "error", "message": "the plan was interrupted by a restart"}}'::jsonb
+      where state->>'running' = 'true'`,
+  );
+  return rowCount;
+}

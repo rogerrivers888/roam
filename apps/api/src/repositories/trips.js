@@ -523,3 +523,185 @@ export async function tripOfHousehold(tripId, householdId) {
   const { rows } = await query('select id, title, start_date from trips where id = $1 and household_id = $2', [tripId, householdId]);
   return rows[0] ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// the planner's writes
+// ---------------------------------------------------------------------------
+
+/** The outing a plan makes: one day, its window already known. */
+export async function insertPlannedOuting(householdId, t) {
+  const { rows } = await query(
+    `insert into trips (household_id, kind, title, origin_label, origin_lat, origin_lng,
+                        destination_label, destination_lat, destination_lng,
+                        depart_at, return_at, travel_mode, intensity,
+                        start_date, end_date, base_label, base_lat, base_lng, base_kind, day_start, day_end, has_car, timezone, sources)
+     values ($1,'outing',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::date,$13::date,$14,$15,$16,$17,$19::time,$20::time,$18,$21,$22) returning *`,
+    [householdId, t.title, t.originLabel, t.originLat, t.originLng,
+      t.destinationLabel, t.destinationLat, t.destinationLng,
+      t.departAt, t.returnAt, t.travelMode, t.intensity,
+      t.date, t.baseLabel, t.baseLat, t.baseLng, t.baseKind, t.hasCar,
+      t.dayStart, t.dayEnd, t.timezone, t.sources ? JSON.stringify(t.sources) : null],
+  );
+  return rows[0];
+}
+
+/** The stay a plan makes: a city, a date range, a base at its centre. */
+export async function insertPlannedStay(householdId, t, client) {
+  const { rows } = await on(client)(
+    `insert into trips (household_id, kind, title, notes, place_label, start_date, end_date,
+                        base_label, base_lat, base_lng, base_kind, has_car, day_start, day_end,
+                        origin_label, origin_lat, origin_lng, depart_at, return_at, travel_mode, intensity, timezone)
+     values ($1,'trip',$2,$3,$4,$5,$6,$7,$8,$9,'hotel',$10,$11,$12,$7,$8,$9,($5::date + $11::time),($6::date + $12::time),$13,$14,$15) returning *`,
+    [householdId, t.title, t.notes, t.placeLabel, t.startDate, t.endDate,
+      t.baseLabel, t.baseLat, t.baseLng, t.hasCar, t.dayStart, t.dayEnd, t.travelMode, t.intensity, t.timezone],
+  );
+  return rows[0];
+}
+
+export async function insertDay(tripId, d) {
+  const { rows } = await query(
+    'insert into trip_days (trip_id, date, intensity, travel_mode, start_time, end_time) values ($1, $2, $3, $4, $5::time, $6::time) returning *',
+    [tripId, d.date, d.intensity, d.travelMode, d.startTime, d.endTime],
+  );
+  return rows[0];
+}
+
+/**
+ * Seed a stay's shortlist from the atlas.
+ *
+ * Unlike the Trips-tab version this does not filter out places the household
+ * has dismissed: a plan the household just asked for is a fresh intention, and
+ * the planner has already decided what to offer.
+ */
+export async function seedStayShortlist(tripId, householdId, countryCode, locality, client) {
+  await on(client)(
+    `insert into trip_shortlist (trip_id, venue_ref, venue_label, kind, category, lat, lng, venue, note)
+     select $1, hp.venue_ref, hp.label, coalesce(hp.kind, 'other'), hp.category, hp.lat, hp.lng, hp.venue, hp.note
+       from household_places hp
+      where hp.household_id = $2 and hp.country_code = $3 and coalesce(hp.locality, '') = coalesce($4, '')
+     on conflict (trip_id, venue_ref) do nothing`,
+    [tripId, householdId, countryCode, locality],
+  );
+}
+
+/** A place the household asked for by name, put on as a must-do. */
+export async function addAskedForPlace(tripId, venueRef, label, lat, lng, note) {
+  await query(
+    `insert into trip_shortlist (trip_id, venue_ref, venue_label, kind, category, lat, lng, note, must_do)
+     values ($1,$2,$3,'activity','attraction',$4,$5,$6,true) on conflict (trip_id, venue_ref) do nothing`,
+    [tripId, venueRef, label, lat, lng, note],
+  );
+}
+
+export async function addPlannedShortlistItem(tripId, c) {
+  await query(
+    `insert into trip_shortlist (trip_id, venue_ref, venue_label, kind, category, lat, lng, must_do)
+     values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (trip_id, venue_ref) do nothing`,
+    [tripId, c.venueRef, c.name, c.kind, c.category ?? null, c.lat ?? null, c.lng ?? null, c.mustDo],
+  );
+}
+
+/** Places the household has marked special — they may be further than the usual limit. */
+export async function specialRefs(householdId) {
+  const { rows } = await query(
+    `select source || ':' || source_place_id as ref from place_ledger where household_id = $1 and status = 'special'`,
+    [householdId],
+  );
+  return rows.map((r) => r.ref);
+}
+
+/**
+ * Throw away the outing a session made, but only while nothing has been done
+ * with it: no stops, nothing shortlisted, nowhere visited. Planning the same
+ * session somewhere else replaces an empty trip rather than leaving it behind.
+ */
+export async function deleteUntouchedTrip(tripId) {
+  await query(
+    `delete from trips t where t.id = $1
+       and not exists (select 1 from trip_stops s where s.trip_id = t.id)
+       and not exists (select 1 from trip_shortlist l where l.trip_id = t.id)
+       and not exists (select 1 from visits v where v.trip_id = t.id)`,
+    [tripId],
+  );
+}
+
+/** Clear a day's stops, keeping any that have become a visit — a fact stays. */
+export async function clearUnvisitedStops(tripId, dayId = null) {
+  if (dayId) {
+    await query('delete from trip_stops where day_id = $1 and not exists (select 1 from visits v where v.stop_id = trip_stops.id)', [dayId]);
+    return;
+  }
+  await query('delete from trip_stops where trip_id = $1 and not exists (select 1 from visits v where v.stop_id = trip_stops.id)', [tripId]);
+}
+
+/** A booking already made, sitting on the day as an anchor. */
+export async function anchorStops(dayId) {
+  const { rows } = await query(`select * from trip_stops where day_id = $1 and venue_ref like 'anchor:%' order by start_time`, [dayId]);
+  return rows;
+}
+
+export async function setDayWindow(dayId, startTime, endTime) {
+  await query('update trip_days set start_time = $2::time, end_time = $3::time where id = $1', [dayId, startTime, endTime]);
+}
+
+/**
+ * Stretch a day to hold something on the way there or back.
+ *
+ * `least`/`greatest` leave the day alone where there is nothing to stretch to,
+ * so a stop before the day starts moves the start and nothing else.
+ */
+export async function stretchDay(dayId, earliest, latest) {
+  await query(
+    'update trip_days set start_time = least(start_time, $2::time), end_time = greatest(end_time, $3::time) where id = $1',
+    [dayId, earliest, latest],
+  );
+}
+
+/** Give the day back the minutes a changed route no longer needs. */
+export async function shiftDayForTravel(dayId, outMinutes, backMinutes) {
+  await query(
+    `update trip_days set start_time = start_time + ($2::int * interval '1 minute'),
+                          end_time = end_time - ($3::int * interval '1 minute') where id = $1`,
+    [dayId, outMinutes, backMinutes],
+  );
+}
+
+export async function setDayIntensity(dayId, intensity) {
+  await query('update trip_days set intensity = $2 where id = $1', [dayId, intensity]);
+}
+
+export async function setDayTravelMode(dayId, travelMode) {
+  await query('update trip_days set travel_mode = $2 where id = $1', [dayId, travelMode]);
+}
+
+export async function setDayEndTime(dayId, endTime) {
+  await query('update trip_days set end_time = $2::time where id = $1', [dayId, endTime]);
+}
+
+export async function setTripDuration(tripId, minutes) {
+  await query(`update trips set return_at = depart_at + ($2::int * interval '1 minute') where id = $1`, [tripId, minutes]);
+}
+
+export async function setTripIntensity(tripId, intensity) {
+  await query('update trips set intensity = $2 where id = $1', [tripId, intensity]);
+}
+
+export async function setTripTravelMode(tripId, travelMode) {
+  await query('update trips set travel_mode = $2 where id = $1', [tripId, travelMode]);
+}
+
+export async function dayOfTripStrict(dayId, tripId) {
+  const { rows } = await query('select * from trip_days where id = $1 and trip_id = $2', [dayId, tripId]);
+  return rows[0] ?? null;
+}
+
+export async function dayRow(dayId) {
+  const { rows } = await query('select * from trip_days where id = $1', [dayId]);
+  return rows[0] ?? null;
+}
+
+/** One trip in full, but only if it belongs to this household. */
+export async function tripOfHouseholdFull(tripId, householdId) {
+  const { rows } = await query('select * from trips where id = $1 and household_id = $2', [tripId, householdId]);
+  return rows[0] ?? null;
+}

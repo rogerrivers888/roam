@@ -29,7 +29,8 @@
 // place_records, which is composed from the facts that never have to be. Only
 // place_records goes to the device.
 
-import { query } from '../db.js';
+import * as owned from '../repositories/ownedPlaces.js';
+import * as providerCalls from '../repositories/providerCalls.js';
 import { matchOsm } from './openMatch.js';
 import { venueFromOsmElement, OSM_ATTRIBUTION } from './osm.js';
 import { encyclopediaFor } from './encyclopedia.js';
@@ -108,14 +109,10 @@ const empty = (v) => v == null || v === '' || (Array.isArray(v) && !v.length) ||
 async function putFact(venueRef, field, source, value, confidence = null) {
   if (empty(value)) return;
   const terms = LICENCE[source] ?? { licence: 'unknown', retention: 'none' };
-  await query(
-    `insert into place_facts (venue_ref, field, source, value, licence, retention, confidence, fetched_at, expires_at)
-     values ($1,$2,$3,$4,$5,$6,$7, now(), $8)
-     on conflict (venue_ref, field, source) do update set
-       value = excluded.value, licence = excluded.licence, retention = excluded.retention,
-       confidence = excluded.confidence, fetched_at = now(), expires_at = excluded.expires_at`,
-    [venueRef, field, source, JSON.stringify(value), terms.licence, terms.retention, confidence, expiryFor(terms.retention)],
-  );
+  await owned.putFact(venueRef, {
+    field, source, value, licence: terms.licence, retention: terms.retention,
+    confidence, expiresAt: expiryFor(terms.retention),
+  });
 }
 
 /**
@@ -128,8 +125,7 @@ async function putFact(venueRef, field, source, value, confidence = null) {
  * source that could not be reached keeps what it said before, because silence
  * is not a correction.
  */
-const forgetSource = (venueRef, sources) =>
-  query('delete from place_facts where venue_ref = $1 and source = any($2)', [venueRef, sources]).catch(() => null);
+const forgetSource = (venueRef, sources) => owned.forgetSourceFacts(venueRef, sources).catch(() => null);
 
 // Which source wins each field, in order. A mapper who wrote the opening hours
 // into OpenStreetMap and a restaurant who publishes them in their own markup
@@ -173,7 +169,7 @@ const JSON_FIELDS = new Set(Object.keys(JSON_DEFAULTS));
  * away on a device we cannot reach.
  */
 async function compose(venueRef) {
-  const { rows } = await query('select field, source, value, confidence from place_facts where venue_ref = $1 and expires_at is null', [venueRef]);
+  const rows = await owned.liveFacts(venueRef);
   const bySource = new Map();
   for (const r of rows) bySource.set(`${r.field}|${r.source}`, r.value);
 
@@ -197,13 +193,7 @@ async function compose(venueRef) {
     if (JSON_FIELDS.has(c)) return JSON.stringify(record[c] ?? JSON_DEFAULTS[c]);
     return record[c] === undefined ? null : record[c];
   });
-  const sets = cols.map((c, i) => `${c} = $${i + 2}`).join(', ');
-  await query(
-    `update place_records set ${sets},
-       attribution = $${cols.length + 2}, provenance = $${cols.length + 3}, updated_at = now()
-     where venue_ref = $1`,
-    [venueRef, ...values, JSON.stringify(attribution), JSON.stringify(provenance)],
-  );
+  await owned.writeRecord(venueRef, cols, values, attribution, provenance);
   return { fields: Object.keys(provenance).length, provenance };
 }
 
@@ -218,21 +208,13 @@ async function compose(venueRef) {
  */
 async function seedFor(venueRef, given = {}, { householdId = null } = {}) {
   if (given.name && given.lat != null) return given;
-  const { rows } = await query(
-    `select label, category, lat, lng, venue from household_places
-      where venue_ref = $1 and lat is not null order by last_seen desc limit 1`,
-    [venueRef],
-  );
-  const r = rows[0];
+  const r = await owned.seedFromHousehold(venueRef);
   // What we already worked out about this place last time. A category is what
   // decides whether we go looking for a menu, and the household's own row often
   // has none — so a restaurant we had already identified as a restaurant was
   // being researched again as if we knew nothing about it.
-  const known = (await query('select category, website from place_records where venue_ref = $1', [venueRef])).rows[0] ?? {};
-  const shortlist = r ? null : (await query(
-    `select venue_label as label, category, lat, lng, venue from trip_shortlist where venue_ref = $1 and lat is not null order by added_at desc limit 1`,
-    [venueRef],
-  )).rows[0];
+  const known = await owned.knownCategory(venueRef);
+  const shortlist = r ? null : await owned.seedFromShortlist(venueRef);
   const base = r ?? shortlist ?? {};
   const seed = {
     name: given.name ?? (base.label && base.label !== venueRef ? base.label : null),
@@ -259,7 +241,7 @@ async function seedFor(venueRef, given = {}, { householdId = null } = {}) {
       const meter = {};
       const brief = await googleSource.brief(rest.join(':'), { meter });
       if (brief?.lat != null) {
-        await query('insert into provider_calls (household_id, provider, purpose, units) values ($1,$2,$3,$4)', [householdId, 'google', 'own.seed', JSON.stringify(meter)]).catch(() => null);
+        await providerCalls.record(householdId, 'google', 'own.seed', JSON.stringify(meter)).catch(() => null);
         return { ...seed, name: seed.name ?? brief.name, lat: brief.lat, lng: brief.lng, website: seed.website ?? brief.website };
       }
     } catch (err) {
@@ -270,7 +252,7 @@ async function seedFor(venueRef, given = {}, { householdId = null } = {}) {
 }
 
 const logCall = (householdId, provider, purpose) =>
-  query('insert into provider_calls (household_id, provider, purpose, units) values ($1,$2,$3,$4)', [householdId, provider, purpose, JSON.stringify({ [provider]: 1 })]).catch(() => null);
+  providerCalls.record(householdId, provider, purpose, JSON.stringify({ [provider]: 1 })).catch(() => null);
 
 /**
  * Research one place and write what we may keep.
@@ -279,10 +261,9 @@ const logCall = (householdId, provider, purpose) =>
  * researched today is left for the next attempt with the reason on the row.
  */
 export async function enrich(venueRef, { householdId = null, seed: given = {}, force = false } = {}) {
-  await query('insert into place_records (venue_ref) values ($1) on conflict do nothing', [venueRef]);
+  await owned.ensureRecord(venueRef);
   if (!force) {
-    const { rows } = await query('select enrich_state, enriched_at, provenance, research_version from place_records where venue_ref = $1', [venueRef]);
-    const row = rows[0];
+    const row = await owned.enrichStateOf(venueRef);
     const fresh = row?.enriched_at && Date.now() - new Date(row.enriched_at).getTime() < REFRESH_AFTER_DAYS * 86_400_000
       // A record made by an older researcher is not fresh, however recent it is.
       && (row?.research_version ?? 0) >= RESEARCH_VERSION;
@@ -459,22 +440,14 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   const refused = problems.some((p) => !/no match|did not answer/.test(p));
   const state = found ? 'done' : refused ? 'failed' : 'partial';
 
-  const { rows } = await query(
-    `update place_records set
-       enrich_state = $2, enriched_at = now(), enrich_attempts = enrich_attempts + 1,
-       enrich_error = $3, matched = $4, research_version = $5, updated_at = now()
-     where venue_ref = $1 returning enrich_attempts`,
-    [venueRef, state, problems.length ? problems.join('; ') : null, JSON.stringify(matched), RESEARCH_VERSION],
-  );
-  const attempts = rows[0]?.enrich_attempts ?? 1;
+  const attempts = await owned.recordAttempt(venueRef, {
+    state, error: problems.length ? problems.join('; ') : null, matched, researchVersion: RESEARCH_VERSION,
+  });
   const schedule = state === 'failed' ? BACKOFF_MIN : state === 'partial' ? EMPTY_BACKOFF_MIN : null;
   const giveUpAfter = state === 'failed' ? MAX_ATTEMPTS : EMPTY_BACKOFF_MIN.length + 1;
-  await query(
-    `update place_records set next_attempt_at = $2 where venue_ref = $1`,
-    [venueRef, schedule && attempts < giveUpAfter
-      ? new Date(Date.now() + schedule[Math.min(attempts - 1, schedule.length - 1)] * 60_000)
-      : null],
-  );
+  await owned.scheduleRetry(venueRef, schedule && attempts < giveUpAfter
+    ? new Date(Date.now() + schedule[Math.min(attempts - 1, schedule.length - 1)] * 60_000)
+    : null);
   return { state, fields, matched, problems };
 }
 
@@ -515,8 +488,7 @@ export function queueEnrichment(venueRef, opts = {}) {
 export async function claimPlace(householdId, venueRef, reason, seed = {}) {
   if (!venueRef || !householdId) return;
   try {
-    await query('insert into place_claims (household_id, venue_ref, reason) values ($1,$2,$3) on conflict do nothing', [householdId, venueRef, reason]);
-    await query('insert into place_records (venue_ref) values ($1) on conflict do nothing', [venueRef]);
+    await owned.claim(householdId, venueRef, reason);
   } catch (err) {
     console.warn(`own: could not claim ${venueRef}: ${err.message}`);
     return;
@@ -546,14 +518,14 @@ const publicRecord = (r) => ({
 
 /** The owned record for one place, or null. */
 export async function ownedRecord(venueRef) {
-  const { rows } = await query('select * from place_records where venue_ref = $1', [venueRef]);
-  return rows[0] ? publicRecord(rows[0]) : null;
+  const row = await owned.recordFor(venueRef);
+  return row ? publicRecord(row) : null;
 }
 
 /** Owned records for many places, keyed by venue ref. */
 export async function ownedRecords(refs) {
   if (!refs?.length) return {};
-  const { rows } = await query('select * from place_records where venue_ref = any($1)', [refs]);
+  const rows = await owned.recordsFor(refs);
   return Object.fromEntries(rows.map((r) => [r.venue_ref, publicRecord(r)]));
 }
 
@@ -564,47 +536,23 @@ export async function ownedRecords(refs) {
  * the promise, and it must already work before that day (L7).
  */
 export async function sweepExpired() {
-  const { rows } = await query('delete from place_facts where expires_at is not null and expires_at <= now() returning venue_ref');
-  const refs = [...new Set(rows.map((r) => r.venue_ref))];
+  const discarded = await owned.discardExpiredFacts();
+  const refs = [...new Set(discarded)];
   for (const ref of refs) await compose(ref).catch(() => null);
-  return { discarded: rows.length, recomposed: refs.length };
+  return { discarded: discarded.length, recomposed: refs.length };
 }
 
 /** Places claimed but never researched, or due to be tried again. */
 export async function catchUp({ limit = 8 } = {}) {
-  const { rows } = await query(
-    `select venue_ref from place_records
-      where enrich_state = 'pending'
-         or (enrich_state in ('failed', 'partial') and next_attempt_at is not null and next_attempt_at <= now())
-         -- Written off by an earlier build, which called a place done the first
-         -- time it found nothing. Those never had a second chance and would
-         -- have stayed empty for good.
-         or (enrich_state = 'done' and provenance = '{}'::jsonb and enrich_attempts < $2)
-         -- Made by an older researcher than the one running now.
-         or research_version < $3
-      order by research_version, enrich_attempts, first_owned limit $1`,
-    [limit, MAX_ATTEMPTS, RESEARCH_VERSION],
-  );
-  for (const r of rows) queueEnrichment(r.venue_ref);
-  return rows.length;
+  const refs = await owned.dueForResearch(limit, MAX_ATTEMPTS, RESEARCH_VERSION);
+  for (const ref of refs) queueEnrichment(ref);
+  return refs.length;
 }
 
 /** How much of the household's research is owned, for Settings and the offline card. */
 export async function ownedSummary(householdId) {
-  const { rows } = await query(
-    `select count(*)::int as claimed,
-            count(*) filter (where r.enrich_state = 'done')::int as researched,
-            count(*) filter (where r.osm_ref is not null)::int as in_open_map,
-            count(*) filter (where r.summary is not null)::int as described,
-            count(*) filter (where r.enrich_state in ('pending', 'partial'))::int as waiting,
-            count(*) filter (where r.enrich_state = 'failed')::int as failed,
-            count(*) filter (where r.research_version < 3)::int as behind,
-            max(r.updated_at) as last_change
-       from (select distinct venue_ref from place_claims where household_id = $1) c
-       join place_records r on r.venue_ref = c.venue_ref`,
-    [householdId],
-  );
-  return rows[0] ?? { claimed: 0, researched: 0, in_open_map: 0, described: 0, waiting: 0, failed: 0, last_change: null };
+  return (await owned.summaryFor(householdId, RESEARCH_VERSION))
+    ?? { claimed: 0, researched: 0, in_open_map: 0, described: 0, waiting: 0, failed: 0, last_change: null };
 }
 
 /**

@@ -232,3 +232,36 @@ export async function claimedRefs(householdId) {
   const { rows } = await query('select distinct venue_ref from place_claims where household_id = $1', [householdId]);
   return rows.map((r) => r.venue_ref);
 }
+
+/** What the household knows, in words, for the planner to read. */
+export async function atlasForPrompt(householdId, limit = 40) {
+  const { rows } = await query(
+    `select hp.label, hp.kind, hp.category, hp.locality, hp.note,
+            (select string_agg(distinct l.status::text, ',') from place_ledger l
+              where l.household_id = hp.household_id and l.source || ':' || l.source_place_id = hp.venue_ref) as statuses
+       from household_places hp where hp.household_id = $1 order by hp.last_seen desc limit $2`,
+    [householdId, limit],
+  );
+  return rows;
+}
+
+/** Every placed thing the household owns, for matching an idea to somewhere they know. */
+export async function placedPlaces(householdId) {
+  const { rows } = await query(
+    'select venue_ref, label, kind, category, lat, lng, venue from household_places where household_id = $1 and lat is not null and lng is not null',
+    [householdId],
+  );
+  return rows;
+}
+
+/** Where a place is, once the open map has been asked: postcode and nearest station. */
+export async function saveWhere(householdId, venueRef, w) {
+  await query(
+    `update household_places set postcode = coalesce($3, postcode), station = $4, station_lines = $5,
+            station_kind = $6, station_distance_m = $7, where_checked = $8
+      where household_id = $1 and venue_ref = $2`,
+    [householdId, venueRef, w.postcode, w.station?.name ?? null,
+      w.station ? JSON.stringify(w.station.lines) : null, w.station?.kind ?? null,
+      w.station?.distanceM ?? null, w.checkedAt],
+  );
+}
