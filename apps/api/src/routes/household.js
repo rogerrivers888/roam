@@ -150,6 +150,7 @@ router.get('/', async (_req, res, next) => {
         maxTravelMinutes: household.max_travel_minutes,
         defaultIntensity: household.default_intensity,
         home: household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null,
+        homeRadiusMiles: household.home_radius_miles ?? 10,
         pace: paceOf(household),
         timezone: household.timezone,
       },
@@ -165,7 +166,10 @@ router.get('/', async (_req, res, next) => {
 router.patch('/', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { name, defaultVisitMinutes, maxTravelMinutes, defaultIntensity, home, homeText, pace, timezone } = req.body;
+    const { name, defaultVisitMinutes, maxTravelMinutes, defaultIntensity, home, homeText, pace, timezone, homeRadiusMiles } = req.body;
+    // How far "close to home" reaches, in miles (owner, 4 Sep 2026).
+    const radius = homeRadiusMiles == null ? null : Math.min(200, Math.max(1, Math.round(Number(homeRadiusMiles))));
+    if (homeRadiusMiles != null && !Number.isFinite(radius)) return res.status(400).json({ error: 'invalid_radius' });
     if (timezone && !isValidTimezone(timezone)) return res.status(400).json({ error: 'invalid_timezone' });
     const mergedPace = pace ? { food: { ...paceOf(household).food, ...(pace.food || {}) }, activity: { ...paceOf(household).activity, ...(pace.activity || {}) } } : null;
     // Home may arrive as a picked place or as typed text to geocode (Epic 3 M3).
@@ -182,14 +186,15 @@ router.patch('/', async (req, res, next) => {
               home_lat              = coalesce($7, home_lat),
               home_lng              = coalesce($8, home_lng),
               pace                  = coalesce($9::jsonb, pace),
-              timezone              = coalesce($10, timezone)
+              timezone              = coalesce($10, timezone),
+              home_radius_miles     = coalesce($11, home_radius_miles)
         where id = $1 returning *`,
       [household.id, name ?? null, defaultVisitMinutes ?? null, maxTravelMinutes ?? null, defaultIntensity ?? null,
-       homePlace?.label ?? null, homePlace?.lat ?? null, homePlace?.lng ?? null, mergedPace ? JSON.stringify(mergedPace) : null, timezone ?? null],
+       homePlace?.label ?? null, homePlace?.lat ?? null, homePlace?.lng ?? null, mergedPace ? JSON.stringify(mergedPace) : null, timezone ?? null, radius],
     );
     const h = rows[0];
     res.json({ household: { id: h.id, name: h.name, defaultVisitMinutes: h.default_visit_minutes, maxTravelMinutes: h.max_travel_minutes, defaultIntensity: h.default_intensity,
-      home: h.home_lat != null ? { label: h.home_label, lat: h.home_lat, lng: h.home_lng } : null, pace: paceOf(h), timezone: h.timezone } });
+      home: h.home_lat != null ? { label: h.home_label, lat: h.home_lat, lng: h.home_lng } : null, homeRadiusMiles: h.home_radius_miles ?? 10, pace: paceOf(h), timezone: h.timezone } });
   } catch (err) {
     next(err);
   }

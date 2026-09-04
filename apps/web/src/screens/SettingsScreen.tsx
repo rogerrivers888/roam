@@ -59,11 +59,16 @@ function Preferences({ data, refresh }: { data: HouseholdResponse; refresh: () =
 
   return (
     <>
-      <SectionTitle hint="Used whenever you say 'from home' or search near home.">Home</SectionTitle>
+      <SectionTitle hint="Used whenever you say 'from home' or search near home. Places · Close to home holds everything within the radius.">Home</SectionTitle>
       <Card>
         <PlacePicker value={household.home} onPick={setHome} placeholder="House name or number, street, town, postcode" />
         {!household.home ? <StatusLine>Not set. Type your address, then tap <Text style={{ fontWeight: '700' }}>Use this</Text> on the match.</StatusLine> : null}
         {homeMsg ? <StatusLine tone="good">{homeMsg}</StatusLine> : null}
+        {household.home ? (
+          <Stepper label="Close to home reaches" value={household.homeRadiusMiles ?? 10} min={1} max={100} step={5}
+            format={(v) => `${v} miles`}
+            onChange={async (v) => { await api.updateHousehold({ homeRadiusMiles: v }); await refresh(); }} />
+        ) : null}
       </Card>
 
       <SectionTitle>Household</SectionTitle>

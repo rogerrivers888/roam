@@ -17,6 +17,13 @@ import { fillTaxonomy, needsTaxonomy, taxonomyKept } from '../sources/taxonomy.j
 
 export const atlas = Router();
 
+// Great-circle miles between a row and a point, for "close to home". Postgres
+// without PostGIS: the spherical law of cosines, clamped so rounding cannot
+// hand acos() a number outside its domain.
+const MILES_FROM = (latParam, lngParam) => `(3958.7613 * acos(least(1, greatest(-1,
+  sin(radians(${latParam})) * sin(radians(hp.lat)) + cos(radians(${latParam})) * cos(radians(hp.lat)) * cos(radians(hp.lng) - radians(${lngParam}))
+))))`;
+
 // One background fill per household at a time.
 const whereRunning = new Set();
 const kindOfCategory = (c) => (['restaurant', 'cafe', 'pub', 'bar'].includes(c) ? 'food' : ['attraction', 'event'].includes(c) ? 'activity' : 'other');
@@ -107,7 +114,23 @@ atlas.get('/', async (_req, res, next) => {
     const { rows: centres } = await query('select country_code, coalesce(locality, \'Elsewhere\') as locality, avg(lat) as lat, avg(lng) as lng from household_places where household_id = $1 and lat is not null group by country_code, locality', [household.id]);
     for (const r of centres) { const c = countries.get(r.country_code); const ci = c?.cities.find((x) => x.name === r.locality); if (ci) { ci.lat ??= Number(r.lat); ci.lng ??= Number(r.lng); } }
     const { rows: unplaced } = await query('select count(*)::int as n from household_places where household_id = $1 and country_code is null', [household.id]);
-    res.json({ countries: [...countries.values()].sort((a, b) => b.places - a.places), unplaced: unplaced[0].n });
+
+    // Close to home: everything within the household's radius of the front
+    // door, whichever city it files under. Not a city — a standing view.
+    let home = null;
+    if (household.home_lat != null && household.home_lng != null) {
+      const radiusMiles = household.home_radius_miles ?? 10;
+      const { rows: near } = await query(
+        `select count(*)::int as places,
+                count(*) filter (where exists (select 1 from visits v where v.household_id = hp.household_id and v.venue_ref = hp.venue_ref))::int as been,
+                count(*) filter (where exists (select 1 from place_ledger l where l.household_id = hp.household_id and l.source || ':' || l.source_place_id = hp.venue_ref and l.status = 'special'))::int as special
+           from household_places hp
+          where hp.household_id = $1 and hp.lat is not null and hp.lng is not null and ${MILES_FROM('$2', '$3')} <= $4`,
+        [household.id, household.home_lat, household.home_lng, radiusMiles],
+      );
+      home = { label: household.home_label, lat: household.home_lat, lng: household.home_lng, radiusMiles, ...near[0] };
+    }
+    res.json({ countries: [...countries.values()].sort((a, b) => b.places - a.places), unplaced: unplaced[0].n, home });
   } catch (err) { next(err); }
 });
 
@@ -115,11 +138,17 @@ atlas.get('/', async (_req, res, next) => {
 atlas.get('/places', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { country, city, kind, status, q } = req.query;
+    const { country, city, kind, status, q, nearHome } = req.query;
     const params = [household.id];
     const where = ['hp.household_id = $1'];
-    if (country) { params.push(String(country).toUpperCase()); where.push(`hp.country_code = $${params.length}`); }
-    if (city) { params.push(String(city)); where.push(`coalesce(hp.locality, 'Elsewhere') = $${params.length}`); }
+    // "Close to home" cuts across cities: everything within the radius, wherever it files.
+    if (nearHome) {
+      if (household.home_lat == null || household.home_lng == null) return res.json({ places: [], wherePending: 0 });
+      params.push(household.home_lat, household.home_lng, household.home_radius_miles ?? 10);
+      where.push(`hp.lat is not null and hp.lng is not null and ${MILES_FROM(`$${params.length - 2}`, `$${params.length - 1}`)} <= $${params.length}`);
+    }
+    if (country && !nearHome) { params.push(String(country).toUpperCase()); where.push(`hp.country_code = $${params.length}`); }
+    if (city && !nearHome) { params.push(String(city)); where.push(`coalesce(hp.locality, 'Elsewhere') = $${params.length}`); }
     if (kind) { params.push(String(kind)); where.push(`hp.kind = $${params.length}`); }
     if (q) { params.push(`%${String(q).toLowerCase()}%`); where.push(`(lower(hp.label) like $${params.length} or lower(coalesce(hp.note,'')) like $${params.length})`); }
     const { rows } = await query(
