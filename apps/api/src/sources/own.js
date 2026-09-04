@@ -34,6 +34,10 @@ import { matchOsm } from './openMatch.js';
 import { venueFromOsmElement, OSM_ATTRIBUTION } from './osm.js';
 import { encyclopediaFor } from './encyclopedia.js';
 import { siteFacts } from './site.js';
+import { googleSource } from './google.js';
+// Whether the owner has a key for it, and has not switched it off in Settings:
+// asking a source the owner has turned off is not ours to do.
+import { sourceHasKey, sourceOff } from './index.js';
 
 // How long a failed attempt waits before it is tried again. Overpass rate-limits
 // by IP and a restaurant's website goes down for an afternoon; neither is a
@@ -188,7 +192,7 @@ async function compose(venueRef) {
  * want to find in the open world — a name and a point — and it is read here and
  * nowhere else. Nothing on this object is stored.
  */
-async function seedFor(venueRef, given = {}) {
+async function seedFor(venueRef, given = {}, { householdId = null } = {}) {
   if (given.name && given.lat != null) return given;
   const { rows } = await query(
     `select label, category, lat, lng, venue from household_places
@@ -201,13 +205,39 @@ async function seedFor(venueRef, given = {}) {
     [venueRef],
   )).rows[0];
   const base = r ?? shortlist ?? {};
-  return {
+  const seed = {
     name: given.name ?? (base.label && base.label !== venueRef ? base.label : null),
     category: given.category ?? base.category ?? null,
     lat: given.lat ?? base.lat ?? null,
     lng: given.lng ?? base.lng ?? null,
     website: given.website ?? base.venue?.website ?? null,
   };
+  if (seed.name && seed.lat != null) return seed;
+
+  // Nothing of ours says which place this is. That happens when a place was
+  // shortlisted on a trip that has since been deleted: the claim outlives the
+  // row it was made from, and the research then had nothing to go looking with
+  // — fifteen of one household's thirty-one places were written off this way
+  // (found 4 Sep 2026).
+  //
+  // The place ID is still there, and the place ID is the one field the licence
+  // lets us keep. Turning it back into a name and a point costs one request on
+  // the narrowest field mask there is, and none of it is written down: it is
+  // used to search the open map and the encyclopedias, and dropped.
+  const [source, ...rest] = String(venueRef).split(':');
+  if (source === 'google' && sourceHasKey('google') && !sourceOff('google')) {
+    try {
+      const meter = {};
+      const brief = await googleSource.brief(rest.join(':'), { meter });
+      if (brief?.lat != null) {
+        await query('insert into provider_calls (household_id, provider, purpose, units) values ($1,$2,$3,$4)', [householdId, 'google', 'own.seed', JSON.stringify(meter)]).catch(() => null);
+        return { ...seed, name: seed.name ?? brief.name, lat: brief.lat, lng: brief.lng, website: seed.website ?? brief.website };
+      }
+    } catch (err) {
+      console.warn(`own: could not ask what ${venueRef} is: ${err.message}`);
+    }
+  }
+  return seed;
 }
 
 const logCall = (householdId, provider, purpose) =>
@@ -228,7 +258,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     if (row?.enrich_state === 'done' && fresh) return { state: 'done', skipped: 'already researched' };
   }
 
-  const seed = await seedFor(venueRef, given);
+  const seed = await seedFor(venueRef, given, { householdId });
   const matched = {};
   const problems = [];
   let found = 0;
@@ -295,7 +325,8 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
           put('price_range', site.priceRange),
           put('booking_url', site.bookingUrl),
           put('socials', site.socials ?? {}),
-          put('website', site.sourceUrl ?? seed.website),
+          // The page we actually reached, not the address a provider gave us for it.
+          put('website', site.sourceUrl),
           put('menu_url', site.menu?.url ?? null),
           put('menu_label', site.menu?.label ?? null),
           put('summary', site.summary),
@@ -462,8 +493,12 @@ export async function catchUp({ limit = 25 } = {}) {
     `select venue_ref from place_records
       where enrich_state = 'pending'
          or (enrich_state in ('failed', 'partial') and next_attempt_at is not null and next_attempt_at <= now())
+         -- Written off by an earlier build, which called a place done the first
+         -- time it found nothing. Those never had a second chance and would
+         -- have stayed empty for good.
+         or (enrich_state = 'done' and provenance = '{}'::jsonb and enrich_attempts < $2)
       order by enrich_attempts, first_owned limit $1`,
-    [limit],
+    [limit, MAX_ATTEMPTS],
   );
   for (const r of rows) queueEnrichment(r.venue_ref);
   return rows.length;

@@ -316,6 +316,33 @@ export const googleSource = {
     };
   },
 
+  /**
+   * Just enough to go looking with: the name, the point, and the address of
+   * their own site.
+   *
+   * The owned place layer researches a place from open sources, and to do that
+   * it needs to know which place it is — a name and a spot on the map. When the
+   * household's own records do not carry one (a place shortlisted on a trip
+   * since deleted, say), the place ID is the only thing left, and the place ID
+   * is the one field we are allowed to keep. This turns it back into a
+   * description of what to go and find (api/src/sources/own.js `seedFor`).
+   *
+   * The narrowest field mask there is, so it bills at the cheapest tier: no
+   * hours, no rating, no reviews, no photos. Nothing it returns is written
+   * down — it is read, used to search OpenStreetMap and Wikipedia, and dropped.
+   */
+  async brief(id, { meter = null } = {}) {
+    if (!KEY()) return null;
+    const p = await call(`/places/${id}`, { method: 'GET', fieldMask: 'id,displayName,location,websiteUri', meter });
+    if (!p?.location) return null;
+    return {
+      name: p.displayName?.text ?? null,
+      lat: p.location.latitude,
+      lng: p.location.longitude,
+      website: p.websiteUri ?? null,
+    };
+  },
+
   /** Search along an encoded polyline; results ranked by detour (Technical Constraints §3.1). */
   async searchAlongRoute({ encodedPolyline, query, limit = 20, meter = null }) {
     if (!KEY() || !encodedPolyline) return [];
