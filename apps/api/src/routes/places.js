@@ -376,7 +376,7 @@ places.get('/suggest', async (req, res, next) => {
     const ours = mine.map((r) => ({
       venueRef: r.venue_ref, placeId: String(r.venue_ref).startsWith('google:') ? String(r.venue_ref).slice(7) : null,
       name: r.label, where: [r.postcode, r.locality].filter(Boolean).join(' · ') || null,
-      kind: r.been ? 'In your places · been' : 'In your places', mine: true, types: [],
+      kind: r.been ? 'In your places · been' : 'In your places', mine: true, types: [], category: r.category ?? null,
     }));
 
     const meter = {};
@@ -396,29 +396,52 @@ places.get('/suggest', async (req, res, next) => {
     // meant, never got a slot (owner, 4 Sep 2026). The kinds are not
     // interchangeable, so when none of the five is the kind being looked for,
     // ask again for that kind alone and put those first.
-    const FOOD = ['restaurant', 'cafe', 'bar', 'bakery', 'meal_takeaway'];
-    const THINGS = ['tourist_attraction', 'museum', 'park', 'art_gallery', 'performing_arts_theater'];
+    // What the provider may be asked for: at most five primary types, and a
+    // primary type is exact — a steakhouse is `steak_house`, not `restaurant`.
+    const ASK_FOOD = ['restaurant', 'cafe', 'bar', 'pub', 'bakery'];
+    const ASK_THINGS = ['tourist_attraction', 'museum', 'park', 'art_gallery', 'performing_arts_theater'];
+    // What counts as that kind once it has answered: the whole type list, which
+    // is forgiving where the primary type is not. A hair salon has none of these.
+    const FOOD_TYPES = new Set(['restaurant', 'cafe', 'bar', 'pub', 'bakery', 'food', 'meal_takeaway', 'meal_delivery', 'coffee_shop', 'ice_cream_shop', 'sandwich_shop', 'steak_house', 'bar_and_grill', 'wine_bar', 'deli', 'pizzeria', 'fast_food_restaurant', 'dessert_shop', 'tea_house', 'juice_shop', 'donut_shop', 'bagel_shop', 'brunch_restaurant', 'breakfast_restaurant']);
+    const THING_TYPES = new Set(['tourist_attraction', 'museum', 'park', 'art_gallery', 'performing_arts_theater', 'amusement_park', 'zoo', 'aquarium', 'historical_landmark', 'national_park', 'stadium', 'movie_theater', 'shopping_mall', 'church', 'place_of_worship', 'library', 'visitor_center', 'hiking_area', 'garden', 'monument', 'castle', 'concert_hall', 'night_club', 'bowling_alley', 'water_park']);
     const kind = ['do', 'eat'].includes(String(req.query.kind)) ? String(req.query.kind) : 'all';
-    const isKind = (p, set) => (p.types || []).some((t) => set.includes(t));
+    const isFood = (p) => (p.types || []).some((t) => FOOD_TYPES.has(t) || /_restaurant$/.test(t));
+    const isThing = (p) => (p.types || []).some((t) => THING_TYPES.has(t));
     const GEO = new Set(['locality', 'postal_town', 'route', 'street_address', 'premise', 'sublocality', 'postal_code', 'administrative_area_level_1', 'administrative_area_level_2', 'country', 'geocode', 'neighborhood', 'intersection', 'plus_code']);
     const isPlace = (p) => (p.types || []).some((t) => !GEO.has(t));
+    const merge = (a, b) => { const seen = new Set(a.map((p) => p.placeId)); return [...a, ...b.filter((p) => !seen.has(p.placeId))]; };
 
-    let suggestions = await ask(null);
-    // Everything: food is what a household looks for most, so that is the one
-    // worth a second question when the first found none.
-    const wanted = kind === 'do' ? THINGS : FOOD;
-    if (suggestions.filter((p) => isKind(p, wanted)).length < 2) {
-      try {
-        const more = await ask(wanted);
-        const seen = new Set(suggestions.map((p) => p.placeId));
-        suggestions = [...more.filter((p) => !seen.has(p.placeId)), ...suggestions];
-      } catch { /* the provider may not take that filter; the first answer stands */ }
+    let suggestions;
+    if (kind === 'all') {
+      // Nothing has been narrowed, so the open question first; food is what a
+      // household looks for most, so that is the one worth asking twice for.
+      suggestions = await ask(null);
+      if (suggestions.filter(isFood).length < 2) {
+        try { suggestions = merge(await ask(ASK_FOOD), suggestions); } catch { /* the first answer stands */ }
+      }
+    } else {
+      // A segment is a promise: on Food & drink nothing but food is offered, so
+      // no hair salon can appear there whatever the words matched (owner,
+      // 4 Sep 2026). Ask for the kind first; only widen if that came back thin.
+      const of = kind === 'eat' ? isFood : isThing;
+      suggestions = await ask(kind === 'eat' ? ASK_FOOD : ASK_THINGS).catch(() => []);
+      if (suggestions.length < 3) {
+        try { suggestions = merge(suggestions, await ask(null)); } catch { /* what we have stands */ }
+      }
+      suggestions = suggestions.filter(of);
     }
     // Somewhere you can walk into comes before the map it sits on.
     suggestions = suggestions.map((p, i) => ({ p, i })).sort((a, b) => (isPlace(b.p) ? 1 : 0) - (isPlace(a.p) ? 1 : 0) || a.i - b.i).map((x) => x.p);
     await visitsRepo.recordProviderCall(household.id, 'google', 'places.suggest', JSON.stringify(meter)).catch(() => null);
-    const seen = new Set(ours.map((o) => o.placeId).filter(Boolean));
-    res.json({ suggestions: [...ours, ...suggestions.filter((x) => !seen.has(x.placeId)).map((x) => ({ ...x, venueRef: `google:${x.placeId}`, mine: false }))] });
+    // Your own places obey the segment as well: a museum you saved does not
+    // belong in a list of somewhere to eat.
+    const FOOD_CATS = new Set(['restaurant', 'cafe', 'pub', 'bar']);
+    const oursHere = ours.filter((o) => {
+      if (kind === 'all' || !o.category) return true;
+      return kind === 'eat' ? FOOD_CATS.has(o.category) : !FOOD_CATS.has(o.category);
+    });
+    const seen = new Set(oursHere.map((o) => o.placeId).filter(Boolean));
+    res.json({ suggestions: [...oursHere, ...suggestions.filter((x) => !seen.has(x.placeId)).map((x) => ({ ...x, venueRef: `google:${x.placeId}`, mine: false }))] });
   } catch (err) { next(err); }
 });
 
