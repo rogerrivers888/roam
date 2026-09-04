@@ -22,24 +22,60 @@ import { currentHousehold } from './routes/household.js';
 import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
 import { enabledSources, defaultSourceKeys, loadSourceSettings, setSourceOff, sourceHasKey, sourceOff, sourceKeys } from './sources/index.js';
 import { routingEnabled } from './sources/routing.js';
+import sessionRoutes, { devices as deviceRoutes } from './routes/session.js';
+import { authConfigured, deployed, originAllowed, requireSession } from './auth.js';
+import { generalLimit, signInLimit, spendLimit } from './limits.js';
+import { sweepDeadSessions } from './repositories/sessions.js';
 
 const app = express();
+
+// Railway terminates TLS in front of this process, so `req.ip` is the proxy
+// unless we say so — and every rate limit here counts per caller.
+app.set('trust proxy', 1);
 
 // JSON API only — no templates, no static assets, no server-rendered HTML.
 // The web app is a separate Expo workspace that talks to this over HTTP.
 app.use(express.json({ limit: '1mb' })); // member photos travel as data URLs
-app.use(cors({ origin: true }));
+// `credentials` is on so the sign-in response can set the session cookie, which
+// exists only for the two GETs that cannot carry a header (auth.js). Which
+// origins may do that is `ROAM_WEB_ORIGIN`; unset, this behaves as it always
+// did and the passcode is the only guard.
+app.use(cors({ origin: (origin, cb) => cb(null, originAllowed(origin)), credentials: true }));
 
 app.get('/health', async (_req, res) => {
   try {
     await query('select 1');
     // Which build answered: Railway sets the commit on the deployment, so
     // "is my change live yet" is a question the API can answer itself.
-    res.json({ ok: true, service: 'roam-api', db: 'up', commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? null });
+    // `auth` is reported because an API that is not asking for a passcode is a
+    // fact the owner needs to be able to see without reading the logs.
+    res.json({
+      ok: true, service: 'roam-api', db: 'up',
+      commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+      auth: authConfigured() ? 'on' : 'not-configured',
+    });
   } catch (err) {
     res.status(503).json({ ok: false, service: 'roam-api', db: 'down', error: err.message });
   }
 });
+
+// --- the door ---------------------------------------------------------------
+// Everything below `requireSession` needs a session; everything above is the
+// short list in auth.js that does not (the door itself, health, and the group
+// invite link, which is somebody else's credential).
+app.use(generalLimit);
+// Only the attempt is held to ten a quarter-hour. Asking "am I signed in" is
+// what the app does on every load and is not a guess at anything.
+app.post('/api/session', signInLimit);
+app.use('/api', sessionRoutes);
+app.use(requireSession);
+// Which devices are signed in is the household's business, so it is mounted on
+// this side of the door rather than with the sign-in verbs.
+app.use('/api', deviceRoutes);
+
+// Provider money is spent under these, so they are held to a tighter number
+// than the rest of the API (limits.js).
+for (const path of ['/api/discover', '/api/plan', '/api/atlas', '/api/menu', '/api/photos', '/api/places']) app.use(path, spendLimit);
 
 app.use('/api/household', householdRoutes);
 app.use('/api/discover', discoverRoutes);
@@ -155,6 +191,21 @@ app.use((err, _req, res, _next) => {
 const port = Number(process.env.PORT) || 4000;
 // 0.0.0.0 rather than localhost: the container/platform decides the interface.
 await loadSourceSettings();
+
+// Say out loud which state the door is in. A deployed API with no passcode set
+// serves nothing (auth.js) — that is deliberate, and it must be obvious in the
+// logs why, rather than looking like the database is down.
+if (authConfigured()) {
+  console.log(deployed() ? 'roam-api: passcode set; sessions last 90 days' : "roam-api: local passcode 'roam-dev' (ROAM_PASSCODE overrides)");
+} else {
+  console.warn('roam-api: ROAM_PASSCODE is not set. Every /api request will answer 503 until the owner adds it in Doppler.');
+}
+// Expired and revoked sessions are a hash and two dates, but they are not
+// needed either. Once on start, then daily.
+const sweepSessions = () => { void sweepDeadSessions().catch(() => null); };
+sweepSessions();
+setInterval(sweepSessions, 24 * 3600_000).unref?.();
+
 // The owned place layer researches in the background: anything a household has
 // claimed but that has not been looked at yet, and the sweep that discards any
 // fact whose licence has run out (sources/own.js).

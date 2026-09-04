@@ -53,6 +53,27 @@ Each app is its own Railway service in project `roam`, both connected to this re
 
 Postgres is a Railway Postgres service in the same project; the `api` needs its `DATABASE_URL`.
 
+### The door
+
+Every `/api` path needs a session, except four: `/health`, `/robots.txt`, `/api/session`
+(signing in) and `/api/join/:token` (a group invite link, where the unguessable link is
+itself the credential).
+
+- One passcode for the household, `ROAM_PASSCODE`, set by the owner in Doppler and never in
+  the repo. V1 is one household (Requirements §3), so there is nobody to choose between yet.
+- The passcode is exchanged once for a token that lasts 90 days; only a hash of that token is
+  stored (`api_sessions`). Settings › Account lists the devices signed in and can sign out one
+  or all of them.
+- A cookie is also set, and is accepted for exactly two GETs that cannot carry a header — a
+  photograph in an `<img>`, and the shortlist search stream. **Writes never accept the
+  cookie**, which is what keeps another site from being able to act as the family.
+- Sign-in attempts are limited to 10 per 15 minutes per caller; provider-spending paths to
+  120 per 5 minutes; everything else to 900 per 5 minutes (`apps/api/src/limits.js`).
+
+**Deployed with no passcode set, the API serves nothing** — every `/api` request answers 503
+`auth_not_configured`, and `/health` reports `"auth": "not-configured"`. That is deliberate:
+the alternative is quietly serving the household to the internet, which is what this replaced.
+
 ### Where variables live
 
 **Secrets come from Doppler at runtime** — never in the repo and never set directly as Railway variables (see `CLAUDE.md`). If the Doppler → Railway sync is configured to manage *all* variables on a service, the non-secret entries above must be mirrored in Doppler too, or the sync will remove them.
@@ -63,6 +84,8 @@ Postgres is a Railway Postgres service in the same project; the `api` needs its 
 |---|---|---|
 | `PORT` | set by the platform | |
 | `DATABASE_URL` | yes | Postgres connection string (Doppler) |
+| `ROAM_PASSCODE` | **yes, deployed** | The household's passcode (Doppler, owner-set). **Without it the deployed API answers 503 to every `/api` request and serves nothing** — see "The door" above. Locally, unset falls back to `roam-dev`. |
+| `ROAM_WEB_ORIGIN` | recommended | Comma-separated list of origins the web app is served from, e.g. `https://roam-web.up.railway.app`. Non-secret. Restricts which sites may open a session-carrying request; unset, any origin is answered and the passcode is the only guard. |
 | `ANTHROPIC_API_KEY` | yes | conversational planner (Doppler) |
 | `ANTHROPIC_WORKSPACE_ID` | if the key is identity-linked | The Anthropic workspace the key acts in (`wrkspc_…`). Console-issued keys that are linked to a person require it; a legacy workspace key does not. |
 | `RAILPACK_START_CMD` | yes | see table above (non-secret) |

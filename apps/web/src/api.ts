@@ -679,6 +679,32 @@ export const api = {
   deleteConstraint: (id: string) => del<void>(`/api/household/constraints/${id}`),
   learned: () => request<{ learned: Learned[]; threshold: number }>('/api/household/learned'),
   exportUrl: () => `${API_URL}/api/household/export`,
+
+  /**
+   * Everything the household has generated, as a file.
+   *
+   * Fetched rather than opened in a tab: the export is behind the door now, and
+   * a new tab carries no session header. So it comes down through the same
+   * request path as everything else and is handed to the browser as a download.
+   */
+  downloadExport: async (): Promise<void> => {
+    const token = sessionToken();
+    const res = await fetch(`${API_URL}/api/household/export`, {
+      credentials: 'include',
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => ({})));
+    const blob = await res.blob();
+    if (typeof document === 'undefined') return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `roam-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   spendSeries: (months = 12) => request<SpendSeries>(`/api/household/spend/series${qs({ months })}`),
   spend: (p: { period: SpendPeriod; from?: string; to?: string }) => request<SpendResponse>(`/api/household/spend${qs(p)}`),
   deleteHousehold: (confirmName: string) => del<{ deleted: boolean }>('/api/household', { confirmName }),

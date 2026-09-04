@@ -13,9 +13,12 @@ import { HouseholdScreen } from './src/screens/HouseholdScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { PrototypesScreen } from './src/screens/PrototypesScreen';
 import { JoinScreen } from './src/screens/JoinScreen';
+import { LockScreen } from './src/screens/LockScreen';
 import { Wordmark } from './src/components/Wordmark';
 import { useViewport, ViewportProvider } from './src/hooks/useViewport';
 import { useOffline } from './src/hooks/useOffline';
+import { useOutbox } from './src/hooks/useOutbox';
+import { useSession } from './src/hooks/useSession';
 import { Icon, IconName } from './src/components/Icon';
 
 type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes';
@@ -62,7 +65,10 @@ export default function App() {
   };
 
   // A narrow window is a phone already: no toggle, no frame.
-  const app = join ? <JoinScreen token={join} /> : <Shell />;
+  //
+  // An invite link is somebody else's door and is never behind the passcode:
+  // it opens one trip's checklist and the API treats it as public (auth.js).
+  const app = join ? <JoinScreen token={join} /> : <Gate />;
   if (window.width < DESKTOP) return app;
 
   const frameHeight = Math.min(PHONE.height, window.height - TOOLBAR - spacing.xl * 2 - BEZEL * 2);
@@ -106,6 +112,26 @@ export default function App() {
       </View>
     </View>
   );
+}
+
+/**
+ * The passcode, then the app.
+ *
+ * Roam's API answered anybody until 4 Sep 2026; it now wants a session for
+ * everything except health, the invite link and the door itself. This is the
+ * door on the app's side of that.
+ *
+ * `unreachable` deliberately shows the app rather than the passcode screen: a
+ * device that was signed in and now has no signal has a whole atlas saved on it
+ * (offline/cache.ts), and putting a passcode box in front of somebody on a
+ * train — one they cannot get past, because signing in needs the API — would
+ * take away the one thing that still works.
+ */
+function Gate() {
+  const { state, recheck } = useSession();
+  if (state === 'checking') return <View style={styles.waiting} />;
+  if (state === 'out' || state === 'unconfigured') return <LockScreen onIn={recheck} configured={state !== 'unconfigured'} />;
+  return <Shell />;
 }
 
 function Shell() {
@@ -161,6 +187,7 @@ function Shell() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
   const offline = useOffline();
+  const outbox = useOutbox();
   // Showing the saved copy: the browser says there is no connection, the app has
   // already had to fall back to the device, or the API cannot be reached at all
   // and there is something saved to fall back to.
@@ -220,6 +247,24 @@ function Shell() {
   // connection behind it reports itself online. What is actually true is
   // whether the answers on screen came from the device, which is what
   // `serving` says (src/offline/cache.ts).
+  // Writes made without signal are on the device and go on their own
+  // (offline/outbox.ts). Saying so is the difference between "it saved" and the
+  // family wondering whether it did.
+  const waitingBanner = outbox.waiting || outbox.rejected ? (
+    <View style={styles.banner}>
+      <View style={styles.bannerRow}>
+        <Icon name={outbox.rejected ? 'allergen' : 'offline'} size={14} color={outbox.rejected ? colors.overrun : colors.ink} />
+        <Text style={type.small}>
+          {outbox.rejected
+            ? `${outbox.rejected} change${outbox.rejected === 1 ? '' : 's'} couldn't be sent and ${outbox.rejected === 1 ? 'is' : 'are'} kept on this device — Settings › Account.`
+            : outbox.sending
+              ? `Sending ${outbox.waiting} change${outbox.waiting === 1 ? '' : 's'}…`
+              : `${outbox.waiting} change${outbox.waiting === 1 ? '' : 's'} saved on this device, waiting for signal.`}
+        </Text>
+      </View>
+    </View>
+  ) : null;
+
   const offlineBanner = (
     <View style={styles.banner}>
       <View style={styles.bannerRow}>
@@ -262,8 +307,10 @@ function Shell() {
         ) : (
           <View style={styles.header}><Wordmark height={34} /></View>
         )}
+        {!desktop ? waitingBanner : null}
         {!desktop && showingSaved ? offlineBanner : !desktop && health !== 'ok' ? banner : null}
         <View style={styles.content}>
+          {desktop ? waitingBanner : null}
           {desktop && showingSaved ? offlineBanner : desktop && health === 'down' ? banner : null}
           {screen}
         </View>
@@ -329,6 +376,7 @@ function You({ household, onOpen }: { household: HouseholdResponse | null; onOpe
 }
 
 const styles = StyleSheet.create({
+  waiting: { flex: 1, backgroundColor: colors.bg },
   root: { flex: 1, backgroundColor: colors.bg },
   fill: { flex: 1 },
   toolbar: {

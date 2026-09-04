@@ -125,3 +125,62 @@ export function storable(fullPath: string, body: any): any | null {
 
 /** Whether an answer for this path could ever have been saved. */
 export const isStorablePath = (fullPath: string) => storable(fullPath, { probe: true }) !== null;
+
+// ---------------------------------------------------------------------------
+// the other direction: what may wait on the device to be sent
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a write that could not be sent may be kept and sent later.
+ *
+ * The read rule above is about a licence. This one is about time: a queued
+ * write arrives minutes or hours after it was made, so the only writes that may
+ * queue are the ones that still mean the same thing when they land. A rating
+ * given in a restaurant with no signal means exactly what it meant an hour
+ * later. A planning session's answer does not — the session lives ten hours and
+ * the ideas in it are the provider's, so replaying one is at best a 404.
+ *
+ * Same discipline as `storable`: a path that is not named here is not queued.
+ * The household is told either way (nothing is ever silently dropped), but only
+ * these are promised to arrive on their own.
+ */
+export function queueable(method: string, fullPath: string): boolean {
+  const verb = method.toUpperCase();
+  if (verb === 'GET' || verb === 'HEAD') return false;
+  const p = path(fullPath);
+
+  // What the household said about a place they went to: the point of the app,
+  // and the thing most likely to be typed somewhere with no signal.
+  if (p === '/api/visits' || isVisit(p)) return true;
+  if (/^\/api\/visits\/[^/]+\/takes$/.test(p)) return true;
+
+  // Claiming a place — shortlisted, saved, been, a favourite — and the notes on it.
+  if (p === '/api/atlas/places' || /^\/api\/atlas\/places\//.test(p)) return true;
+  if (/^\/api\/places\/[^/]+\/(note|verdict|special)$/.test(p)) return true;
+
+  // The household itself: who is in it, what they cannot eat, what they dislike.
+  if (p === '/api/household' || p.startsWith('/api/household/')) return true;
+
+  // A trip's own shape: its days, its stops, its shortlist, who is coming.
+  // Not `/api/trips/:id/shortlist/search` — that is a search, and a search run
+  // late is a different search.
+  if (/\/search(\/|$)/.test(p)) return false;
+  if (p === '/api/trips' || /^\/api\/trips\/[^/]+/.test(p)) return true;
+
+  // What was ordered and what each person thought of each dish.
+  if (p === '/api/orders' || p.startsWith('/api/orders/')) return true;
+
+  // A group participant ticking something off behind their invite link. They
+  // are often the person with the worst signal — a car park, a stadium, a coach
+  // — and "paid" means the same thing when it lands ten minutes later.
+  //
+  // Joining itself is not on the list: the answer to that one carries the
+  // participant's own token, which their device needs to have before it can do
+  // anything else. A join that went later, unanswered, would be a second person
+  // in the group rather than the same one.
+  if (/^\/api\/join\/[^/]+\/items\//.test(p)) return true;
+
+  // Everything else — planning sessions, menu reads, provider searches, signing
+  // in — is either bound to a session that expires or costs money to repeat.
+  return false;
+}

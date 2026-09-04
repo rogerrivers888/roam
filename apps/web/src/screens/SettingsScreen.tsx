@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { api, HouseholdResponse, Place } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Row, Segmented, SectionTitle, StatusLine, Stepper, minutes } from '../components/ui';
@@ -10,6 +10,7 @@ import { getViewer, setViewer } from '../viewer';
 import { isAdmin, setAdmin } from '../admin';
 import { Icon } from '../components/Icon';
 import { OfflineCard } from '../components/OfflineCard';
+import { AccountCard } from '../components/AccountCard';
 
 export const SPEAK_KEY = 'roam.speakReplies';
 export const getSpeakPref = () => (Platform.OS === 'web' && typeof localStorage !== 'undefined' ? localStorage.getItem(SPEAK_KEY) !== 'off' : true);
@@ -163,18 +164,15 @@ function Preferences({ data, refresh }: { data: HouseholdResponse; refresh: () =
       <SectionTitle hint="Which build you are looking at, so 'is that change live yet?' has an answer.">This build</SectionTitle>
       <BuildCard />
 
-      <SectionTitle>Account</SectionTitle>
-      <Card>
-        <Text style={type.body}>Private beta: one household, no sign-in.</Text>
-        <Text style={type.small}>Sign in with Apple arrives with the public beta. Apple shares a name and email only, never a photo, so photos are set per person in Household.</Text>
-      </Card>
+      <SectionTitle hint="One passcode for the household, and which devices are using it. Anything written without signal waits here until it can be sent.">Account</SectionTitle>
+      <AccountCard />
 
       <SectionTitle hint="What Roam keeps on this phone so it works with no signal, and what it has researched and owns outright.">On this device</SectionTitle>
       <OfflineCard />
 
       <SectionTitle hint="Everything the household has generated. Place content from licensed sources is never included, only identifiers and what you wrote.">Your data</SectionTitle>
       <Card>
-        <Button label="Export everything (JSON)" kind="secondary" onPress={() => Linking.openURL(api.exportUrl())} />
+        <Button label="Export everything (JSON)" kind="secondary" onPress={() => { void api.downloadExport(); }} />
         <Text style={[type.small, { marginTop: spacing.sm }]}>Delete everything Roam holds about this household: people, trips, visits, ratings, captured menus. Type the household name to confirm.</Text>
         <Row>
           <TextInput value={confirm} onChangeText={setConfirm} placeholder={household.name} placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
