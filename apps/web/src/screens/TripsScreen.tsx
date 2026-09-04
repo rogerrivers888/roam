@@ -19,6 +19,8 @@ import { CategoryIcon, Icon } from '../components/Icon';
 import { ShortlistJourney, TripJourneyDay } from '../components/Journey';
 import { BrowseNear, FindState, emptyFind } from '../components/BrowseNear';
 import { getSpeakPref } from './SettingsScreen';
+import { SourceDataPanel } from '../components/SourceData';
+import { isAdmin } from '../admin';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
 const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
@@ -286,7 +288,7 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
 // Trip page
 // ---------------------------------------------------------------------------
 
-type Section = 'find' | 'shortlist' | 'day' | 'stay';
+type Section = 'find' | 'shortlist' | 'day' | 'stay' | 'data';
 
 /** Two taps to delete a trip: its days, stops and shortlist go with it; visits and ratings stay (they lose the link). */
 function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<void> }) {
@@ -346,6 +348,10 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
   const sections: { value: Section; label: string }[] = [
     { value: 'find', label: 'Find' }, { value: 'shortlist', label: `Shortlist (${shortlist.length})` }, { value: 'day', label: isTrip ? `Days (${days.length})` : 'The day' },
     ...(isTrip ? [{ value: 'stay' as Section, label: 'Stay' }] : []),
+    // What every source returned for a day, and where the plan lost it (owner,
+    // 4 Sep 2026: "I'd like to be able to see the data for each one of these
+    // APIs, to see how rich it is"). Admin only: it re-runs the retrieval.
+    ...(isAdmin() ? [{ value: 'data' as Section, label: 'Data' }] : []),
   ];
 
   const dayChips = isTrip ? (
@@ -390,6 +396,7 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
         </View>
       ) : null}
       {section === 'stay' && isTrip ? <StayPanel d={d} onChanged={load} onFindNear={() => setSection('find')} /> : null}
+      {section === 'data' ? <SourceDataPanel d={d} /> : null}
     </>
   );
 

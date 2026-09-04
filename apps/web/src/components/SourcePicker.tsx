@@ -3,6 +3,7 @@ import { Text, View } from 'react-native';
 import { api, SourceCost, SourcesStatus } from '../api';
 import { Chip, Wrap } from './ui';
 import { type } from '../theme';
+import { isAdmin } from '../admin';
 
 /**
  * Which place sources a search (or a trip) may use. `null` means the default
@@ -13,8 +14,13 @@ import { type } from '../theme';
  * Picking a single source is the testing view: results come from that source
  * alone, so you can see what each one returns and how it looks.
  */
-/** "$0.65" for a source that costs money per search, nothing for a free one. */
-const priceTag = (c?: SourceCost) => (c && c.perSearchUsd > 0 ? ` · $${c.perSearchUsd.toFixed(2)}` : '');
+/**
+ * "$0.65" for a source that costs money per search, nothing for a free one.
+ * What a lookup costs is the owner's business, not the household's (owner,
+ * 4 Sep 2026: "that is an admin function only"), so prices only show with
+ * Settings > Admin on.
+ */
+const priceTag = (c?: SourceCost) => (isAdmin() && c && c.perSearchUsd > 0 ? ` · $${c.perSearchUsd.toFixed(2)}` : '');
 
 /** What a trip's searches and plans have cost so far, beside its source picker. */
 export function TripSpendLine({ tripId, refreshKey }: { tripId: string; refreshKey?: unknown }) {
@@ -54,9 +60,9 @@ export function SourcePicker({ value, onChange, title = 'Sources' }: { value: st
         ))}
         {!isDefault ? <Chip label="Reset to default" onPress={() => onChange(null)} /> : null}
       </Wrap>
-      {perSearch > 0 ? (
+      {isAdmin() && perSearch > 0 ? (
         <Text style={type.tiny}>About ${perSearch.toFixed(2)} per search with this set ({selected.filter((k) => status.cost?.[k]?.perSearchUsd).map((k) => `${status.enabled.find((s) => s.key === k)?.label ?? k} $${status.cost![k].perSearchUsd.toFixed(2)}`).join(', ')}); the rest are free.</Text>
-      ) : <Text style={type.tiny}>Every source in this set is free to search.</Text>}
+      ) : isAdmin() ? <Text style={type.tiny}>Every source in this set is free to search.</Text> : null}
       {taOn ? (
         <Text style={type.tiny}>
           {selected.length === 1
