@@ -21,7 +21,10 @@
 //     five-second cap and a one-megabyte cap, and never more than four
 //     requests for one restaurant.
 
-const FETCH_TIMEOUT_MS = 5000;
+// Five seconds was enough from a desk and not from the server: a branch's home
+// page can be a third of a megabyte from a small host (owner, 4 Sep 2026 — the
+// Windsor menu was there and we still missed it).
+const FETCH_TIMEOUT_MS = Number(process.env.ROAM_MENU_TIMEOUT_MS || 9000);
 const MAX_BYTES = 1_000_000;
 const CACHE_TTL_MS = 6 * 3600_000;
 // Roam identifies itself: a restaurant's host should be able to see who asked.

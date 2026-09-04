@@ -106,7 +106,7 @@ async function fetchPage(url) {
  * when the page does not say. Never throws: a site that is down simply gives us
  * nothing this time, and the record stays as it was.
  */
-export async function siteFacts({ website, name = '', category = null } = {}) {
+export async function siteFacts({ website, name = '', category = null, locality = null, knownAddress = null } = {}) {
   const url = String(website ?? '').trim();
   if (!/^https?:\/\//i.test(url)) return null;
 
@@ -114,7 +114,7 @@ export async function siteFacts({ website, name = '', category = null } = {}) {
     fetchPage(url),
     // The menu lookup already knows how to follow their site; for somewhere you
     // eat it runs beside this read rather than after it.
-    ['restaurant', 'cafe', 'bar', 'pub'].includes(category) ? findMenuUrl({ website: url, name }).catch(() => null) : Promise.resolve(null),
+    ['restaurant', 'cafe', 'bar', 'pub'].includes(category) ? findMenuUrl({ website: url, name, locality, address: knownAddress }).catch(() => null) : Promise.resolve(null),
   ]);
   if (!page) return menu?.url ? { menu, how: 'Their site did not answer, but the menu lookup found a page.' } : null;
 

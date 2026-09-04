@@ -312,7 +312,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   // 2. Their own page: the facts a business publishes to be republished.
   if (seed.website) {
     try {
-      const site = await siteFacts({ website: seed.website, name: seed.name, category: seed.category ?? null });
+      const site = await siteFacts({ website: seed.website, name: seed.name, category: seed.category ?? null, locality: seed.locality ?? null, knownAddress: seed.address ?? null });
       await forgetSource(venueRef, ['site']);
       if (site) {
         matched.site = { url: site.sourceUrl ?? seed.website, how: site.how ?? null };
