@@ -276,6 +276,30 @@ export type PlanSet = {
   budget?: { price_point?: 'any' | PricePoint | null; low?: number | null; high?: number | null; per?: 'everyone' | 'person' | null };
 };
 export type IdeaBudget = 'any' | 'free' | 'cheap' | 'mid' | 'treat';
+// The family's table (owner, 4 Sep 2026): one food several of them love, and
+// the best places for it within the travel cap.
+export type TasteWho = { memberId: string; name: string; favourite: boolean; said?: string };
+export type TasteFit = { tone: 'good' | 'warn' | 'fact' | 'allergen'; kind: string; member: string | null; text: string };
+export type MenuRead = {
+  checked: boolean; menuUrl: string | null; menuDated: string | null;
+  dish: { label: string; verdict: 'yes' | 'no' | 'unknown'; named: string | null; price: string | null; note: string | null } | null;
+  people: { person: string; need: string; verdict: 'yes' | 'no' | 'unknown'; examples: string[]; note: string | null }[];
+  allergens: { person: string; allergen: string; verdict: 'yes' | 'no' | 'unknown'; note: string | null }[];
+  kidsMenu: boolean | null; summary: string | null; whyNot: string | null; readAt: string; attribution: string; cached?: boolean;
+};
+export type TastePlace = {
+  venueRef: string; source: string; name: string; category: string; cuisines: string[]; address: string | null;
+  rating: number | null; ratingCount: number | null; priceLevel: number | null;
+  travelMinutes: number; travelEstimated: boolean; distanceKm: number; lat: number; lng: number;
+  website: string | null; mapsUrl: string | null; photos: { ref: string; attribution: string }[]; chain: boolean;
+  evidence: { where: 'review' | 'summary' | 'name' | 'cuisine'; text: string | null; matched: string } | null;
+  fits: TasteFit[]; attribution: string | null; menu: MenuRead | null;
+};
+export type Taste = { key: string; label: string; title: string; loved: TasteWho[]; notFor: { memberId: string; name: string; value: string }[]; named: boolean };
+export type TasteTable = Taste & { because?: string; searched?: string; radiusKm?: number; places: TastePlace[]; excluded?: { name: string; reasons: string[] }[]; found?: number; error?: string };
+export type TastesResponse = { sessionId: string; running: boolean; tastes: Taste[]; tables: TasteTable[]; note: string | null; error: string | null; capMinutes?: number | null };
+export type AroundThing = IdeaThing & { why: { memberId: string; name: string; favourite: boolean; label: string; text: string }[] };
+
 export type Idea = { id: string; title: string; why: string; placeText: string; place: Place | null; travelMinutes: number | null; overnight: boolean; do: string[]; eat: string[] };
 export type IdeaThing = { venueRef: string; name: string; category: string; kind: 'do' | 'eat' | 'see'; experiences: string[]; rating: number | null; ratingCount: number | null; priceLevel: number | null; distanceKm: number | null; lat: number | null; lng: number | null; reasons: string[] };
 
@@ -446,6 +470,12 @@ export const api = {
   inspireThings: (q: { lat: number; lng: number; label: string; locality?: string }) => request<{ items: IdeaThing[]; cached?: boolean; tookMs?: number }>(`/api/plan/inspire/things${qs(q)}`),
   /** Things to do and see: the idea becomes a day out in Trips, what Roam named already shortlisted. */
   inspireTrip: (body: { sessionId: string; ideaId: string; attendingMemberIds?: string[] | null }) => post<{ tripId: string; title: string; date: string; seeded: string[]; reply: string; existing: boolean }>('/api/plan/inspire/trip', body),
+  /** The family's table: the best places for the food the people coming love. Runs in the background like Inspire me. */
+  tastes: (body: { brief: string; moods: string[]; maxTravelMinutes: number | null; budget?: IdeaBudget; attendingMemberIds?: string[] | null }) => post<TastesResponse>('/api/plan/tastes', body),
+  tastesStatus: (sessionId: string) => request<TastesResponse>(`/api/plan/tastes/${sessionId}`),
+  tastesAround: (q: { sessionId: string; tasteKey: string; venueRef: string; members?: string }) => request<{ items: AroundThing[]; forUs: AroundThing[]; cached: boolean; radiusKm: number }>(`/api/plan/tastes/around${qs(q)}`),
+  tastesMenu: (body: { sessionId: string; tasteKey: string; venueRef: string; attendingMemberIds?: string[] | null }) => post<{ menu: MenuRead; usage: { used: number; limit: number }; tasteKey: string; venueRef: string }>('/api/plan/tastes/menu', body),
+  tastesTrip: (body: { sessionId: string; tasteKey: string; venueRef: string; attendingMemberIds?: string[] | null; around?: string[] }) => post<{ tripId: string; title: string; date: string; seeded: string[]; reply: string; existing: boolean }>('/api/plan/tastes/trip', body),
   tripSources: (id: string, p: { dayId?: string; sources?: string; scout?: '1' }) => request<SourceTrace>(`/api/plan/trips/${id}/sources${qs(p)}`),
   tripSpend: (id: string) => request<{ calls: number; costUsd: number; byProvider: { provider: string; calls: number; cost_usd: number }[] }>(`/api/trips/${id}/spend`),
   planRefine: (sessionId: string, utterance: string, viewingOptionId?: string | null) => post<PlanResponse>('/api/plan/refine', { sessionId, utterance, viewingOptionId }),

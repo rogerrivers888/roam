@@ -8,6 +8,7 @@ import discoverRoutes from './routes/discover.js';
 import tripRoutes from './routes/trips.js';
 import journeyRoutes from './routes/journey.js';
 import planRoutes from './routes/plan.js';
+import tasteRoutes from './routes/tastes.js';
 import conceptRoutes from './routes/concepts.js';
 import prototypeRoutes from './routes/prototypes.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
@@ -38,6 +39,9 @@ app.use('/api/household', householdRoutes);
 app.use('/api/discover', discoverRoutes);
 app.use('/api/trips', journeyRoutes);
 app.use('/api/trips', tripRoutes);
+// The family's table (/api/plan/tastes…) is mounted first: the planner's own
+// router ends in a catch-all GET /:sessionId that would swallow these paths.
+app.use('/api/plan', tasteRoutes);
 app.use('/api/plan', planRoutes);
 app.use('/api/concepts', conceptRoutes);
 app.use('/api/prototypes', prototypeRoutes);

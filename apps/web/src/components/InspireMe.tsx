@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, IdeaBudget, Idea, IdeaThing } from '../api';
+import { api, IdeaBudget, Idea, IdeaThing, Taste, TasteTable } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, StatusLine, Wrap, minutes } from './ui';
 import { Icon } from './Icon';
+import { TasteTables } from './TasteTables';
 import type { OpenTripOptions } from '../screens/PlanScreen';
 
 const MOODS = ['Easygoing', 'Intensive', 'Fun', 'Relaxing', 'Food-focused', 'Activity-focused', 'Educational', 'Outdoors', 'Somewhere new'];
@@ -68,13 +69,51 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
   const [things, setThings] = useState<Record<string, Things>>({});
   const [opening, setOpening] = useState<string | null>(null);
   const [opened, setOpened] = useState<Record<string, { tripId: string; title: string; seeded: string[] }>>({});
+  // The family's table runs beside the ideas and lands first: it is a search,
+  // not a model call (owner, 4 Sep 2026).
+  const [tasteSession, setTasteSession] = useState<string | null>(null);
+  const [tastes, setTastes] = useState<Taste[]>([]);
+  const [tables, setTables] = useState<TasteTable[]>([]);
+  const [tablesRunning, setTablesRunning] = useState(false);
+  const [tastesNote, setTastesNote] = useState<string | null>(null);
+  const [tastesError, setTastesError] = useState<string | null>(null);
   const run = useRef(0);
+  const tasteRun = useRef(0);
+
+  /**
+   * The tables: one search per food the people coming love, polled until the
+   * last one lands. Nothing here waits on the model, so "Best arrabbiata" is
+   * on screen while the ideas are still being thought about.
+   */
+  const findTables = async () => {
+    const id = ++tasteRun.current;
+    setTastes([]); setTables([]); setTasteSession(null); setTastesNote(null); setTastesError(null); setTablesRunning(true);
+    try {
+      const started = await api.tastes({ brief: query, moods: [...moods], maxTravelMinutes: cap, budget, attendingMemberIds: attendingIds });
+      if (tasteRun.current !== id) return;
+      setTasteSession(started.sessionId); setTastes(started.tastes); setTables(started.tables); setTastesNote(started.note);
+      if (!started.running) { setTablesRunning(false); return; }
+      for (;;) {
+        await wait(2000);
+        if (tasteRun.current !== id) return;
+        let s: Awaited<ReturnType<typeof api.tastesStatus>> | null = null;
+        try { s = await api.tastesStatus(started.sessionId); } catch { /* a dropped poll is harmless */ }
+        if (!s) continue;
+        setTastes(s.tastes); setTables(s.tables); setTastesNote(s.note); setTastesError(s.error);
+        if (!s.running) { setTablesRunning(false); return; }
+      }
+    } catch (e: any) {
+      if (tasteRun.current === id) { setTastesError(e?.message || String(e)); setTablesRunning(false); }
+    }
+  };
 
   // Inspire me runs on the server in the background: the request is retried
   // through a redeploy, then the session is polled until the ideas are on it,
   // so a slow model call or a restart mid-way never ends in "Failed to fetch".
+  // The tables are started first and land long before it.
   const inspire = async () => {
     setBusy(true); setError(null);
+    findTables();
     try {
       let started: { sessionId: string } | null = null;
       for (let attempt = 0; attempt < 4 && !started; attempt += 1) {
@@ -179,6 +218,11 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
         {who}
         {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       </Card>
+
+      <TasteTables
+        sessionId={tasteSession} tastes={tastes} tables={tables} running={tablesRunning}
+        note={tastesNote} error={tastesError} attendingIds={attendingIds} onOpenTrip={onOpenTrip}
+      />
 
       {busy ? <Row><ActivityIndicator color={colors.accent} /><Text style={type.small}>Looking through your atlas and what's around…</Text></Row> : null}
 
