@@ -70,6 +70,20 @@ export function storable(fullPath: string, body: any): any | null {
   // time, and draws at all on a phone with no signal.
   if (p === '/api/atlas/sketch') return body;
 
+  // The atlas of attractions: the UK's counties, and the top fifteen to twenty
+  // things to do in each. Kept in full, and deliberately, because every field
+  // in it came from Wikidata (CC0), Wikipedia (CC BY-SA) or Wikimedia Commons —
+  // licences that grant the right to keep and republish, with a credit that
+  // travels on the row. Nothing rented is in this answer, so the rule that
+  // sends nothing licensed to a device does not bite here.
+  //
+  // It is also the one part of Roam where holding a copy is the *point*: an
+  // 18-row county with its placeholders is about 25KB, so a phone in a lane
+  // with no signal still has somewhere to go. The photographs themselves are
+  // not here — they are `/api/images/…`, cached by the service worker as
+  // ordinary immutable files, which is what they are.
+  if (p === '/api/atlas/regions' || /^\/api\/atlas\/regions\/[^/]+$/.test(p)) return body;
+
   // --- trips: the household's plan, with the same strip on the shortlist --
   if (p === '/api/trips') return body;
   if (isTripDetail(p)) {

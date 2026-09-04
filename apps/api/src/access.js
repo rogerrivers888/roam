@@ -40,6 +40,8 @@ export const CAPABILITIES = [
   { key: 'view_reporting', area: 'Behaviour', label: 'See reporting', note: 'Engagement, retention and usage across every household.' },
   { key: 'view_financials', area: 'Money', label: 'See financials', note: 'Revenue, what plans earn, and what providers cost.' },
   { key: 'manage_plans', area: 'Money', label: 'Manage plans', note: 'Set what a plan is called, what it costs and what it allows.', manages: true },
+  { key: 'view_library', area: 'Atlas', label: 'See the atlas', note: 'The attractions in each county, and the picture library behind them.' },
+  { key: 'manage_library', area: 'Atlas', label: 'Manage the atlas', note: 'Run the harvest, publish and hide attractions, approve uploads and delete pictures.', manages: true },
   { key: 'view_audit', area: 'Governance', label: 'See the audit trail', note: 'Who did what to whom, and when.' },
   { key: 'manage_settings', area: 'Governance', label: 'Manage settings', note: 'Providers, sources and estate-wide configuration.', manages: true },
 ];

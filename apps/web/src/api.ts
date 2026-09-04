@@ -1075,6 +1075,47 @@ export const api = {
     patch<{ plan: SubscriptionPlan }>(`/api/admin/plans/${key}`, body),
   adminAudit: (limit = 200) => request<{ audit: AuditRow[] }>(`/api/admin/audit?limit=${limit}`),
 
+  // --- the atlas library: attractions, and the pictures we own ---------------
+  // Owner, 4 Sep 2026: "the top 15 to 20 attractions in each county and the top
+  // 100 or so in London… images that we can hold in a database… some form of
+  // index, a proper form of indexing, so we can search and find the images that
+  // we own."
+  libraryOverview: () => request<LibraryOverview>('/api/admin/library'),
+  libraryRegions: () => request<{ regions: LibraryRegion[] }>('/api/admin/library/regions'),
+  librarySetTarget: (slug: string, targetCount: number) =>
+    patch<{ region: LibraryRegion }>(`/api/admin/library/regions/${slug}`, { targetCount }),
+  libraryRank: (slug: string) => post<{ region: LibraryRegion }>(`/api/admin/library/regions/${slug}/rank`, {}),
+  libraryAttractions: (p: { region?: string; state?: string; q?: string; category?: string; limit?: number }) =>
+    request<{ attractions: LibraryAttraction[] }>(`/api/admin/library/attractions${qs(p)}`),
+  libraryCurate: (id: string, body: { state?: string; pinned?: boolean; note?: string }) =>
+    patch<{ attraction: LibraryAttraction }>(`/api/admin/library/attractions/${id}`, body),
+  libraryImages: (p: { q?: string; source?: string; licence?: string; region?: string; subjectType?: string; subjectId?: string; moderation?: string; unlinked?: boolean; credit?: boolean; limit?: number; offset?: number }) =>
+    request<{ images: LibraryImage[]; total: number }>(`/api/admin/library/images${qs(p)}`),
+  libraryImage: (id: string) => request<{ image: LibraryImage & { variants: { width: number; actualWidth: number; bytes: number }[] }; links: any[] }>(`/api/admin/library/images/${id}`),
+  libraryModerate: (id: string, body: { moderation?: string; note?: string; points?: number }) =>
+    patch<{ image: LibraryImage }>(`/api/admin/library/images/${id}`, body),
+  libraryDeleteImage: (id: string) => del<{ ok: boolean }>(`/api/admin/library/images/${id}`),
+  libraryKinds: (p: { q?: string; admit?: boolean; limit?: number } = {}) => request<{ kinds: LibraryKind[] }>(`/api/admin/library/kinds${qs(p)}`),
+  librarySetKind: (qid: string, body: { admit?: boolean; category?: string }) =>
+    patch<{ kind: LibraryKind }>(`/api/admin/library/kinds/${qid}`, body),
+  libraryContributors: () => request<LibraryContributor[]>('/api/admin/library/contributors').then((r: any) => r.contributors ?? r),
+  libraryHarvest: (body: { scope?: 'all' | 'never' | 'failed'; regions?: string[]; withImages?: boolean; refreshTypes?: boolean }) =>
+    post<{ run: HarvestRun }>('/api/admin/library/harvest', body),
+  libraryRun: (id: string) => request<{ run: HarvestRun }>(`/api/admin/library/harvest/${id}`),
+  libraryCancel: (id: string) => post<{ run: HarvestRun }>(`/api/admin/library/harvest/${id}/cancel`, {}),
+
+  /**
+   * Where the bytes are. Not a `request()` — this goes straight into an `<Image
+   * src>`, is outside the session door on purpose (routes/library.js) and is
+   * cached immutably for a year, so the second view of any card never reaches
+   * the API at all.
+   */
+  imageUrl: (id: string, width = 500) => `${API_URL}/api/images/${id}/${width}`,
+
+  /** The household app's read: one county, instantly, off one table. */
+  regionAttractions: (slug: string) => request<RegionAttractions>(`/api/atlas/regions/${slug}`),
+  atlasRegions: () => request<{ regions: { slug: string; name: string; nation: string; kind: string; lat: number | null; lng: number | null; count: number; images: number }[] }>('/api/atlas/regions'),
+
   /**
    * Telemetry: which screen, and still here. Fire-and-forget by design — a
    * household must never notice that reporting failed.
@@ -1105,6 +1146,85 @@ export type SessionState = {
   suspended?: boolean;
   /** Which applications this session may enter, and what it may do in them. */
   access?: Access | null;
+};
+
+// --- the atlas library ------------------------------------------------------
+
+export type LibraryRegion = {
+  slug: string; name: string; nation: string; kind: string;
+  wikidata_id: string | null; lat: number | null; lng: number | null;
+  target_count: number; harvest_state: 'never' | 'queued' | 'running' | 'done' | 'failed';
+  harvest_error: string | null; harvested_at: string | null;
+  candidate_count: number; published_count: number; image_count: number;
+};
+
+export type LibraryAttraction = {
+  id: string; region_slug: string; region_name: string; nation: string;
+  wikidata_id: string; name: string; slug: string; summary: string | null;
+  category: string | null; lat: number | null; lng: number | null;
+  wikipedia_url: string | null; website: string | null; heritage: string | null;
+  sitelinks: number; pageviews_year: number | null; score: number; rank: number | null;
+  score_parts: Record<string, any>;
+  state: 'candidate' | 'published' | 'hidden'; pinned: boolean; note: string | null;
+  image_count: string | number; hero_id: string | null; hero_lqip: string | null;
+};
+
+/**
+ * One picture, and everything anybody could be asked to produce about it: where
+ * it came from, whose it is, what the licence says, and the page that states
+ * both. `source_page_url` is the attribution URL.
+ */
+export type LibraryImage = {
+  id: string; source: string; source_ref: string | null; source_page_url: string | null;
+  licence: string; licence_url: string | null; attribution_required: boolean;
+  creator: string | null; creator_url: string | null; credit_line: string | null;
+  title: string | null; caption: string | null; tags: string[];
+  width: number | null; height: number | null; bytes: number | null;
+  lqip: string | null; moderation: 'approved' | 'pending' | 'rejected'; moderation_note: string | null;
+  reward_points: number; fetched_at: string; contributor_account_id: string | null;
+  widths: number[] | null; held_bytes: string | number;
+  links: { type: string; id: string; role: string; label: string | null }[] | null;
+  relevance?: number;
+};
+
+export type LibraryKind = {
+  qid: string; label: string | null; root_qid: string | null; category: string | null;
+  admit: boolean; overridden: boolean; overridden_by: string | null; seen_count: number;
+};
+
+export type LibraryContributor = {
+  id: string; email: string; household: string | null;
+  accepted: string; waiting: string; points: string;
+};
+
+export type HarvestRun = {
+  id: string; scope: string; stage: string | null;
+  state: 'running' | 'done' | 'failed' | 'cancelled';
+  counts: Record<string, number>; log?: { at: string; line: string }[];
+  error: string | null; started_by: string | null; started_at: string; finished_at: string | null;
+};
+
+export type LibraryOverview = {
+  totals: Record<string, string | number>;
+  bySource: { source: string; n: number; bytes: string }[];
+  byLicence: { licence: string; attribution_required: boolean; n: number }[];
+  coverage: LibraryRegion[];
+  pendingUploads: number;
+  runs: HarvestRun[];
+  running: HarvestRun | null;
+  widths: { hero: number[]; gallery: number[] };
+};
+
+export type RegionAttractions = {
+  region: { slug: string; name: string; nation: string; kind: string; lat: number | null; lng: number | null };
+  attractions: {
+    id: string; name: string; slug: string; rank: number | null; category: string | null;
+    summary: string | null; lat: number | null; lng: number | null;
+    website: string | null; wikipediaUrl: string | null; osmRef: string | null;
+    heritage: string | null; venueRef: string | null; attribution: any[];
+    image: { id: string; lqip: string | null; credit: string | null; licence: string;
+             licenceUrl: string | null; sourceUrl: string | null; creditRequired: boolean } | null;
+  }[];
 };
 
 // --- the admin module -------------------------------------------------------

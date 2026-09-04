@@ -14,6 +14,7 @@ import prototypeRoutes from './routes/prototypes.js';
 import groupRoutes, { startReminderLoop } from './routes/groups.js';
 import accountRoutes from './routes/accounts.js';
 import adminRoutes from './routes/admin.js';
+import { adminRouter as libraryAdminRoutes, atlasRouter as libraryAtlasRoutes, imageRouter as libraryImageRoutes } from './routes/library.js';
 import activityRoutes from './routes/activity.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 import { atlas as atlasRoutes } from './routes/atlas.js';
@@ -74,6 +75,12 @@ app.use(generalLimit);
 // what the app does on every load and is not a guess at anything.
 app.post('/api/session', signInLimit);
 app.use('/api', sessionRoutes);
+
+// The atlas image library, outside the door on purpose (routes/library.js):
+// open-licence photographs we hold and are entitled to redistribute, answered
+// with a year of immutable caching so a card's second view never gets here.
+app.use('/api/images', libraryImageRoutes);
+
 app.use(requireSession);
 // Which devices are signed in is the household's business, so it is mounted on
 // this side of the door rather than with the sign-in verbs.
@@ -91,6 +98,7 @@ for (const path of ['/api/discover', '/api/plan', '/api/atlas', '/api/menu', '/a
 // can be reached through a path that resolves to the caller's own household.
 app.use('/api/accounts', requireDoor('admin'), accountRoutes);
 app.use('/api/admin', requireDoor('admin'), adminRoutes);
+app.use('/api/admin/library', requireDoor('admin'), libraryAdminRoutes);
 
 // Telemetry is the household's own — which screen, and still here — and is
 // always written against the session's own household (routes/activity.js).
@@ -108,6 +116,9 @@ app.use('/api/concepts', conceptRoutes);
 app.use('/api/prototypes', prototypeRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/visits', visitRoutes);
+// The gazetteer reads come first: `atlasRoutes` ends in patterns that would
+// otherwise swallow /regions.
+app.use('/api/atlas', libraryAtlasRoutes);
 app.use('/api/atlas', atlasRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);

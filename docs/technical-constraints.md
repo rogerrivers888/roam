@@ -503,6 +503,35 @@ Three parts:
 
 `navigator.onLine` is not used as the test for "offline": it reports a network interface, not a working connection. What the app shows is whether answers actually came off the device.
 
+### 13.12 The atlas library — **built** (owner, 4 Sep 2026)
+
+> "For the UK, I'd like to find the top 15 to 20 attractions in each county and the top 100 or so in London. I would like to get images that we can hold in a database… I've been looking at Airbnb and other sites, and they're almost instant loading. Having users wait for a minute or more to get data is unacceptable."
+
+The first thing in Roam that is *published* rather than searched, and the first table that holds content rather than identifiers. Both are only possible because of what it is made of.
+
+**Where it comes from.** Four Wikimedia endpoints, none of which needs a key, an account or a card:
+
+| Source | What it gives | Licence | Cost |
+|---|---|---|---|
+| Wikidata (SPARQL) | Everything inside a county, what kind of thing each is, where it is, how many visitors a year it takes, who runs it | CC0 | free, no key |
+| Wikipedia (pageviews) | How many people looked an article up over twelve months — the ranking's strongest signal | CC0 (the counts) | free, no key |
+| Wikipedia (extracts) | The description on the card | CC BY-SA 4.0, credit and link | free, no key |
+| Wikimedia Commons | The photographs, and — the part that matters — the licence, the photographer and the page that states both | CC0 / PD / CC BY / CC BY-SA per file | free, no key |
+
+What is owed in return is a User-Agent that identifies Roam with a contact, and a rate that is defensible. `sources/wikimedia.js` does both: every request is serialised with a gap, and nothing runs on a household's request.
+
+**What is explicitly not admissible.** Google Places photos, Tripadvisor photos, Yelp photos, and anything scraped. §4 gives Google's display content a retention allowance of *none*, and there is no version of "keep it on our own storage" that survives it. This is not caution: it is the difference between a library Roam owns and a folder of other people's property. `image_assets.may_store` is the column that records that a licence was read and permitted it, and `saveImage()` throws without it.
+
+**The ranking.** Six parts, weighted, with the working kept on the row (`attractions.score_parts`), because "why is this fourth" is the first question anybody asks of a ranked list: pageviews 0.40, open-to-visitors 0.20, published visitor figure 0.15, Wikidata sitelinks 0.15, heritage designation 0.05, has a photograph at all 0.05.
+
+The open-to-visitors part is the one worth naming. Wikipedia is an encyclopedia: it is interested in places for reasons that are not "you could spend Saturday there". Ranked on pageviews and notability alone, Berkshire put Tittenhurst Park — a private house that was once John Lennon's — above Legoland Windsor, which takes 2.4 million visitors a year. A direct attraction type, a named operator and an official website are the correction.
+
+**Why it is instant.** Every slow thing happens in a back office job that runs weekly. The read path is one indexed query against one table: a full county with every card's placeholder inlined is **46KB and answers in 10ms**, and the images are served from `/api/images/:id/:width` with `immutable` caching for a year, so a card's second view never reaches the API at all. The placeholder is a 20px JPEG held as a data URI (~500 bytes), which means the first paint owes nothing to the image network — the perceived-speed win, and the reason this reads like Airbnb rather than like a search.
+
+**The layers, again.** `place_records` (§13.10) is the household's owned copy of somewhere it cared about; this is Roam's own published atlas of somewhere anybody might. They meet at `attractions.venue_ref`. Neither is a cache of a provider's answer.
+
+Files: `api/migrations/036_image_library.sql`, `api/src/sources/wikimedia.js`, `api/src/sources/harvest.js`, `api/src/repositories/library.js`, `api/src/routes/library.js`, `web/src/admin/screens/Library.tsx`.
+
 ### 13.5 Closed-vocabulary matching for voice
 
 Used twice, for the same reason: rating capture interprets against known attendees and known ordered items; trip assembly interprets against the stops on screen. Constraining to a small known set matters more than ASR vendor choice.
@@ -576,6 +605,8 @@ Cost is the central commercial risk: provider content cannot be retained between
 | L16 | **Data export and deletion** | Not started | Any public release | CCPA/CPRA and GDPR both require it. Exclusion from recommendation calculations is not deletion. Bound by Epic 1 C9 and C10 |
 | L14 | **App Store privacy disclosures** | Not started | **V2** native submission | Privacy nutrition labels covering location, microphone, camera, and children's data. Apps directed at children face additional review scrutiny |
 | L15 | **[V3] Video and image rights** | Not started | Video memories feature | User-generated video in a public venue may capture other patrons and staff. Retention, deletion and export obligations apply |
+| L17 | **Stored image licensing (the atlas library)** | **Built** (4 Sep 2026) | Any release showing an atlas card | Every picture Roam holds carries its licence, its photographer, the page that states both and whether a credit is required, on the same row as the bytes (`image_assets`). An allow-list of licences decides what may be stored at all — CC0, public domain, CC BY, CC BY-SA, OGL — and a `Restrictions` note on the file (trademark, personality rights) refuses it whatever the copyright licence says. `may_store` is checked twice: where the licence is read, and again before the row is written. **The obligation this creates is on screens, not on the database:** wherever `attribution_required` is true, the credit line must appear with the picture. See §13.12 |
+| L18 | **Household-uploaded photographs** | **Schema built, flow not** (4 Sep 2026) | Any upload feature reaching households | The tables exist (`image_assets.contributor_account_id`, `moderation`, `image_rewards`) and nothing publishes without a person approving it. What is still needed before the camera flow ships: the licence grant a household gives Roam, stated in the Terms and recorded with the file; a bystander rule (a photograph of a playground contains other people's children); and a takedown route. Rewards are points, never money — Roam has no payment provider |
 
 ---
 
