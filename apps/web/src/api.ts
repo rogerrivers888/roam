@@ -102,7 +102,9 @@ export type Member = {
   likes: Constraint[];
 };
 
-export type Place = { label: string; lat: number; lng: number; country?: string | null; countryCode?: string | null; locality?: string | null; displayName?: string; formatted?: string; address?: { line1: string | null; area: string | null; town: string | null; region: string | null; postcode: string | null; country: string | null }; matchedBy?: string; approximate?: boolean;
+export type Place = {
+  /** The source's own identifier for it, when the map had one: lets an idea open a drawer. */
+  ref?: string; label: string; lat: number; lng: number; country?: string | null; countryCode?: string | null; locality?: string | null; displayName?: string; formatted?: string; address?: { line1: string | null; area: string | null; town: string | null; region: string | null; postcode: string | null; country: string | null }; matchedBy?: string; approximate?: boolean;
   /** Areas only: which one this is ("Somerset · England · United Kingdom") and what kind ("city"). */
   where?: string; kindWord?: string | null };
 
@@ -751,6 +753,8 @@ export const api = {
   /** Inspire me runs in the background: the answer is the session; poll inspireStatus until running is false. */
   inspire: (body: { query: string; moods: string[]; maxTravelMinutes: number | null; budget?: IdeaBudget; attendingMemberIds?: string[] | null }) => post<{ sessionId: string; ref: string; running: boolean; stage: InspireStage }>('/api/plan/inspire', body),
   inspireStatus: (sessionId: string) => request<{ sessionId: string; ref: string; running: boolean; ideas: Idea[] | null; reply: string | null; budget: IdeaBudget; stage: InspireStage | null; placed: number; startedAt: string | null; error: string | null }>(`/api/plan/inspire/${sessionId}`),
+  /** Five more days out on the same list, without losing the ones already there. */
+  inspireMore: (body: { sessionId: string; attendingMemberIds?: string[] | null }) => post<{ sessionId: string; ref: string; running: boolean; stage: InspireStage }>('/api/plan/inspire/more', body),
   /** What one run did, by the number shown on screen: what was asked, how long, and every call it made. */
   planRun: (ref: string) => request<{ ref: string; sessionId: string; kind: string; asked: any; startedAt: string; seconds: number; stage: string; running: boolean; error: string | null; answered: { title: string; pinned: boolean }[] | null; calls: { provider: string; purpose: string; units: any; costUsd: number | null; at: string; afterSeconds: number }[] }>(`/api/plan/runs/${ref}`),
   inspireThings: (q: { lat: number; lng: number; label: string; locality?: string }) => request<{ items: IdeaThing[]; headline: IdeaHeadline | null; cached?: boolean; tookMs?: number }>(`/api/plan/inspire/things${qs(q)}`),

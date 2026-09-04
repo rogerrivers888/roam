@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, IdeaBudget, Idea, IdeaHeadline, IdeaThing, InspireStage, Taste, TasteTable } from '../api';
+import { api, BrowseItem, IdeaBudget, Idea, IdeaHeadline, IdeaThing, InspireStage, Taste, TasteTable } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, StatusLine, Wrap, minutes } from './ui';
 import { Icon, CategoryIcon, Rating } from './Icon';
 import { VenuePhoto } from './VenuePhoto';
 import { TasteTables } from './TasteTables';
+import { VenueDrawer } from './VenueDrawer';
 import type { OpenTripOptions } from '../screens/PlanScreen';
 import { howLongAgo, recallScreen, rememberScreen } from '../screenState';
 
@@ -127,6 +128,12 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   const [picks, setPicks] = useState<Partial<Record<StepKey, string>>>(held?.data.picks ?? {});
   const [editing, setEditing] = useState<StepKey | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Once there are days out on screen the form is one line: what you chose,
+  // tap to change it (owner, 4 Sep 2026: "if I've already chosen something,
+  // you can get rid of everything — the search box, the Speak, the Inspire Me
+  // button… show them in the same way that you showed the family line").
+  const [formOpen, setFormOpen] = useState(true);
+  const [drawer, setDrawer] = useState<BrowseItem | null>(null);
   // The defaults are the answer most days want, on one line, so they need no
   // attention (owner, 4 Sep 2026): an hour from home, any budget, everyone.
   const [cap, setCap] = useState<number | null>(held?.data.cap ?? 60);
@@ -252,8 +259,52 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
       if (inspireRun.current === id) setError(e?.message || String(e));
     } finally {
       clearInterval(ticking);
+      if (inspireRun.current === id) { setBusy(false); setStage(null); setFormOpen(false); }
+    }
+  };
+
+  /** Five more on the end of the same list, rather than the same list again. */
+  const showMore = async () => {
+    if (!sessionId || busy) return;
+    const id = ++inspireRun.current;
+    setBusy(true); setError(null); setStage('thinking'); setElapsed(0);
+    const startedAt = Date.now();
+    const ticking = setInterval(() => setElapsed(Math.round((Date.now() - startedAt) / 1000)), 1000);
+    try {
+      const started = await api.inspireMore({ sessionId, attendingMemberIds: attendingIds });
+      setRunRef(started.ref);
+      for (;;) {
+        await wait(2000);
+        if (inspireRun.current !== id) return;
+        let s: Awaited<ReturnType<typeof api.inspireStatus>> | null = null;
+        try { s = await api.inspireStatus(sessionId); } catch { /* the next poll asks again */ }
+        if (!s) { if (Date.now() - startedAt > 100_000) throw new Error(`Roam has not answered for over a minute and a half — quote run ${started.ref} if it keeps happening.`); continue; }
+        if (s.ideas) setIdeas(s.ideas);
+        setStage(s.stage); setPlaced(s.placed ?? 0);
+        if (s.error) throw new Error(`${s.error} (run ${started.ref})`);
+        if (!s.running) { setFoundAt(new Date().toISOString()); break; }
+      }
+    } catch (e: any) {
+      if (inspireRun.current === id) setError(e?.message || String(e));
+    } finally {
+      clearInterval(ticking);
       if (inspireRun.current === id) { setBusy(false); setStage(null); }
     }
+  };
+
+  /** An idea, as the drawer every other place on the screen opens as. */
+  const openDetail = (idea: Idea, head: IdeaHeadline | null) => {
+    const ref = head?.venueRef ?? idea.place?.ref ?? null;
+    if (!ref || !idea.place) return;
+    setDrawer({
+      id: idea.id, venueRef: ref, name: head?.name ?? idea.place.label, category: head?.category ?? 'attraction',
+      lat: idea.place.lat, lng: idea.place.lng, dwellMinutes: 120, reasons: [], justification: idea.why,
+      startsAt: null, endsAt: null, pinned: false,
+      rating: head?.rating ?? null, ratingCount: head?.ratingCount ?? null, priceLevel: head?.priceLevel ?? null,
+      photos: head?.photos ?? [], summary: head?.summary ?? null, attribution: head?.attribution ?? null,
+      distanceKm: head?.distanceKm ?? idea.distanceKm ?? null, travelFromBaseMinutes: idea.travelMinutes ?? null,
+      source: ref.split(':')[0],
+    });
   };
 
   /**
@@ -422,10 +473,28 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   const nextUnanswered = STEPS.find((step) => !picks[step.key]) ?? null;
   const openStep = editing ? STEPS.find((step) => step.key === editing) ?? null : nextUnanswered;
   const budgetLabel = budget === 'any' ? 'any budget' : (BUDGETS.find((b) => b.value === budget)?.label ?? 'any budget').toLowerCase();
+  // Everything you chose, in one line, for the row that replaces the form.
+  const selectionLine = [
+    ...answered.map((step) => picks[step.key]!),
+    whoLabel,
+    cap ? `within ${minutes(cap)}` : 'anywhere',
+    budgetLabel,
+  ].join(' · ');
 
   return (
     <>
       <Card style={{ gap: spacing.sm }}>
+        {/* What you chose, on one line, once there is something to look at. */}
+        {!formOpen ? (
+          <Pressable onPress={() => setFormOpen(true)} style={styles.settingsRow} accessibilityRole="button" accessibilityLabel={`Your selections: ${selectionLine}. Tap to change`}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={type.tiny}>YOUR SELECTIONS</Text>
+              <Text style={[type.small, { color: colors.ink }]} numberOfLines={2}>{selectionLine}</Text>
+            </View>
+            <Icon name="more" size={16} color={colors.inkMuted} />
+          </Pressable>
+        ) : (
+          <>
         <TextInput
           value={listening ? transcript : query}
           onChangeText={setQuery}
@@ -500,6 +569,8 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
             </View>
           ) : null}
         </View>
+          </>
+        )}
         {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       </Card>
 
@@ -525,17 +596,21 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
 
       {restoring && !ideas ? <Text style={type.tiny}>Putting back what you were looking at…</Text> : null}
 
+      <VenueDrawer item={drawer} onClose={() => setDrawer(null)} />
+
       {ideas ? (
         <Card>
           {/* These are the ideas from earlier today, not new ones: say so, and
               make asking again a tap rather than a guess (owner, 4 Sep 2026). */}
           {foundAt && !busy ? (
-            <Row style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={type.tiny}>Found {howLongAgo(Date.now() - new Date(foundAt).getTime())} · kept for the day</Text>
-              <Chip label="Refresh" icon="refresh" onPress={inspire} />
+            <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <View style={{ flex: 1 }} />
+              <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                <Chip label="Show me 5 more" icon="add" onPress={showMore} />
+                <Text style={type.tiny}>Found {howLongAgo(Date.now() - new Date(foundAt).getTime())}</Text>
+              </View>
             </Row>
           ) : null}
-          {reply ? <Text style={type.small}>{reply}</Text> : null}
           {ideas.length === 0 ? <Text style={type.small}>Nothing came to mind for that — try \u2018Don\u2019t mind\u2019 on one of the questions, or a wider distance.</Text> : null}
           {ideas.map((idea) => {
             const t = things[idea.id];
@@ -546,25 +621,36 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
               idea.travelMinutes != null ? `${minutes(idea.travelMinutes)} by car` : null,
               idea.distanceKm != null ? `${idea.distanceKm} km` : head?.distanceKm != null ? `${head.distanceKm} km` : null,
             ].filter(Boolean).join(' · ');
+            const ref = head?.venueRef ?? idea.place?.ref ?? null;
             return (
-              <View key={idea.id} style={styles.idea}>
-                {/* The picture is the first thing, and it is the place itself. */}
-                {head?.photos?.length ? <VenuePhoto photos={head.photos} size={84} credit={false} />
-                  : <View style={styles.tile}><CategoryIcon category={head?.category ?? 'attraction'} size={22} color={colors.accent} /></View>}
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={type.h3} numberOfLines={2}>{idea.title}</Text>
-                  <Row style={{ flexWrap: 'wrap', gap: 10 }}>
-                    {head?.rating != null ? <Rating value={head.rating}>{head.ratingCount ? ` (${head.ratingCount.toLocaleString()})` : ''}</Rating> : null}
-                    {far ? <Text style={type.small}>{far}</Text> : null}
-                  </Row>
-                  <Text style={type.small} numberOfLines={2}>{idea.why}</Text>
-                  {idea.do.length || idea.eat.length ? <Text style={type.tiny} numberOfLines={1}>{[...idea.do, ...idea.eat].slice(0, 3).join(' · ')}</Text> : null}
-                  <Row style={{ marginTop: 4, flexWrap: 'wrap' }}>
-                    {idea.place ? <Chip label={isOpening ? 'Setting up the day…' : done ? 'Open in Trips' : 'Plan the day'} icon={done ? 'trips' : 'more'} tone="accent" onPress={() => openTrip(idea)} /> : null}
-                    <Chip label="Plan this" onPress={() => planIdea(idea)} />
-                  </Row>
-                  {done ? <Text style={type.tiny} numberOfLines={1}>In Trips as {done.title}.</Text> : null}
-                </View>
+              <View key={idea.id} style={styles.ideaWrap}>
+                {/* The picture and the words open the place; the chips below do
+                    their own jobs, so they are not inside the same button. */}
+                <Pressable
+                  style={styles.idea}
+                  onPress={() => openDetail(idea, head)}
+                  disabled={!ref}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${idea.title}. Open the details`}
+                >
+                  {head?.photos?.length ? <VenuePhoto photos={head.photos} size={84} credit={false} />
+                    : <View style={styles.tile}><CategoryIcon category={head?.category ?? 'attraction'} size={22} color={colors.accent} /></View>}
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={type.h3} numberOfLines={2}>{idea.title}</Text>
+                    <Row style={{ flexWrap: 'wrap', gap: 10 }}>
+                      {head?.rating != null ? <Rating value={head.rating}>{head.ratingCount ? ` (${head.ratingCount.toLocaleString()})` : ''}</Rating> : null}
+                      {far ? <Text style={type.small}>{far}</Text> : null}
+                    </Row>
+                    <Text style={type.small} numberOfLines={2}>{idea.why}</Text>
+                    {idea.do.length || idea.eat.length ? <Text style={type.tiny} numberOfLines={1}>{[...idea.do, ...idea.eat].slice(0, 3).join(' · ')}</Text> : null}
+                  </View>
+                  {ref ? <Icon name="more" size={16} color={colors.inkMuted} /> : null}
+                </Pressable>
+                <Row style={{ flexWrap: 'wrap', paddingLeft: 84 + spacing.md }}>
+                  {idea.place ? <Chip label={isOpening ? 'Setting up the day…' : done ? 'Open in Trips' : 'Plan the day'} icon={done ? 'trips' : 'more'} tone="accent" onPress={() => openTrip(idea)} /> : null}
+                  <Chip label="Plan this" onPress={() => planIdea(idea)} />
+                </Row>
+                {done ? <Text style={[type.tiny, { paddingLeft: 84 + spacing.md }]} numberOfLines={1}>In Trips as {done.title}.</Text> : null}
               </View>
             );
           })}
@@ -581,7 +667,8 @@ const styles = StyleSheet.create({
   mic: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.ink },
   stop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET, paddingHorizontal: spacing.lg, borderRadius: radius.pill, backgroundColor: colors.overrun },
   stopText: { color: colors.bg, fontWeight: '700', fontSize: 15 },
-  idea: { paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.line, flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
+  ideaWrap: { paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.line, gap: 6 },
+  idea: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
   tile: { width: 84, height: 84, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   settings: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: spacing.sm },
   settingsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
