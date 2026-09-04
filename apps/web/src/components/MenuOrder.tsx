@@ -370,16 +370,9 @@ export function MenuPanel({ ctl, onOrder }: { ctl: MenuOrderCtl; onOrder: () => 
 
         {menu === null ? (
           <Card>
+            {/* No paragraph: the button says what it does (owner, 4 Sep 2026). */}
             <Text style={type.h3}>Read their menu</Text>
-            {link?.url ? (
-              <Text style={type.small}>{link.how ?? `Their menu is at ${link.url.replace(/^https?:\/\//, '').slice(0, 60)}.`}</Text>
-            ) : (
-              <Text style={type.small}>{link?.why ?? 'We will follow the website Google gave us and look for their menu.'}</Text>
-            )}
-            <Text style={type.tiny}>
-              Roam opens their own page — a PDF is read, a page that draws itself is rendered in a browser, and only a menu
-              that will not open any other way is read by Claude. Nobody has to photograph anything.
-            </Text>
+            {!link?.url ? <Text style={type.small}>{link?.why ?? 'Looking on their website…'}</Text> : null}
             {how.length ? <Text style={type.tiny}>{how.join(' · ')}</Text> : null}
             {error ? <Text style={[type.small, { color: colors.allergen }]}>{error}</Text> : null}
             <Wrap>

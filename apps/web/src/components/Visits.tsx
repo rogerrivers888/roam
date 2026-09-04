@@ -148,11 +148,21 @@ export function BeenCapture({ venue, household, onCreate, onSaved, onMore }: {
   return (
     <View style={styles.capture}>
       <Text style={type.h3}>Did everyone love it?</Text>
-      <Button label="Everyone loved it" icon="keep" iconFill onPress={() => everyone('loved')} loading={busy === 'loved'} />
-      <Row style={{ flexWrap: 'wrap' }}>
-        <Button label="Only some of us" kind="secondary" onPress={() => setMode('some')} />
-        <Button label="Not for us" kind="secondary" onPress={() => everyone('not_for_me')} loading={busy === 'not_for_me'} />
-      </Row>
+      {/* All three answers on one row (owner, 4 Sep 2026), so they are drawn
+          here rather than as full-size buttons that would not fit a phone. */}
+      <View style={styles.answers}>
+        <Pressable onPress={() => everyone('loved')} disabled={!!busy} style={[styles.answer, styles.answerOn]} accessibilityRole="button">
+          <Icon name="keep" size={15} color={colors.primaryFg} fill />
+          <Text style={[styles.answerText, { color: colors.primaryFg }]}>Everyone loved it</Text>
+        </Pressable>
+        <Pressable onPress={() => setMode('some')} disabled={!!busy} style={styles.answer} accessibilityRole="button">
+          <Text style={styles.answerText}>Only some of us</Text>
+        </Pressable>
+        <Pressable onPress={() => everyone('not_for_me')} disabled={!!busy} style={styles.answer} accessibilityRole="button">
+          <Text style={styles.answerText}>None of us</Text>
+        </Pressable>
+      </View>
+      {busy ? <Text style={type.tiny}>Saving…</Text> : null}
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       {onMore ? <Pressable onPress={onMore} accessibilityRole="button"><Text style={styles.moreLink}>More detail — another date, who came, a note, exact scores</Text></Pressable> : null}
     </View>
@@ -237,6 +247,14 @@ const styles = StyleSheet.create({
   form: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.panel },
   visitRow: { gap: 6, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.panel },
   takeLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  answers: { flexDirection: 'row', gap: 6, alignItems: 'stretch' },
+  answer: {
+    flex: 1, minHeight: TARGET + 8, paddingHorizontal: 8, paddingVertical: 8, gap: 3,
+    borderRadius: radius.md, borderWidth: 1, borderColor: colors.ink, backgroundColor: colors.surface,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  answerOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  answerText: { fontSize: 13, fontWeight: '700', color: colors.ink, textAlign: 'center' },
   capture: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.panel },
   whoLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET - 6 },
   whoPicks: { flexDirection: 'row', gap: 6 },

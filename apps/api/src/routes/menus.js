@@ -129,7 +129,7 @@ menu.get('/', async (req, res, next) => {
     let link = null;
     if (!held) {
       const venue = recallVenue(ref);
-      if (venue?.website) link = await findMenuUrl({ website: venue.website, name: venue.name });
+      if (venue?.website) link = await findMenuUrl({ website: venue.website, name: venue.name, locality: venue.locality ?? null, address: typeof venue.address === 'string' ? venue.address : venue.address?.line1 ?? null });
     }
     res.json({ menu: held, link });
   } catch (err) { next(err); }
@@ -174,7 +174,7 @@ menu.post('/read', async (req, res, next) => {
     let url = String(req.body?.url || '').trim();
     let found = null;
     if (!url) {
-      found = await findMenuUrl({ website, name: label ?? '' });
+      found = await findMenuUrl({ website, name: label ?? '', locality: venue?.locality ?? null, address: typeof venue?.address === 'string' ? venue.address : venue?.address?.line1 ?? null });
       url = found?.url || '';
     }
     if (!url) {

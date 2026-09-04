@@ -232,6 +232,23 @@ places.get('/suggest', async (req, res, next) => {
     const q = String(req.query.q || '').trim();
     if (q.length < 2) return res.json({ suggestions: [] });
     const near = await resolveNear(req.query.near ? String(req.query.near) : null, household);
+    // Somewhere already in the atlas comes first: searching "Sebastian's" the
+    // week after you went there must not put a charity of the same name above
+    // your own restaurant (owner, 4 Sep 2026).
+    const { rows: mine } = await query(
+      `select hp.venue_ref, hp.label, hp.category, hp.locality, hp.postcode,
+              exists (select 1 from visits v where v.household_id = hp.household_id and v.venue_ref = hp.venue_ref) as been
+         from household_places hp
+        where hp.household_id = $1 and lower(hp.label) like $2
+        order by been desc, hp.last_seen desc limit 4`,
+      [household.id, `%${q.toLowerCase()}%`],
+    );
+    const ours = mine.map((r) => ({
+      venueRef: r.venue_ref, placeId: String(r.venue_ref).startsWith('google:') ? String(r.venue_ref).slice(7) : null,
+      name: r.label, where: [r.postcode, r.locality].filter(Boolean).join(' · ') || null,
+      kind: r.been ? 'In your places · been' : 'In your places', mine: true, types: [],
+    }));
+
     const meter = {};
     const suggestions = await googleSource.suggest(q, {
       near: near ? { lat: near.lat, lng: near.lng } : null,
@@ -240,7 +257,8 @@ places.get('/suggest', async (req, res, next) => {
       meter,
     });
     await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, 'google', 'places.suggest', JSON.stringify(meter)]).catch(() => null);
-    res.json({ suggestions });
+    const seen = new Set(ours.map((o) => o.placeId).filter(Boolean));
+    res.json({ suggestions: [...ours, ...suggestions.filter((x) => !seen.has(x.placeId)).map((x) => ({ ...x, venueRef: `google:${x.placeId}`, mine: false }))] });
   } catch (err) { next(err); }
 });
 
@@ -272,7 +290,7 @@ places.get('/detail', async (req, res, next) => {
     // you eat (owner, 4 Sep 2026). It runs beside our own records, so it costs
     // the drawer nothing it was not already waiting for.
     const menuLookup = venue?.website && EATING.has(venue.category)
-      ? findMenuUrl({ website: venue.website, name: venue.name }).catch((err) => ({ url: null, label: null, how: null, why: `Could not reach their site (${String(err?.message || err).slice(0, 80)}).`, checkedAt: new Date().toISOString() }))
+      ? findMenuUrl({ website: venue.website, name: venue.name, locality: venue.locality ?? null, address: typeof venue.address === 'string' ? venue.address : venue.address?.line1 ?? null }).catch((err) => ({ url: null, label: null, how: null, why: `Could not reach their site (${String(err?.message || err).slice(0, 80)}).`, checkedAt: new Date().toISOString() }))
       : Promise.resolve(null);
 
     const { rows } = await query('select id from visits where household_id = $1 and venue_ref = $2 order by visited_on desc', [household.id, ref]);

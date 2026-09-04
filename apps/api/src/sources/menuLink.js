@@ -73,20 +73,57 @@ function score(href, text) {
   return n;
 }
 
-function bestLink(html, baseUrl) {
-  const anchors = [...html.matchAll(/<a\b([^>]*)>([\s\S]{0,400}?)<\/a>/gi)];
-  let best = null;
-  for (const [, attrs, inner] of anchors) {
-    const href = (attrs.match(/\bhref\s*=\s*"([^"]*)"/i) || attrs.match(/\bhref\s*=\s*'([^']*)'/i) || [])[1];
-    if (!href) continue;
-    const text = clean(inner) || clean((attrs.match(/\baria-label\s*=\s*"([^"]*)"/i) || [])[1]);
-    if (!text) continue;
+/**
+ * Every way out of a page, not only its anchors. Sebastian's landing page has
+ * no links at all: each restaurant is a `<button onclick="document.location=…">`,
+ * so a scan that only reads `<a>` sees an empty page (owner, 4 Sep 2026).
+ */
+function links(html, baseUrl) {
+  const out = [];
+  const add = (href, text) => {
+    if (!href || !text) return;
     let absolute;
-    try { absolute = new URL(href, baseUrl).toString(); } catch { continue; }
-    if (!/^https?:/i.test(absolute)) continue;
+    try { absolute = new URL(href, baseUrl).toString(); } catch { return; }
+    if (!/^https?:/i.test(absolute)) return;
+    out.push({ href, url: absolute, text });
+  };
+  for (const [, attrs, inner] of html.matchAll(/<a\b([^>]*)>([\s\S]{0,400}?)<\/a>/gi)) {
+    const href = (attrs.match(/\bhref\s*=\s*"([^"]*)"/i) || attrs.match(/\bhref\s*=\s*'([^']*)'/i) || [])[1];
+    add(href, clean(inner) || clean((attrs.match(/\baria-label\s*=\s*"([^"]*)"/i) || [])[1]));
+  }
+  // A button that navigates in script: onclick="document.location='…'".
+  for (const [, attrs, inner] of html.matchAll(/<(?:button|div|span|li)\b([^>]*\bon[a-z]+\s*=\s*["'][^"']*(?:document|window)\.location[^"']*["'][^>]*)>([\s\S]{0,400}?)<\/(?:button|div|span|li)>/gi)) {
+    const href = (attrs.match(/(?:document|window)\.location(?:\.href)?\s*=\s*\\?['"]([^'"\\]+)/i) || [])[1];
+    add(href, clean(inner));
+  }
+  return out;
+}
+
+function bestLink(html, baseUrl) {
+  let best = null;
+  for (const { href, url, text } of links(html, baseUrl)) {
     const n = score(href, text);
     if (n <= 0) continue;
-    if (!best || n > best.n || (n === best.n && text.length < best.label.length)) best = { n, url: absolute, label: text.slice(0, 60) };
+    if (!best || n > best.n || (n === best.n && text.length < best.label.length)) best = { n, url, label: text.slice(0, 60) };
+  }
+  return best;
+}
+
+/**
+ * The way into one restaurant of several. A group's front page asks which one
+ * you want before it will show you a menu, and the answer is the town this
+ * place is in — "it was 1 click, but you still missed it" (owner, 4 Sep 2026).
+ */
+function branchLink(html, baseUrl, words) {
+  if (!words.length) return null;
+  let best = null;
+  for (const { url, text } of links(html, baseUrl)) {
+    const hay = `${text} ${url}`.toLowerCase();
+    const word = words.find((w) => hay.includes(w));
+    if (!word) continue;
+    // A link naming the town beats one that merely happens to contain it.
+    const n = (text.toLowerCase().includes(word) ? 2 : 0) + (url.toLowerCase().includes(word) ? 1 : 0) + (text.length < 30 ? 1 : 0);
+    if (!best || n > best.n) best = { n, url, label: text.slice(0, 60), word };
   }
   return best;
 }
@@ -99,13 +136,19 @@ function bestLink(html, baseUrl) {
  * shows the reason rather than an empty row, because "their site has no menu
  * on it" is an answer.
  */
-export async function findMenuUrl({ website, name = '' } = {}) {
+export async function findMenuUrl({ website, name = '', locality = null, address = null } = {}) {
   const site = String(website ?? '').trim();
   if (!/^https?:\/\//i.test(site)) return { url: null, label: null, how: null, why: 'No website for this place, so there is nothing to follow.', checkedAt: new Date().toISOString() };
 
-  const hit = cache.get(site);
+  // The words that say which restaurant this is: two branches of one group
+  // share a website, so the town is part of the question and part of the key.
+  const words = [...new Set(`${locality ?? ''} ${address ?? ''}`.toLowerCase().match(/[a-z]{4,}/g) ?? [])]
+    .filter((w) => !['road', 'street', 'lane', 'unit', 'high', 'avenue', 'close', 'place', 'square', 'united', 'kingdom'].includes(w));
+  const key = `${site}|${words.join(',')}`;
+
+  const hit = cache.get(key);
   if (hit && hit.expires > Date.now()) return { ...hit.value, cached: true };
-  if (inflight.has(site)) return { ...(await inflight.get(site)), cached: true };
+  if (inflight.has(key)) return { ...(await inflight.get(key)), cached: true };
 
   const run = (async () => {
     const at = () => new Date().toISOString();
@@ -122,6 +165,28 @@ export async function findMenuUrl({ website, name = '' } = {}) {
 
     const found = page.html ? bestLink(page.html, page.url) : null;
     if (found) return { url: found.url, label: found.label, how: `Followed “${found.label}” on ${new URL(page.url).hostname}.`, checkedAt: at() };
+
+    // A group's front page: pick this restaurant, then look again.
+    const branch = page.html ? branchLink(page.html, page.url, words) : null;
+    if (branch) {
+      // The link may land on a page of its own — Sebastian's Windsor button
+      // goes to an old notice — so their front door is worth a look too: that
+      // is where the navigation, and the word Menu, lives.
+      const tries = [branch.url];
+      try {
+        const root = new URL('/', branch.url).toString();
+        if (root !== branch.url) tries.push(root);
+      } catch { /* the branch link stands alone */ }
+      for (const candidate of tries) {
+        try {
+          const inner = await get(candidate);
+          if (!inner.ok || !inner.html) continue;
+          if (/\/menus?\b/i.test(inner.url)) return { url: inner.url, label: 'Menu', how: `Chose “${branch.label}”, which is the menu.`, checkedAt: at() };
+          const there = bestLink(inner.html, inner.url);
+          if (there) return { url: there.url, label: there.label, how: `Chose “${branch.label}”, then followed “${there.label}”.`, checkedAt: at() };
+        } catch { /* try the next one */ }
+      }
+    }
 
     // Nothing on the page — try the addresses a restaurant usually uses. Their
     // own site, three requests, still free.
@@ -140,7 +205,7 @@ export async function findMenuUrl({ website, name = '' } = {}) {
     return { url: null, label: null, how: null, why: `Nothing on ${new URL(page.url).hostname} says menu — it may be a picture, or on their booking page.`, checkedAt: at() };
   })();
 
-  inflight.set(site, run);
-  run.then((value) => cache.set(site, { value, expires: Date.now() + CACHE_TTL_MS })).catch(() => {}).finally(() => inflight.delete(site));
+  inflight.set(key, run);
+  run.then((value) => cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS })).catch(() => {}).finally(() => inflight.delete(key));
   return { ...(await run), cached: false };
 }
