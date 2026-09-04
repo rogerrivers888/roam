@@ -8,6 +8,7 @@ import { MapLine, MapPin, MapView } from './MapView';
 import { VenueDrawer } from './VenueDrawer';
 import { DirectionsDrawer, LegPoint, MODE_LABEL } from './DirectionsDrawer';
 import { PlacePicker } from './PlacePicker';
+import { TimeField, TimeRangePicker } from './TimePicker';
 import { accuracyWords, useHere } from '../hooks/useHere';
 
 /**
@@ -128,7 +129,11 @@ function BookingControl({ trip, item, venue, dwell, onChanged, onSetAside }: { t
       {status === 'booked' ? (
         <>
           <Row>
-            <View style={[styles.field, { flex: 1 }]}><Icon name="hours" size={14} color={colors.inkFaint} /><Text style={type.tiny}>Time</Text><TextInput value={time} onChangeText={setTime} placeholder="17:30" placeholderTextColor={colors.inkFaint} style={styles.fieldInput} keyboardType="numbers-and-punctuation" onEndEditing={() => { if (validTime) save({ bookedTime: time.trim() }); }} onBlur={() => { if (validTime) save({ bookedTime: time.trim() }); }} /></View>
+            {/* A booking is at five past, not at a typed string. */}
+            <View style={{ flex: 1 }}>
+              <Text style={type.tiny}>Time</Text>
+              <TimeField value={time} label="Booked for" placeholder="Pick the time" clearable onChange={(v) => { setTime(v); save({ bookedTime: v || null }); }} />
+            </View>
             <View style={[styles.field, { flex: 1 }]}><Icon name="household" size={14} color={colors.inkFaint} /><Text style={type.tiny}>For</Text><TextInput value={party} onChangeText={setParty} placeholder="2 + 1" placeholderTextColor={colors.inkFaint} style={styles.fieldInput} onBlur={() => save({ partySize: party })} /></View>
           </Row>
           <View style={styles.field}><Icon name="edit" size={14} color={colors.inkFaint} /><Text style={type.tiny}>Ref</Text><TextInput value={ref} onChangeText={setRef} placeholder="Reference or the name it's under" placeholderTextColor={colors.inkFaint} style={styles.fieldInput} onBlur={() => save({ bookingRef: ref })} /></View>
@@ -253,9 +258,9 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
     [ids[index], ids[j]] = [ids[j], ids[index]];
     return act(() => api.reorderShortlist(trip.id, [...ids, ...others.map((o) => o.id)]));
   };
-  const saveTimes = () => {
+  const saveTimes = (a = leave, b = homeBy) => {
     const ok = (t: string) => /^\d{1,2}:\d{2}$/.test(t.trim());
-    if (ok(leave) && ok(homeBy)) act(() => api.updateDay(trip.id, day.id, { startTime: leave.trim(), endTime: homeBy.trim() }));
+    if (ok(a) && ok(b)) act(() => api.updateDay(trip.id, day.id, { startTime: a.trim(), endTime: b.trim() }));
   };
   const saving = useRef(false);
   const save = async () => {
@@ -302,10 +307,17 @@ export function ShortlistJourney({ d, day, household, onChanged, onSaved, onFind
       </Row>
     </View>
   );
+  // The day's hours are slid, not typed (owner, 4 Sep 2026). Two wheels behind
+  // one line, the same control the trip form uses.
+  const base = journey?.home.label === 'Home' ? 'home' : 'base';
   const timesBar = (
-    <View style={styles.modebar}>
-      <Row><Icon name="hours" size={16} color={colors.inkMuted} /><Text style={type.small}>Leave {journey?.home.label === 'Home' ? 'home' : 'base'}</Text><TextInput value={leave} onChangeText={setLeave} onBlur={saveTimes} style={styles.timeInput} placeholder="10:00" placeholderTextColor={colors.inkFaint} /></Row>
-      <Row><Text style={type.small}>home by</Text><TextInput value={homeBy} onChangeText={setHomeBy} onBlur={saveTimes} style={styles.timeInput} placeholder="20:00" placeholderTextColor={colors.inkFaint} /></Row>
+    <View style={[styles.modebar, { flexDirection: 'column', alignItems: 'stretch', gap: spacing.sm }]}>
+      <TimeRangePicker
+        start={leave || '10:00'}
+        end={homeBy || '20:00'}
+        labels={[`Leave ${base}`, `${base === 'home' ? 'Home' : 'Back'} by`]}
+        onChange={(a, b) => { setLeave(a); setHomeBy(b); saveTimes(a, b); }}
+      />
     </View>
   );
   const banner = journey ? (

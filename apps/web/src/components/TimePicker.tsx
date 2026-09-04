@@ -110,6 +110,42 @@ function Wheel({ label, value, options, onChange }: {
 }
 
 /**
+ * One time, on one wheel: a booking at 7:15, the hour a day starts. Empty is a
+ * real answer for a booking nobody has made yet, so it can be cleared.
+ */
+export function TimeField({ value, onChange, step = 5, placeholder = 'Pick a time', label = 'Time', clearable = false }: {
+  value: string;
+  onChange: (v: string) => void;
+  step?: number;
+  placeholder?: string;
+  label?: string;
+  /** Offer "No time yet" — a booking without one is a real state. */
+  clearable?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const options = slots(step);
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <Pressable onPress={() => setOpen((o) => !o)} style={[styles.trigger, open && { borderColor: colors.accent }]} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded: open }}>
+        <Icon name="hours" size={16} color={colors.inkMuted} />
+        <Text style={[type.body, { flex: 1 }, !value && { color: colors.inkFaint }]}>{value ? timeLabel(value) : placeholder}</Text>
+        <Icon name={open ? 'collapse' : 'expand'} size={16} color={colors.inkMuted} />
+      </Pressable>
+      {open ? (
+        <View style={styles.panel}>
+          <Wheel label={label} value={value || '19:00'} options={options} onChange={onChange} />
+          <View style={styles.footer}>
+            {clearable && value ? <Button label="No time yet" kind="ghost" onPress={() => { onChange(''); setOpen(false); }} /> : null}
+            <View style={{ flex: 1 }} />
+            <Button label="Done" onPress={() => setOpen(false)} />
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
  * "10am → 4pm", tapped to open two wheels. `start` and `end` are 24-hour
  * "HH:MM" strings, which is what the API stores.
  */
