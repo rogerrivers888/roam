@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, HouseholdResponse, Member, MenuItem, MenuLink, Order, ReadMenu } from '../api';
+import { api, HouseholdResponse, Member, MenuItem, MenuLink, Order, OrderItem, ReadMenu } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { useViewport } from '../hooks/useViewport';
 import { Icon } from './Icon';
@@ -45,9 +45,22 @@ const MEAT = ['prosciutto', 'ragù', 'ragu', 'bolognese', 'guanciale', 'beef', '
 const FISHY = ['fish', 'tuna', 'anchov', 'crab', 'granchio', 'prawn', 'seafood', 'squid', 'octopus', 'mussel', 'clam', 'salmon', 'cod'];
 
 const words = (item: MenuItem) => `${item.name} ${item.description ?? ''}`.toLowerCase();
+/**
+ * Vegetarian gets one letter after the name rather than a row per person
+ * (owner, 4 Sep 2026). The menu's own mark is taken when it makes one; where it
+ * says nothing, a dish with meat or fish in it is not vegetarian and a dish
+ * with a description and none of either is — a dish with no description at all
+ * gets no letter, because silence is not a claim.
+ */
+const isVeg = (item: MenuItem) => {
+  if (item.vegetarian != null) return item.vegetarian;
+  const text = words(item);
+  if (MEAT.some((w) => text.includes(w)) || FISHY.some((w) => text.includes(w))) return false;
+  return item.description ? true : null;
+};
 const singular = (s: string) => s.replace(/s$/, '');
 
-type Flag = { kind: 'allergen' | 'check' | 'diet' | 'dislike'; who: string; text: string };
+type Flag = { kind: 'allergen' | 'check' | 'dislike'; who: string; text: string };
 
 /** Only the flags that concern the people at this table, so they stay rare enough to read. */
 function flagsFor(item: MenuItem, members: Member[]): Flag[] {
@@ -63,10 +76,6 @@ function flagsFor(item: MenuItem, members: Member[]): Flag[] {
       const hidden = (HIDDEN[term] ?? []).find((h) => text.includes(h));
       if (hidden) out.push({ kind: 'check', who: first, text: `${a.value}? ${hidden} — ask` });
     }
-    for (const d of m.diets ?? []) {
-      const veg = /vegetarian|vegan/i.test(d.value);
-      if (veg && (item.vegetarian === false || MEAT.some((w) => text.includes(w)))) out.push({ kind: 'diet', who: first, text: `not ${d.value.toLowerCase()}` });
-    }
     for (const d of m.dislikes ?? []) {
       const term = singular(d.value.toLowerCase());
       const hit = text.includes(term) || (/(fish|seafood)/.test(term) && FISHY.some((w) => text.includes(w)));
@@ -79,7 +88,6 @@ function flagsFor(item: MenuItem, members: Member[]): Flag[] {
 const FLAG_STYLE = {
   allergen: { border: colors.allergen, bg: colors.allergenSoft, fg: colors.allergen, icon: 'allergen' as const },
   check: { border: colors.ink, bg: 'transparent', fg: colors.ink, icon: 'allergen' as const },
-  diet: { border: colors.line, bg: 'transparent', fg: colors.inkMuted, icon: 'info' as const },
   dislike: { border: colors.line, bg: 'transparent', fg: colors.inkMuted, icon: 'info' as const },
 };
 
@@ -135,6 +143,10 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
   const [marks, setMarks] = useState<Marks>({});
   const [staffBy, setStaffBy] = useState<'person' | 'course'>('person');
   const [busy, setBusy] = useState(false);
+  // An order that was already here when the screen opened is one the table has
+  // placed; the meal comes after it, so that is the only one offered "we ate
+  // it" (owner, 4 Sep 2026). One being written now is still being written.
+  const [resumed, setResumed] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -142,7 +154,22 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
     api.heldMenu(venueRef)
       .then((d) => { if (!live) return; setMenu(d.menu); setLink(d.link ?? null); setSection(d.menu?.sections[0]?.title ?? null); })
       .catch((e) => { if (live) { setMenu(null); setError(e.message); } });
-    api.order(venueRef).then((d) => { if (live && d.order && !d.order.visitId) setOrder(d.order); }).catch(() => {});
+    api.order(venueRef).then((d) => {
+      if (!live || !d.order || d.order.visitId) return;
+      setOrder(d.order);
+      setResumed(true);
+      setStep('order');
+      // The picks are what the menu draws and what saving writes, so an order
+      // that came back from the server has to become picks again or editing it
+      // would quietly wipe it.
+      setPicks(Object.fromEntries(d.order.items.reduce((map, i) => {
+        if (!i.menuItemId) return map;
+        const at = map.get(i.menuItemId) ?? { members: {} as Record<string, boolean>, table: false, note: '' };
+        if (i.memberId) at.members[i.memberId] = true; else at.table = true;
+        if (i.note) at.note = i.note;
+        return map.set(i.menuItemId, at);
+      }, new Map<string, Picks[string]>())));
+    }).catch(() => {});
     return () => { live = false; };
   }, [venueRef]);
 
@@ -155,15 +182,16 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
     return map;
   }, [menu]);
 
-  const chosen = useMemo(() => {
+  const rowsFrom = (from: Picks) => {
     const rows: { itemId: string; memberId: string | null; note: string }[] = [];
-    for (const [itemId, p] of Object.entries(picks)) {
+    for (const [itemId, p] of Object.entries(from)) {
       if (!itemsById.has(itemId)) continue;
       if (p.table) rows.push({ itemId, memberId: null, note: p.note });
       for (const m of members) if (p.members[m.id]) rows.push({ itemId, memberId: m.id, note: p.note });
     }
     return rows;
-  }, [picks, itemsById, members]);
+  };
+  const chosen = useMemo(() => rowsFrom(picks), [picks, itemsById, members]);
   const total = chosen.reduce((n, r) => n + (itemsById.get(r.itemId)?.price ?? 0), 0);
 
   const pickOf = (id: string) => picks[id] ?? { members: {}, table: false, note: '' };
@@ -183,22 +211,48 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
     }
   }
 
+  async function writeOrder(from: Picks = picks) {
+    const d = await api.saveOrder({
+      clientId: order?.clientId ?? undefined,
+      ref: venueRef,
+      label: venueLabel,
+      menuId: menu?.id ?? null,
+      items: rowsFrom(from).map((r) => {
+        const item = itemsById.get(r.itemId)!;
+        return { menuItemId: item.id, memberId: r.memberId, name: item.name, priceText: item.priceText, note: r.note || null };
+      }),
+    });
+    setOrder(d.order);
+    return d.order;
+  }
+
   async function toTheOrder() {
     setBusy(true);
-    try {
-      const d = await api.saveOrder({
-        clientId: order?.clientId ?? undefined,
-        ref: venueRef,
-        label: venueLabel,
-        menuId: menu?.id ?? null,
-        items: chosen.map((r) => {
-          const item = itemsById.get(r.itemId)!;
-          return { menuItemId: item.id, memberId: r.memberId, name: item.name, priceText: item.priceText, note: r.note || null };
-        }),
-      });
-      setOrder(d.order);
-      setStep('order');
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    try { await writeOrder(); setStep('order'); }
+    catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  /** Take one thing off the order, from the order itself. */
+  async function removeFromOrder(item: OrderItem) {
+    if (!item.menuItemId) return;
+    const p = pickOf(item.menuItemId);
+    const next: Picks = {
+      ...picks,
+      [item.menuItemId]: item.memberId
+        ? { ...p, members: { ...p.members, [item.memberId]: false } }
+        : { ...p, table: false },
+    };
+    setPicks(next);
+    setBusy(true);
+    try { await writeOrder(next); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  /** A word for the waiter, changed on the order rather than back on the menu. */
+  async function noteOnOrder(item: OrderItem, note: string) {
+    if (!item.menuItemId) return;
+    const next: Picks = { ...picks, [item.menuItemId]: { ...pickOf(item.menuItemId), note } };
+    setPicks(next);
+    try { await writeOrder(next); } catch (e: any) { setError(e.message); }
   }
 
   /** The table changed its mind: the order in progress goes, the menu stays. */
@@ -206,7 +260,7 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
     setBusy(true);
     try {
       if (order && !order.visitId) await api.clearOrder(order.id);
-      setOrder(null); setPicks({}); setMarks({}); setStep('menu');
+      setOrder(null); setPicks({}); setMarks({}); setResumed(false); setStep('menu');
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
@@ -324,6 +378,7 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                       ))}
                     </ScrollView>
                     {shown?.note ? <Text style={type.tiny}>{shown.note}</Text> : null}
+                    <Text style={type.tiny}>(V) is vegetarian.{dietLines.length ? ` ${dietLines.join(' ')}` : ''}</Text>
                     {shown?.items.map((item) => {
                       const p = pickOf(item.id);
                       const flags = flagsFor(item, members);
@@ -331,7 +386,10 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                       return (
                         <View key={item.id} style={[styles.row, picked && styles.rowPicked]}>
                           <Row style={{ alignItems: 'flex-start' }}>
-                            <Text style={[type.body, styles.itemName]}>{item.name}</Text>
+                            <Text style={[type.body, styles.itemName]}>
+                              {item.name}
+                              {isVeg(item) ? <Text style={styles.veg}> (V)</Text> : null}
+                            </Text>
                             <Text style={styles.price}>{item.priceText ?? ''}</Text>
                           </Row>
                           {item.description ? <Text style={type.small}>{item.description}</Text> : null}
@@ -384,7 +442,7 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
           {step === 'order' && order ? (
             <>
               <ScrollView contentContainerStyle={styles.body}>
-                {header('The order', venueLabel, () => setStep('menu'))}
+                {header('The order', `${venueLabel}${resumed ? ' · placed earlier' : ''}`, () => setStep('menu'))}
                 {groups.map((g) => (
                   <View key={g.id ?? 'table'} style={{ gap: 4 }}>
                     <Row>
@@ -392,13 +450,30 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                       <Text style={type.h3}>{g.name}</Text>
                     </Row>
                     {g.items.length ? g.items.map((i) => (
-                      <Row key={i.id} style={styles.orderRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={type.body}>{i.name}</Text>
-                          {i.note ? <Text style={type.tiny}>{i.note}</Text> : null}
-                        </View>
-                        <Text style={type.small}>{i.priceText ?? ''}</Text>
-                      </Row>
+                      <View key={i.id} style={styles.orderRow}>
+                        <Row style={{ alignItems: 'flex-start' }}>
+                          <Text style={[type.body, { flex: 1 }]}>{i.name}</Text>
+                          <Text style={type.small}>{i.priceText ?? ''}</Text>
+                          <Pressable
+                            onPress={() => removeFromOrder(i)}
+                            disabled={busy}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Take ${i.name} off the order`}
+                            style={styles.remove}
+                          >
+                            <Icon name="close" size={15} color={colors.inkMuted} />
+                          </Pressable>
+                        </Row>
+                        <TextInput
+                          defaultValue={i.note ?? ''}
+                          onEndEditing={(e) => noteOnOrder(i, e.nativeEvent.text)}
+                          onBlur={(e: any) => noteOnOrder(i, e?.nativeEvent?.text ?? '')}
+                          placeholder="a word for the waiter"
+                          placeholderTextColor={colors.inkFaint}
+                          style={[styles.noteInput, { marginTop: 4 }]}
+                          accessibilityLabel={`A word about ${i.name}`}
+                        />
+                      </View>
                     )) : <Text style={type.tiny}>Nothing yet</Text>}
                   </View>
                 ))}
@@ -418,12 +493,26 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                   </View>
                 ) : null}
                 {dietLines.length ? <Text style={type.tiny}>{dietLines.join(' ')}</Text> : null}
+                {resumed ? (
+                  <Card>
+                    <Text style={type.small}>
+                      This order was already here. When you have eaten it, say so and star whatever stood out.
+                    </Text>
+                    <Wrap>
+                      <Button label="We ate it" icon="favourite" kind="secondary" onPress={weAteIt} disabled={busy} />
+                      <Button label="Start again" icon="close" kind="ghost" onPress={startAgain} disabled={busy} />
+                    </Wrap>
+                  </Card>
+                ) : (
+                  <Wrap>
+                    <Button label="Start again" icon="close" kind="ghost" onPress={startAgain} disabled={busy} />
+                  </Wrap>
+                )}
               </ScrollView>
               <View style={styles.bar}>
-                <Button label="Start again" icon="close" kind="ghost" onPress={startAgain} disabled={busy} />
-                <Button label="We ate it" icon="favourite" kind="secondary" onPress={weAteIt} disabled={busy} />
+                <Button label="Add or change" icon="add" kind="secondary" onPress={() => setStep('menu')} disabled={busy} />
                 <View style={{ flex: 1 }} />
-                <Button label="Show to staff" icon="list" onPress={() => setStep('staff')} />
+                <Button label="Show to staff" icon="list" onPress={() => setStep('staff')} disabled={!order.items.length} />
               </View>
             </>
           ) : null}
@@ -593,6 +682,7 @@ const styles = StyleSheet.create({
   row: { gap: 6, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
   rowPicked: { backgroundColor: colors.surfaceMuted, borderRadius: radius.sm, paddingHorizontal: spacing.sm },
   itemName: { flex: 1, fontWeight: '700' },
+  veg: { color: colors.accent, fontWeight: '800', fontSize: 13 },
   price: { ...type.body, fontWeight: '700' },
   flag: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   flagText: { fontSize: 11, fontWeight: '700' },
@@ -608,7 +698,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.surface,
   },
-  orderRow: { paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.line, alignItems: 'flex-start' },
+  orderRow: { paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.line },
+  remove: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 15, borderWidth: 1, borderColor: colors.line },
   totalRow: { borderTopWidth: 1, borderTopColor: colors.ink, paddingTop: spacing.sm, justifyContent: 'space-between' },
   warn: {
     flexDirection: 'row', gap: 8, alignItems: 'flex-start', borderWidth: 1, borderColor: colors.allergen,
