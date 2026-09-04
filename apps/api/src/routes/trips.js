@@ -11,9 +11,11 @@ import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { searchAreas } from '../sources/areas.js';
 import { optInFrom, enabledSources } from '../sources/index.js';
 import { searchCached } from '../sources/cache.js';
+import { bedsNear, OSM_ATTRIBUTION } from '../sources/stays.js';
+import { rankStays, middleOf } from '../domain/stays.js';
 import { kmBetween } from '../domain/travel.js';
 import { currentHousehold } from './household.js';
-import { visitPayload } from './places.js';
+import { visitPayload, householdStatus } from './places.js';
 import { upsertHouseholdPlace } from './atlas.js';
 import { claimPlace } from '../sources/own.js';
 
@@ -199,7 +201,11 @@ router.post('/', async (req, res, next) => {
       let base = b.base?.lat != null ? b.base : null;
       if (!base && b.baseText) [base] = await geocode(b.baseText, { limit: 1, near: place, countryCode: place?.countryCode ?? null, within: Boolean(place), kind: 'lodging' });
       if (!base && (b.baseKind === 'home' || (!place && home))) base = home;
-      if (!base && place) base = { ...place, label: `${place.label} (centre)` };
+      // Nowhere to stay yet. A trip still needs a point to search from, so the
+      // middle of the city stands in — but it is marked as a stand-in, not as
+      // somewhere they are staying, or the Stay tab would think it was booked.
+      let unbooked = false;
+      if (!base && place) { base = { ...place, label: `${place.label} (centre)` }; unbooked = true; }
       if (!base) return res.status(400).json({ error: 'place_required', message: 'Say where the trip is — a city or region — or where you are staying.' });
 
       const trip = await withTransaction(async (client) => {
@@ -209,11 +215,11 @@ router.post('/', async (req, res, next) => {
                               origin_label, origin_lat, origin_lng, depart_at, return_at, travel_mode, intensity, timezone)
            values ($1,'trip',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$7,$8,$9,($5::date + $14::time), ($6::date + $15::time),$16,$17,$18) returning *`,
           [household.id, b.title?.trim() || null, b.notes?.trim() || null, place?.label ?? b.placeText ?? base.label, b.startDate, b.endDate,
-           base.label, base.lat, base.lng, b.baseKind ?? (base === home ? 'home' : 'hotel'), b.checkIn ?? null, b.checkOut ?? null, b.hasCar !== false,
+           base.label, base.lat, base.lng, unbooked ? 'centre' : (b.baseKind ?? (base === home ? 'home' : 'hotel')), b.checkIn ?? null, b.checkOut ?? null, b.hasCar !== false,
            b.dayStart ?? '09:30', b.dayEnd ?? '21:00', travelMode, intensity, household.timezone || 'Europe/London'],
         );
         const created = rows[0];
-        claimBase(household.id, base, b.baseKind ?? (base === home ? 'home' : 'hotel'));
+        if (!unbooked) claimBase(household.id, base, b.baseKind ?? (base === home ? 'home' : 'hotel'));
         for (const memberId of await ids(client)) await client.query('insert into trip_attendees (trip_id, member_id) values ($1, $2) on conflict do nothing', [created.id, memberId]);
         await ensureDays(client, created);
         await placeTrip(client, created.id, place ?? base);
@@ -426,6 +432,60 @@ async function runShortlistSearch(req, { onProgress = null } = {}) {
   ].sort(byDistance);
   return { near: center, radiusKm, results: withFlags(results), degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started };
 }
+
+/**
+ * GET /api/trips/:id/stays?radiusKm=2&near=plans|centre&mode=walking
+ *
+ * Somewhere to sleep, ranked by how much of the shortlist is on foot from the
+ * front door (domain/stays.js). Open map only: beds, addresses and the star
+ * rating an operator is allowed to advertise. No prices and no availability —
+ * those need a booking provider with a key and a cap, which is the owner's.
+ */
+router.get('/:id/stays', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const trip = await loadTrip(req.params.id);
+    // What they mean to do, from the shortlist: the places with a point on the map.
+    const { rows: plans } = await query(
+      `select venue_ref, venue_label, lat, lng from trip_shortlist
+        where trip_id = $1 and lat is not null and status <> 'dropped'`,
+      [trip.id],
+    );
+    const anchors = plans.map((p) => ({ label: p.venue_label, lat: Number(p.lat), lng: Number(p.lng), venueRef: p.venue_ref }));
+    // The city itself: where the trip is, which for a trip away is its origin.
+    const centre = { lat: trip.base_lat ?? trip.origin_lat, lng: trip.base_lng ?? trip.origin_lng };
+    if (centre.lat == null) return res.status(400).json({ error: 'no_centre', message: 'This trip has no place on the map yet.' });
+    // Always the same patch of map, so the answer is the one already held: the
+    // shortlist moves the order, not the search. Where the middle of the plans
+    // is only matters for saying how near a bed is to them.
+    const heart = anchors.length ? middleOf(anchors) : centre;
+    const radiusKm = Math.min(15, Math.max(0.5, Number(req.query.radiusKm) || 2));
+    // No car means everything is a walk; a car makes a mile nothing at all.
+    const mode = req.query.mode === 'driving' || (req.query.mode == null && trip.has_car) ? 'driving' : 'walking';
+
+    let beds; let cached;
+    try { ({ beds, cached } = await bedsNear(centre, radiusKm)); }
+    catch (err) {
+      // The open map's servers are shared and sometimes busy. Say so in words
+      // somebody can act on rather than passing on a timeout code.
+      return res.status(504).json({ error: 'map_busy', message: 'The open map took too long to answer. Try again in a moment — or say where you are staying and we will work around it.' });
+    }
+    const ranked = rankStays(beds, { anchors, centre: anchors.length ? heart : centre, mode })
+      .filter((s) => s.distanceKm == null || s.distanceKm <= radiusKm + 1)
+      .slice(0, 40);
+    const status = await householdStatus(household.id, ranked.map((s) => s.venueRef));
+    if (!cached) await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'osm', 'trip.stays']);
+    res.json({
+      near: { ...(anchors.length ? heart : centre), label: anchors.length ? 'the middle of your plans' : (trip.locality ?? trip.place_label ?? 'the centre') },
+      radiusKm,
+      mode,
+      anchors: anchors.map((a) => ({ label: a.label, lat: a.lat, lng: a.lng })),
+      results: ranked.map((s) => ({ ...s, household: status[s.venueRef] ?? null })),
+      cached,
+      attribution: OSM_ATTRIBUTION,
+    });
+  } catch (err) { next(err); }
+});
 
 /** GET /api/trips/:id/shortlist/search?q=&categories=food|things&radiusKm=&near=lat,lng&refresh=1 — near the base by default. */
 router.get('/:id/shortlist/search', async (req, res, next) => {

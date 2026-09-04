@@ -30,8 +30,21 @@ const LEISURE_EXPERIENCE = {
   trampoline_park: 'trampoline', climbing: 'climbing', beach_resort: 'beach', marina: 'boat-trip',
 };
 
+// Somewhere to sleep. Asked for on its own — never in the default set — so a
+// search for somewhere to eat never comes back with hotels.
+const TOURISM_TO_CATEGORY = {
+  hotel: 'hotel', guest_house: 'hotel', hostel: 'hotel', motel: 'hotel',
+  apartment: 'hotel', chalet: 'hotel', alpine_hut: 'hotel',
+};
+/** What kind of bed, in the word a person would use. */
+const STAY_WORDS = {
+  hotel: 'hotel', guest_house: 'guest house', hostel: 'hostel', motel: 'motel',
+  apartment: 'apartment', chalet: 'chalet', alpine_hut: 'hut',
+};
+
 const CATEGORY_FILTERS = {
   food: `nwr["amenity"~"^(restaurant|cafe|pub|bar|fast_food|ice_cream|biergarten)$"]["name"]`,
+  stay: `nwr["tourism"~"^(hotel|guest_house|hostel|motel|apartment|chalet|alpine_hut)$"]["name"]`,
   things: `nwr["tourism"~"^(museum|gallery|attraction|zoo|aquarium|theme_park|viewpoint)$"]["name"];
   nwr["leisure"~"^(park|garden|nature_reserve|playground|water_park|swimming_pool|ice_rink|bowling_alley|miniature_golf|escape_game|trampoline_park|climbing|beach_resort)$"]["name"];
   nwr["amenity"~"^(cinema|theatre|arts_centre)$"]["name"];
@@ -77,6 +90,8 @@ export function venueFromOsmElement(el) {
   if (t.amenity && AMENITY_TO_CATEGORY[t.amenity]) {
     category = AMENITY_TO_CATEGORY[t.amenity];
     if (AMENITY_EXPERIENCE[t.amenity]) experiences.push(AMENITY_EXPERIENCE[t.amenity]);
+  } else if (t.tourism && TOURISM_TO_CATEGORY[t.tourism]) {
+    category = TOURISM_TO_CATEGORY[t.tourism];
   } else if (t.tourism) {
     const e = TOURISM_EXPERIENCE[t.tourism];
     if (e) experiences.push(e);
@@ -122,6 +137,11 @@ export function venueFromOsmElement(el) {
     address: [[t['addr:housenumber'], t['addr:street']].filter(Boolean).join(' '), t['addr:suburb'] || t['addr:city'], t['addr:postcode']].filter(Boolean).join(', ') || null,
     // Mappers tag groups as brand; index.js turns this into the chain label.
     brand: t.brand || null,
+    // Somewhere to sleep: what kind of bed it is, and the rating the operator
+    // is allowed to advertise. Both are facts in the open map, not a review.
+    stayKind: STAY_WORDS[t.tourism] ?? null,
+    stars: t.stars && /^\d/.test(t.stars) ? Number(String(t.stars).match(/\d+/)[0]) : null,
+    rooms: t.rooms ? Number(t.rooms) || null : null,
     // A sight you look at rather than go into (a bath house, a statue, a
     // viewpoint) gets a short allowance, not an afternoon.
     quickLook: ['viewpoint', 'artwork'].includes(t.tourism) || ['ruins', 'archaeological_site', 'bath', 'wayside_shrine', 'city_gate', 'memorial'].includes(t.historic)
@@ -168,6 +188,8 @@ export const osmSource = {
     for (const c of categories || []) {
       if (['restaurant', 'cafe', 'pub', 'bar', 'food'].includes(c)) groups.add('food');
       if (['attraction', 'event', 'things'].includes(c)) groups.add('things');
+      // Only when it is asked for by name: nobody looking for lunch wants hotels.
+      if (['stay', 'hotel', 'lodging'].includes(c)) groups.add('stay');
     }
     // One query per group: a single union with one limit returns the cafés
     // first and truncates the museums, which read as "no things to do".

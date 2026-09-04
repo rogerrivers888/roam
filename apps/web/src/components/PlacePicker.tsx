@@ -17,6 +17,24 @@ import { useHere } from '../hooks/useHere';
  * with Bath"). An address still needs the slower, exact lookup: it makes up to
  * four requests as it degrades from house name to postcode to town.
  */
+const capitalise = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+/**
+ * What we can show on this keystroke without asking anybody: the longest
+ * question already answered that "bath" begins with, filtered down to the
+ * places whose name still starts with what has been typed.
+ */
+function narrowed(seen: Map<string, (Place & { matchedBy?: string })[]>, q: string, bucket: string) {
+  const want = q.toLowerCase();
+  for (let n = want.length - 1; n >= 2; n -= 1) {
+    const held = seen.get(`${want.slice(0, n)}|${bucket}`);
+    if (!held) continue;
+    const hits = held.filter((p) => p.label.toLowerCase().startsWith(want));
+    return hits.length ? hits : null;
+  }
+  return null;
+}
+
 export function PlacePicker({
   value,
   placeholder = 'Town, address or landmark',
@@ -54,6 +72,8 @@ export function PlacePicker({
   const [busy, setBusy] = useState(false);
   const [searched, setSearched] = useState('');
   const [attribution, setAttribution] = useState('');
+  const [home, setHome] = useState<{ code: string; name: string | null } | null>(null);
+  const [abroad, setAbroad] = useState(false);
   const timer = useRef<any>(null);
   // The last search wins even if an earlier one answers after it, and a question
   // already asked is answered from here rather than asked again — which is what
@@ -62,23 +82,33 @@ export function PlacePicker({
   const seen = useRef(new Map<string, (Place & { matchedBy?: string })[]>()).current;
 
   const least = areas ? 2 : 3;
-  const pause = areas ? 160 : 600;
+  const pause = areas ? 90 : 600;
+  const bucket = `${countryCode ?? ''}|${near?.lat ?? ''}`;
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
     const q = text.trim();
     if (q.length < least) { setItems([]); setSearched(''); setBusy(false); return; }
-    const key = `${q.toLowerCase()}|${countryCode ?? ''}|${near?.lat ?? ''}`;
+    const key = `${q.toLowerCase()}|${bucket}`;
     const held = seen.get(key);
     if (held) { setItems(held); setSearched(text); setBusy(false); return; }
+    // Nothing exact yet, but "bat" was asked a moment ago and this is "bath":
+    // narrow what we already have and show it on this keystroke. The real answer
+    // replaces it when it lands, which is why the box never goes blank while
+    // somebody is still typing (owner, 4 Sep 2026: "almost instant").
+    if (areas) {
+      const from = narrowed(seen, q, bucket);
+      if (from) { setItems(from); setSearched(text); }
+    }
     const mine = ++seq.current;
     setBusy(true);
     timer.current = setTimeout(async () => {
       try {
-        const r = await api.geocode(q, areas ? 6 : 5, { near, country: countryCode ?? near?.countryCode ?? null, kind });
+        const r = await api.geocode(q, areas ? 20 : 5, { near, country: countryCode ?? near?.countryCode ?? null, kind });
         seen.set(key, r.results as any);
         if (mine !== seq.current) return;
         setItems(r.results as any);
+        if (r.home) setHome(r.home);
         setAttribution(r.attribution);
         setSearched(text);
       } catch {
@@ -89,7 +119,17 @@ export function PlacePicker({
     return () => clearTimeout(timer.current);
   }, [text, near?.lat, near?.lng, countryCode, kind]);
 
-  const biasName = !areas && near ? (near.locality ?? near.label) : null;
+  // A country is not a filter you have to find: their own comes first, and the
+  // rest are counted and folded (owner, 4 Sep 2026: "I haven't created a trip to
+  // the USA, and yet I'm being shown all of these cities that are in the USA").
+  const ours = areas && home ? items.filter((p) => p.countryCode === home.code) : items;
+  const theirs = areas && home ? items.filter((p) => p.countryCode !== home.code) : [];
+  const shown = ours.length ? (abroad ? [...ours, ...theirs] : ours) : items;
+  const elsewhereCount = new Set(theirs.map((p) => p.country ?? p.countryCode)).size;
+
+  // Typing narrows, so a fold left open on "bat" should not still be open on "bathwick".
+  useEffect(() => { setAbroad(false); }, [text]);
+
 
   const type_ = (t: string) => { setText(t); onText?.(t); };
   const choose = (p: Place) => { onPick(p); setEditing(false); setText(''); onText?.(''); setItems([]); };
@@ -140,31 +180,52 @@ export function PlacePicker({
         {busy ? <ActivityIndicator size="small" color={colors.inkFaint} /> : null}
       </View>
       {value && editing ? <Pressable onPress={() => { setEditing(false); setText(''); onText?.(''); setItems([]); }} style={styles.change}><Text style={type.small}>Cancel — keep "{value.formatted ?? value.label}"</Text></Pressable> : null}
-      {biasName ? <Text style={type.tiny}>Looking in {biasName}{near?.country ? `, ${near.country}` : ''} first{countryCode || near?.countryCode ? ' — results stay in the same country' : ''}.</Text> : null}
       {!areas && busy ? <Text style={type.tiny}>Looking…</Text> : null}
-      {items.length ? (
+      {shown.length ? (
         <View style={styles.list}>
-          {items.map((p, i) => (
-            <Pressable key={`${p.lat},${p.lng},${i}`} onPress={() => choose(p)} style={[styles.result, areas && styles.suggestion]} accessibilityRole="button">
-              <View style={{ flex: 1 }}>
-                <Row2 name={p.formatted ?? p.label} word={areas ? p.kindWord ?? null : null} />
-                <Text style={type.tiny} numberOfLines={2}>
-                  {areas ? p.where : p.approximate ? p.displayName : [p.address?.town, p.address?.postcode, p.country].filter(Boolean).join(' · ')}
-                </Text>
-              </View>
-              {areas ? null : <View style={styles.use}><Text style={styles.useText}>Use this</Text></View>}
-            </Pressable>
+          {areas && home && ours.length ? (
+            <Text style={[type.tiny, { paddingHorizontal: 4 }]}>{home.name ?? home.code}</Text>
+          ) : null}
+          {shown.map((p, i) => (
+            <React.Fragment key={`${p.lat},${p.lng},${i}`}>
+              {/* Where their own country ends and everywhere else begins. */}
+              {areas && abroad && ours.length && i === ours.length ? (
+                <Text style={[type.tiny, { paddingHorizontal: 4, marginTop: 4 }]}>Everywhere else</Text>
+              ) : null}
+              <Pressable onPress={() => choose(p)} style={[styles.result, areas && styles.suggestion]} accessibilityRole="button">
+                <View style={{ flex: 1 }}>
+                  <Row2 name={p.formatted ?? p.label} word={areas ? p.kindWord ?? null : null} />
+                  <Text style={type.tiny} numberOfLines={2}>
+                    {areas ? p.where : p.approximate ? p.displayName : [p.address?.town, p.address?.postcode, p.country].filter(Boolean).join(' · ')}
+                  </Text>
+                </View>
+                {areas ? null : <View style={styles.use}><Text style={styles.useText}>Use this</Text></View>}
+              </Pressable>
+            </React.Fragment>
           ))}
+          {areas && ours.length && theirs.length ? (
+            <Pressable onPress={() => setAbroad((a) => !a)} style={styles.elsewhere} accessibilityRole="button" accessibilityState={{ expanded: abroad }}>
+              <Icon name={abroad ? 'collapse' : 'more'} size={14} color={colors.inkMuted} />
+              <Text style={[type.small, { color: colors.inkMuted, flex: 1 }]}>
+                {abroad
+                  ? `Only ${home?.name ?? 'here'}`
+                  : `${capitalise(searched.trim())} in ${elsewhereCount === 1 ? '1 other country' : `${elsewhereCount} other countries`}`}
+              </Text>
+            </Pressable>
+          ) : null}
+          {areas && !ours.length && home && items.length ? (
+            <Text style={[type.tiny, { paddingHorizontal: 4 }]}>Nothing in {home.name ?? home.code} — showing everywhere.</Text>
+          ) : null}
         </View>
       ) : null}
       {!busy && searched && searched === text && items.length === 0 ? (
         <Text style={[type.small, { color: colors.dislike }]}>
           {areas
             ? `No city or region called "${searched}". Try fewer letters, or add the country — "Lisbon, Portugal".`
-            : `Nothing matched "${searched}"${biasName ? ` in or around ${biasName}` : ''}. Try the postcode on its own, or the street and town without the house name.`}
+            : `Nothing matched "${searched}"${near ? ` in or around ${near.locality ?? near.label}` : ''}. Try the postcode on its own, or the street and town without the house name.`}
         </Text>
       ) : null}
-      {items.length ? <Text style={type.tiny}>{attribution}{areas ? '' : ' · Tap a result to use it.'}</Text> : null}
+      {shown.length ? <Text style={type.tiny}>{attribution}{areas ? '' : ' · Tap a result to use it.'}</Text> : null}
     </View>
   );
 }
@@ -190,6 +251,7 @@ const styles = StyleSheet.create({
   result: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
   // A suggestion list reads as one thing, not as six cards.
   suggestion: { paddingVertical: 8, borderRadius: radius.sm },
+  elsewhere: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 38, paddingHorizontal: 8 },
   use: { minHeight: 36, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: colors.accent, justifyContent: 'center' },
   useText: { color: colors.bg, fontWeight: '700', fontSize: 13 },
   chosen: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.accentSoft },

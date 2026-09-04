@@ -45,11 +45,13 @@ const WORDS = {
 
 const OSM_TYPE = { N: 'node', W: 'way', R: 'relation' };
 
-// The same short memory Nominatim gets: typing "Ba", "Bat", "Bath" asks three
-// questions, and backspacing asks the first two again.
+// Cities do not move. What Photon said about "bath" this morning is still true
+// this afternoon, so the answer is kept for the day and the second household to
+// type it waits for nothing at all (owner, 4 Sep 2026: "Can you please make
+// this pretty much instant?").
 const recent = new Map();
-const RECENT_MS = 10 * 60_000;
-const RECENT_MAX = 400;
+const RECENT_MS = 24 * 60 * 60_000;
+const RECENT_MAX = 4000;
 let calls = 0;
 export function providerCalls() { return calls; }
 
@@ -124,7 +126,9 @@ const SIZE_COST = {
 export async function searchAreas(text, { limit = 6, near = null, countryCode = null } = {}) {
   const q = String(text || '').trim();
   if (q.length < 2) return [];
-  const params = new URLSearchParams({ q, limit: '25', lang: 'en' });
+  // Ask for plenty: the ones outside the household's own country are folded
+  // away rather than thrown away, and the fold has to be able to count them.
+  const params = new URLSearchParams({ q, limit: '40', lang: 'en' });
   let features;
   try {
     features = (await ask(`${BASE}/api/?${params}`))?.features ?? [];

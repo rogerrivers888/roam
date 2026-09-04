@@ -108,6 +108,22 @@ export type Place = {
   /** Areas only: which one this is ("Somerset · England · United Kingdom") and what kind ("city"). */
   where?: string; kindWord?: string | null };
 
+/** A bed from the open map, with how it sits against what the household means to do. */
+export type Stay = Venue & {
+  stayKind: string | null;
+  stars: number | null;
+  rooms: number | null;
+  /** How far from the middle of the plans (or the city, before there are any). */
+  distanceKm: number | null;
+  /** How many shortlisted places are within a walk of the front door. */
+  plansNear: number;
+  plansTotal: number;
+  /** The middle leg: what a typical day's journey from here looks like. */
+  typicalMinutes: number | null;
+  nearest: { label: string; minutes: number; km: number } | null;
+  farthest: { label: string; minutes: number; km: number } | null;
+};
+
 export type Household = {
   id: string;
   name: string;
@@ -657,6 +673,19 @@ export const api = {
     request<{ results: Place[]; home?: { code: string; name: string | null }; attribution: string }>(`/api/places/geocode${qs({ q, limit, near: bias?.near ? `${bias.near.lat},${bias.near.lng}` : undefined, country: bias?.country ?? undefined, kind: bias?.kind ?? undefined })}`),
   /** Coordinates from the device → the address they sit at. Nothing is stored; the household asked for this one. */
   where: (lat: number, lng: number) => request<{ place: Place; named: boolean; attribution: string }>(`/api/places/where${qs({ at: `${lat},${lng}` })}`),
+  /**
+   * Somewhere to stay, ranked by how much of the shortlist is on foot from the
+   * front door. Open map only — no prices, no availability (those need a
+   * booking provider with a key, which is the owner's to add).
+   */
+  tripStays: (tripId: string, p: { radiusKm?: number; mode?: 'walking' | 'driving' } = {}) =>
+    request<{
+      near: { lat: number; lng: number; label: string };
+      radiusKm: number; mode: 'walking' | 'driving'; cached: boolean; attribution: string;
+      anchors: { label: string; lat: number; lng: number }[];
+      results: Stay[];
+    }>(`/api/trips/${tripId}/stays${qs(p)}`),
+
   /** `sources` is the exact set of sources for this one search (e.g. 'osm,tripadvisor'); omitted = the default set, which never includes opt-in sources. */
   searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number; sources?: string }) =>
     request<{ near: Place & { how: string }; radiusKm: number; results: Venue[]; sourcesQueried: string[]; degradedSources: { source: string; error: string }[]; attribution: string[] }>(`/api/places/search${qs(p)}`),

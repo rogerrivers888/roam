@@ -185,12 +185,17 @@ router.patch('/', async (req, res, next) => {
               home_label            = coalesce($6, home_label),
               home_lat              = coalesce($7, home_lat),
               home_lng              = coalesce($8, home_lng),
+              -- Home moving country is what makes a city search change which
+              -- country it puts first; both are replaced with home, not merged.
+              home_country_code     = case when $7::numeric is null then home_country_code else $12 end,
+              home_country          = case when $7::numeric is null then home_country      else $13 end,
               pace                  = coalesce($9::jsonb, pace),
               timezone              = coalesce($10, timezone),
               home_radius_miles     = coalesce($11, home_radius_miles)
         where id = $1 returning *`,
       [household.id, name ?? null, defaultVisitMinutes ?? null, maxTravelMinutes ?? null, defaultIntensity ?? null,
-       homePlace?.label ?? null, homePlace?.lat ?? null, homePlace?.lng ?? null, mergedPace ? JSON.stringify(mergedPace) : null, timezone ?? null, radius],
+       homePlace?.label ?? null, homePlace?.lat ?? null, homePlace?.lng ?? null, mergedPace ? JSON.stringify(mergedPace) : null, timezone ?? null, radius,
+       homePlace?.countryCode ?? null, homePlace?.country ?? null],
     );
     const h = rows[0];
     res.json({ household: { id: h.id, name: h.name, defaultVisitMinutes: h.default_visit_minutes, maxTravelMinutes: h.max_travel_minutes, defaultIntensity: h.default_intensity,

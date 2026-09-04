@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import { GroupPanel } from '../components/GroupPanel';
-import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, TripDay, TripDetail, TripSummary, Venue, DayStop } from '../api';
+import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, Stay, TripDay, TripDetail, TripSummary, Venue, DayStop } from '../api';
 import { colors, memberColors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, FoldLine, Row, Segmented, StatusLine, Wrap, clock, minutes } from '../components/ui';
 import { SourcePicker, TripSpendLine } from '../components/SourcePicker';
@@ -17,7 +17,7 @@ import { MapView, MapPin } from '../components/MapView';
 import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
-import { CategoryIcon, Icon } from '../components/Icon';
+import { CategoryIcon, Icon, Rating } from '../components/Icon';
 import { ShortlistJourney, TripJourneyDay } from '../components/Journey';
 import { BrowseNear, FindCat, FindState, emptyFind } from '../components/BrowseNear';
 import { getSpeakPref } from './SettingsScreen';
@@ -237,6 +237,9 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
   const [end, setEnd] = useState(new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10));
   const [base, setBase] = useState<Place | null>(null);
   const [baseKind, setBaseKind] = useState<'hotel' | 'rental' | 'friends' | 'home' | 'other'>('hotel');
+  // Booked already, or wanting Roam to look. Looking is the default, because a
+  // trip being made is usually a trip not yet booked.
+  const [stayMode, setStayMode] = useState<'known' | 'find'>('find');
   const [hasCar, setHasCar] = useState(true);
   const [dayStart, setDayStart] = useState('09:30');
   const [dayEnd, setDayEnd] = useState('21:00');
@@ -359,9 +362,26 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
           <Text style={type.h3}>Dates</Text>
           <DateRangePicker start={start} end={end} onApply={(s, e) => { setStart(s); setEnd(e); }} />
           {nameField}
-          <Text style={type.h3}>Staying at</Text>
-          <PlacePicker value={base} onPick={setBase} near={place} countryCode={place?.countryCode} kind="lodging" placeholder={city ? `Hotel, rental or address in ${city} (optional)` : 'Hotel, rental or address (optional — city centre if empty)'} />
-          {base ? <Wrap>{(['hotel', 'rental', 'friends', 'other'] as const).map((k) => <Chip key={k} label={k} selected={baseKind === k} onPress={() => setBaseKind(k)} />)}</Wrap> : null}
+          {/* Two things it can be, and the second is the one worth building for
+              (owner, 4 Sep 2026: "there are only 2 options: I'm staying
+              somewhere, or I need to find somewhere to stay… you should also
+              have 'Find me a location'"). */}
+          <Text style={type.h3}>Where you'll stay</Text>
+          <Segmented
+            value={stayMode}
+            options={[{ value: 'known', label: "We've got somewhere" }, { value: 'find', label: 'Find us somewhere' }]}
+            onChange={(v) => { setStayMode(v as 'known' | 'find'); if (v === 'find') setBase(null); }}
+          />
+          {stayMode === 'known' ? (
+            <>
+              <PlacePicker value={base} onPick={setBase} near={place} countryCode={place?.countryCode} kind="lodging" placeholder={city ? `Hotel, rental or address in ${city}` : 'Hotel, rental or address'} />
+              {base ? <Wrap>{(['hotel', 'rental', 'friends', 'other'] as const).map((k) => <Chip key={k} label={k} selected={baseKind === k} onPress={() => setBaseKind(k)} />)}</Wrap> : null}
+            </>
+          ) : (
+            <Text style={type.tiny}>
+              We'll look as soon as the trip exists — and again once you've shortlisted a few things, so we can rank beds by how much of your week is on foot from the front door.
+            </Text>
+          )}
           {whoLine}
           {paceLine}
           <FoldLine label="Days run" value={`${timeLabel(dayStart)} – ${timeLabel(dayEnd)}${hasCar ? ' · with a car' : ' · no car'}${seed ? '' : ' · not from our atlas'}`}>
@@ -449,7 +469,10 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
   // Which part of the trip you were on, per trip: the section a fortnight in
   // Lisbon is on has nothing to do with Saturday's day out.
   const sectionKey = `trip.${id}.section`;
-  const [section, setSection] = useState<Section>(recallScreen<TripPageMemory>(sectionKey)?.data.section ?? 'shortlist');
+  // A trip that has just been made opens on Find and starts searching (owner,
+  // 4 Sep 2026: "I feel like it needs to take me to Find… it should just start
+  // searching"). Where you were last wins once there is a where-you-were.
+  const [section, setSection] = useState<Section>(recallScreen<TripPageMemory>(sectionKey)?.data.section ?? 'find');
   useEffect(() => { rememberScreen<TripPageMemory>(sectionKey, { section }); }, [sectionKey, section]);
   const [dayId, setDayId] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
@@ -477,17 +500,29 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
   if (!d) return <ScrollView contentContainerStyle={styles.page}><Button label="Trips" icon="back" kind="ghost" onPress={onBack} style={{ alignSelf: 'flex-start' }} />{error ? <StatusLine tone="warn">{error}</StatusLine> : <Text style={type.small}>Loading…</Text>}</ScrollView>;
   const { trip, days, shortlist, attendees } = d;
   const isTrip = trip.kind === 'trip';
+  // The middle of the city is where a trip searches from before anywhere is
+  // booked; it is not somewhere they are staying (routes/trips.js marks it).
+  const booked = trip.base && trip.base.kind !== 'centre' && trip.base.kind !== 'home' ? trip.base : null;
   const day = days.find((x) => x.id === dayId) ?? days[0];
   const stopsOn = (dd: TripDay) => dd.slots.reduce((a, s) => a + s.stops.length, 0);
 
+  // Where and when, big; then one short sentence (owner, 4 Sep 2026: "'Bath,
+  // 4th of September to 6th of September' in big, bold, and then just 1
+  // sentence… it could just say '4 people' or 'the whole family'").
+  const whereWhen = [trip.locality ?? trip.place?.label ?? trip.title ?? trip.origin.label,
+    isTrip ? fmtRange(trip.startDate, trip.endDate) : fmtDate(trip.departAt)].filter(Boolean).join(' · ');
+  const everyone = household ? attendees.length >= household.members.length : false;
+  const who = !attendees.length ? null
+    : everyone ? 'The whole family'
+    : attendees.length > 3 ? `${attendees.length} of you`
+    : attendees.map((a) => a.name.split(' ')[0]).join(', ');
   const header = (
-    <View style={{ gap: 4 }}>
+    <View style={{ gap: 2 }}>
       <Button label="Trips" icon="back" kind="ghost" onPress={onBack} style={{ alignSelf: 'flex-start' }} />
-      <Text style={type.title}>{trip.title ?? trip.place?.label ?? trip.origin.label}</Text>
+      <Text style={type.title}>{whereWhen}</Text>
       <Text style={type.small}>
-        {isTrip ? fmtRange(trip.startDate, trip.endDate) : fmtDate(trip.departAt)}
-        {trip.locality ? ` · ${trip.locality}${trip.country ? `, ${trip.country}` : ''}` : ''}
-        {isTrip && trip.base && trip.base.kind !== 'home' ? ` · staying at ${trip.base.label}` : ''}{attendees.length ? ` · ${attendees.map((a) => a.name).join(', ')}` : ''}
+        {[who, isTrip && booked ? `staying at ${booked.label.split(',')[0]}` : null,
+          isTrip && !booked ? 'nowhere to stay yet' : null].filter(Boolean).join(' · ')}
       </Text>
     </View>
   );
@@ -536,6 +571,23 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
       {section === 'shortlist' && day ? (
         <View style={{ gap: spacing.md }}>
           {dayChips}
+          {/* The moment the offer is worth making: they have decided what they
+              are doing and have nowhere to stay, so "near the centre" can become
+              "near these" (owner, 4 Sep 2026). Not shown before there is a
+              shortlist, because before that it is just an advert. */}
+          {isTrip && !booked && shortlist.filter((sl) => sl.lat != null).length >= 2 ? (
+            <Card style={{ borderColor: colors.accent }}>
+              <Row style={{ gap: spacing.sm }}>
+                <Icon name="hotel" size={18} color={colors.accent} />
+                <Text style={[type.h3, { flex: 1 }]}>Somewhere to stay near these?</Text>
+              </Row>
+              <Text style={type.small}>
+                You've got {shortlist.filter((sl) => sl.lat != null).length} things down for {trip.locality ?? 'this trip'} and nowhere to stay yet.
+                We can rank the beds by how much of that is {trip.hasCar ? 'a short drive' : 'a walk'} from the front door.
+              </Text>
+              <Button label="Find somewhere near our plans" icon="hotel" onPress={() => setSection('stay')} />
+            </Card>
+          ) : null}
           <ShortlistJourney d={d} day={day} household={household} wide={wide} onChanged={load} onFind={() => setSection('find')} onSaved={async () => { await load(); await refreshHousehold(); setSection('day'); }} />
         </View>
       ) : null}
@@ -545,7 +597,7 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
           <TripJourneyDay d={d} day={day} wide={wide} onChanged={load} onChangePlan={() => setSection('shortlist')} />
         </View>
       ) : null}
-      {section === 'stay' && isTrip ? <StayPanel d={d} onChanged={load} onFindNear={() => setSection('find')} /> : null}
+      {section === 'stay' && isTrip ? <StayPanel d={d} household={household} onChanged={load} onFindNear={() => setSection('find')} openSearch={!booked} /> : null}
       {section === 'group' ? <GroupPanel d={d} onChanged={load} /> : null}
       {section === 'data' ? <SourceDataPanel d={d} /> : null}
     </>
@@ -786,32 +838,148 @@ const clock24 = (iso: string) => { const d = new Date(iso); return `${String(d.g
 // Stay
 // ---------------------------------------------------------------------------
 
-function StayPanel({ d, onChanged, onFindNear }: { d: TripDetail; onChanged: () => Promise<void>; onFindNear: () => void }) {
-  const { trip } = d;
+/**
+ * Where we're staying — the two things it can be, and never a blank box.
+ *
+ * A trip away has exactly two states (owner, 4 Sep 2026): "I'm staying
+ * somewhere" and "I need to find somewhere to stay". The second is the one
+ * Roam is actually good at, because it is the only thing that knows the
+ * shortlist: a bed is ranked by how much of the week is on foot from its front
+ * door, not by how near it is to a station.
+ *
+ * Prices and booking are not here. They need a provider with a key and a spend
+ * cap, which is the owner's to add (CLAUDE.md); what is here is the geography,
+ * which is the part that needs Roam.
+ */
+function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
+  d: TripDetail; household: HouseholdResponse | null; onChanged: () => Promise<void>; onFindNear: () => void; openSearch?: boolean;
+}) {
+  const { trip, shortlist } = d;
+  // A stand-in centre is not a booking (routes/trips.js writes base_kind 'centre').
+  const booked = trip.base && trip.base.kind !== 'centre' ? trip.base : null;
   const [checkIn, setCheckIn] = useState(trip.base?.checkIn ?? '');
   const [checkOut, setCheckOut] = useState(trip.base?.checkOut ?? '');
   const [hasCar, setHasCar] = useState(!!trip.hasCar);
+  // Booked already, or still looking. A trip that arrives with nowhere to stay
+  // opens on looking, because that is the thing left to do.
+  const [mode, setMode] = useState<'known' | 'find'>(booked ? 'known' : 'find');
+  const [milesIdx, setMilesIdx] = useState(1);
+  const [stays, setStays] = useState<Stay[] | null>(null);
+  const [near, setNear] = useState<{ label: string } | null>(null);
+  const [looking, setLooking] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+
+  // How far out to look, said the way a person says it. Without a car the
+  // honest unit is a walk; with one, a mile is nothing.
+  const RINGS = hasCar
+    ? [{ km: 1, label: 'In the centre' }, { km: 3, label: 'Within 2 miles' }, { km: 8, label: 'Within 5 miles' }, { km: 15, label: 'Within 10 miles' }]
+    : [{ km: 0.8, label: '10 min walk' }, { km: 1.6, label: '20 min walk' }, { km: 3, label: '2 miles' }, { km: 6, label: '4 miles' }];
+  const ring = RINGS[Math.min(milesIdx, RINGS.length - 1)];
+
+  const look = useCallback(async (km: number) => {
+    setLooking(true); setErr(null);
+    try {
+      const r = await api.tripStays(trip.id, { radiusKm: km, mode: hasCar ? 'driving' : 'walking' });
+      setStays(r.results); setNear(r.near);
+    } catch (e: any) { setErr(e.message); setStays([]); } finally { setLooking(false); }
+  }, [trip.id, hasCar]);
+
+  // Arriving with nothing booked starts looking straight away, the way Find does.
+  useEffect(() => { if (mode === 'find' && !stays && !looking && !err) look(ring.km); }, [mode]);
+
+  const planned = shortlist.filter((sl) => sl.lat != null).length;
+  const choose = async (stay: Stay) => {
+    setSaving(stay.venueRef);
+    try {
+      await api.updateTripV2(trip.id, { base: { label: stay.name, lat: stay.lat, lng: stay.lng }, baseKind: 'hotel' });
+      await onChanged();
+      setMode('known');
+    } catch (e: any) { setErr(e.message); } finally { setSaving(null); }
+  };
+
   return (
     <View style={{ gap: spacing.md }}>
       <Card>
-        <Text style={type.h3}>Where we're staying</Text>
-        <PlacePicker value={trip.base ? { label: trip.base.label, lat: trip.base.lat, lng: trip.base.lng, formatted: trip.base.label } : null} onPick={async (p) => { if (p) { await api.updateTripV2(trip.id, { base: p, baseKind: 'hotel' }); await onChanged(); } }} placeholder={trip.locality ? `Hotel, rental or address in ${trip.locality}` : 'Hotel, rental or address'} kind="lodging" near={trip.base ? { label: trip.locality ?? trip.base.label, lat: trip.base.lat, lng: trip.base.lng, locality: trip.locality, country: trip.country, countryCode: trip.countryCode } : null} countryCode={trip.countryCode} />
-        {trip.base ? (
-          <Row>
-            <TextInput value={checkIn} onChangeText={setCheckIn} placeholder="Check-in 15:00" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
-            <TextInput value={checkOut} onChangeText={setCheckOut} placeholder="Check-out 11:00" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
-            <Button label="Save" kind="secondary" onPress={async () => { await api.updateTripV2(trip.id, { checkIn, checkOut }); await onChanged(); }} />
-          </Row>
-        ) : null}
-        <Row style={{ justifyContent: 'space-between' }}>
-          <Text style={type.body}>We'll have a car</Text>
-          <Switch value={hasCar} onValueChange={async (v) => { setHasCar(v); await api.updateTripV2(trip.id, { hasCar: v, travelMode: v ? 'driving' : 'transit' }); await onChanged(); }} />
-        </Row>
+        <Segmented
+          value={mode}
+          options={[{ value: 'known', label: "We've got somewhere" }, { value: 'find', label: 'Find us somewhere' }]}
+          onChange={(v) => setMode(v as 'known' | 'find')}
+        />
+
+        {mode === 'known' ? (
+          <>
+            <PlacePicker
+              value={booked ? { label: booked.label, lat: booked.lat, lng: booked.lng, formatted: booked.label } : null}
+              onPick={async (p) => { if (p) { await api.updateTripV2(trip.id, { base: p, baseKind: 'hotel' }); await onChanged(); } }}
+              placeholder={trip.locality ? `Hotel, rental or address in ${trip.locality}` : 'Hotel, rental or address'}
+              kind="lodging"
+              near={trip.base ? { label: trip.locality ?? trip.base.label, lat: trip.base.lat, lng: trip.base.lng, locality: trip.locality, country: trip.country, countryCode: trip.countryCode } : null}
+              countryCode={trip.countryCode}
+            />
+            {booked ? (
+              <Row>
+                <TextInput value={checkIn} onChangeText={setCheckIn} placeholder="Check-in 15:00" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
+                <TextInput value={checkOut} onChangeText={setCheckOut} placeholder="Check-out 11:00" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
+                <Button label="Save" kind="secondary" onPress={async () => { await api.updateTripV2(trip.id, { checkIn, checkOut }); await onChanged(); }} />
+              </Row>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {/* How far out, and whether there is a car — the two things that decide
+                whether "near" means the next street or the next village. */}
+            <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={type.body}>We'll have a car</Text>
+              <Switch value={hasCar} onValueChange={async (v) => { setHasCar(v); setStays(null); await api.updateTripV2(trip.id, { hasCar: v, travelMode: v ? 'driving' : 'transit' }); await onChanged(); }} />
+            </Row>
+            <Text style={type.tiny}>{planned ? `Ranked by how much of your shortlist is ${hasCar ? 'a short drive' : 'a walk'} from the front door.` : `Nothing shortlisted yet, so these are ranked from the middle of ${trip.locality ?? 'town'}. Shortlist a few things and look again — that is when this gets good.`}</Text>
+            <Wrap>
+              {RINGS.map((r, i) => <Chip key={r.label} label={r.label} selected={i === milesIdx} onPress={() => { setMilesIdx(i); setStays(null); look(r.km); }} />)}
+            </Wrap>
+            <Button label={looking ? 'Looking…' : stays ? 'Look again' : `Find somewhere in ${trip.locality ?? 'town'}`} icon="search" onPress={() => look(ring.km)} loading={looking} />
+            {err ? <StatusLine tone="warn">{err}</StatusLine> : null}
+            {looking && !stays ? <Text style={type.small}>Reading the open map for beds around {trip.locality ?? 'town'}…</Text> : null}
+            {stays && !stays.length && !looking ? <Text style={type.small}>Nothing on the map within {ring.label.toLowerCase()}. Try a wider ring.</Text> : null}
+            {stays?.length ? (
+              <View style={{ gap: spacing.sm }}>
+                <Text style={type.tiny}>{stays.length} places to stay · {near?.label ? `measured from ${near.label}` : ''}</Text>
+                {stays.slice(0, 12).map((s) => (
+                  <Pressable key={s.venueRef} onPress={() => choose(s)} style={styles.stayRow} accessibilityRole="button">
+                    <Icon name="hotel" size={18} color={colors.icon} />
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Row style={{ gap: 6 }}>
+                        <Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>{s.name}</Text>
+                        {s.stars ? <Rating value={s.stars} /> : null}
+                      </Row>
+                      <Text style={type.tiny} numberOfLines={1}>
+                        {[s.stayKind, s.address].filter(Boolean).join(' · ')}
+                      </Text>
+                      {/* The sentence that is the whole point of doing this here. */}
+                      {s.plansTotal ? (
+                        <Text style={[type.small, { color: s.plansNear === s.plansTotal ? colors.like : colors.ink }]}>
+                          {s.plansNear === s.plansTotal
+                            ? `Everything on your shortlist within ${hasCar ? 'a short drive' : 'a walk'} — typically ${s.typicalMinutes} min`
+                            : `${s.plansNear} of your ${s.plansTotal} plans within ${hasCar ? 'a short drive' : 'a walk'} · typically ${s.typicalMinutes} min${s.farthest ? `, ${s.farthest.minutes} min to ${s.farthest.label.split(',')[0]}` : ''}`}
+                        </Text>
+                      ) : (
+                        <Text style={type.small}>{s.distanceKm} km from the middle of {trip.locality ?? 'town'}</Text>
+                      )}
+                    </View>
+                    <View style={styles.stayPick}><Text style={styles.stayPickText}>{saving === s.venueRef ? 'Saving…' : "We'll stay here"}</Text></View>
+                  </Pressable>
+                ))}
+                <Text style={type.tiny}>© OpenStreetMap contributors · beds and addresses only. Prices and booking need a provider key.</Text>
+              </View>
+            ) : null}
+          </>
+        )}
+
         <SourcePicker value={trip.sources ?? null} onChange={async (v) => { await api.updateTripV2(trip.id, { sources: v }); await onChanged(); }} title="Sources for this trip's searches and plans" />
         <TripSpendLine tripId={trip.id} refreshKey={trip} />
         <Button label="Find restaurants and things near here" kind="secondary" onPress={onFindNear} />
       </Card>
-      {trip.base ? <Card><MapView pins={[{ id: 'base', lat: trip.base.lat, lng: trip.base.lng, label: trip.base.label, tone: 'base' }]} height={260} /></Card> : null}
+      {booked ? <Card><MapView pins={[{ id: 'base', lat: booked.lat, lng: booked.lng, label: booked.label, tone: 'base' }]} height={260} /></Card> : null}
     </View>
   );
 }
@@ -835,4 +1003,7 @@ const styles = StyleSheet.create({
   reactText: { fontSize: 16, fontWeight: '700', color: colors.ink },
   star: { width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'center' },
   fold: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
+  stayRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
+  stayPick: { minHeight: 36, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: colors.accent, justifyContent: 'center' },
+  stayPickText: { color: colors.bg, fontWeight: '700', fontSize: 12 },
 });
