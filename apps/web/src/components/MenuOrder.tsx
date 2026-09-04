@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, HouseholdResponse, Member, MenuItem, MenuLink, Order, OrderItem, ReadMenu } from '../api';
+import { api, DishNote, HouseholdResponse, Member, MenuItem, MenuLink, Order, OrderItem, ReadMenu } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { useViewport } from '../hooks/useViewport';
 import { Icon } from './Icon';
@@ -147,6 +147,13 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
   // placed; the meal comes after it, so that is the only one offered "we ate
   // it" (owner, 4 Sep 2026). One being written now is still being written.
   const [resumed, setResumed] = useState(false);
+  // A note for the waiter is a fallback for the one you can write while
+  // ordering, so it hides behind a pencil rather than taking a row on every
+  // line (owner, 4 Sep 2026).
+  const [noting, setNoting] = useState<Record<string, boolean>>({});
+  // "What's this?": a menu often gives a name in another language and nothing
+  // else. Asked for one dish at a time, on a tap, and kept once written.
+  const [asked, setAsked] = useState<Record<string, DishNote | 'asking' | 'failed'>>({});
 
   useEffect(() => {
     let live = true;
@@ -197,6 +204,17 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
   const pickOf = (id: string) => picks[id] ?? { members: {}, table: false, note: '' };
   const setPick = (id: string, next: Partial<{ members: Record<string, boolean>; table: boolean; note: string }>) =>
     setPicks((p) => ({ ...p, [id]: { ...pickOf(id), ...next } }));
+
+  async function whatIsThis(item: MenuItem) {
+    if (asked[item.id]) { setAsked(({ [item.id]: _drop, ...rest }) => rest); return; }   // tapping again folds it away
+    setAsked((a) => ({ ...a, [item.id]: 'asking' }));
+    try {
+      const d = await api.dishNote(item.name, venueLabel);
+      setAsked((a) => ({ ...a, [item.id]: d.dish }));
+    } catch {
+      setAsked((a) => ({ ...a, [item.id]: 'failed' }));
+    }
+  }
 
   async function readTheMenu() {
     setReading(true); setError(null); setHow([]);
@@ -391,8 +409,33 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                               {isVeg(item) ? <Text style={styles.veg}> (V)</Text> : null}
                             </Text>
                             <Text style={styles.price}>{item.priceText ?? ''}</Text>
+                            <Pressable
+                              onPress={() => whatIsThis(item)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`What is ${item.name}?`}
+                              style={styles.rowBtn}
+                            >
+                              <Icon name="info" size={14} color={asked[item.id] ? colors.icon : colors.inkMuted} />
+                            </Pressable>
                           </Row>
                           {item.description ? <Text style={type.small}>{item.description}</Text> : null}
+                          {asked[item.id] ? (
+                            <View style={styles.whatIs}>
+                              {asked[item.id] === 'asking' ? <Text style={type.tiny}>Looking it up…</Text> : null}
+                              {asked[item.id] === 'failed' ? <Text style={type.tiny}>Could not look that one up just now.</Text> : null}
+                              {typeof asked[item.id] === 'object' ? (
+                                <>
+                                  <Text style={type.small}>
+                                    {(asked[item.id] as DishNote).known
+                                      ? (asked[item.id] as DishNote).what
+                                      : `Not a dish Roam knows — ask at the table. ${(asked[item.id] as DishNote).what}`}
+                                  </Text>
+                                  {(asked[item.id] as DishNote).origin ? <Text style={type.tiny}>{(asked[item.id] as DishNote).origin}</Text> : null}
+                                  <Text style={type.tiny}>Roam's own words about the dish, not the restaurant's.</Text>
+                                </>
+                              ) : null}
+                            </View>
+                          ) : null}
                           {item.kcal || item.allergens ? (
                             <Text style={type.tiny}>
                               {item.kcal ? `${item.kcal} kcal` : ''}{item.kcal && item.allergens ? ' · ' : ''}{item.allergens ?? ''}
@@ -451,28 +494,40 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                     </Row>
                     {g.items.length ? g.items.map((i) => (
                       <View key={i.id} style={styles.orderRow}>
-                        <Row style={{ alignItems: 'flex-start' }}>
+                        <Row style={{ alignItems: 'center' }}>
                           <Text style={[type.body, { flex: 1 }]}>{i.name}</Text>
                           <Text style={type.small}>{i.priceText ?? ''}</Text>
+                          <Pressable
+                            onPress={() => setNoting((n) => ({ ...n, [i.id]: !n[i.id] }))}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${i.note ? 'Change the' : 'Add a'} word for the waiter about ${i.name}`}
+                            style={styles.rowBtn}
+                          >
+                            <Icon name="edit" size={14} color={i.note ? colors.icon : colors.inkMuted} />
+                          </Pressable>
                           <Pressable
                             onPress={() => removeFromOrder(i)}
                             disabled={busy}
                             accessibilityRole="button"
                             accessibilityLabel={`Take ${i.name} off the order`}
-                            style={styles.remove}
+                            style={styles.rowBtn}
                           >
                             <Icon name="close" size={15} color={colors.inkMuted} />
                           </Pressable>
                         </Row>
-                        <TextInput
-                          defaultValue={i.note ?? ''}
-                          onEndEditing={(e) => noteOnOrder(i, e.nativeEvent.text)}
-                          onBlur={(e: any) => noteOnOrder(i, e?.nativeEvent?.text ?? '')}
-                          placeholder="a word for the waiter"
-                          placeholderTextColor={colors.inkFaint}
-                          style={[styles.noteInput, { marginTop: 4 }]}
-                          accessibilityLabel={`A word about ${i.name}`}
-                        />
+                        {i.note && !noting[i.id] ? <Text style={type.tiny}>{i.note}</Text> : null}
+                        {noting[i.id] ? (
+                          <TextInput
+                            defaultValue={i.note ?? ''}
+                            autoFocus
+                            onEndEditing={(e) => { noteOnOrder(i, e.nativeEvent.text); setNoting((n) => ({ ...n, [i.id]: false })); }}
+                            onBlur={(e: any) => { noteOnOrder(i, e?.nativeEvent?.text ?? ''); setNoting((n) => ({ ...n, [i.id]: false })); }}
+                            placeholder="a word for the waiter"
+                            placeholderTextColor={colors.inkFaint}
+                            style={[styles.noteInput, { marginTop: 4 }]}
+                            accessibilityLabel={`A word about ${i.name}`}
+                          />
+                        ) : null}
                       </View>
                     )) : <Text style={type.tiny}>Nothing yet</Text>}
                   </View>
@@ -699,7 +754,8 @@ const styles = StyleSheet.create({
     padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.surface,
   },
   orderRow: { paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.line },
-  remove: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 15, borderWidth: 1, borderColor: colors.line },
+  whatIs: { backgroundColor: colors.surfaceMuted, borderRadius: radius.sm, padding: spacing.sm, gap: 2 },
+  rowBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 15, borderWidth: 1, borderColor: colors.line, marginLeft: 6 },
   totalRow: { borderTopWidth: 1, borderTopColor: colors.ink, paddingTop: spacing.sm, justifyContent: 'space-between' },
   warn: {
     flexDirection: 'row', gap: 8, alignItems: 'flex-start', borderWidth: 1, borderColor: colors.allergen,

@@ -360,6 +360,38 @@ async function parseMenuText({ text, venueLabel, householdId, sessionId }) {
   return { currency, note, failed, sections: sections.filter((s) => s.items.length) };
 }
 
+/* ---------------------------------------------------------- what is this dish */
+
+const DISH_SYSTEM = `You tell a family at a restaurant table what a dish is, in a sentence or two, when the menu gives them only a name.
+
+Write plainly, as a well-travelled friend would across the table. No marketing words, no adjectives for their own sake, no "delicious".
+
+- "what" is one sentence: what the dish actually is and what is mainly in it. If it is usually meat, or fish, or vegetarian, that belongs here, because that is what the table wants to know.
+- "origin" is one short sentence: where it comes from, or the one thing about it worth knowing. Null if there is nothing worth saying.
+- "known" is false when you do not recognise the dish or would be guessing. Say so rather than inventing: a family may be choosing around an allergy.`;
+
+const DishNote = z.object({
+  known: z.boolean(),
+  what: z.string(),
+  origin: z.string().nullable(),
+});
+
+/** Roam's own line about a dish, for a menu that gives only a name. */
+export async function describeDish({ name, hint, householdId, sessionId }) {
+  return parseStructured({
+    system: DISH_SYSTEM,
+    messages: [{ role: 'user', content: `Dish: ${name}${hint ? `\nOn the menu of: ${hint}` : ''}` }],
+    schema: DishNote,
+    householdId,
+    sessionId,
+    purpose: 'menu.dish',
+    effort: 'low',
+    thinking: 'off',
+    model: MODEL,
+    maxTokens: 500,
+  });
+}
+
 /* ------------------------------------------------------------------- the job */
 
 /**

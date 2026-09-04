@@ -21,7 +21,7 @@ import { query, withTransaction } from '../db.js';
 import { currentHousehold, loadMembers } from './household.js';
 import { recallVenue } from '../sources/index.js';
 import { findMenuUrl } from '../sources/menuLink.js';
-import { readMenu, chromePath, renderProbe } from '../sources/menuRead.js';
+import { readMenu, chromePath, renderProbe, describeDish } from '../sources/menuRead.js';
 import { resolveConcept, matchConcepts, conceptByKey } from '../domain/concepts.js';
 import { upsertHouseholdPlace } from './atlas.js';
 
@@ -227,6 +227,42 @@ menu.post('/read', async (req, res, next) => {
     });
 
     res.status(201).json({ menu: await menuPayload(menuId) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/menu/dish { name, hint? } — "What's this?"
+ *
+ * A line about the dish itself, for a menu that gives only a name in another
+ * language. Written once and kept for everyone: it is Roam's own words about a
+ * dish in general, not the restaurant's copy, so the next household to ask a
+ * question about supplì does not pay for the answer again.
+ */
+menu.post('/dish', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'name_required' });
+    const key = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
+
+    const { rows } = await query('select * from dish_notes where name_key = $1', [key]);
+    if (rows[0]) {
+      const d = rows[0];
+      return res.json({ dish: { name: d.name, known: d.known, what: d.what, origin: d.origin }, cached: true });
+    }
+
+    const note = await describeDish({
+      name,
+      hint: String(req.body?.hint || '').trim() || null,
+      householdId: household.id,
+      sessionId: req.body?.sessionId ?? null,
+    });
+    await query(
+      `insert into dish_notes (name_key, name, known, what, origin, model)
+       values ($1,$2,$3,$4,$5,$6) on conflict (name_key) do nothing`,
+      [key, name, note.known !== false, note.what, note.origin ?? null, process.env.ROAM_MENU_MODEL || 'claude-sonnet-5'],
+    );
+    res.json({ dish: { name, known: note.known !== false, what: note.what, origin: note.origin ?? null }, cached: false });
   } catch (err) { next(err); }
 });
 

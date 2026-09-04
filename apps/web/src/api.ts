@@ -215,6 +215,8 @@ export type ReadMenu = {
   how: string[]; currency: string | null; note: string | null; fetchedAt: string;
   ageDays: number; stale: boolean; staleAfterDays: number; items: number; sections: MenuSection[];
 };
+/** Roam's own line about a dish, for a menu that gives only a name. */
+export type DishNote = { name: string; known: boolean; what: string; origin: string | null };
 export type MenuOpeners = { html: boolean; pdf: boolean; rendered: boolean; browser: string | null; claude: boolean; staleAfterDays: number };
 export type OrderItem = {
   id: string; menuItemId: string | null; memberId: string | null; member: string | null;
@@ -596,6 +598,8 @@ export const api = {
   menuOpeners: () => request<MenuOpeners>('/api/menu/openers'),
   /** Read their menu now. Slow on purpose: it fetches, may render, and reads. */
   readMenu: (body: { ref: string; url?: string; label?: string; website?: string }) => post<{ menu: ReadMenu }>('/api/menu/read', body),
+  /** "What's this?" — written once for a dish and kept, so asking twice is free. */
+  dishNote: (name: string, hint?: string) => post<{ dish: DishNote; cached: boolean }>('/api/menu/dish', { name, hint }),
   order: (venueRef: string) => request<{ order: Order | null }>(`/api/orders${qs({ ref: venueRef })}`),
   saveOrder: (body: { clientId?: string; ref: string; label?: string; menuId?: string | null; items: { menuItemId?: string | null; memberId: string | null; name: string; priceText?: string | null; note?: string | null }[] }) =>
     post<{ order: Order }>('/api/orders', body),
