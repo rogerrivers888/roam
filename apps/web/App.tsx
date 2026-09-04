@@ -69,7 +69,7 @@ export default function App() {
               onPress={() => choose(m)}
               accessibilityRole="radio"
               accessibilityState={{ checked: mode === m }}
-              style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
+              style={({ hovered }: any) => [styles.modeBtn, hovered && mode !== m && styles.modeBtnHover, mode === m && styles.modeBtnActive]}
             >
               <View style={styles.modeInner}>
                 <Icon name={m} size={14} color={mode === m ? colors.primaryFg : colors.inkMuted} />
@@ -168,7 +168,6 @@ function Shell() {
             <View style={{ flex: 1 }} />
             {/* The corner is who you are and how the app looks — not the API's address (owner, 4 Sep 2026). */}
             <You household={household} onOpen={() => setTab('settings')} />
-            <ThemeSwitch />
           </View>
         ) : (
           <View style={styles.header}><Wordmark height={34} /></View>
@@ -194,57 +193,47 @@ function Shell() {
 }
 
 /**
- * The bottom of the sidebar: who is using the app, and how it looks. Tapping the
- * person opens Settings for now; this is where a profile and sign-in will live
- * once there is one (owner, 4 Sep 2026). There is no sign-in yet, so "you" is
- * whoever the device is set to — Settings › Ratings shown as.
+ * The foot of the sidebar, the way Parcelvision's rail does it (owner, 4 Sep
+ * 2026): one row above a rule — who is using the app, and a single square icon
+ * button on the right that flips light and dark. The icon is the mode you would
+ * go to, not the one you are in, so it reads as the switch it is.
+ *
+ * Tapping the person opens Settings for now; this is where a profile and sign-in
+ * will live once there is one. There is no sign-in yet, so "you" is whoever the
+ * device is set to — Settings › Ratings shown as.
  */
 function You({ household, onOpen }: { household: HouseholdResponse | null; onOpen: () => void }) {
   const members = household?.members ?? [];
   const [id, setId] = useState<string | null>(null);
+  const { theme, setPref } = useTheme();
   useEffect(() => onViewerChange(setId), []);
   const viewer = id && members.some((m) => m.id === id) ? id : getViewer(members);
   const index = Math.max(0, members.findIndex((m) => m.id === viewer));
   const me = members[index];
+  const next = theme === 'dark' ? 'light' : 'dark';
   return (
-    <Pressable
-      onPress={onOpen}
-      accessibilityRole="button"
-      accessibilityLabel={me ? `${me.name} — your profile and settings` : 'Your profile and settings'}
-      style={({ hovered }: any) => [styles.you, hovered && styles.youHover]}
-    >
-      {me ? <Avatar name={me.name} index={index} size={28} url={me.avatarUrl} /> : <Icon name="person" size={20} color={colors.inkMuted} />}
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={styles.youName} numberOfLines={1}>{me ? me.name : 'Sign in'}</Text>
-        <Text style={type.tiny} numberOfLines={1}>Your profile</Text>
-      </View>
-    </Pressable>
-  );
-}
-
-/** Light or dark, in the corner rather than three screens away. Settings keeps "Device". */
-function ThemeSwitch() {
-  const { theme, setPref } = useTheme();
-  return (
-    <View style={styles.modeSwitch} accessibilityRole="radiogroup" testID="theme-switch">
-      {(['light', 'dark'] as const).map((t) => {
-        const on = theme === t;
-        return (
-          <Pressable
-            key={t}
-            onPress={() => setPref(t)}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: on }}
-            accessibilityLabel={t === 'light' ? 'Light mode' : 'Dark mode'}
-            style={({ hovered }: any) => [styles.modeBtn, { flex: 1 }, hovered && !on && styles.modeBtnHover, on && styles.modeBtnActive]}
-          >
-            <View style={styles.modeInner}>
-              <Icon name={t} size={14} color={on ? colors.primaryFg : colors.inkMuted} />
-              <Text style={[styles.modeText, on && styles.modeTextActive]}>{t === 'light' ? 'Light' : 'Dark'}</Text>
-            </View>
-          </Pressable>
-        );
-      })}
+    <View style={styles.foot}>
+      <Pressable
+        onPress={onOpen}
+        accessibilityRole="button"
+        accessibilityLabel={me ? `${me.name} — your profile and settings` : 'Your profile and settings'}
+        style={({ hovered }: any) => [styles.you, hovered && styles.youHover]}
+      >
+        {me ? <Avatar name={me.name} index={index} size={30} url={me.avatarUrl} /> : <Icon name="person" size={20} color={colors.inkMuted} />}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.youName} numberOfLines={1}>{me ? me.name : 'Sign in'}</Text>
+          <Text style={type.tiny} numberOfLines={1}>Your profile</Text>
+        </View>
+      </Pressable>
+      <Pressable
+        onPress={() => setPref(next)}
+        accessibilityRole="button"
+        accessibilityLabel={next === 'dark' ? 'Switch to dark mode' : 'Switch to light mode'}
+        testID="theme-switch"
+        style={({ hovered, pressed }: any) => [styles.themeBtn, hovered && styles.themeBtnHover, pressed && { opacity: 0.85 }]}
+      >
+        <Icon name={next} size={16} color={colors.inkMuted} />
+      </Pressable>
     </View>
   );
 }
@@ -260,7 +249,10 @@ const styles = StyleSheet.create({
   modeBtn: { minHeight: 28, paddingHorizontal: spacing.md, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   modeBtnActive: { backgroundColor: colors.primary },
   modeBtnHover: { backgroundColor: colors.surfaceMuted },
-  you: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: 10, marginBottom: spacing.sm },
+  foot: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
+  you: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.xs, borderRadius: 10 },
+  themeBtn: { width: 34, height: 34, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
+  themeBtnHover: { backgroundColor: colors.accentSoft, borderColor: colors.icon },
   youHover: { backgroundColor: colors.accentSoft },
   youName: { fontSize: 14, fontWeight: '700', color: colors.ink },
   modeInner: { flexDirection: 'row', alignItems: 'center', gap: 5 },
