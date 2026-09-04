@@ -1,4 +1,5 @@
 import { bump } from './meter.js';
+import { crowdBand, countBand } from '../domain/scoring.js';
 // Google Places API (New) — the primary licensed source (Technical Constraints §3.1).
 //
 // What it adds over OpenStreetMap: ratings and review counts, up to 5 reviews,
@@ -366,6 +367,81 @@ export const googleSource = {
     }));
   },
 };
+
+/**
+ * A sweep of one area, banded on the way out (owner, 4 Sep 2026).
+ *
+ * The only reason this exists rather than reusing `search()` is what it does
+ * with the rating. Text Search carries `rating` and `userRatingCount` in the
+ * search response itself, so a whole district's crowd signal costs a handful of
+ * requests and not one Details call per restaurant — and, more importantly,
+ * this is where the figures stop. Each place is banded here, in memory, and
+ * what leaves the function is a word and never a number.
+ *
+ * > "If Google's got 1,000 and somewhere else has 300, then adding them up to
+ * > 1,300 and using that weighting makes them unique" — the answer this takes
+ * > is that the transformation has to happen before the figure is written down,
+ * > not after (see domain/scoring.js).
+ *
+ * Text Search pages three deep at 20 a page. Several plain queries are asked
+ * rather than one, because "restaurants" and "italian" surface different
+ * halves of a town.
+ */
+export async function sweepArea({ center, radiusKm = 2.5, queries = [], pages = 2, meter = null } = {}) {
+  if (!KEY() || !center || center.lat == null) return { places: [], calls: 0 };
+  const radius = Math.min(radiusKm, 50) * 1000;
+  const found = new Map();
+  let calls = 0;
+
+  for (const q of queries) {
+    let pageToken = null;
+    for (let page = 0; page < pages; page += 1) {
+      const body = {
+        textQuery: q,
+        pageSize: 20,
+        includedType: 'restaurant',
+        languageCode: 'en-GB',
+        locationRestriction: { circle: { center: { latitude: center.lat, longitude: center.lng }, radius } },
+      };
+      if (pageToken) body.pageToken = pageToken;
+      let data;
+      try {
+        data = await call('/places:searchText', { fieldMask: `${SEARCH_FIELDS},nextPageToken`, meter, body });
+        calls += 1;
+      } catch (err) {
+        // One query failing is not the sweep failing: a quota on one metric or
+        // a bad page token should not lose the four queries that worked.
+        if (/\b429\b/.test(String(err.message))) throw err;
+        break;
+      }
+      for (const p of data.places || []) {
+        if (LODGING.has(p.primaryType)) continue;
+        const v = toVenue(p);
+        // Banded here and nowhere else. `rating` and `userRatingCount` do not
+        // leave this loop: what the caller receives is two words, which is all
+        // the score needs and all we are entitled to keep.
+        found.set(v.sourcePlaceId, {
+          source: 'google',
+          sourcePlaceId: v.sourcePlaceId,
+          name: v.name,
+          category: v.category,
+          cuisines: v.cuisines ?? [],
+          lat: v.lat,
+          lng: v.lng,
+          address: v.address,
+          website: v.website,
+          openingHours: v.openingHours,
+          crowdBand: crowdBand(p.rating, p.userRatingCount),
+          countBand: countBand(p.userRatingCount),
+          matchedQuery: q,
+        });
+      }
+      pageToken = data.nextPageToken || null;
+      if (!pageToken) break;
+    }
+  }
+  return { places: [...found.values()], calls };
+}
 
 /** Stream a Google photo through the server so the key stays server-side. */
 export async function fetchPhoto(name, maxWidthPx = 480) {

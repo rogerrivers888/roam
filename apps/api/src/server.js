@@ -22,6 +22,8 @@ import { atlas as atlasRoutes } from './routes/atlas.js';
 import { menu as menuRoutes, orders as orderRoutes } from './routes/menus.js';
 import { offline as offlineRoutes } from './routes/offline.js';
 import { startOwnLoop } from './sources/own.js';
+import scoutRoutes, { areaRouter } from './routes/scout.js';
+import { startScoutLoop } from './sources/scoutArea.js';
 import { photoFor } from './sources/google.js';
 import { currentHousehold } from './routes/household.js';
 import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
@@ -99,6 +101,7 @@ for (const path of ['/api/discover', '/api/plan', '/api/atlas', '/api/menu', '/a
 // can be reached through a path that resolves to the caller's own household.
 app.use('/api/accounts', requireDoor('admin'), accountRoutes);
 app.use('/api/admin', requireDoor('admin'), adminRoutes);
+app.use('/api/admin/scout', requireDoor('admin'), scoutRoutes);
 app.use('/api/admin/library', requireDoor('admin'), libraryAdminRoutes);
 
 // Telemetry is the household's own — which screen, and still here — and is
@@ -116,6 +119,7 @@ app.use('/api/plan', planRoutes);
 app.use('/api/concepts', conceptRoutes);
 app.use('/api/prototypes', prototypeRoutes);
 app.use('/api/places', placeRoutes);
+app.use('/api/places', areaRouter);
 app.use('/api/visits', visitRoutes);
 // The gazetteer reads come first: `atlasRoutes` ends in patterns that would
 // otherwise swallow /regions.
@@ -257,6 +261,8 @@ setInterval(() => { void sweep(); }, 24 * 3600_000).unref?.();
 // claimed but that has not been looked at yet, and the sweep that discards any
 // fact whose licence has run out (sources/own.js).
 startOwnLoop();
+// The sweep: one area at a time, then the menus it claimed (sources/scoutArea.js).
+startScoutLoop();
 // Roam chases the group, the organiser does not (owner, 4 Sep 2026): any run
 // whose morning has passed is written once, whether or not anyone is looking.
 startReminderLoop();
