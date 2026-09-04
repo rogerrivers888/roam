@@ -684,7 +684,7 @@ export const api = {
 
   // group trips
   tripGroup: (tripId: string) => request<TripGroup | { group: null }>(`/api/trips/${tripId}/group`),
-  createTripGroup: (tripId: string, body: { name?: string; expectedCount?: number | null; wantedBy?: string | null; cadence?: string; organiserMemberId?: string | null }) => post<TripGroup>(`/api/trips/${tripId}/group`, body),
+  createTripGroup: (tripId: string, body: { name?: string; expectedCount?: number | null; minimumCount?: number | null; wantedBy?: string | null; cadence?: string; organiserMemberId?: string | null }) => post<TripGroup>(`/api/trips/${tripId}/group`, body),
   updateGroup: (id: string, body: Partial<{ name: string; expectedCount: number | null; minimumCount: number | null; wantedBy: string | null; remindersOn: boolean; cadence: string; closed: boolean; newLink: boolean }>) => patch<TripGroup>(`/api/groups/${id}`, body),
   deleteGroup: (id: string) => del<{ deleted: boolean }>(`/api/groups/${id}`),
   addGroupItem: (id: string, body: GroupItemInput) => post<TripGroup>(`/api/groups/${id}/items`, body),

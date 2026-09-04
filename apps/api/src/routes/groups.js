@@ -314,9 +314,9 @@ router.post('/trips/:id/group', async (req, res, next) => {
 
     const group = await withTransaction(async (client) => {
       const { rows } = await client.query(
-        `insert into trip_groups (trip_id, household_id, name, expected_count, wanted_by, invite_token, reminders_on, reminder_cadence)
-         values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
-        [trip.id, household.id, b.name?.trim() || trip.title || trip.place_label || 'The group', b.expectedCount ?? null, wantedBy, token(),
+        `insert into trip_groups (trip_id, household_id, name, expected_count, minimum_count, wanted_by, invite_token, reminders_on, reminder_cadence)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
+        [trip.id, household.id, b.name?.trim() || trip.title || trip.place_label || 'The group', num(b.expectedCount), num(b.minimumCount), wantedBy, token(),
          b.remindersOn !== false, CADENCES[b.cadence] ? b.cadence : DEFAULT_CADENCE],
       );
       const created = rows[0];
