@@ -1523,26 +1523,6 @@ async function runInspire({ household, attending, session, state }) {
   }
 }
 
-/** Where Inspire me has got to: running, or the ideas, or what went wrong. A run lost to a restart reports so after three minutes. */
-router.get('/inspire/:sessionId', async (req, res, next) => {
-  try {
-    const session = await loadSession(req.params.sessionId);
-    const s = session.state || {};
-    if (s.kind !== 'inspire') return res.status(404).json({ error: 'session_not_found' });
-    const stale = s.running && s.runStartedAt && Date.now() - new Date(s.runStartedAt).getTime() > 3 * 60_000;
-    res.json({
-      sessionId: session.id, ref: runRef(session.id),
-      running: Boolean(s.running) && !stale,
-      ideas: s.ideas ?? null, reply: s.reply ?? null, budget: s.input?.budget ?? 'any',
-      stage: stale ? 'error' : s.stage ?? null, placed: s.placed ?? 0,
-      startedAt: s.runStartedAt ?? null,
-      error: stale ? 'That run was interrupted — try Inspire me again.' : s.error ?? null,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
 // The look around an idea: the same search a trip's Find tab runs at 5 km —
 // the place sources, no event listings, no scout — so the two share one cache
 // entry and the trip opens on what was already seen.
@@ -1677,6 +1657,31 @@ export async function seedShortlistFromIdea({ household, session, trip, idea }) 
   }
   return seeded;
 }
+
+// Declared after the literal /inspire/… paths on purpose: Express matches in
+// order, and a ':sessionId' pattern above them swallows /inspire/things — which
+// is why the look-around had been failing since it was written (owner, 4 Sep
+// 2026: "Couldn't look around it just now… what on earth is that supposed to
+// mean?").
+/** Where Inspire me has got to: running, or the ideas, or what went wrong. A run lost to a restart reports so after three minutes. */
+router.get('/inspire/:sessionId', async (req, res, next) => {
+  try {
+    const session = await loadSession(req.params.sessionId);
+    const s = session.state || {};
+    if (s.kind !== 'inspire') return res.status(404).json({ error: 'session_not_found' });
+    const stale = s.running && s.runStartedAt && Date.now() - new Date(s.runStartedAt).getTime() > 3 * 60_000;
+    res.json({
+      sessionId: session.id, ref: runRef(session.id),
+      running: Boolean(s.running) && !stale,
+      ideas: s.ideas ?? null, reply: s.reply ?? null, budget: s.input?.budget ?? 'any',
+      stage: stale ? 'error' : s.stage ?? null, placed: s.placed ?? 0,
+      startedAt: s.runStartedAt ?? null,
+      error: stale ? 'That run was interrupted — try Inspire me again.' : s.error ?? null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * Things to do and see (owner, 3 Sep 2026): an idea opens as a day out in
