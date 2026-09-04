@@ -642,7 +642,8 @@ const styles = StyleSheet.create({
   well: { width: 28, height: 28, borderRadius: radius.md, backgroundColor: colors.well, alignItems: 'center', justifyContent: 'center' },
   heart: { position: 'absolute', right: -5, top: -5, width: 14, height: 14, borderRadius: 7, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 0 },
-  dot: { width: 8, height: 8, borderRadius: 4, borderWidth: 1, borderColor: colors.line },
+  // A ring the type colour, so the Northern line's black reads on the dark ground and the Circle line's yellow on the light one.
+  dot: { width: 8, height: 8, borderRadius: 4, borderWidth: 1, borderColor: colors.inkMuted },
   score: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 4 },
   scoreText: { fontSize: 13, fontWeight: '700', color: colors.ink },
   pill: { height: 18, paddingHorizontal: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
