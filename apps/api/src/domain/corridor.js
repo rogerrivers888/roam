@@ -43,16 +43,23 @@ const mealAt = (date, tz, category) => {
 /**
  * Why this place, and not the other forty, is worth breaking a journey for.
  * Returns the sentence to show, or null when it is merely somewhere to stop.
+ *
+ * The bar rises with what the stop costs. Something on the road itself needs
+ * only to be good; something at the far edge of the corridor has to be very
+ * good indeed, because fifteen minutes each way is a real piece of the day.
+ * Somewhere the household already loves clears any bar.
  */
-export function standoutReason(c) {
+export function standoutReason(c, detourMinutes = 0, limitMinutes = 15) {
   if (c.special) return 'One of yours — you marked it special';
   if ((c.reasons || []).some((r) => r.kind === 'learned-like')) return (c.reasons.find((r) => r.kind === 'learned-like') || {}).text ?? 'Loved before';
   const r = c.rating;
   const n = c.ratingCount ?? 0;
-  if (r == null) return null;
-  if (r >= 4.7 && n >= 100) return `${r} from ${n.toLocaleString('en-GB')} reviews`;
-  if (r >= 4.5 && n >= 500) return `${r} from ${n.toLocaleString('en-GB')} reviews`;
-  return null;
+  if (r == null || n < 100) return null;
+  const far = Math.min(1, Math.max(0, detourMinutes) / Math.max(1, limitMinutes));
+  const needsRating = 4.2 + far * 0.5;
+  const needsReviews = 150 + far * 650;
+  if (r < needsRating || n < needsReviews) return null;
+  return `${r} from ${n.toLocaleString('en-GB')} reviews${detourMinutes <= 3 ? ', right by the road' : ''}`;
 }
 
 /**
@@ -94,7 +101,7 @@ export function corridorStops({
     const isFood = FOOD.has(c.category);
     const isThing = ACTIVITY.has(c.category);
     const dwell = dwellFor(c);
-    const standout = standoutReason(c);
+    const standout = standoutReason(c, detour, limit);
     const tooFar = detour > limit;
     const banned = c.chain && !includeChains;
 
@@ -145,7 +152,7 @@ export function corridorStops({
     // was not proposed is the reason shown.
     if (more.length < maxMore && (isFood || isThing) && !banned) {
       const why = tooFar ? `${detour} min off the road`
-        : !standout ? 'Nothing marks it out'
+        : !standout ? (detour > 3 ? `Not enough to be worth ${detour} min off the road` : 'Nothing marks it out')
         : tooEarly ? `You would have to leave home at ${wallClock(leavingHomeFor(f, detour, dwell), timezone).hhmm}`
         : !legs.length ? 'Not at a time you would stop'
         : 'The leg is full';
