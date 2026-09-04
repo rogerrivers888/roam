@@ -946,26 +946,22 @@ function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
                 <Text style={type.tiny}>{stays.length} places to stay · {near?.label ? `measured from ${near.label}` : ''}</Text>
                 {stays.slice(0, 12).map((s) => (
                   <Pressable key={s.venueRef} onPress={() => choose(s)} style={styles.stayRow} accessibilityRole="button">
-                    <Icon name="hotel" size={18} color={colors.icon} />
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Row style={{ gap: 6 }}>
-                        <Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>{s.name}</Text>
-                        {s.stars ? <Rating value={s.stars} /> : null}
-                      </Row>
-                      <Text style={type.tiny} numberOfLines={1}>
-                        {[s.stayKind, s.address].filter(Boolean).join(' · ')}
+                    <Row style={{ gap: spacing.sm }}>
+                      <Icon name="hotel" size={16} color={colors.icon} />
+                      <Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>{s.name}</Text>
+                      {s.stars ? <Rating value={s.stars} /> : null}
+                    </Row>
+                    <Text style={type.tiny} numberOfLines={1}>{[s.stayKind, s.address].filter(Boolean).join(' · ')}</Text>
+                    {/* The sentence that is the whole point of doing this here. */}
+                    {s.plansTotal ? (
+                      <Text style={[type.small, { color: s.plansNear === s.plansTotal ? colors.like : colors.ink }]}>
+                        {s.plansNear === s.plansTotal
+                          ? `Everything on your shortlist within ${hasCar ? 'a short drive' : 'a walk'} — typically ${s.typicalMinutes} min`
+                          : `${s.plansNear} of your ${s.plansTotal} plans within ${hasCar ? 'a short drive' : 'a walk'} · typically ${s.typicalMinutes} min${s.farthest ? `, ${s.farthest.minutes} min to ${s.farthest.label.split(',')[0]}` : ''}`}
                       </Text>
-                      {/* The sentence that is the whole point of doing this here. */}
-                      {s.plansTotal ? (
-                        <Text style={[type.small, { color: s.plansNear === s.plansTotal ? colors.like : colors.ink }]}>
-                          {s.plansNear === s.plansTotal
-                            ? `Everything on your shortlist within ${hasCar ? 'a short drive' : 'a walk'} — typically ${s.typicalMinutes} min`
-                            : `${s.plansNear} of your ${s.plansTotal} plans within ${hasCar ? 'a short drive' : 'a walk'} · typically ${s.typicalMinutes} min${s.farthest ? `, ${s.farthest.minutes} min to ${s.farthest.label.split(',')[0]}` : ''}`}
-                        </Text>
-                      ) : (
-                        <Text style={type.small}>{s.distanceKm} km from the middle of {trip.locality ?? 'town'}</Text>
-                      )}
-                    </View>
+                    ) : (
+                      <Text style={type.small}>{s.distanceKm} km from the middle of {trip.locality ?? 'town'}</Text>
+                    )}
                     <View style={styles.stayPick}><Text style={styles.stayPickText}>{saving === s.venueRef ? 'Saving…' : "We'll stay here"}</Text></View>
                   </Pressable>
                 ))}
@@ -1003,7 +999,7 @@ const styles = StyleSheet.create({
   reactText: { fontSize: 16, fontWeight: '700', color: colors.ink },
   star: { width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'center' },
   fold: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
-  stayRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
-  stayPick: { minHeight: 36, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: colors.accent, justifyContent: 'center' },
+  stayRow: { gap: 3, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
+  stayPick: { alignSelf: 'flex-start', marginTop: 4, minHeight: 34, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.accent, justifyContent: 'center' },
   stayPickText: { color: colors.bg, fontWeight: '700', fontSize: 12 },
 });
