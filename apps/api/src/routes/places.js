@@ -17,6 +17,7 @@ import { findMenuUrl } from '../sources/menuLink.js';
 import { resolveConcept, conceptByKey } from '../domain/concepts.js';
 import { kmBetween } from '../domain/travel.js';
 import { contentsOf, groundsRadiusKm, researchInside } from '../sources/inside.js';
+import { researchRestrictions, restrictionsEnabled } from '../sources/restrictions.js';
 import { currentHousehold, loadMembers } from './household.js';
 import { upsertHouseholdPlace } from './atlas.js';
 import { googleSource } from '../sources/google.js';
@@ -64,6 +65,18 @@ export const places = Router();
  *
  * GET /api/places/inside?ref=osm:way/123&lat=&lng=&kind=theme-park[&refresh=1]
  */
+// Who may ride is a separate question with a separate bill: one model call per
+// park, ever, started in the background the first time a household opens it.
+const asking = new Set();
+function askWhoCanRide(ref, name, website) {
+  if (!restrictionsEnabled() || asking.has(ref)) return asking.has(ref);
+  asking.add(ref);
+  researchRestrictions({ parentRef: ref, parentName: name ?? null, website: website ?? null })
+    .catch((err) => console.warn(`restrictions ${ref}: ${err.message}`))
+    .finally(() => asking.delete(ref));
+  return true;
+}
+
 places.get('/inside', async (req, res, next) => {
   try {
     const ref = String(req.query.ref || '').trim();
@@ -75,10 +88,12 @@ places.get('/inside', async (req, res, next) => {
     const held = await contentsOf(ref);
     // Nothing to research without somewhere to look, and nothing worth
     // researching for a place that has no grounds.
-    if (held.length && !req.query.refresh) return res.json({ ref, items: held, researched: false });
+    if (held.length && !req.query.refresh) {
+      return res.json({ ref, items: held, researched: false, askingWhoCanRide: askWhoCanRide(ref, req.query.name, req.query.website) });
+    }
     if (!radiusKm || !Number.isFinite(lat) || !Number.isFinite(lng)) return res.json({ ref, items: held, researched: false });
     const items = await researchInside({ parentRef: ref, name: req.query.name ?? null, lat, lng, radiusKm, force: Boolean(req.query.refresh) });
-    res.json({ ref, items, researched: true });
+    res.json({ ref, items, researched: true, askingWhoCanRide: askWhoCanRide(ref, req.query.name, req.query.website) });
   } catch (err) {
     next(err);
   }

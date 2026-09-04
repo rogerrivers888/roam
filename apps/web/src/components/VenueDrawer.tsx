@@ -37,7 +37,7 @@ import { SOURCE_LABEL, priceMarks, typeLine } from './StopCard';
 // photos fold into Overview; getting there earns one of its own; and the menu
 // and the order — the two things you want while you are standing in the place —
 // are tabs rather than something below the fold.
-type Tab = 'overview' | 'travel' | 'reviews' | 'menu' | 'order';
+type Tab = 'overview' | 'travel' | 'reviews' | 'menu' | 'order' | 'inside';
 
 // Somewhere you eat, where the menu is worth a row of its own.
 const EATING = new Set(['restaurant', 'cafe', 'bar', 'pub']);
@@ -112,14 +112,30 @@ function Hero({ uri, attribution }: { uri: string | null; attribution: string | 
 // Places whose grounds hold other places, and how far those grounds reach.
 const GROUNDS: Record<string, number> = { 'theme-park': 1.2, zoo: 1.0, 'water-park': 0.8, aquarium: 0.4 };
 
-/** How a ride reads: 30 m high, 129 km/h, opened 2024, 1.4 m to ride. */
+/**
+ * Who may ride, which is the first thing a parent asks and the last thing a
+ * source gives you (owner, 4 Sep 2026: "they are useless without any age rating
+ * or info on the ride"). Height in centimetres because that is how a park
+ * writes it and how a family measures a child against a board.
+ */
+function whoCanRide(f: PlaceInsideItem['facts']): string | null {
+  const cm = (m?: number) => (m ? `${Math.round(m * 100)} cm` : null);
+  const bits = [
+    f.minHeightM ? `${cm(f.minHeightM)} and over` : null,
+    f.maxHeightM ? `up to ${cm(f.maxHeightM)}` : null,
+    f.minAge ? `${f.minAge}+` : null,
+    f.supervision ? f.supervision : null,
+  ].filter(Boolean);
+  return bits.length ? bits.join(' · ') : null;
+}
+
+/** How a ride reads: 30 m high, 129 km/h, opened 2024. */
 function rideLine(f: PlaceInsideItem['facts']): string {
   return [
     f.heightM ? `${Math.round(f.heightM)} m high` : null,
     f.speedKph ? `${Math.round(f.speedKph)} km/h` : null,
     f.lengthM ? `${Math.round(f.lengthM)} m long` : null,
     f.opened ? `opened ${f.opened}` : null,
-    f.minHeightM ? `${f.minHeightM} m to ride` : null,
     f.extraCharge ? 'extra charge' : null,
   ].filter(Boolean).join(' · ');
 }
@@ -131,44 +147,37 @@ function rideLine(f: PlaceInsideItem['facts']): string {
  * rides and where they stand, Wikidata for how high and how fast, Wikipedia for
  * the paragraph — all licences that let us keep the answer.
  */
-function InsideList({ item, venue, inside, setInside }: {
-  item: BrowseItem; venue?: Venue | null; inside: PlaceInsideItem[] | null;
-  setInside: (v: PlaceInsideItem[] | null) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+/**
+ * What is inside this place, as its own tab. A theme park is not one thing to
+ * do, it is forty, and those forty are why you opened it (owner, 4 Sep 2026).
+ * Everything shown is ours: the open map for the rides and where they stand,
+ * Wikidata for how high and how fast, the park's own pages for who may ride.
+ */
+function InsideList({ inside, busy, full = false }: { inside: PlaceInsideItem[] | null; busy: boolean; full?: boolean }) {
   const [open, setOpen] = useState(false);
-  const experiences = venue?.experiences ?? item.experiences ?? [];
-  const grounds = experiences.reduce((r, e) => Math.max(r, GROUNDS[e] ?? 0), 0);
-
-  useEffect(() => {
-    if (!grounds || inside || busy || failed) return;
-    setBusy(true);
-    api.placeInside({ ref: item.venueRef, lat: item.lat, lng: item.lng, experiences: experiences.join(','), name: item.name })
-      .then((r) => setInside(r.items))
-      .catch(() => setFailed(true))
-      .finally(() => setBusy(false));
-  }, [grounds, item.venueRef]);
-
-  if (!grounds) return null;
   if (busy && !inside) return <IconText name="search">Looking up what is inside…</IconText>;
   if (!inside?.length) return null;
 
   const rides = inside.filter((i) => !['eat', 'shop', 'facility'].includes(i.kind));
   const eat = inside.filter((i) => i.kind === 'eat');
-  const shown = open ? rides : rides.slice(0, 6);
+  const shown = full || open ? rides : rides.slice(0, 6);
   return (
-    <View style={{ gap: 6, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted }}>
-      <Text style={[type.tiny, { fontWeight: '700', color: colors.ink }]}>WHAT'S INSIDE</Text>
+    <View style={{ gap: full ? spacing.md : 6, ...(full ? {} : { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted }) }}>
+      {!full ? <Text style={[type.tiny, { fontWeight: '700', color: colors.ink }]}>WHAT'S INSIDE</Text> : null}
       {shown.map((i) => {
-        const line = rideLine(i.facts);
+        const f = i.facts;
+        const who = whoCanRide(f);
+        const facts = rideLine(f);
         return (
-          <View key={i.itemRef} style={{ gap: 1 }}>
-            <Text style={[type.small, { color: colors.ink, fontWeight: '600' }]}>{i.name}</Text>
-            <Text style={type.tiny}>{[i.kindLabel, line].filter(Boolean).join(' · ')}</Text>
+          <View key={i.itemRef} style={{ gap: 2 }}>
+            <Text style={[full ? type.body : type.small, { color: colors.ink, fontWeight: '600' }]}>{i.name}</Text>
+            <Text style={type.tiny}>{[i.kindLabel, facts].filter(Boolean).join(' · ')}</Text>
+            {who ? <Row style={{ gap: 5, alignItems: 'flex-start' }}><View style={{ paddingTop: 2 }}><Icon name="children" size={13} color={colors.icon} /></View><Text style={[type.tiny, { flex: 1, color: colors.ink }]}>{who}</Text></Row> : null}
+            {full && i.summary ? <Text style={type.tiny} numberOfLines={3}>{i.summary}</Text> : null}
           </View>
         );
       })}
+      {full && !rides.some((r) => r.facts?.restrictionsChecked) ? <IconText name="search">Reading the park's own height restrictions…</IconText> : null}
       {rides.length > shown.length ? <Pressable onPress={() => setOpen(true)} accessibilityRole="button"><Text style={[type.tiny, { color: colors.accent, fontWeight: '700' }]}>All {rides.length}</Text></Pressable> : null}
       {eat.length ? <Text style={type.tiny}>{eat.length} place{eat.length === 1 ? '' : 's'} to eat inside.</Text> : null}
       <Text style={type.tiny}>{[...new Set(inside.flatMap((i) => i.attribution))].join(' · ')}</Text>
@@ -206,6 +215,11 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   // in a zoo (owner, 4 Sep 2026). Researched once from the open map, Wikidata
   // and Wikipedia, then ours — so this is a read, and it may go on the device.
   const [inside, setInside] = useState<PlaceInsideItem[] | null>(null);
+  const [insideBusy, setInsideBusy] = useState(false);
+  // Which places have grounds worth looking inside, decided from what the
+  // search already said this place is.
+  const insideOf = item?.experiences ?? [];
+  const grounds = insideOf.reduce((r, e) => Math.max(r, GROUNDS[e] ?? 0), 0);
   const [venue, setVenue] = useState<Venue | null | undefined>(undefined);
   const [menu, setMenu] = useState<MenuLink | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -216,6 +230,36 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   // The same test the shell uses: not what the browser claims, but whether the
   // answers on screen actually came off the device.
   const showingSaved = !online || serving;
+
+
+  // What is inside is fetched when the drawer opens, not when its tab is
+  // tapped: a tab nobody can see is a tab nobody can tap.
+  useEffect(() => {
+    if (!item || !grounds || inside || insideBusy) return;
+    setInsideBusy(true);
+    let live = true;
+    const ask = (): Promise<void> => api.placeInside({ ref: item.venueRef, lat: item.lat, lng: item.lng, experiences: insideOf.join(','), name: item.name, website: v?.website ?? item.website ?? undefined })
+      .then(async (r) => {
+        if (!live) return;
+        setInside(r.items);
+        // Who may ride is the park's own answer and takes a minute to read, so
+        // the rides arrive first and the heights fill in underneath them.
+        const missing = r.items.some((i) => !['eat', 'shop', 'facility'].includes(i.kind) && !i.facts?.restrictionsChecked);
+        if (!r.askingWhoCanRide || !missing) return;
+        for (let n = 0; n < 8 && live; n += 1) {
+          await new Promise((res) => setTimeout(res, 8000));
+          if (!live) return;
+          const again = await api.placeInside({ ref: item.venueRef }).catch(() => null);
+          if (!again?.items.length) continue;
+          setInside(again.items);
+          if (again.items.some((i) => i.facts?.restrictionsChecked)) return;
+        }
+      })
+      .catch(() => { if (live) setInside([]); })
+      .finally(() => { if (live) setInsideBusy(false); });
+    void ask();
+    return () => { live = false; };
+  }, [item?.venueRef, grounds]);
 
 
   useEffect(() => {
@@ -230,6 +274,10 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
       const r = await savedRecord(ref);
       if (live) setOwnRecord(r);
     };
+    // An idea that has not been matched to a place yet has no identifier to
+    // look up. That is not a reason to refuse to open: the card's own facts are
+    // the drawer, and what is around it still loads (owner, 4 Sep 2026).
+    if (!item.venueRef) { setVenue(null); return () => { live = false; }; }
     api.place(item.venueRef)
       .then((d) => {
         if (!live) return;
@@ -275,6 +323,9 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   const photoUri = (p: { ref?: string; url?: string }, w: number) => p.url ?? (p.ref ? `${API_URL}/api/photos/google?name=${encodeURIComponent(p.ref)}&w=${w}` : null);
 
   const eating = EATING.has(item.category);
+  const experiences = v?.experiences ?? item.experiences ?? [];
+  const insideCount = (inside ?? []).filter((i) => !['eat', 'shop', 'facility'].includes(i.kind)).length;
+  const insideLabel = experiences.includes('zoo') || experiences.includes('aquarium') ? 'Animals' : 'Rides';
   // Somewhere you eat leads with the two things you want while you are standing
   // in it, because only three or four tabs fit a phone without scrolling.
   const tabs: { value: Tab; label: string }[] = [
@@ -283,6 +334,9 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
       { value: 'menu' as Tab, label: 'Menu' },
       { value: 'order' as Tab, label: `Order${ctl.order?.items.length ? ` (${ctl.order.items.length})` : ''}` },
     ] : []),
+    // A park's rides are not an aside in the overview, they are why you are
+    // reading it (owner, 4 Sep 2026: "put that in a separate tab please").
+    ...(insideCount ? [{ value: 'inside' as Tab, label: `${insideLabel} (${insideCount})` }] : []),
     ...(gettingThere || mapsUrl ? [{ value: 'travel' as Tab, label: 'Getting there' }] : []),
     { value: 'reviews', label: `Reviews${reviews.length ? ` (${reviews.length})` : ''}` },
   ];
@@ -345,7 +399,6 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
               {shown === 'overview' ? (
                 <View style={{ gap: spacing.sm }}>
                   {capture}
-                  <InsideList item={item} venue={v} inside={inside} setInside={setInside} />
                   {v?.summary ?? item.summary ? <Text style={type.body}>{v?.summary ?? item.summary}</Text> : null}
                   {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
                   {v?.address ?? item.address ? <IconText name="address">{v?.address ?? item.address}</IconText> : null}
@@ -401,6 +454,8 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                   </Wrap>
                 </View>
               ) : null}
+
+              {shown === 'inside' ? <InsideList inside={inside} busy={insideBusy} full /> : null}
 
               {shown === 'reviews' ? (
                 <View style={{ gap: spacing.sm }}>

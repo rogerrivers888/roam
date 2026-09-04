@@ -309,8 +309,12 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
 
   /** An idea, as the drawer every other place on the screen opens as. */
   const openDetail = (idea: Idea, head: IdeaHeadline | null) => {
-    const ref = head?.venueRef ?? idea.place?.ref ?? null;
-    if (!ref || !idea.place) return;
+    // Open with whatever there is. A place looked up before Roam kept the map's
+    // own identifier — or one whose look-around has not come back — still has a
+    // name, a distance and a reason, and those are worth reading (owner, 4 Sep
+    // 2026: "I can't click on Thorpe Park… I can't see any information").
+    const ref = head?.venueRef ?? idea.place?.ref ?? '';
+    if (!idea.place) return;
     setDrawer({
       id: idea.id, venueRef: ref, name: head?.name ?? idea.place.label, category: head?.category ?? 'attraction',
       lat: idea.place.lat, lng: idea.place.lng, dwellMinutes: 120, reasons: [], justification: idea.why,
@@ -709,7 +713,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
                 <Pressable
                   style={styles.idea}
                   onPress={() => openDetail(idea, head)}
-                  disabled={!ref}
+                  disabled={!idea.place}
                   accessibilityRole="button"
                   accessibilityLabel={`${idea.title}. Open the details`}
                 >
@@ -724,7 +728,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
                     <Text style={type.small} numberOfLines={2}>{idea.why}</Text>
                     {idea.do.length || idea.eat.length ? <Text style={type.tiny} numberOfLines={1}>{[...idea.do, ...idea.eat].slice(0, 3).join(' · ')}</Text> : null}
                   </View>
-                  {ref ? <Icon name="more" size={16} color={colors.inkMuted} /> : null}
+                  {idea.place ? <Icon name="more" size={16} color={colors.inkMuted} /> : null}
                 </Pressable>
                 <Row style={{ flexWrap: 'wrap', paddingLeft: 84 + spacing.md }}>
                   {/* One call to action (owner, 4 Sep 2026: "It should just be

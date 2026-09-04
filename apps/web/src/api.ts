@@ -335,7 +335,14 @@ export type OptionStop = {
 /** One thing inside a place with grounds — a ride, an animal house, a café. Ours: OSM, Wikidata, Wikipedia. */
 export type PlaceInsideItem = {
   itemRef: string; name: string; kind: string; kindLabel: string; lat: number | null; lng: number | null;
-  facts: { heightM?: number; lengthM?: number; speedKph?: number; opened?: string; builtBy?: string; minHeightM?: number; coasterType?: string; operator?: string; note?: string; extraCharge?: boolean; capacity?: number };
+  facts: {
+    heightM?: number; lengthM?: number; speedKph?: number; opened?: string; builtBy?: string;
+    coasterType?: string; operator?: string; note?: string; extraCharge?: boolean; capacity?: number;
+    // Who may ride, from the park's own published restrictions.
+    minHeightM?: number; maxHeightM?: number; minAge?: number; supervision?: string; thrill?: string;
+    /** The day the park's own pages were read, so a ride with no restriction is not asked about again. */
+    restrictionsChecked?: string;
+  };
   summary: string | null; summarySource: string | null; website: string | null; wikipediaUrl: string | null; attribution: string[];
 };
 
@@ -926,8 +933,8 @@ export const api = {
   /** Five more days out on the same list, without losing the ones already there. */
   inspireMore: (body: { sessionId: string; attendingMemberIds?: string[] | null }) => post<{ sessionId: string; ref: string; running: boolean; stage: InspireStage }>('/api/plan/inspire/more', body),
   /** What is inside a place with grounds: the rides in a theme park, researched once and ours to keep. */
-  placeInside: (q: { ref: string; lat?: number; lng?: number; experiences?: string; name?: string; refresh?: '1' }) =>
-    request<{ ref: string; items: PlaceInsideItem[]; researched: boolean }>(`/api/places/inside${qs(q)}`),
+  placeInside: (q: { ref: string; lat?: number; lng?: number; experiences?: string; name?: string; website?: string; refresh?: '1' }) =>
+    request<{ ref: string; items: PlaceInsideItem[]; researched: boolean; askingWhoCanRide?: boolean }>(`/api/places/inside${qs(q)}`),
   /** What one run did, by the number shown on screen: what was asked, how long, and every call it made. */
   planRun: (ref: string) => request<{ ref: string; sessionId: string; kind: string; asked: any; startedAt: string; seconds: number; stage: string; running: boolean; error: string | null; answered: { title: string; pinned: boolean }[] | null; calls: { provider: string; purpose: string; units: any; costUsd: number | null; at: string; afterSeconds: number }[] }>(`/api/plan/runs/${ref}`),
   inspireThings: (q: { lat: number; lng: number; label: string; locality?: string }) => request<{ items: IdeaThing[]; headline: IdeaHeadline | null; cached?: boolean; tookMs?: number }>(`/api/plan/inspire/things${qs(q)}`),

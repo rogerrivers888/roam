@@ -62,3 +62,23 @@ export async function contentsRows(parentRef) {
   );
   return rows;
 }
+
+/**
+ * What the park itself says about who may ride, written onto a ride already
+ * held. Only the facts and the attribution move; the ride keeps its place.
+ */
+export async function updateFacts(parentRef, itemRef, facts, sources = []) {
+  await query(
+    `update place_contents
+        set facts = $3::jsonb,
+            attribution = case when $4::jsonb = '[]'::jsonb then attribution
+                               else (select jsonb_agg(distinct a) from jsonb_array_elements(attribution || $4::jsonb) a) end,
+            provenance = provenance || '{"restrictions":"venue"}'::jsonb,
+            updated_at = now()
+      where parent_ref = $1 and item_ref = $2`,
+    [parentRef, itemRef, JSON.stringify(facts), JSON.stringify(sources.length ? [`${parentName(sources)}`] : [])],
+  );
+}
+
+/** The line that credits the park's own pages. */
+const parentName = (sources) => `Published by the venue: ${sources[0]}`;
