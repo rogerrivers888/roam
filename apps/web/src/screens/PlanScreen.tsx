@@ -3,7 +3,10 @@ import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
-import { api, ApiError, HouseholdResponse, PlanAction, PlanResponse, PlanRow, PlanRowKey } from '../api';
+import { api, ApiError, HouseholdResponse, Place, PlanAction, PlanResponse, PlanRow, PlanRowKey, PlanSet, PricePoint } from '../api';
+import { DateRangePicker } from '../components/DateRangePicker';
+import { RangeSlider } from '../components/RangeSlider';
+import { IconName } from '../components/Icon';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Stepper, Wrap, minutes, clock } from '../components/ui';
 import { TimeBar } from '../components/TimeBar';
@@ -25,7 +28,20 @@ type Mode = 'tell' | 'inspire';
 const EMPTY_ROWS: PlanRow[] = (['to', 'when', 'do', 'eat', 'budget'] as PlanRowKey[]).map((key) => ({
   key, label: key === 'to' ? 'To' : key[0].toUpperCase() + key.slice(1), value: null, detail: null, state: 'empty',
 }));
-const PRICE_CHIPS = [{ label: 'Any', say: 'Budget: any price' }, { label: 'Affordable', say: 'Budget: affordable' }, { label: 'Mid-range', say: 'Budget: mid-range' }, { label: 'Upmarket', say: 'Budget: upmarket' }];
+// Every row is a control: tap it and choose, no typing except a place name. Speaking fills the same rows.
+const ROW_ICON: Record<string, IconName> = { from: 'home', to: 'address', when: 'calendar', who: 'household', stay: 'hotel', do: 'plan', eat: 'restaurant', budget: 'list' };
+const HOURS = [{ label: '2 hours', value: 120 }, { label: '3 hours', value: 180 }, { label: 'Half a day', value: 300 }, { label: 'All day', value: 600 }];
+const MEALS = ['Breakfast', 'Coffee', 'Lunch', 'Dinner'];
+const MEAL_KINDS = ['Pub', 'Café', 'Italian', 'Indian', 'Japanese', 'Chinese', 'Thai', 'Mexican', 'Seafood', 'Steak', 'Picnic'];
+const PRICE_POINTS: { label: string; value: 'any' | PricePoint }[] = [{ label: 'Any', value: 'any' }, { label: 'Affordable', value: 'affordable' }, { label: 'Mid-range', value: 'mid' }, { label: 'Upmarket', value: 'upmarket' }];
+const BUDGET_BARS = [0.1, 0.2, 0.35, 0.5, 0.7, 0.9, 1, 0.85, 0.7, 0.55, 0.42, 0.3, 0.22, 0.16, 0.1, 0.07, 0.05, 0.04];
+type Controls = {
+  when: { mode: 'day' | 'stay'; start: string | null; end: string | null; duration: number | null };
+  do: { kinds: string[]; named: string[]; count: number | null };
+  eat: { meals: Record<string, string | null>; avoidChains: boolean | null; special: boolean };
+  budget: { pricePoint: 'any' | PricePoint; low: number; high: number; per: 'everyone' | 'person' };
+};
+const EMPTY_CONTROLS: Controls = { when: { mode: 'day', start: null, end: null, duration: null }, do: { kinds: [], named: [], count: null }, eat: { meals: {}, avoidChains: null, special: false }, budget: { pricePoint: 'any', low: 40, high: 140, per: 'everyone' } };
 
 // The Plan tab unmounts when another tab is shown; the session it was in is
 // remembered here so coming back shows the same conversation and options.
@@ -47,6 +63,22 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
   // A tapped row opens in place; its own mic scopes the words to that row alone.
   const [editing, setEditing] = useState<PlanRowKey | null>(null);
   const [editText, setEditText] = useState('');
+  const [ctl, setCtl] = useState<Controls>(EMPTY_CONTROLS);
+  const [kinds, setKinds] = useState<{ key: string; label: string }[]>([]);
+  const [moreKinds, setMoreKinds] = useState(false);
+  const [namedText, setNamedText] = useState('');
+  // The To search: the planner's own ranking (a town first, roads last and labelled), a rough drive from home on each.
+  const [toQuery, setToQuery] = useState('');
+  const [toHits, setToHits] = useState<{ label: string; where: string; kind: string; isRoad: boolean; travelMinutes: number | null; place: Place }[] | null>(null);
+  const [toBusy, setToBusy] = useState(false);
+  useEffect(() => {
+    const q = toQuery.trim();
+    if (q.length < 2) { setToHits(null); return; }
+    setToBusy(true);
+    const h = setTimeout(async () => { try { const r = await api.planPlaces(q); setToHits(r.places); } catch { setToHits([]); } finally { setToBusy(false); } }, 450);
+    return () => clearTimeout(h);
+  }, [toQuery]);
+  const setTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fieldRef = useRef<PlanRowKey | null>(null);
   // Rows fill while the household is still talking (a quicker read of the words so far).
   const [previewRows, setPreviewRows] = useState<PlanRow[] | null>(null);
@@ -116,6 +148,22 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
       setBusy(false);
     }
   }, [busy, plan?.trip, sessionId, viewing, attendingIds, take]);
+
+  // A tapped control lands in the rows as tapped, no interpretation. Quick taps
+  // are batched over half a second so a run of pills is one request.
+  const pendingSet = useRef<PlanSet>({});
+  const applySet = useCallback((patch: PlanSet) => {
+    pendingSet.current = { ...pendingSet.current, ...patch };
+    if (setTimer.current) clearTimeout(setTimer.current);
+    setTimer.current = setTimeout(async () => {
+      const body = pendingSet.current; pendingSet.current = {};
+      setError(null);
+      try { take(await api.planSet(body, sessionId, attendingIds ? [...attendingIds] : null), false); }
+      catch (e: any) { setError(e instanceof ApiError ? e.message : String(e?.message || e)); }
+    }, 500);
+  }, [sessionId, attendingIds, take]);
+  useEffect(() => { api.browse().then((b) => setKinds(b.activities.flatMap((sec) => sec.items.map((i) => ({ key: i.key, label: i.label }))))).catch(() => {}); }, []);
+  const update = <K extends keyof Controls>(key: K, next: Controls[K]) => setCtl((c) => ({ ...c, [key]: next }));
 
   // Plan it: the rows are settled, run the plan. The server answers at once and
   // works on; the screen asks every few seconds until the trip or the pool lands.
@@ -338,32 +386,125 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
             ) : null}
             {rows.map((r, i) => {
               const isEditing = editing === r.key;
+              const isControl = ['to', 'when', 'do', 'eat', 'budget'].includes(r.key);
               return (
                 <View key={r.key}>
                   <Pressable onPress={() => openRow(r)} style={[styles.row, (i > 0 || travelBits.length > 0) && styles.rowLine, r.state === 'check' && styles.rowCheck, isEditing && styles.rowEditing]} accessibilityRole="button" accessibilityLabel={`${r.label}: ${r.value ?? 'not said'}`}>
-                    <Text style={styles.rowKey}>{r.label}</Text>
+                    <View style={styles.well}><Icon name={ROW_ICON[r.key] ?? 'info'} size={18} /></View>
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={[type.body, { fontWeight: '600' }, !r.value && { color: colors.inkFaint, fontWeight: '400' }]}>{r.value ?? (r.key === 'budget' ? 'any' : r.key === 'to' && r.detail ? r.detail : 'not said')}</Text>
+                      <Text style={styles.rowKey}>{r.label}</Text>
+                      <Text style={[type.body, { fontWeight: '600' }, !r.value && { color: colors.inkMuted, fontWeight: '400' }]}>{r.value ?? ({ to: 'Search a place or a city', when: 'Pick a date · day out or a stay', do: 'Pick what you fancy', eat: 'Meals and what kind', budget: 'Any · set a range' } as Record<string, string>)[r.key] ?? 'not said'}</Text>
                       {r.value && r.detail ? <Text style={type.tiny}>{r.detail}</Text> : null}
                       {changed[r.key] ? <Text style={[type.tiny, { color: colors.accent }]}>was: {changed[r.key]}</Text> : null}
                     </View>
                     {r.state === 'check' ? <View style={styles.flag}><Text style={styles.flagText}>Check</Text></View> : null}
+                    <Icon name={isEditing ? 'expand' : 'more'} size={16} color={colors.inkMuted} />
                   </Pressable>
                   {r.key === 'who' && whoOpen ? <View style={styles.editor}>{whoTicks}</View> : null}
-                  {isEditing ? (
-                    <View style={styles.editor}>
-                      {r.key === 'budget' ? (
-                        <Wrap>{PRICE_CHIPS.map((c) => <Chip key={c.label} label={c.label} selected={r.value === c.label} onPress={() => send(c.say, false, 'budget')} />)}</Wrap>
-                      ) : (
+                  {isEditing && r.key === 'to' ? (
+                    <View style={styles.panel}>
+                      <Row>
+                        <Icon name="search" size={18} />
+                        <TextInput value={toQuery} onChangeText={setToQuery} style={[styles.editInput, { flex: 1 }]} placeholder="Search a place or a city" placeholderTextColor={colors.inkFaint} autoFocus accessibilityLabel="Search a place or a city" />
+                      </Row>
+                      {toBusy ? <Row><ActivityIndicator color={colors.accent} /><Text style={type.tiny}>Looking…</Text></Row> : null}
+                      {toHits?.length === 0 && !toBusy ? <Text style={type.small}>Nothing on the map by that name — try the town as well.</Text> : null}
+                      {(toHits ?? []).map((h) => (
+                        <Pressable key={`${h.place.lat},${h.place.lng}`} onPress={() => { applySet({ destination: h.place }); setEditing(null); setToQuery(''); setToHits(null); }} style={styles.hit} accessibilityRole="button" accessibilityLabel={`${h.label}, ${h.where}`}>
+                          <Icon name={h.isRoad ? 'directions' : h.kind === 'city' || h.kind === 'town' || h.kind === 'village' ? 'address' : 'attraction'} size={18} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[type.body, { fontWeight: '600' }]}>{h.label}</Text>
+                            <Text style={type.tiny}>{[h.kind[0].toUpperCase() + h.kind.slice(1), h.where, h.travelMinutes != null ? `${minutes(h.travelMinutes)} from home` : null].filter(Boolean).join(' · ')}</Text>
+                          </View>
+                          <Icon name="more" size={16} color={colors.inkMuted} />
+                        </Pressable>
+                      ))}
+                      <Row>
+                        {speech.supported ? <Pressable onPress={() => { fieldRef.current = 'to'; speech.start(); }} style={styles.mic} accessibilityRole="button" accessibilityLabel="Say where to"><Icon name="mic" size={16} color={colors.ink} /><Text style={[type.small, { fontWeight: '600' }]}>Say it</Text></Pressable> : null}
+                        <Text style={[type.tiny, { flex: 1 }]}>Your places first, then the map. A road never stands in for a town.</Text>
+                      </Row>
+                    </View>
+                  ) : null}
+                  {isEditing && r.key === 'when' ? (
+                    <View style={styles.panel}>
+                      <Segmented value={ctl.when.mode} options={[{ value: 'day', label: 'Day out' }, { value: 'stay', label: 'Night away' }]} onChange={(v) => { const mode = v as 'day' | 'stay'; update('when', { ...ctl.when, mode }); if (mode === 'day') applySet({ nights: null, end_date: null }); }} />
+                      <DateRangePicker
+                        single={ctl.when.mode === 'day'}
+                        start={ctl.when.start} end={ctl.when.end}
+                        onApply={(start, end) => {
+                          const nights = ctl.when.mode === 'stay' ? Math.max(1, Math.round((new Date(`${end}T12:00:00`).getTime() - new Date(`${start}T12:00:00`).getTime()) / 86_400_000)) : null;
+                          update('when', { ...ctl.when, start, end });
+                          applySet(ctl.when.mode === 'stay' ? { date: start, end_date: end, nights, duration_minutes: null } : { date: start, end_date: null, nights: null });
+                        }}
+                      />
+                      {ctl.when.mode === 'day' ? (
                         <>
-                          <TextInput value={editText} onChangeText={setEditText} style={styles.editInput} placeholder={`${r.label}…`} placeholderTextColor={colors.inkFaint} onSubmitEditing={() => send(editText, false, r.key)} accessibilityLabel={`Change ${r.label}`} />
-                          <Row>
-                            {speech.supported ? <Pressable onPress={() => { fieldRef.current = r.key; speech.start(); }} style={styles.mic} accessibilityRole="button" accessibilityLabel={`Say ${r.label} again`}><Icon name="mic" size={16} color={colors.ink} /><Text style={[type.small, { fontWeight: '600' }]}>Say it again</Text></Pressable> : null}
-                            <Button label="Done" onPress={() => send(editText, false, r.key)} disabled={!editText.trim() || !!busy} />
-                            <Button label="Cancel" kind="ghost" onPress={() => setEditing(null)} />
-                          </Row>
+                          <Text style={styles.h}>How long there</Text>
+                          <Wrap>{HOURS.map((h) => <Chip key={h.value} label={h.label} selected={ctl.when.duration === h.value} onPress={() => { update('when', { ...ctl.when, duration: h.value }); applySet({ duration_minutes: h.value }); }} />)}</Wrap>
                         </>
-                      )}
+                      ) : <Text style={type.tiny}>Say when you arrive ("we get there in the evening") and the first day is planned around it.</Text>}
+                    </View>
+                  ) : null}
+                  {isEditing && r.key === 'do' ? (
+                    <View style={styles.panel}>
+                      <Text style={styles.h}>What kind of thing</Text>
+                      <Wrap>
+                        {(moreKinds ? kinds : kinds.slice(0, 12)).map((k) => {
+                          const on = ctl.do.kinds.includes(k.label);
+                          return <Chip key={k.key} label={k.label} selected={on} icon={on ? 'check' : undefined} onPress={() => { const next = on ? ctl.do.kinds.filter((x) => x !== k.label) : [...ctl.do.kinds, k.label]; const d = { ...ctl.do, kinds: next }; update('do', d); applySet({ do: d }); }} />;
+                        })}
+                        {kinds.length > 12 ? <Chip label={moreKinds ? 'Fewer' : `+ ${kinds.length - 12} more`} onPress={() => setMoreKinds((m) => !m)} /> : null}
+                      </Wrap>
+                      <Text style={styles.h}>A specific place</Text>
+                      <Row>
+                        <TextInput value={namedText} onChangeText={setNamedText} style={[styles.editInput, { flex: 1 }]} placeholder="The Roman Baths…" placeholderTextColor={colors.inkFaint} onSubmitEditing={() => { if (!namedText.trim()) return; const d = { ...ctl.do, named: [...ctl.do.named, namedText.trim()] }; update('do', d); applySet({ do: d }); setNamedText(''); }} accessibilityLabel="A specific place to do" />
+                        <Button label="Add" kind="secondary" onPress={() => { if (!namedText.trim()) return; const d = { ...ctl.do, named: [...ctl.do.named, namedText.trim()] }; update('do', d); applySet({ do: d }); setNamedText(''); }} disabled={!namedText.trim()} />
+                      </Row>
+                      {ctl.do.named.length ? <Wrap>{ctl.do.named.map((n) => <Chip key={n} label={n} selected icon="check" onRemove={() => { const d = { ...ctl.do, named: ctl.do.named.filter((x) => x !== n) }; update('do', d); applySet({ do: d }); }} />)}</Wrap> : null}
+                      <Text style={styles.h}>How many things</Text>
+                      <Segmented value={String(ctl.do.count ?? '')} options={[{ value: '1', label: '1' }, { value: '2', label: '2' }, { value: '3', label: '3' }]} onChange={(v) => { const d = { ...ctl.do, count: Number(v) }; update('do', d); applySet({ do: d }); }} />
+                    </View>
+                  ) : null}
+                  {isEditing && r.key === 'eat' ? (
+                    <View style={styles.panel}>
+                      <Text style={styles.h}>Which meals</Text>
+                      <Wrap>{MEALS.map((m) => { const key = m.toLowerCase(); const on = key in ctl.eat.meals; return <Chip key={m} label={m} selected={on} icon={on ? 'check' : undefined} onPress={() => { const meals = { ...ctl.eat.meals }; if (on) delete meals[key]; else meals[key] = null; const e = { ...ctl.eat, meals }; update('eat', e); applySet({ eat: { meals: e.meals, avoid_chains: e.avoidChains, special: e.special } }); }} />; })}</Wrap>
+                      {Object.keys(ctl.eat.meals).map((meal) => (
+                        <View key={meal} style={{ gap: 6 }}>
+                          <Text style={styles.h}>{meal[0].toUpperCase() + meal.slice(1)}</Text>
+                          <Wrap>
+                            <Chip label="Anything" selected={ctl.eat.meals[meal] == null} onPress={() => { const e = { ...ctl.eat, meals: { ...ctl.eat.meals, [meal]: null } }; update('eat', e); applySet({ eat: { meals: e.meals, avoid_chains: e.avoidChains, special: e.special } }); }} />
+                            {MEAL_KINDS.map((k) => <Chip key={k} label={k} selected={ctl.eat.meals[meal] === k} onPress={() => { const e = { ...ctl.eat, meals: { ...ctl.eat.meals, [meal]: k } }; update('eat', e); applySet({ eat: { meals: e.meals, avoid_chains: e.avoidChains, special: e.special } }); }} />)}
+                          </Wrap>
+                        </View>
+                      ))}
+                      <Wrap>
+                        <Chip label="No chains" selected={ctl.eat.avoidChains === true} onPress={() => { const e = { ...ctl.eat, avoidChains: ctl.eat.avoidChains === true ? null : true }; update('eat', e); applySet({ eat: { meals: e.meals, avoid_chains: e.avoidChains, special: e.special } }); }} />
+                        <Chip label="Chains fine" selected={ctl.eat.avoidChains === false} onPress={() => { const e = { ...ctl.eat, avoidChains: ctl.eat.avoidChains === false ? null : false }; update('eat', e); applySet({ eat: { meals: e.meals, avoid_chains: e.avoidChains, special: e.special } }); }} />
+                        <Chip label="Somewhere special" selected={ctl.eat.special} onPress={() => { const e = { ...ctl.eat, special: !ctl.eat.special }; update('eat', e); applySet({ eat: { meals: e.meals, avoid_chains: e.avoidChains, special: e.special } }); }} />
+                      </Wrap>
+                    </View>
+                  ) : null}
+                  {isEditing && r.key === 'budget' ? (
+                    <View style={styles.panel}>
+                      <Wrap>{PRICE_POINTS.map((pp) => <Chip key={pp.value} label={pp.label} selected={ctl.budget.pricePoint === pp.value} onPress={() => { const b = { ...ctl.budget, pricePoint: pp.value }; update('budget', b); applySet({ budget: { price_point: b.pricePoint, low: b.low, high: b.high, per: b.per } }); }} />)}</Wrap>
+                      <Row style={{ justifyContent: 'space-between' }}>
+                        <Text style={type.small}>{ctl.budget.per === 'person' ? 'A head, for the day' : 'For the day, everyone'}</Text>
+                        <Text style={[type.body, { fontWeight: '700' }]}>£{ctl.budget.low} – £{ctl.budget.high}</Text>
+                      </Row>
+                      <RangeSlider min={0} max={400} step={10} low={ctl.budget.low} high={ctl.budget.high} bars={BUDGET_BARS} onChange={(low, high) => { const b = { ...ctl.budget, low, high }; update('budget', b); applySet({ budget: { price_point: b.pricePoint, low, high, per: b.per } }); }} />
+                      <Segmented value={ctl.budget.per} options={[{ value: 'everyone', label: 'For everyone' }, { value: 'person', label: 'Per person' }]} onChange={(v) => { const b = { ...ctl.budget, per: v as 'everyone' | 'person' }; update('budget', b); applySet({ budget: { price_point: b.pricePoint, low: b.low, high: b.high, per: b.per } }); }} />
+                      <Text style={type.tiny}>The bars are the spread of what days like this cost; the plan keeps meals and tickets inside the range.</Text>
+                    </View>
+                  ) : null}
+                  {isEditing && !isControl ? (
+                    <View style={styles.editor}>
+                      <TextInput value={editText} onChangeText={setEditText} style={styles.editInput} placeholder={`${r.label}…`} placeholderTextColor={colors.inkFaint} onSubmitEditing={() => send(editText, false, r.key)} accessibilityLabel={`Change ${r.label}`} />
+                      <Row>
+                        {speech.supported ? <Pressable onPress={() => { fieldRef.current = r.key; speech.start(); }} style={styles.mic} accessibilityRole="button" accessibilityLabel={`Say ${r.label} again`}><Icon name="mic" size={16} color={colors.ink} /><Text style={[type.small, { fontWeight: '600' }]}>Say it again</Text></Pressable> : null}
+                        <Button label="Done" onPress={() => send(editText, false, r.key)} disabled={!editText.trim() || !!busy} />
+                        <Button label="Cancel" kind="ghost" onPress={() => setEditing(null)} />
+                      </Row>
                     </View>
                   ) : null}
                 </View>
@@ -609,11 +750,15 @@ const styles = StyleSheet.create({
   inputLive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   stop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, minHeight: TARGET, borderRadius: radius.pill, backgroundColor: colors.overrun },
   stopText: { color: colors.bg, fontWeight: '700', fontSize: 15 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: 6, borderRadius: radius.sm },
+  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 10, paddingHorizontal: 6, borderRadius: radius.sm },
+  well: { width: 32, height: 32, borderRadius: 4, backgroundColor: colors.well, alignItems: 'center', justifyContent: 'center' },
+  panel: { gap: spacing.sm, padding: spacing.md, marginHorizontal: -6, marginBottom: 4, backgroundColor: colors.panel, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.line },
+  hit: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.line },
+  h: { fontSize: 12, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', color: colors.inkMuted },
   rowLine: { borderTopWidth: 1, borderTopColor: colors.line },
   rowCheck: { backgroundColor: colors.panel },
   rowEditing: { backgroundColor: colors.accentSoft },
-  rowKey: { width: 64, fontSize: 11, letterSpacing: 0.3, textTransform: 'uppercase', color: colors.inkFaint },
+  rowKey: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', color: colors.inkMuted },
   travel: { paddingVertical: 10 },
   flag: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.ink, paddingHorizontal: 9, paddingVertical: 3, borderRadius: radius.pill },
   flagText: { fontSize: 11, fontWeight: '700', color: colors.dislike, letterSpacing: 0.2 },

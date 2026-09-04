@@ -71,6 +71,8 @@ const TripIntent = z.object({
   special: z.boolean().describe('True if they want somewhere special — a treat, an occasion, worth going further for'),
   price_point: z.enum(['affordable', 'mid', 'upmarket']).nullable().describe('How much they want to spend on food, if said: "cheap and cheerful" is affordable, "nice but not silly" is mid, "upmarket", "high quality", "somewhere really good" is upmarket; null if not said'),
   avoid_chains: z.boolean().nullable().describe('True if they said no chains, independents only, somewhere unique or family-run; false if they said chains are fine; null if not mentioned'),
+  budget_low: z.number().int().describe('The least they said they want to spend for the day, in pounds; 0 if not said'),
+  budget_high: z.number().int().describe('The most they said they want to spend for the day, in pounds ("about a hundred quid", "no more than £150"); 0 if not said'),
   reply: z.string().describe('One short, warm sentence acknowledging what was understood, or asking for the single most important missing detail'),
 });
 
@@ -80,6 +82,8 @@ function normaliseIntent(intent) {
   if (!(Number(out.nights) >= 1)) out.nights = null;
   if (!out.end_date || !/^\d{4}-\d{2}-\d{2}$/.test(out.end_date)) out.end_date = null;
   if (!out.stay?.trim()) out.stay = null;
+  if (!(Number(out.budget_low) > 0)) out.budget_low = null;
+  if (!(Number(out.budget_high) > 0)) out.budget_high = null;
   out.question = out.question?.text?.trim() && (out.question.choices || []).length >= 2 ? { text: out.question.text.trim(), choices: out.question.choices.map((c) => String(c).trim()).filter(Boolean) } : null;
   return out;
 }
@@ -195,7 +199,7 @@ const SETTLEMENT = new Set(['city', 'town', 'village', 'hamlet', 'administrative
 const LINEAR = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service', 'road', 'street', 'track', 'path', 'footway', 'cycleway', 'bridleway', 'stream', 'river', 'canal', 'ditch', 'drain', 'rail', 'railway', 'bus_stop', 'junction']);
 const normName = (t) => String(t || '').toLowerCase().replace(/^(the|at|from|to)\s+/, '').replace(/[^a-z0-9]+/g, ' ').trim();
 const kindWord = (h) => (LINEAR.has(h.kind) ? (['stream', 'river', 'canal', 'ditch', 'drain'].includes(h.kind) ? 'river' : 'road') : h.kind === 'administrative' ? 'area' : String(h.kind || 'place').replace(/_/g, ' '));
-const asPlace = (hit, how) => ({ label: hit.label, lat: hit.lat, lng: hit.lng, country: hit.country, countryCode: hit.countryCode, locality: hit.locality, how });
+const asPlace = (hit, how) => ({ label: hit.name || hit.label, lat: hit.lat, lng: hit.lng, country: hit.country, countryCode: hit.countryCode, locality: hit.locality, how });
 
 /**
  * Where a spoken place is — or the choices, when the map is not sure.
@@ -203,7 +207,19 @@ const asPlace = (hit, how) => ({ label: hit.label, lat: hit.lat, lng: hit.lng, c
  * settlement or venue with exactly that name), else { choices } to put to the
  * household. A road called Bath Road near home is never taken for Bath.
  */
-async function resolveSpokenPlace(text, household) {
+// The household's home country, looked up once: a bare name is searched there first.
+const homeCountryCache = new Map();
+async function homeCountry(household) {
+  if (household.home_lat == null) return null;
+  const key = `${household.id}:${household.home_lat},${household.home_lng}`;
+  if (homeCountryCache.has(key)) return homeCountryCache.get(key);
+  let cc = null;
+  try { const r = await reverseGeocode(household.home_lat, household.home_lng, { zoom: 3 }); cc = r?.countryCode ?? null; } catch { cc = null; }
+  homeCountryCache.set(key, cc);
+  return cc;
+}
+
+async function resolveSpokenPlace(text, household, { all = false } = {}) {
   if (!text) return { place: null, choices: null };
   const home = household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null;
   const said = text.trim().replace(/[.!,]+$/, '');
@@ -228,10 +244,15 @@ async function resolveSpokenPlace(text, household) {
     // A name with no street number or comma is looked for everywhere as well.
     const bareName = !/[\d,]/.test(said);
     if (bareName || !hits[0] || !(named(hits[0]) && !LINEAR.has(hits[0].kind))) {
-      const wide = await geocode(text, { limit: 8 });
+      // The home country first (Bath is the one in Somerset, not Kentucky); the world only if that finds little.
+      const cc = await homeCountry(household);
+      const wideHome = cc ? await geocode(text, { limit: 8, countryCode: cc }) : [];
+      const wideAll = wideHome.length >= 3 ? [] : await geocode(text, { limit: 5 });
       const seen = new Set(hits.map((h) => h.sourcePlaceId));
-      hits = [...hits, ...wide.filter((h) => !seen.has(h.sourcePlaceId))];
+      for (const h of [...wideHome, ...wideAll]) { if (!seen.has(h.sourcePlaceId)) { seen.add(h.sourcePlaceId); hits.push(h); } }
     }
+    // An address fragment with no name of its own ("London" for an industrial estate) is not a place to go.
+    hits = hits.filter((h) => h.name);
   } catch {
     return { place: null, choices: null };
   }
@@ -253,21 +274,31 @@ async function resolveSpokenPlace(text, household) {
   }
   if (!pool.length) return { place: null, choices: null };
   const exactTowns = pool.filter((h) => isSettlement(h) && named(h));
-  if (exactTowns.length === 1) return { place: asPlace(exactTowns[0], 'geocoded') };
+  if (exactTowns.length === 1 && !all) return { place: asPlace(exactTowns[0], 'geocoded') };
   const exactVenues = pool.filter((h) => named(h) && !LINEAR.has(h.kind) && !isSettlement(h));
-  if (!exactTowns.length && exactVenues.length === 1) return { place: asPlace(exactVenues[0], 'geocoded') };
+  if (!exactTowns.length && exactVenues.length === 1 && !all) return { place: asPlace(exactVenues[0], 'geocoded') };
   // A full address or postcode has one honest answer; a bare name that only found roads does not.
-  if (pool.length === 1 && !LINEAR.has(pool[0].kind)) return { place: asPlace(pool[0], 'geocoded') };
-  const ranked = [...exactTowns, ...exactVenues, ...pool.filter((h) => !exactTowns.includes(h) && !exactVenues.includes(h))];
+  if (pool.length === 1 && !LINEAR.has(pool[0].kind) && !all) return { place: asPlace(pool[0], 'geocoded') };
+  // For a search list: only hits that carry a word of what was typed, the home
+  // country before the world, and nearer before further.
+  let ranked = [...exactTowns, ...exactVenues, ...pool.filter((h) => !exactTowns.includes(h) && !exactVenues.includes(h))];
+  if (all) {
+    const tokens = wanted.split(' ').filter((t) => t.length >= 3);
+    const cc = await homeCountry(household);
+    ranked = ranked.filter((h) => !tokens.length || tokens.some((t) => normName(h.name).includes(t)));
+    const score = (h) => (named(h) ? 0 : 1) * 100 + (cc && h.countryCode && h.countryCode !== cc ? 50 : 0) + (LINEAR.has(h.kind) ? 10 : ['station', 'bus_stop', 'platform', 'halt'].includes(h.kind) ? 5 : 0);
+    ranked = ranked.map((h, i) => [h, i]).sort((a, b) => score(a[0]) - score(b[0]) || a[1] - b[1]).map(([h]) => h);
+  }
   const choices = [];
   for (const h of ranked) {
     // "Newport (city)" says nothing; "Newport, Wales (city)" does.
-    const region = h.address?.region && normName(h.address.region) !== normName(h.name) ? h.address.region : h.address?.country && normName(h.address.country) !== normName(h.name) ? h.address.country : null;
-    const where = h.label.includes(',') ? '' : region ? `, ${region}` : h.locality && h.locality !== h.name ? `, ${h.locality}` : '';
-    const label = `${h.label}${where} (${kindWord(h)})`;
+    const name = h.name || h.label;
+    const region = h.address?.region && normName(h.address.region) !== normName(name) ? h.address.region : h.address?.country && normName(h.address.country) !== normName(name) ? h.address.country : null;
+    const where = h.locality && normName(h.locality) !== normName(name) ? `, ${h.locality}` : region ? `, ${region}` : '';
+    const label = `${name}${where} (${kindWord(h)})`;
     if (choices.some((c) => c.label === label)) continue;
-    choices.push({ label, say: h.label, place: asPlace(h, 'geocoded') });
-    if (choices.length === 4) break;
+    choices.push({ label, say: `${name}${where}`, kind: kindWord(h), place: asPlace(h, 'geocoded') });
+    if (choices.length === (all ? 8 : 4)) break;
   }
   return { place: null, choices };
 }
@@ -336,8 +367,9 @@ function rowsFor({ merged, places, checks, overnight, members = [] }) {
   const eat = eatLines(wants);
   const foodCount = merged.min_food_stops;
   rows.push(row('eat', 'Eat', eat[0] || (foodCount != null ? `${foodCount} place${foodCount === 1 ? '' : 's'} to eat` : null), eat.slice(1).join(' · ') || null));
-  const budget = merged.price_point ? { affordable: 'Affordable', mid: 'Mid-range', upmarket: 'Upmarket' }[merged.price_point] : merged.special ? 'Somewhere special' : null;
-  rows.push(row('budget', 'Budget', budget, merged.avoid_chains ? 'no chains' : merged.avoid_chains === false ? 'chains are fine' : null));
+  const pp = merged.price_point ? { affordable: 'Affordable', mid: 'Mid-range', upmarket: 'Upmarket' }[merged.price_point] : merged.special ? 'Somewhere special' : null;
+  const range = merged.budget_high ? `£${merged.budget_low || 0}–£${merged.budget_high} ${merged.budget_per === 'person' ? 'a head' : 'a day'}` : null;
+  rows.push(row('budget', 'Budget', [pp, range].filter(Boolean).join(' · ') || null, merged.avoid_chains ? 'no chains' : merged.avoid_chains === false ? 'chains are fine' : null));
   return rows;
 }
 
@@ -845,9 +877,9 @@ router.post('/start', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const members = await loadMembers(household.id);
-    const { utterance: said, sessionId: existingId, sources: pickedSources, attendingMemberIds, field, skip } = req.body || {};
+    const { utterance: said, sessionId: existingId, sources: pickedSources, attendingMemberIds, field, skip, set } = req.body || {};
     const utterance = String(said || '').trim();
-    if (!utterance && !skip) return res.status(400).json({ error: 'utterance_required' });
+    if (!utterance && !skip && !set) return res.status(400).json({ error: 'utterance_required' });
 
     let session;
     if (existingId) {
@@ -884,7 +916,52 @@ router.post('/start', async (req, res, next) => {
     for (const c of before) { const m = matchChoice(c, utterance); if (m) { picked = m; pickedCheck = c; break; } }
     let intent;
     const base = state.intent || {};
-    if (skip) {
+    if (set && typeof set === 'object') {
+      // A tapped control is exact: it lands in the intent as it is, no model call.
+      // Wants a control produced last time are replaced, wants that were said stay.
+      const prevControl = new Set(state.controlWants || []);
+      const kept = (base.wants || []).filter((w) => !prevControl.has(w));
+      const control = state.control || {};
+      const next = { ...base, wants: kept, understood: true, question: null, reply: 'Updated.' };
+      if (set.destination !== undefined) {
+        if (set.destination?.lat != null) {
+          const pl = { label: set.destination.label, lat: set.destination.lat, lng: set.destination.lng, locality: set.destination.locality ?? null, country: set.destination.country ?? null, countryCode: set.destination.countryCode ?? null, how: 'picked' };
+          state.resolved.destination = { said: pl.label, place: pl };
+          next.destination = pl.label;
+        } else { next.destination = null; delete state.resolved.destination; }
+      }
+      if (set.date !== undefined) next.date = set.date || null;
+      if (set.end_date !== undefined) next.end_date = set.end_date || null;
+      if (set.nights !== undefined) next.nights = Number(set.nights) > 0 ? Number(set.nights) : null;
+      if (set.duration_minutes !== undefined) next.duration_minutes = Number(set.duration_minutes) > 0 ? Number(set.duration_minutes) : null;
+      if (set.depart_time !== undefined) next.depart_time = set.depart_time || null;
+      if (set.do) control.do = { kinds: (set.do.kinds || []).map(String), named: (set.do.named || []).map(String), count: set.do.count ?? null };
+      if (set.eat) control.eat = { meals: set.eat.meals || {}, avoid_chains: set.eat.avoid_chains ?? null, special: set.eat.special ?? null };
+      if (set.budget) control.budget = { price_point: set.budget.price_point ?? null, low: set.budget.low ?? null, high: set.budget.high ?? null, per: set.budget.per ?? null };
+      state.control = control;
+      const made = [];
+      if (control.do) {
+        for (const k of control.do.kinds) made.push(k.toLowerCase());
+        for (const n of control.do.named) made.push(n);
+        next.min_activities = control.do.count ?? next.min_activities ?? null;
+      }
+      if (control.eat) {
+        const meals = Object.entries(control.eat.meals || {});
+        for (const [meal, kind] of meals) made.push(kind ? `${kind} for ${meal}` : `somewhere nice for ${meal}`);
+        if (meals.length) next.min_food_stops = meals.length;
+        if (control.eat.avoid_chains !== null) next.avoid_chains = control.eat.avoid_chains;
+        if (control.eat.special !== null) next.special = Boolean(control.eat.special);
+      }
+      if (control.budget) {
+        next.price_point = control.budget.price_point && control.budget.price_point !== 'any' ? control.budget.price_point : null;
+        next.budget_low = control.budget.low ?? null;
+        next.budget_high = control.budget.high ?? null;
+        next.budget_per = control.budget.per ?? null;
+      }
+      next.wants = [...new Set([...kept, ...made])];
+      state.controlWants = made;
+      intent = next;
+    } else if (skip) {
       const c = before.find((x) => x.id === skip);
       if (c?.skippable) {
         state.skipped.push(c.id);
@@ -946,7 +1023,7 @@ router.post('/start', async (req, res, next) => {
       }
     }
 
-    const merged = mergeIntent(state.intent, intent);
+    const merged = set ? { ...intent } : mergeIntent(state.intent, intent);
     // Unless said otherwise, the outing starts at home and everyone is coming (owner, 3 Sep 2026).
     if (!merged.origin && household.home_lat != null) merged.origin = 'home';
     if (!merged.attending?.length && merged.attending_everyone == null) merged.attending_everyone = true;
@@ -1246,6 +1323,30 @@ router.post('/inspire/trip', async (req, res, next) => {
   }
 });
 
+/**
+ * The place search behind the To row: the same ranking as a spoken name (a
+ * town or venue with that name first, same-name hits merged, roads last and
+ * labelled), each with a rough drive from home. GET /api/plan/places?q=
+ */
+router.get('/places', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ places: [] });
+    const home = household.home_lat != null ? { lat: household.home_lat, lng: household.home_lng } : null;
+    const r = await resolveSpokenPlace(q, household, { all: true });
+    const list = r.place ? [{ label: r.place.label, say: r.place.label, kind: 'home', place: r.place }] : (r.choices || []);
+    const places = list.map((c) => ({
+      label: c.place.label, where: c.say.replace(c.place.label, '').replace(/^,\s*/, '') || '', kind: c.kind || 'place',
+      isRoad: ['road', 'river'].includes(c.kind), travelMinutes: home && c.place.lat != null ? estimateTravelMinutes(home, c.place, 'driving') : null,
+      place: { label: c.place.label, lat: c.place.lat, lng: c.place.lng, locality: c.place.locality ?? null, country: c.place.country ?? null, countryCode: c.place.countryCode ?? null },
+    }));
+    res.json({ places });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** Plan it: run the plan for what the rows say. Body: { sessionId } */
 router.post('/go', async (req, res, next) => {
   try {
@@ -1430,7 +1531,11 @@ async function executePlan({ household, members, session, state, res }) {
     state.excluded = [];
     // No chains unless asked for; "somewhere special" means upmarket.
     state.includeChains = merged.avoid_chains === false;
-    state.pricePoint = merged.price_point ?? (merged.special ? 'upmarket' : 'any');
+    // A budget in pounds stands in for a price point when none was said: per head, per day.
+    const heads = Math.max(1, attendees.length);
+    const perHead = merged.budget_high ? (merged.budget_per === 'person' ? merged.budget_high : merged.budget_high / heads) : null;
+    const fromBudget = perHead == null ? null : perHead < 25 ? 'affordable' : perHead < 60 ? 'mid' : 'upmarket';
+    state.pricePoint = merged.price_point ?? fromBudget ?? (merged.special ? 'upmarket' : 'any');
     state.chosenOptionId = null;
     state.suggestedPreferences = [];
     state.attending = attendees.map((a) => ({ id: a.id, name: a.name }));
