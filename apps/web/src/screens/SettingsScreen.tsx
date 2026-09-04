@@ -23,6 +23,43 @@ const SECTION_HINT: Record<Section, string> = {
   providers: 'Every provider on one row: switch it on or off, what is free, what is paid, what it cost. Tap a row for the detail.',
 };
 
+/**
+ * Which build answered (owner, 4 Sep 2026: "It seems like it hasn't deployed
+ * yet"). The app's own build is the hash in the bundle's file name, which
+ * changes with every deploy; the API says which commit it is running. Between
+ * them, "is it live" stops being a guess, and a stale browser copy shows up as
+ * an app build that does not match what the site is serving.
+ */
+function BuildCard() {
+  const [api_, setApi] = useState<string | null>(null);
+  const [web, setWeb] = useState<string | null>(null);
+  useEffect(() => {
+    api.health().then((h: any) => setApi(h.commit ?? 'unknown')).catch(() => setApi('unreachable'));
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const src = Array.from(document.querySelectorAll('script[src]')).map((el) => (el as HTMLScriptElement).src).find((u) => /_expo\/static\/js/.test(u));
+    setWeb(src?.match(/index-([0-9a-f]{8})/)?.[1] ?? 'unknown');
+  }, []);
+  const reload = () => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    // Ask the waiting worker to take over, then come back for the newest files.
+    navigator.serviceWorker?.getRegistration().then((r) => { r?.waiting?.postMessage('skip-waiting'); r?.update(); }).finally(() => window.location.reload());
+  };
+  return (
+    <Card>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Text style={type.small}>App</Text>
+        <Text style={[type.small, { fontWeight: '700', color: colors.ink }]}>{web ?? '…'}</Text>
+      </Row>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Text style={type.small}>API</Text>
+        <Text style={[type.small, { fontWeight: '700', color: colors.ink }]}>{api_ ?? '…'}</Text>
+      </Row>
+      <Text style={[type.tiny, { marginTop: spacing.sm }]}>Quote these two if something looks older than it should be.</Text>
+      <Button label="Get the newest version" kind="secondary" onPress={reload} style={{ marginTop: spacing.sm }} />
+    </Card>
+  );
+}
+
 export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | null; refresh: () => Promise<void> }) {
   const [section, setSection] = useState<Section>('preferences');
   if (!data) return <View style={styles.page}><Text style={type.small}>Loading…</Text></View>;
@@ -122,6 +159,9 @@ function Preferences({ data, refresh }: { data: HouseholdResponse; refresh: () =
           <Switch value={speak} onValueChange={(v) => { setSpeak(v); if (Platform.OS === 'web') localStorage.setItem(SPEAK_KEY, v ? 'on' : 'off'); }} />
         </Row>
       </Card>
+
+      <SectionTitle hint="Which build you are looking at, so 'is that change live yet?' has an answer.">This build</SectionTitle>
+      <BuildCard />
 
       <SectionTitle>Account</SectionTitle>
       <Card>

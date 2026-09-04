@@ -132,7 +132,12 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   // tap to change it (owner, 4 Sep 2026: "if I've already chosen something,
   // you can get rid of everything — the search box, the Speak, the Inspire Me
   // button… show them in the same way that you showed the family line").
-  const [formOpen, setFormOpen] = useState(true);
+  // null means "decide from what is on screen": the form is the whole card
+  // until there are days out to read, and one line once there are — however
+  // they got there. Set to true only when the household opens it themselves.
+  // (It was a stored true/false before, so results put back on a restart came
+  // up with the form still open — owner, 4 Sep 2026.)
+  const [formChoice, setFormChoice] = useState<boolean | null>(null);
   const [drawer, setDrawer] = useState<BrowseItem | null>(null);
   // The defaults are the answer most days want, on one line, so they need no
   // attention (owner, 4 Sep 2026): an hour from home, any budget, everyone.
@@ -259,7 +264,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
       if (inspireRun.current === id) setError(e?.message || String(e));
     } finally {
       clearInterval(ticking);
-      if (inspireRun.current === id) { setBusy(false); setStage(null); setFormOpen(false); }
+      if (inspireRun.current === id) { setBusy(false); setStage(null); setFormChoice(null); }
     }
   };
 
@@ -472,6 +477,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   const answered = STEPS.filter((step) => picks[step.key]);
   const nextUnanswered = STEPS.find((step) => !picks[step.key]) ?? null;
   const openStep = editing ? STEPS.find((step) => step.key === editing) ?? null : nextUnanswered;
+  const formOpen = formChoice ?? !(ideas && ideas.length);
   const budgetLabel = budget === 'any' ? 'any budget' : (BUDGETS.find((b) => b.value === budget)?.label ?? 'any budget').toLowerCase();
   // Everything you chose, in one line, for the row that replaces the form.
   const selectionLine = [
@@ -486,7 +492,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
       <Card style={{ gap: spacing.sm }}>
         {/* What you chose, on one line, once there is something to look at. */}
         {!formOpen ? (
-          <Pressable onPress={() => setFormOpen(true)} style={styles.settingsRow} accessibilityRole="button" accessibilityLabel={`Your selections: ${selectionLine}. Tap to change`}>
+          <Pressable onPress={() => setFormChoice(true)} style={styles.settingsRow} accessibilityRole="button" accessibilityLabel={`Your selections: ${selectionLine}. Tap to change`}>
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={type.tiny}>YOUR SELECTIONS</Text>
               <Text style={[type.small, { color: colors.ink }]} numberOfLines={2}>{selectionLine}</Text>
