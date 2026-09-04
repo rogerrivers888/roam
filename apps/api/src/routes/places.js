@@ -398,12 +398,29 @@ places.get('/suggest', async (req, res, next) => {
     // Wide enough that a place in the next town still counts — Sebastian's is
     // 10.75 km from home — and tight enough that another county does not.
     const askedRadius = Math.min(50, Number(req.query.radiusKm) || 15);
-    const ask = (only) => googleSource.suggest(q, {
+    const ask = (only, text = q) => googleSource.suggest(text, {
       near: near ? { lat: near.lat, lng: near.lng } : null,
       radiusKm: Math.max(askedRadius, 30),
       sessionToken: String(req.query.session || '') || null,
       meter, only, restrict: Boolean(near),
     });
+
+    // "The Sunningdale" is Sunningdale Bistro Bar, and the provider will say so
+    // if you drop the article — asked with it, it answers with other places
+    // whose names begin "The" (owner, 4 Sep 2026). Google's own search does this
+    // silently; so does this.
+    const bare = q.replace(/^\s*the\s+/i, '').trim();
+    const words = (q.toLowerCase().match(/[a-z0-9']+/g) || []);
+    const STOP = new Set(['the', 'a', 'an', 'of', 'and', 'at', 'in', 'on', 'to']);
+    const said = words.filter((w) => !STOP.has(w) && w.length > 2);
+    /** Every word that mattered is in the name: "Sunningdale Bistro Bar" answers "the Sunningdale". */
+    const answers = (p) => said.length > 0 && said.every((w) => String(p.name || '').toLowerCase().includes(w));
+    /**
+     * A name the household said is not up for ranking. If anything answers what
+     * was typed, only those are offered — "The Spatisserie" is not what someone
+     * asking for The Sunningdale meant, however well known it is.
+     */
+    const keepTheAnswers = (list) => { const strong = list.filter(answers); return strong.length ? strong : list; };
 
     // The provider returns five predictions, ranked by how well known a place
     // is. Typing "Sunningdale" spent all five on the town, its station car park,
@@ -431,9 +448,10 @@ places.get('/suggest', async (req, res, next) => {
       // Nothing has been narrowed, so the open question first; food is what a
       // household looks for most, so that is the one worth asking twice for.
       suggestions = await ask(null);
-      if (suggestions.filter(isFood).length < 2) {
-        try { suggestions = merge(await ask(ASK_FOOD), suggestions); } catch { /* the first answer stands */ }
+      if (suggestions.filter(isFood).length < 2 || (bare !== q && !suggestions.some(answers))) {
+        try { suggestions = merge(await ask(ASK_FOOD, bare), suggestions); } catch { /* the first answer stands */ }
       }
+      suggestions = keepTheAnswers(suggestions);
     } else {
       // A segment is a promise: on Food & drink nothing but food is offered, so
       // no hair salon can appear there whatever the words matched (owner,
@@ -446,7 +464,8 @@ places.get('/suggest', async (req, res, next) => {
       // "The" and never the restaurant itself (owner, 4 Sep 2026). The open
       // question knows the name; the filter below decides whether it is food.
       const [typed, open] = await Promise.all([
-        ask(kind === 'eat' ? ASK_FOOD : ASK_THINGS).catch(() => []),
+        // Asked without the article, which is how the provider knows the place.
+        ask(kind === 'eat' ? ASK_FOOD : ASK_THINGS, bare).catch(() => []),
         ask(null).catch(() => []),
       ]);
       // A name is a stronger signal than a category: anything whose name starts
@@ -454,12 +473,12 @@ places.get('/suggest', async (req, res, next) => {
       const typedText = q.toLowerCase();
       const startsWith = (p) => String(p.name || '').toLowerCase().startsWith(typedText)
         || String(p.name || '').toLowerCase().replace(/^the\s+/, '').startsWith(typedText.replace(/^the\s+/, ''));
-      const both = merge(open.filter(startsWith), merge(typed, open));
+      const both = keepTheAnswers(merge(open.filter(startsWith), merge(typed, open)));
       suggestions = both.filter(of);
       // Never leave the household staring at nothing because of a category we
       // chose: if the segment filtered everything away, what they typed the name
       // of is shown anyway.
-      if (!suggestions.length) suggestions = both.filter(startsWith);
+      if (!suggestions.length) suggestions = both;
     }
     // Somewhere you can walk into comes before the map it sits on.
     suggestions = suggestions.map((p, i) => ({ p, i })).sort((a, b) => (isPlace(b.p) ? 1 : 0) - (isPlace(a.p) ? 1 : 0) || a.i - b.i).map((x) => x.p);
