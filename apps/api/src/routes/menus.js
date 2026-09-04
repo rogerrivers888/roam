@@ -280,6 +280,35 @@ orders.get('/', async (req, res, next) => {
 });
 
 /**
+ * GET /api/orders/history?ref=… — what this household ate here before.
+ *
+ * The order is the record of the meal: who had what, and the stars anyone gave
+ * it afterwards. It is what "our history here" should show (owner, 4 Sep 2026:
+ * "I really want to see what they ordered… what each person loved"), and it is
+ * what a table orders from when they come back and want the same again.
+ */
+orders.get('/history', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const ref = String(req.query.ref || '').trim();
+    if (!ref) return res.status(400).json({ error: 'ref_required' });
+    const { rows } = await query(
+      `select o.id, o.visit_id, v.visited_on
+         from orders o left join visits v on v.id = o.visit_id
+        where o.household_id = $1 and o.venue_ref = $2 and o.visit_id is not null
+        order by coalesce(v.visited_on, o.created_at::date) desc, o.created_at desc
+        limit $3`,
+      [household.id, ref, Math.min(Number(req.query.limit) || 5, 20)],
+    );
+    const past = await Promise.all(rows.map(async (r) => ({
+      ...(await orderPayload(r.id)),
+      visitedOn: r.visited_on,
+    })));
+    res.json({ orders: past.filter((o) => o.items.length) });
+  } catch (err) { next(err); }
+});
+
+/**
  * POST /api/orders { clientId?, ref, label?, menuId?, items: [{ menuItemId?, memberId|null, name, priceText, note }] }
  *
  * The whole order every time: the phone holds the truth while the table is

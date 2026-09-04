@@ -148,6 +148,10 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
   // "What's this?": a menu often gives a name in another language and nothing
   // else. Asked for one dish at a time, on a tap, and kept once written.
   const [asked, setAsked] = useState<Record<string, DishNote | 'asking' | 'failed'>>({});
+  // What this household ate here before, which is both the record of the meal
+  // and what a table orders from when it comes back (owner, 4 Sep 2026).
+  const [history, setHistory] = useState<(Order & { visitedOn: string | null })[]>([]);
+  const [again, setAgain] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!enabled) return;
@@ -156,6 +160,13 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
     api.heldMenu(venueRef)
       .then((d) => { if (!live) return; setMenu(d.menu); setLink(d.link ?? null); setSection(d.menu?.sections[0]?.title ?? null); })
       .catch((e) => { if (live) { setMenu(null); setError(e.message); } });
+    api.orderHistory(venueRef).then((d) => {
+      if (!live) return;
+      setHistory(d.orders);
+      // Coming back, everything from last time is ticked: taking two things off
+      // is quicker than putting six on.
+      setAgain(Object.fromEntries((d.orders[0]?.items ?? []).map((i) => [i.id, true])));
+    }).catch(() => {});
     api.order(venueRef).then((d) => {
       if (!live || !d.order || d.order.visitId) return;
       setOrder(d.order);
@@ -291,6 +302,31 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
       }));
       setOrder(d.order);
       setPhase('saved');
+      api.orderHistory(venueRef).then((h) => setHistory(h.orders)).catch(() => {});
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  /** The same again: last time's order becomes this one, minus anything unticked. */
+  async function orderAgain(from: Order) {
+    const byName = (name: string) => [...itemsById.values()].find((i) => i.name.toLowerCase() === name.toLowerCase());
+    const next: Picks = {};
+    let lost = 0;
+    for (const i of from.items) {
+      if (!again[i.id]) continue;
+      const id = i.menuItemId && itemsById.has(i.menuItemId) ? i.menuItemId : byName(i.name)?.id;
+      if (!id) { lost += 1; continue; }   // the menu has changed since
+      const at = next[id] ?? { members: {}, table: false, note: '' };
+      if (i.memberId) at.members[i.memberId] = true; else at.table = true;
+      if (i.note) at.note = i.note;
+      next[id] = at;
+    }
+    setPicks(next);
+    setBusy(true);
+    try {
+      await writeOrder(next);
+      setResumed(false);
+      setPhase('order');
+      if (lost) setError(`${lost} thing${lost === 1 ? ' is' : 's are'} not on the menu any more.`);
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
@@ -318,8 +354,8 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
   return {
     venueLabel, menu, link, reading, error, how, members, sections, shown, section, setSection, itemsById,
     picks, pickOf, setPick, chosen, total, order, resumed, marks, setMarks, busy, staff, setStaff, phase, setPhase,
-    noting, setNoting, asked, groups, allergenLines, dietLines,
-    readTheMenu, toTheOrder, removeFromOrder, noteOnOrder, startAgain, weAteIt, saveStars, whatIsThis,
+    noting, setNoting, asked, groups, allergenLines, dietLines, history, again, setAgain,
+    readTheMenu, toTheOrder, removeFromOrder, noteOnOrder, startAgain, weAteIt, saveStars, whatIsThis, orderAgain,
   };
 }
 
@@ -454,11 +490,68 @@ export function OrderPanel({ ctl, onMenu, footer }: { ctl: MenuOrderCtl; onMenu:
   const { order, groups, busy, phase, marks, setMarks, noting, setNoting, allergenLines, dietLines, resumed } = ctl;
 
   if (!order || !order.items.length) {
+    const last = ctl.history[0];
+    const picked = last ? last.items.filter((i) => ctl.again[i.id]).length : 0;
     return (
       <ScrollView contentContainerStyle={styles.body}>
-        <Text style={type.small}>Nothing ordered here yet.</Text>
-        <Text style={type.tiny}>Open the menu, tap a face on a dish to say who wants it, and the order builds itself.</Text>
-        <Wrap><Button label="The menu" icon="restaurant" kind="secondary" onPress={onMenu} /></Wrap>
+        {last ? (
+          <>
+            <Text style={type.h3}>The same again?</Text>
+            <Text style={type.small}>
+              What you had here{last.visitedOn ? ` on ${last.visitedOn}` : ' last time'}. Untick anything nobody wants twice, order the rest,
+              and add to it from the menu.
+            </Text>
+            {[{ id: null as string | null, name: 'For the table' }, ...ctl.members.map((m) => ({ id: m.id as string | null, name: m.name.split(' ')[0] }))]
+              .map((g) => ({ ...g, items: last.items.filter((i) => i.memberId === g.id) }))
+              .filter((g) => g.items.length)
+              .map((g) => (
+                <View key={g.id ?? 'table'} style={{ gap: 4 }}>
+                  <Row>
+                    {g.id ? <Face label={g.name} on onPress={() => {}} size={26} /> : <Icon name="household" size={18} />}
+                    <Text style={type.h3}>{g.name}</Text>
+                  </Row>
+                  {g.items.map((i) => {
+                    const on = !!ctl.again[i.id];
+                    const r = i.ratings[0];
+                    return (
+                      <Pressable
+                        key={i.id}
+                        onPress={() => ctl.setAgain((a) => ({ ...a, [i.id]: !a[i.id] }))}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: on }}
+                        style={styles.orderRow}
+                      >
+                        <Row style={{ alignItems: 'center' }}>
+                          <View style={[styles.tick, on && styles.tickOn]}>
+                            {on ? <Icon name="check" size={13} color={colors.primaryFg} /> : null}
+                          </View>
+                          <Text style={[type.body, { flex: 1 }, !on && { color: colors.inkMuted }]}>{i.name}</Text>
+                          {r?.score ? (
+                            <Row style={{ gap: 1 }}>
+                              {[1, 2, 3, 4, 5].map((n) => <Icon key={n} name="favourite" size={12} fill={(r.score ?? 0) >= n} color={(r.score ?? 0) >= n ? colors.rating : colors.inkFaint} />)}
+                            </Row>
+                          ) : r?.take === 'not_for_me' ? <Text style={type.tiny}>not great</Text> : null}
+                          <Text style={type.small}>{i.priceText ?? ''}</Text>
+                        </Row>
+                        {i.note ? <Text style={type.tiny}>{i.note}</Text> : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))}
+            {ctl.error ? <Text style={[type.tiny, { color: colors.allergen }]}>{ctl.error}</Text> : null}
+            <Wrap>
+              <Button label={`Order these${picked ? ` (${picked})` : ''}`} icon="check" onPress={() => ctl.orderAgain(last)} disabled={!picked || ctl.busy} />
+              <Button label="Start from the menu" icon="restaurant" kind="secondary" onPress={onMenu} />
+            </Wrap>
+          </>
+        ) : (
+          <>
+            <Text style={type.small}>Nothing ordered here yet.</Text>
+            <Text style={type.tiny}>Open the menu, tap a face on a dish to say who wants it, and the order builds itself.</Text>
+            <Wrap><Button label="The menu" icon="restaurant" kind="secondary" onPress={onMenu} /></Wrap>
+          </>
+        )}
         {footer}
       </ScrollView>
     );
@@ -652,6 +745,50 @@ export function OrderPanel({ ctl, onMenu, footer }: { ctl: MenuOrderCtl; onMenu:
   );
 }
 
+/**
+ * What we ate here, and what each of us made of it (owner, 4 Sep 2026: "I
+ * really want to see what they ordered… what each person loved"). It is a
+ * record, not a form: the stars are given once, on the order, after the meal.
+ */
+export function PastMeals({ ctl }: { ctl: MenuOrderCtl }) {
+  if (!ctl.history.length) return null;
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <Text style={type.h3}>What we had here</Text>
+      {ctl.history.map((meal) => {
+        const loved = meal.items.filter((i) => i.ratings[0]?.score);
+        return (
+          <View key={meal.id} style={{ gap: 4 }}>
+            <Text style={styles.mealWhen}>{meal.visitedOn ?? 'A visit'}{loved.length ? ` · ${loved.length} starred` : ''}</Text>
+            {meal.items.map((i) => {
+              const r = i.ratings[0];
+              const who = i.member?.split(' ')[0] ?? 'the table';
+              return (
+                <Row key={i.id} style={styles.orderRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={type.body}>{i.name}</Text>
+                    <Text style={type.tiny}>
+                      {who}
+                      {r?.score ? ' · loved it' : r?.take === 'not_for_me' ? ' · not great' : ''}
+                      {r?.comment ? ` — “${r.comment}”` : ''}
+                    </Text>
+                  </View>
+                  {r?.score ? (
+                    <Row style={{ gap: 1 }}>
+                      {[1, 2, 3, 4, 5].map((n) => <Icon key={n} name="favourite" size={12} fill={(r.score ?? 0) >= n} color={(r.score ?? 0) >= n ? colors.rating : colors.inkFaint} />)}
+                    </Row>
+                  ) : null}
+                </Row>
+              );
+            })}
+          </View>
+        );
+      })}
+      <Text style={type.tiny}>A plate nobody starred was fine. Stars are given on the order, after the meal.</Text>
+    </View>
+  );
+}
+
 /* ------------------------------------------- the screen you hold up to them */
 
 export function StaffSheet({ ctl }: { ctl: MenuOrderCtl }) {
@@ -749,6 +886,9 @@ const styles = StyleSheet.create({
   // standard button, and the bar's own gap trimmed to match (owner, 4 Sep 2026).
   barBtn: { paddingHorizontal: 10 },
   orderRow: { paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.line },
+  tick: { width: 22, height: 22, borderRadius: 4, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
+  tickOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  mealWhen: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '800', marginTop: spacing.sm },
   totalRow: { borderTopWidth: 1, borderTopColor: colors.ink, paddingTop: spacing.sm, justifyContent: 'space-between' },
   warn: {
     flexDirection: 'row', gap: 8, alignItems: 'flex-start', borderWidth: 1, borderColor: colors.allergen,

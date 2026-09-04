@@ -205,8 +205,7 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
             <Text style={[type.small, { color: colors.headerSub }]}>Where you've been and what you liked.</Text>
             {addingCity ? (
               <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
-                <PlacePicker value={null} onPick={async (p) => { if (!p) return; try { const r = await api.createAtlasCity({ place: p }); await loadAtlas(); setAddingCity(false); setSel({ country: r.city.countryCode, city: r.city.name }); setOpenCodes((s) => new Set(s).add(r.city.countryCode)); setError(null); } catch (e: any) { setError(e.message); } }} placeholder="A city or a region — Lisbon · Bath · Lake District" />
-                <Text style={[type.tiny, { color: colors.headerSub }]}>A country is not a destination: type the city or region you'd say you were going to.</Text>
+                <PlacePicker kind="area" autoFocus value={null} onPick={async (p) => { if (!p) return; try { const r = await api.createAtlasCity({ place: p }); await loadAtlas(); setAddingCity(false); setSel({ country: r.city.countryCode, city: r.city.name }); setOpenCodes((s) => new Set(s).add(r.city.countryCode)); setError(null); } catch (e: any) { setError(e.message); } }} placeholder="Lisbon · Bath · the Lake District" />
               </View>
             ) : null}
             {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
@@ -588,22 +587,12 @@ function OursPanel({ place, household, ctx: where, viewer, onChanged, onRemoved 
         <Text style={type.h3}>Ours</Text>
         {place.visits ? <Chip label={`Been ${place.visits}×${place.lastOn ? ` · last ${place.lastOn}` : ''}`} /> : <Chip label="To try" />}
         {place.special ? <Chip label="Special" icon="keep" iconFill /> : null}
-        {place.onTrips.map((t) => <Chip key={t} label={`On: ${t}`} />)}
+
       </Row>
-      {place.scores.length ? (
-        <View style={styles.scores}>
-          {place.scores.map((s) => (
-            <View key={s.memberId} style={styles.scoreLine}>
-              <Icon name="favourite" size={14} fill />
-              <Text style={[type.small, { color: colors.ink, fontWeight: '700' }]}>{fmtScore(s.score)}</Text>
-              <Text style={type.small}>{s.member.split(' ')[0]}{s.memberId === viewer ? ' (you)' : ''}</Text>
-            </View>
-          ))}
-          {mine == null ? <Text style={type.tiny}>You haven't scored it yet.</Text> : null}
-        </View>
-      ) : null}
+      {/* What each of us thought is the meal's record now, not a form on the
+          place (owner, 4 Sep 2026): the stars are given on the order, and
+          "our history here" shows what was ordered and what was loved. */}
       <Wrap>
-        <Button label="We've been here" onPress={() => { setEditing(null); setAdding((a) => !a); }} kind={adding ? 'ghost' : 'primary'} />
         {!place.visits && place.ledger !== 'saved' && !place.special ? <Button label="Save to try" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'saved', ctx); setMsg('Saved to try.'); await onChanged(); }} /> : null}
         {place.visits > 0 && !place.special ? <Button label="Mark as special" icon="keep" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'special', ctx); setMsg('Marked special — the planner will go further for it.'); await onChanged(); }} /> : null}
       </Wrap>
@@ -639,8 +628,9 @@ function OursPanel({ place, household, ctx: where, viewer, onChanged, onRemoved 
       {detail?.visits.length ? (
         <View style={{ gap: spacing.sm }}>
           <Text style={type.h3}>Our history here</Text>
-          <Text style={type.tiny}>Tap a visit to change what everyone thought.</Text>
-          {detail.visits.map((v) => <VisitSummary key={v.id} visit={v} onPress={() => { setAdding(false); setEditing(v); }} />)}
+          {/* A record, not a form: what everyone thought is given on the order
+              after the meal, and this shows it (owner, 4 Sep 2026). */}
+          {detail.visits.map((v) => <VisitSummary key={v.id} visit={v} />)}
         </View>
       ) : detail ? <Text style={type.small}>No visit recorded here yet.</Text> : <Text style={type.tiny}>Loading our history…</Text>}
     </View>

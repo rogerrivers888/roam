@@ -102,7 +102,9 @@ export type Member = {
   likes: Constraint[];
 };
 
-export type Place = { label: string; lat: number; lng: number; country?: string | null; countryCode?: string | null; locality?: string | null; displayName?: string; formatted?: string; address?: { line1: string | null; area: string | null; town: string | null; region: string | null; postcode: string | null; country: string | null }; matchedBy?: string; approximate?: boolean };
+export type Place = { label: string; lat: number; lng: number; country?: string | null; countryCode?: string | null; locality?: string | null; displayName?: string; formatted?: string; address?: { line1: string | null; area: string | null; town: string | null; region: string | null; postcode: string | null; country: string | null }; matchedBy?: string; approximate?: boolean;
+  /** Areas only: which one this is ("Somerset · England · United Kingdom") and what kind ("city"). */
+  where?: string; kindWord?: string | null };
 
 export type Household = {
   id: string;
@@ -602,6 +604,8 @@ export const api = {
   readMenu: (body: { ref: string; url?: string; label?: string; website?: string }) => post<{ menu: ReadMenu }>('/api/menu/read', body),
   /** "What's this?" — written once for a dish and kept, so asking twice is free. */
   dishNote: (name: string, hint?: string) => post<{ dish: DishNote; cached: boolean }>('/api/menu/dish', { name, hint }),
+  /** What we ate here before: the orders that became visits, with their stars. */
+  orderHistory: (venueRef: string) => request<{ orders: (Order & { visitedOn: string | null })[] }>(`/api/orders/history${qs({ ref: venueRef })}`),
   order: (venueRef: string) => request<{ order: Order | null }>(`/api/orders${qs({ ref: venueRef })}`),
   saveOrder: (body: { clientId?: string; ref: string; label?: string; menuId?: string | null; items: { menuItemId?: string | null; memberId: string | null; name: string; priceText?: string | null; note?: string | null }[] }) =>
     post<{ order: Order }>('/api/orders', body),
@@ -612,8 +616,12 @@ export const api = {
     post<{ order: Order }>(`/api/orders/${id}/ratings`, { ratings }),
 
   // places & visits
-  /** `bias.near` keeps matches inside that area first (a trip's city); `bias.country` never leaves that country. */
-  geocode: (q: string, limit = 6, bias?: { near?: Place | null; country?: string | null; kind?: 'lodging' | null }) =>
+  /**
+   * `bias.near` keeps matches inside that area first (a trip's city); `bias.country` never leaves
+   * that country. `bias.kind: 'area'` asks a different index altogether — cities, towns and regions
+   * matching a prefix, never a street or a shop — and is cheap enough to run on every keystroke.
+   */
+  geocode: (q: string, limit = 6, bias?: { near?: Place | null; country?: string | null; kind?: 'lodging' | 'area' | null }) =>
     request<{ results: Place[]; attribution: string }>(`/api/places/geocode${qs({ q, limit, near: bias?.near ? `${bias.near.lat},${bias.near.lng}` : undefined, country: bias?.country ?? undefined, kind: bias?.kind ?? undefined })}`),
   /** `sources` is the exact set of sources for this one search (e.g. 'osm,tripadvisor'); omitted = the default set, which never includes opt-in sources. */
   searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number; sources?: string }) =>

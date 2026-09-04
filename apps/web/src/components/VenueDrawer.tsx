@@ -5,7 +5,7 @@ import { Icon, IconText, Rating, Stars } from './Icon';
 import { API_URL, api, BrowseItem, MenuLink, OwnedRecord, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
-import { MenuPanel, OrderPanel, StaffSheet, useMenuOrder } from './MenuOrder';
+import { MenuPanel, OrderPanel, PastMeals, StaffSheet, useMenuOrder } from './MenuOrder';
 import { OwnedFacts } from './OwnedFacts';
 import { useOffline } from '../hooks/useOffline';
 import { savedRecord } from '../offline/cache';
@@ -60,6 +60,28 @@ function openState(v?: Venue): { state: string; detail: string | null; open: boo
   if (closedAllDay) return { state: 'Closed today', detail: null, open: false };
   if (today) return { state: 'Open today', detail: today, open: null };
   return null;
+}
+
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+/**
+ * "Monday to Friday · 12:00–22:30" rather than the same line five times (owner,
+ * 4 Sep 2026). A run of days that keep the same hours becomes one row; the days
+ * that differ keep their own.
+ */
+function foldHours(lines: string[]): string[] {
+  const parsed = lines
+    .map((l) => l.match(/^\s*([A-Za-z]+)\s*:\s*(.+?)\s*$/))
+    .filter(Boolean)
+    .map((m) => ({ day: m![1], time: m![2].replace(/\s*[–-]\s*/, '–').replace(/\s+/g, ' ') }));
+  if (parsed.length !== lines.length || !parsed.length) return lines;   // an unexpected shape stays as it came
+  const runs: { from: string; to: string; time: string }[] = [];
+  for (const { day, time } of parsed) {
+    const last = runs[runs.length - 1];
+    const consecutive = last && DAYS.indexOf(day) === DAYS.indexOf(last.to) + 1;
+    if (last && last.time === time && consecutive) last.to = day;
+    else runs.push({ from: day, to: day, time });
+  }
+  return runs.map((r) => `${r.from === r.to ? r.from : `${r.from} to ${r.to}`} · ${r.time}`);
 }
 
 /** The address as you would read it aloud, without the protocol. */
@@ -193,7 +215,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                 <Row style={{ flexWrap: 'wrap', gap: spacing.sm }}>
                   {rating != null ? <Rating value={rating}>{ratingCount ? ` (${ratingCount.toLocaleString()})` : ''}</Rating> : null}
                   {openNow ? (
-                    <IconText name="hours" color={openNow.open === false ? colors.inkMuted : colors.icon}>
+                    <IconText name={openNow.open === false ? 'full' : 'booked'} color={openNow.open === false ? colors.inkMuted : colors.like}>
                       <Text style={{ fontWeight: '700', color: colors.ink }}>{openNow.state}</Text>{openNow.detail ? ` · ${openNow.detail}` : ''}
                     </IconText>
                   ) : null}
@@ -228,9 +250,18 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                   {v?.address ?? item.address ? <IconText name="address">{v?.address ?? item.address}</IconText> : null}
                   {venue === null && !error ? <IconText name="offline" color={colors.inkMuted}>No signal — showing what is saved on this device.</IconText> : null}
                   {item.venueName ? <IconText name="ticket">At {item.venueName}</IconText> : null}
-                  {(v?.goodForChildren ?? item.goodForChildren) != null ? <IconText name="children">{(v?.goodForChildren ?? item.goodForChildren) ? 'Good for children' : 'Not noted as good for children'}{(v?.menuForChildren ?? item.menuForChildren) ? " · children's menu" : ''}</IconText> : null}
+                  {/* Good for children carries the children's menu with it, and a
+                      restaurant serving some vegetarian food is every restaurant:
+                      only a genuinely vegetarian place is worth a word (owner,
+                      4 Sep 2026). */}
+                  {(() => {
+                    const cuisines = (v?.cuisines ?? item.cuisines ?? []).map((c) => c.toLowerCase());
+                    const veggie = cuisines.some((c) => /vegetarian|vegan/.test(c));
+                    const good = [(v?.goodForChildren ?? item.goodForChildren) ? 'children' : null, veggie ? 'vegetarians' : null].filter(Boolean);
+                    if (good.length) return <IconText name="children">Good for {good.join(' and ')}</IconText>;
+                    return (v?.goodForChildren ?? item.goodForChildren) === false ? <IconText name="children" color={colors.inkMuted}>Not noted as good for children</IconText> : null;
+                  })()}
                   {item.reservable != null ? <IconText name="phone">{item.reservable ? 'Takes bookings' : 'Walk-in only'}</IconText> : null}
-                  {(v?.dietaryOptions ?? []).length ? <Text style={type.small}>Diets: {(v?.dietaryOptions ?? []).join(', ')}</Text> : null}
                   {item.justification ? <Text style={type.small}>"{item.justification}"</Text> : null}
                   <Wrap>
                     {website ? <Button label="Website" icon="external" kind="ghost" onPress={() => Linking.openURL(website)} /> : null}
@@ -240,7 +271,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                   {/* Hours and photos lost their tabs and live here (owner, 4 Sep 2026). */}
                   <View style={{ gap: 2, marginTop: spacing.sm }}>
                     <Text style={type.h3}>Opening hours</Text>
-                    {hours.length ? hours.map((h, i) => <Text key={i} style={type.small}>{h}</Text>)
+                    {hours.length ? foldHours(hours).map((h, i) => <Text key={i} style={type.small}>{h}</Text>)
                       : ownRecord?.openingHours ? (
                         <>
                           <Text style={type.small}>{ownRecord.openingHours}</Text>
@@ -255,17 +286,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                     </View>
                   ) : null}
 
-                  <OwnedFacts
-                    record={ownRecord}
-                    offline={showingSaved}
-                    onResearch={async () => {
-                      setOwnRecord(undefined);
-                      const r = await api.researchPlace(item.venueRef).catch(() => null);
-                      setOwnRecord(r?.record ?? null);
-                    }}
-                  />
 
-                  {ours}
                 </View>
               ) : null}
 
@@ -282,6 +303,11 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
 
               {shown === 'reviews' ? (
                 <View style={{ gap: spacing.sm }}>
+                  {/* Ours first: what we ate and what we made of it, then the
+                      strangers' (owner, 4 Sep 2026). */}
+                  {eating ? <PastMeals ctl={ctl} /> : null}
+                  {ours}
+                  {reviews.length ? <Text style={type.h3}>What other people say</Text> : null}
                   {reviews.map((r, i) => (
                     <View key={i} style={styles.review}>
                       <Row style={{ flexWrap: 'wrap', gap: spacing.sm }}>
