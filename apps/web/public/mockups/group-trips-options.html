@@ -1,0 +1,941 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Roam · Group trips — how the group is run</title><style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Caveat:wght@700&display=swap');
+:root{--ground:#FFFFFF;--ink:#201E1D;--muted:#6B6663;--rule:#E5EFEA;--panel:#EFF8F3;--mint:#B6E3CF;--leaf:#2E8A63;--leafDeep:#2F6A52;--red:#EC3013;
+  --primary:#201E1D;--primaryFg:#FFFFFF;--icon:#2E8A63;--well:transparent;--head:#B6E3CF;--headInk:#201E1D;--headSub:#2F6A52;--tabbar:#FFFFFF;--tile1:#B6E3CF;--tile2:#EFF8F3;--sel:#201E1D;--selFg:#FFFFFF;--handle:#201E1D;--range:#2E8A63;--scrim:rgba(32,30,29,.45)}
+[data-theme="dark"]{--ground:#17171A;--ink:#F3F2F2;--muted:#8F8D93;--rule:#2B2B30;--panel:#1E1E23;--mint:#B6E3CF;--leaf:#B6E3CF;--leafDeep:#8F8D93;--red:#EC3013;
+  --primary:#B6E3CF;--primaryFg:#17171A;--icon:#F3F2F2;--well:#24242A;--head:#17171A;--headInk:#F3F2F2;--headSub:#8F8D93;--tabbar:#101013;--tile1:#2E2E35;--tile2:#3A3A42;--sel:#B6E3CF;--selFg:#17171A;--handle:#F3F2F2;--range:#B6E3CF;--scrim:rgba(0,0,0,.55)}
+*{box-sizing:border-box}
+body{margin:0;background:#E9E6DF;font:15px/1.45 Archivo,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#201E1D;padding:32px}
+h1{font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+.lede{color:#6B6663;max-width:960px;margin:0 0 24px}
+section{margin:0 0 48px}
+h2{font-size:20px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+.sub{color:#6B6663;margin:0 0 16px;max-width:960px}
+.row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+.notes{width:300px;background:#fff;border:1px solid #E5EFEA;border-radius:4px;padding:14px 16px;font-size:13px}
+.notes h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em}.notes ul{margin:0 0 10px;padding-left:18px}.notes li{margin:0 0 4px}
+.cap{font-size:12px;color:#6B6663;text-align:center;margin:8px 0 0;max-width:390px}
+.modelab{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6B6663;margin:0 0 10px}
+a{color:#2E8A63}
+.ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
+.ic.s{width:13px;height:13px}.ic.l{width:20px;height:20px}
+/* phone */
+.phone{width:390px;height:844px;background:var(--ground);color:var(--ink);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;font-family:Archivo,sans-serif}
+.status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700;background:var(--head);color:var(--headInk)}
+.screen{flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.tabbar{height:64px;border-top:1px solid var(--rule);background:var(--tabbar);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--muted)}
+.tabbar div{display:flex;flex-direction:column;align-items:center;gap:3px}.tabbar .on{color:var(--ink);font-weight:700}
+.head{background:var(--head);color:var(--headInk);padding:4px 16px 26px;display:flex;flex-direction:column;gap:6px}
+.head .top{display:flex;justify-content:space-between;align-items:center}
+.head .back{font-size:12px;color:var(--headSub);display:flex;align-items:center;gap:4px;font-weight:600}
+.wordmark{font:700 24px/1 Caveat,cursive;display:inline-flex;align-items:center;gap:3px;color:var(--headInk)}
+.wordmark .pin{display:inline-flex;width:20px;height:24px;margin-left:2px}
+.wordmark .pin svg{display:block;width:20px;height:24px;overflow:visible}
+.head .title{font-size:24px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.head .sub{font-size:12px;color:var(--headSub);margin:0;font-weight:600}
+.tabs{display:flex;gap:6px;padding:0 16px;margin-top:-18px}
+.tabs div{flex:1;text-align:center;padding:10px 6px;border-radius:4px;background:var(--ground);border:1px solid var(--rule);font-weight:700;font-size:13px;color:var(--muted)}
+.tabs .on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.body{flex:1;overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.hdr{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.h3{font-weight:800;font-size:17px;letter-spacing:-.02em}.small{font-size:13px;color:var(--muted)}.tiny{font-size:12px;color:var(--muted)}
+.lab{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.iconbtn{width:38px;height:38px;border-radius:4px;background:var(--ground);border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;color:var(--ink);flex:none}
+[data-theme="dark"] .iconbtn{border-color:#F3F2F2}
+/* category tiles: mint tiles, deep-leaf text; the chosen one is ink */
+.cats{display:flex;gap:8px}
+.cat{flex:1;border-radius:4px;padding:10px 10px 8px;display:flex;flex-direction:column;gap:6px;background:var(--tile2);color:var(--ink)}
+.cat svg{color:var(--icon)}
+.cat .n{font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1}.cat .l{font-size:12px;font-weight:600;color:var(--muted)}
+.cat.sel{background:var(--sel);color:var(--selFg)}.cat.sel .l{color:var(--selFg);opacity:.8}.cat.sel svg{color:var(--selFg)}
+/* control bar: pills, outline in rule, selected ink */
+.bar{display:flex;gap:6px}
+.pill{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 12px;border-radius:999px;background:var(--ground);border:1px solid var(--rule);font-size:12px;font-weight:600;white-space:nowrap;color:var(--ink)}
+.pill svg{color:var(--icon)}
+.pill.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}.pill.on svg{color:var(--selFg)}
+[data-theme="dark"] .pill{background:var(--panel)}
+[data-theme="dark"] .pill.on{background:var(--sel);color:var(--selFg)}
+/* result cards: white on a rule; photo tiles mint / mint tint */
+.cardlist{display:flex;flex-direction:column}
+.pc{display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--rule)}
+.pc:first-child{border-top:0;padding-top:4px}
+.pc .ph{width:92px;height:92px;border-radius:4px;flex:none;background:var(--tile1);position:relative}
+.pc .ph.b{background:var(--tile2)}
+.pc .heart{position:absolute;right:-6px;top:-6px;width:22px;height:22px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;color:#fff;border:2px solid var(--ground)}
+.pc .heart svg{fill:#fff;stroke:#fff;width:11px;height:11px}
+.pc .t{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pc .name{font-weight:800;font-size:15px;letter-spacing:-.01em}
+.pc .meta{font-size:13px;color:var(--muted)}
+.pc .meta svg{color:var(--icon)}
+.why{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;padding:2px 9px;border-radius:999px;border:1px solid var(--rule);font-size:12px;font-weight:600;color:var(--ink);margin-top:2px}
+.why svg{color:var(--icon)}
+[data-theme="dark"] .why{background:var(--panel)}
+.pc .act{display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-end}
+.save{width:36px;height:36px;border-radius:50%;border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;color:var(--ink);background:var(--ground)}
+[data-theme="dark"] .save{border-color:#F3F2F2}
+.save.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+/* sheets */
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:6}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--rule);padding:12px 16px 18px;z-index:7;display:flex;flex-direction:column;gap:12px;color:var(--ink)}
+.handle{width:40px;height:4px;border-radius:2px;background:var(--rule);margin:0 auto}
+.grp{display:flex;flex-direction:column;gap:6px}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opt{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid var(--rule);background:var(--ground);font-size:13px;font-weight:600;color:var(--ink)}
+[data-theme="dark"] .opt{background:var(--well)}
+.opt.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.btn{display:flex;align-items:center;justify-content:center;gap:6px;height:44px;border-radius:4px;background:var(--primary);color:var(--primaryFg);font-weight:700;font-size:14px}
+.btn.sec{background:transparent;color:var(--ink);border:1px solid var(--ink)}
+[data-theme="dark"] .btn.sec{border-color:#F3F2F2}
+.btn.ghost{background:transparent;color:var(--muted);height:36px}
+.seg3{display:flex;background:var(--ground);border:1px solid var(--rule);border-radius:4px;padding:3px;gap:3px}
+[data-theme="dark"] .seg3{background:var(--well)}
+.seg3 div{flex:1;text-align:center;padding:8px 4px;border-radius:4px;font-size:12px;font-weight:700;color:var(--muted)}
+.seg3 .on{background:var(--sel);color:var(--selFg)}
+/* slider (same as the Plan screen) */
+.range{position:relative;height:56px;margin:6px 8px 0}
+.range .bars{position:absolute;left:0;right:0;bottom:22px;height:30px;display:flex;align-items:flex-end;gap:2px}
+.range .bars i{flex:1;background:var(--rule);border-radius:2px 2px 0 0}
+.range .bars i.in{background:var(--range);opacity:.5}
+.range .track{position:absolute;left:0;right:0;bottom:16px;height:2px;background:var(--rule)}
+.range .fill{position:absolute;bottom:16px;height:2px;background:var(--range)}
+.range .knob{position:absolute;bottom:5px;width:24px;height:24px;border-radius:50%;background:var(--ground);border:2px solid var(--handle);transform:translateX(-50%)}
+.range .lbl{position:absolute;bottom:-4px;font-size:12px;color:var(--muted);transform:translateX(-50%);font-weight:600}
+/* search */
+.searchbar{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px;border-radius:4px;background:var(--ground);border:1px solid var(--ink);outline:2px solid var(--leaf);outline-offset:2px;font-size:15px;color:var(--ink)}
+[data-theme="dark"] .searchbar{border-color:#F3F2F2}
+.searchbar .cur{width:2px;height:18px;background:var(--ink)}
+/* strands */
+.sec{display:flex;justify-content:space-between;align-items:baseline}
+.sec .t{font-size:17px;font-weight:800;letter-spacing:-.02em;display:flex;gap:6px;align-items:center}.sec .t svg{color:var(--icon)}.sec .m{font-size:12px;color:var(--leaf);font-weight:700}
+[data-theme="dark"] .sec .m{color:var(--mint)}
+.caro{display:flex;gap:10px;overflow:hidden}
+.tile{width:150px;flex:none;border-radius:4px;overflow:hidden;border:1px solid var(--rule);background:var(--ground)}
+[data-theme="dark"] .tile{background:var(--panel)}
+.tile .ph{height:84px;background:var(--tile1)}.tile .ph.b{background:var(--tile2)}
+.tile .t{padding:8px 10px;display:flex;flex-direction:column;gap:3px}
+.tile .name{font-weight:800;font-size:13px}.tile .meta{font-size:12px;color:var(--muted)}
+/* map */
+.map{position:relative;background:var(--panel);overflow:hidden}
+[data-theme="dark"] .map{background:#1E1E23}
+.map svg.bg{display:block;width:100%;height:100%}
+.map svg.bg path{stroke:var(--rule)}
+.pin{position:absolute;width:30px;height:30px;border-radius:50% 50% 50% 0;transform:translate(-50%,-100%) rotate(-45deg);transform-origin:bottom left;background:var(--ink);color:var(--ground);display:flex;align-items:center;justify-content:center;border:2px solid var(--ground)}
+.pin span{transform:rotate(45deg);display:flex}
+.pin.home{background:var(--ground);color:var(--ink);border-color:var(--ink)}
+.pin.big{width:40px;height:40px;z-index:2;outline:3px solid var(--leaf);outline-offset:2px}
+.float{position:absolute;left:12px;right:12px;display:flex;gap:6px;z-index:3}
+.carousel{position:absolute;left:0;right:0;bottom:12px;display:flex;gap:10px;padding:0 16px;overflow:hidden;z-index:3}
+.mcard{min-width:250px;background:var(--ground);border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+[data-theme="dark"] .mcard{background:var(--panel)}
+.mcard.sel{border-color:var(--ink)}
+/* desktop */
+.desk{width:1180px;height:760px;background:var(--ground);color:var(--ink);border-radius:8px;border:1px solid #cfc9bd;overflow:hidden;position:relative;display:flex;flex-direction:column;font-family:Archivo,sans-serif}
+.topbar{overflow:hidden;height:56px;background:var(--head);color:var(--headInk);display:flex;align-items:center;gap:22px;padding:0 20px}
+.topbar .nav{display:flex;gap:16px;font-size:13px;color:var(--headSub);font-weight:600}.topbar .nav b{color:var(--headInk)}
+.topbar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.topbar .src{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:7px 12px;border-radius:999px;border:1px solid var(--headInk);color:var(--headInk)}
+.dbody{flex:1;display:flex;gap:18px;padding:18px 20px;overflow:hidden}
+.dleft{width:300px;display:flex;flex-direction:column;gap:12px}
+.dmain{flex:1;display:flex;flex-direction:column;gap:12px;min-width:0}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.gc{border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--ground)}
+[data-theme="dark"] .gc{background:var(--panel)}
+.gc .ph{height:110px;background:var(--tile1)}.gc .ph.b{background:var(--tile2)}
+.gc .t{padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.gc .name{font-weight:800;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+.gc .meta{font-size:12px;color:var(--muted)}
+.panel{background:var(--panel);border-radius:4px;padding:14px;display:flex;flex-direction:column;gap:10px}
+table.cmp{border-collapse:collapse;width:100%;max-width:1100px;background:#fff;border:1px solid #E5EFEA;border-radius:4px;overflow:hidden;font-size:13px}
+table.cmp th,table.cmp td{padding:8px 12px;border-bottom:1px solid #E5EFEA;text-align:left;vertical-align:top}
+table.cmp th{background:#EFF8F3;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+
+/* ---- menu & order ---- */
+.body.scroll{overflow-y:auto;overflow-x:hidden}
+.body.scroll>*{flex:0 0 auto}
+.secbar{position:sticky;top:-14px;z-index:2;background:var(--ground);padding-top:6px}
+.provenance{background:var(--panel);border-radius:4px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.chain{display:flex;flex-direction:column;gap:6px}
+.chain .step{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--muted)}
+.chain .step b{color:var(--ink);font-weight:700}
+.chain .step svg{color:var(--icon);margin-top:2px}
+.secbar{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin:0 -16px;padding-left:16px;padding-right:16px}
+.secbar::-webkit-scrollbar{display:none}
+.mrow{display:flex;flex-direction:column;gap:6px;padding:11px 0;border-top:1px solid var(--rule)}
+.mrow:first-child{border-top:0}
+.mrow .l1{display:flex;gap:10px;align-items:baseline}
+.mrow .nm{font-weight:800;font-size:14px;letter-spacing:-.01em;flex:1;line-height:1.25}
+.mrow .pr{font-weight:700;font-size:13px;white-space:nowrap}
+.mrow .ds{font-size:12px;color:var(--muted);line-height:1.35}
+.mrow.picked{background:var(--panel);margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:4px}
+.flags{display:flex;flex-wrap:wrap;gap:4px}
+.flag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;border:1px solid var(--rule);color:var(--muted);white-space:nowrap}
+.flag svg{width:11px;height:11px}
+.flag.check{border-color:var(--ink);color:var(--ink)}
+[data-theme="dark"] .flag.check{border-color:#F3F2F2;color:#F3F2F2}
+.flag.allergen{border-color:#B3261E;color:#B3261E;background:#FBE9E7}
+[data-theme="dark"] .flag.allergen{background:transparent}
+.flag.veg{border-color:var(--leaf);color:var(--leaf)}
+[data-theme="dark"] .flag.veg{border-color:var(--mint);color:var(--mint)}
+.picks{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.face{width:30px;height:30px;border-radius:50%;border:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--muted);background:var(--ground);cursor:pointer;user-select:none}
+[data-theme="dark"] .face{background:var(--well)}
+.face.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.face.lg{width:44px;height:44px;font-size:15px}
+.tablechip{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:999px;border:1px solid var(--rule);font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;background:var(--ground)}
+[data-theme="dark"] .tablechip{background:var(--well)}
+.tablechip.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.tablechip.on svg{color:var(--selFg)}
+.qty{margin-left:auto;font-size:12px;font-weight:700;color:var(--muted)}
+.bottombar{border-top:1px solid var(--rule);background:var(--ground);padding:10px 16px;display:flex;gap:10px;align-items:center}
+[data-theme="dark"] .bottombar{background:var(--ground)}
+.bottombar .sum{flex:1;display:flex;flex-direction:column}
+.bottombar .sum b{font-size:14px;font-weight:800}
+.bottombar .sum span{font-size:12px;color:var(--muted)}
+.btn.sm{height:38px;padding:0 14px;border-radius:4px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.btn{cursor:pointer}
+.grpttl{display:flex;align-items:center;gap:8px;margin-top:6px}
+.grpttl .nmw{font-weight:800;font-size:15px}
+.orow{display:flex;gap:8px;padding:8px 0;border-top:1px solid var(--rule);font-size:13px}
+.orow .nm{flex:1}
+.orow .mod{font-size:12px;color:var(--muted)}
+.total{display:flex;justify-content:space-between;font-weight:800;font-size:15px;padding-top:10px;border-top:1px solid var(--ink);margin-top:6px}
+[data-theme="dark"] .total{border-color:#F3F2F2}
+.warn{display:flex;gap:8px;align-items:flex-start;border:1px solid #B3261E;background:#FBE9E7;color:#B3261E;border-radius:4px;padding:9px 11px;font-size:12px;font-weight:600}
+[data-theme="dark"] .warn{background:transparent}
+.warn svg{flex:none;margin-top:1px}
+/* show to staff */
+.staff{position:absolute;inset:0;background:var(--ground);color:var(--ink);z-index:9;display:flex;flex-direction:column;padding:16px 18px;gap:10px;overflow-y:auto}
+.staff .who{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:10px}
+.staff .dish{font-size:19px;font-weight:800;letter-spacing:-.02em;line-height:1.25;margin-top:6px}
+.staff .dish span{font-weight:600;font-size:14px;color:var(--muted);display:block}
+.staff .alert{font-size:15px;font-weight:800;color:#B3261E;border:2px solid #B3261E;border-radius:4px;padding:10px 12px;margin-top:4px;line-height:1.3}
+.staff .close{position:absolute;right:12px;top:12px}
+.staff .foot{margin-top:auto;font-size:11px;color:var(--muted);padding-top:12px}
+/* rating */
+.rrow{display:flex;flex-direction:column;gap:7px;padding:11px 0;border-top:1px solid var(--rule)}
+.rrow .top{display:flex;gap:8px;align-items:center}
+.rrow .nm{flex:1;font-size:13px;font-weight:700;line-height:1.25}
+.stars{display:flex;gap:3px;align-items:center}
+.stars svg{width:22px;height:22px;cursor:pointer;color:var(--muted)}
+.stars svg.s{width:15px;height:15px}
+.save.love{border-color:var(--red);color:var(--red)}
+.stars svg.on{color:var(--leaf);fill:var(--leaf)}
+[data-theme="dark"] .stars svg.on{color:var(--mint);fill:var(--mint)}
+.notgreat{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid var(--rule);color:var(--muted);cursor:pointer;background:var(--ground)}
+[data-theme="dark"] .notgreat{background:var(--well)}
+.notgreat.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.notein{width:100%;height:32px;border-radius:4px;border:1px solid var(--rule);background:var(--ground);color:var(--ink);font:600 12px Archivo,sans-serif;padding:0 10px}
+[data-theme="dark"] .notein{background:var(--well)}
+.learn{display:flex;flex-direction:column;gap:8px}
+.lrow{display:flex;gap:8px;align-items:center;font-size:13px;padding:7px 0;border-top:1px solid var(--rule)}
+.lrow .cn{flex:1}
+.lrow .cn b{font-weight:800}
+.lrow .cn span{display:block;font-size:11px;color:var(--muted)}
+/* wide */
+.dcols{flex:1;display:flex;gap:18px;padding:16px 20px;overflow:hidden}
+.dmenu{flex:1;overflow-y:auto;padding-right:6px}
+.dside{width:360px;display:flex;flex-direction:column;gap:10px;overflow-y:auto}
+.dsec{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 0 4px}
+.dgrid{display:grid;grid-template-columns:1fr;gap:0 22px;max-width:620px}
+.cardp{border:1px solid var(--rule);border-radius:4px;padding:14px;display:flex;flex-direction:column;gap:8px;background:var(--ground)}
+[data-theme="dark"] .cardp{background:var(--panel)}
+/* page furniture */
+.spec{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid #E5EFEA;font-size:13px}
+.spec:first-child{border-top:0}
+table.cmp td b{font-weight:800}
+.hint{font-size:12px;color:#6B6663;margin:6px 0 0}
+.pill.mini{height:26px;font-size:11px}
+/* The strand-header rule .sec (space-between, baseline) also matches a secondary
+   button; put the button's own centring back. */
+.btn.sec,.btn.sm.sec{justify-content:center;align-items:center}
+
+/* ---- group trips ---- */
+/* The style guide keeps one warning red for meaning that must still read; the
+   phone palettes above do not carry it, so it is named here for both. */
+:root{--overrun:#C0392B;--overrunSoft:#FBE9E7}
+[data-theme="dark"]{--overrun:#E8776B;--overrunSoft:#3E1F1B}
+.ic.fill{fill:currentColor}
+/* The map pin rule above is absolute; the wordmark's brand pin is not. */
+.wordmark .pin{position:static;transform:none;background:none;border:0;border-radius:0;color:inherit;display:inline-flex;align-items:center}
+.avat{width:30px;height:30px;border-radius:50%;background:var(--tile2);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex:none}
+.avat.org{background:var(--sel);color:var(--selFg)}
+.avat.sm{width:24px;height:24px;font-size:10px}
+.person{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--rule)}
+.person:first-child{border-top:0}
+.person .n{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.person .nm{font-weight:700;font-size:14px;letter-spacing:-.01em;display:flex;align-items:center;gap:5px}
+.person .who{font-size:12px;color:var(--muted)}
+.dots{display:flex;gap:5px;align-items:center;flex:none}
+.dot{width:21px;height:21px;border-radius:50%;border:1.5px solid var(--rule);display:flex;align-items:center;justify-content:center;color:var(--muted);background:var(--ground)}
+.dot svg{width:11px;height:11px}
+.dot.done{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.dot.said{border-color:var(--ink);color:var(--ink);border-style:dashed}
+[data-theme="dark"] .dot.said{border-color:#F3F2F2;color:#F3F2F2}
+.dot.late{border-color:var(--overrun);color:var(--overrun)}
+.prog{height:6px;border-radius:3px;background:var(--rule);overflow:hidden;display:flex}
+.prog i{display:block;background:var(--range)}
+.prog i.late{background:var(--overrun)}
+.stats{display:flex;gap:8px}
+.stat{flex:1;border-radius:4px;background:var(--tile2);padding:9px 10px;display:flex;flex-direction:column;gap:3px}
+.stat .n{font-size:20px;font-weight:800;letter-spacing:-.02em;line-height:1}
+.stat .l{font-size:11px;color:var(--muted);font-weight:600;line-height:1.2}
+.item{border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+.item .t{display:flex;gap:8px;align-items:flex-start}
+.item .t>svg{color:var(--icon);margin-top:2px}
+.item .nm{font-weight:800;font-size:14px;letter-spacing:-.01em;flex:1;line-height:1.25}
+.item .st{font-size:12px;font-weight:700;white-space:nowrap}
+.item .st.warn{color:var(--overrun)}
+.linkbox{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:4px;background:var(--tile2);font-size:12px;font-weight:600;word-break:break-all}
+.linkbox svg{color:var(--icon)}
+.money{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;color:var(--muted)}
+.money b{font-size:15px;color:var(--ink)}
+.warnbox{border:1px solid var(--overrun);background:var(--overrunSoft);border-radius:4px;padding:10px 12px;display:flex;gap:8px;font-size:12px;color:var(--ink);line-height:1.35}
+[data-theme="dark"] .warnbox{background:transparent}
+.warnbox svg{color:var(--overrun);flex:none;margin-top:1px}
+.mintbox{background:var(--panel);border-radius:4px;padding:10px 12px;display:flex;gap:8px;font-size:12px;line-height:1.35}
+[data-theme="dark"] .mintbox{background:var(--well)}
+.mintbox svg{color:var(--icon);flex:none;margin-top:1px}
+.hr{height:1px;background:var(--rule)}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;border:1px solid var(--rule);font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap}
+.badge svg{width:11px;height:11px}
+.badge.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.badge.late{border-color:var(--overrun);color:var(--overrun);background:var(--ground)}
+.st.late{color:var(--overrun)}
+.keyline{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#6B6663;margin:12px 0 0}
+.keyline span{display:inline-flex;align-items:center;gap:6px}
+.keyline i{width:16px;height:16px;border-radius:50%;border:1.5px solid #6B6663;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.keyline i.f{background:#201E1D;border-color:#201E1D;color:#fff}
+.keyline i.d{border-style:dashed;border-color:#201E1D}
+.keyline i.l{border-color:#C0392B}
+.opthead{display:flex;align-items:baseline;gap:10px;margin:0 0 10px;flex-wrap:wrap}
+.opthead b{font-size:16px;letter-spacing:-.01em}
+.pickme{display:inline-flex;align-items:center;gap:6px;background:#EFF8F3;border:1px solid #B6E3CF;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;color:#2F6A52}
+.roster{width:100%;border-collapse:collapse;font-size:12px}
+.roster th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--rule);font-weight:700}
+.roster td{padding:7px 8px;border-bottom:1px solid var(--rule);vertical-align:middle}
+.roster td.who{display:flex;align-items:center;gap:8px;font-weight:700}
+.checkbox{width:16px;height:16px;border-radius:3px;border:1.5px solid var(--muted);flex:none;display:inline-flex;align-items:center;justify-content:center}
+.checkbox.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.checkbox svg{width:11px;height:11px}
+.frames{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.field{border:1px solid var(--ink);border-radius:4px;padding:9px 12px;font-size:14px;display:flex;align-items:center;gap:8px;color:var(--ink)}
+[data-theme="dark"] .field{border-color:#F3F2F2}
+.field .ph{color:var(--muted)}
+.field.focus{outline:2px solid var(--leaf);outline-offset:2px}
+.qr{width:104px;height:104px;border-radius:4px;background:var(--tile2);display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(7,1fr);gap:2px;padding:8px;flex:none}
+.qr i{background:var(--ink);border-radius:1px}
+.qr i.o{background:transparent}
+</style></head><body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+<symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+<symbol id="i-badge-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m16 9-5.5 5.5L8 12"/></symbol>
+<symbol id="i-baby" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5"/><path d="M15 12h.01"/><path d="M19.38 6.813A9 9 0 0 1 20.8 10.2a2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5s-.9 2.5-2 2.5c-.8 0-1.5-.4-1.5-1"/><path d="M9 12h.01"/></symbol>
+<symbol id="i-banknote" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></symbol>
+<symbol id="i-bed-double" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8"/><path d="M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4"/><path d="M12 4v6"/><path d="M2 18h20"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
+<symbol id="i-bell-ring" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></symbol>
+<symbol id="i-building-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h4"/><path d="M10 8h4"/><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2"/><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></symbol>
+<symbol id="i-calendar-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="m9 15 2 2 4-4"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/></symbol>
+<symbol id="i-car" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="i-chevron-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></symbol>
+<symbol id="i-circle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
+<symbol id="i-circle-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></symbol>
+<symbol id="i-circle-dashed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.1 2.182a10 10 0 0 1 3.8 0"/><path d="M13.9 21.818a10 10 0 0 1-3.8 0"/><path d="M17.609 3.721a10 10 0 0 1 2.69 2.7"/><path d="M2.182 13.9a10 10 0 0 1 0-3.8"/><path d="M20.279 17.609a10 10 0 0 1-2.7 2.69"/><path d="M21.818 10.1a10 10 0 0 1 0 3.8"/><path d="M3.721 6.391a10 10 0 0 1 2.7-2.69"/><path d="M6.391 20.279a10 10 0 0 1-2.69-2.7"/></symbol>
+<symbol id="i-circle-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+<symbol id="i-clipboard-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+<symbol id="i-credit-card" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></symbol>
+<symbol id="i-ellipsis" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+<symbol id="i-external-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+<symbol id="i-footprints" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+<symbol id="i-hand-coins" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 17"/><path d="m7 21 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9"/><path d="m2 16 6 6"/><circle cx="16" cy="9" r="2.9"/><circle cx="6" cy="5" r="3"/></symbol>
+<symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/></symbol>
+<symbol id="i-hourglass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></symbol>
+<symbol id="i-house" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="i-landmark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 18v-7"/><path d="M11.119 2.205a2 2 0 0 1 1.762 0l7.84 3.846A.5.5 0 0 1 20.5 7h-17a.5.5 0 0 1-.22-.949z"/><path d="M14 18v-7"/><path d="M18 18v-7"/><path d="M3 22h18"/><path d="M6 18v-7"/></symbol>
+<symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></symbol>
+<symbol id="i-map-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
+<symbol id="i-message-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="i-pound-sterling" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 7c0-5.333-8-5.333-8 0"/><path d="M10 7v14"/><path d="M6 21h12"/><path d="M6 13h10"/></symbol>
+<symbol id="i-qr-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></symbol>
+<symbol id="i-receipt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V7"/><path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8"/><path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z"/></symbol>
+<symbol id="i-refresh-cw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+<symbol id="i-route" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+<symbol id="i-send-horizontal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-share-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></symbol>
+<symbol id="i-shield-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-sliders-horizontal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5H3"/><path d="M12 19H3"/><path d="M14 3v4"/><path d="M16 17v4"/><path d="M21 12h-9"/><path d="M21 19h-5"/><path d="M21 5h-7"/><path d="M8 10v4"/><path d="M8 12H3"/></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></symbol>
+<symbol id="i-split" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/><path d="m15 9 6-6"/></symbol>
+<symbol id="i-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/></symbol>
+<symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></symbol>
+<symbol id="i-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></symbol>
+<symbol id="i-train-front" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.1V7a4 4 0 0 0 8 0V3.1"/><path d="m9 15-1-1"/><path d="m15 15 1-1"/><path d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z"/><path d="m8 19-2 3"/><path d="m16 19 2 3"/></symbol>
+<symbol id="i-trash-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="i-triangle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="i-undo-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+<symbol id="i-user-round" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></symbol>
+<symbol id="i-user-round-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="m16 19 2 2 4-4"/></symbol>
+<symbol id="i-user-round-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></symbol>
+<symbol id="i-user-round-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16.5 16.5 5 5"/><path d="M2 21a8 8 0 0 1 11.531-7.18"/><path d="m21.5 16.5-5 5"/><circle cx="10" cy="8" r="5"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol>
+<symbol id="i-utensils" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></symbol>
+<symbol id="i-wand-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="i-compass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/></symbol>
+<symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-star-fill" viewBox="0 0 24 24"><path d="m12 2.4 2.95 5.98 6.6.96-4.78 4.65 1.13 6.57L12 17.45l-5.9 3.11 1.13-6.57-4.78-4.65 6.6-.96z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+<symbol id="i-heart-fill" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+</svg>
+
+<h1>Group trips — how the group is run, three ways</h1>
+<p class="lede">Twenty-four people going to Cardiff for a weekend. One of them is carrying it: he has picked the hotel, hired a coach, and now spends six weeks asking people whether they have booked, whether they have paid him, and whether their son is coming after all. <b>That chasing is the work</b>, and it happens in a group chat with no record of who was asked. Roam already holds the trip — the dates, the hotel, the two things they are doing — so the group can hang off it. This page takes <i>Roam — Group Trips v1.0</i> and asks the three questions it leaves open: what the organiser's screen is, how someone joins from a link, and what happens when money is involved. Each has three answers drawn out, one recommended.</p>
+<p class="lede" style="margin-top:-12px">Throughout: <b>Cardiff · rugby tour, Fri 13 – Sun 15 November 2026</b>. Roger is the organiser. Twenty-four expected. Everyone books their own room at the Parkgate; everyone books the stadium tour; everyone pays Roger £45 for the coach and the match tickets he has already bought. That is exactly the shape v1 describes: two supplier bookings and one flat amount he is out of pocket for.</p>
+
+<section><h2>1 · What a group is, in Roam's own model</h2>
+<p class="sub">Roam's unit of account is the <b>household</b>: members, their allergens, their tastes, everything they have rated. A group is not a bigger household, and it must not become one — the organiser is being handed a list of names and a payment status, not twenty-four people's dietary opinions. Two layers, drawn once so the rest of the page can lean on it.</p>
+<div class="row">
+<table class="cmp" style="max-width:860px">
+<tr><th style="width:150px">Layer</th><th>What it is</th><th>What it holds</th><th style="width:230px">What it must never hold</th></tr>
+<tr><td><b>Household</b><br><span class="tiny">exists today</span></td><td>The people who plan together and rate together. Roger, Jules, Sam, Ada.</td><td>Members, allergens, dislikes, visits, ratings, saved places, the trip itself.</td><td>—</td></tr>
+<tr><td><b>Group</b><br><span class="tiny">net new</span></td><td>One organiser and the people attached to a single trip. Exactly one group per trip.</td><td>A name, an expected count, an invite link, a checklist, a fee.</td><td>Anything about the trip's <i>content</i>. The group does not own places; the trip does.</td></tr>
+<tr><td><b>Participant</b><br><span class="tiny">net new</span></td><td>A named person in that group. Their own household of one until they make an account, or a member of a household that already exists.</td><td>Name, one contact, who they are bringing, their checklist state, what they paid, what they were reminded about and when.</td><td>Their tastes, their other trips, their ratings — <b>and the state of any other participant</b>. Only the organiser sees the roster.</td></tr>
+<tr><td><b>Checklist item</b><br><span class="tiny">net new</span></td><td>One thing expected of every participant: book this hotel, book this tour, pay this fee.</td><td>What it points at (a trip stop, the trip's base, or an amount), and per participant: outstanding / booked / said-they-booked / paid.</td><td>A copy of a licensed listing. The item points at the trip's place; the name is read from the owned record at display.</td></tr>
+</table>
+<div class="notes">
+<h4>Three consequences</h4>
+<ul>
+<li><b>A participant is a party, not a person.</b> Priya joins and brings Leo, 15. One row, two heads. Headcount for the coach is heads; the checklist is per party.</li>
+<li><b>A minor is not a payer.</b> The household model already knows who is a minor. In a group the parent's row carries the child, so nobody asks a fifteen-year-old for a card.</li>
+<li><b>Possession of the link is not identity.</b> Anyone the link reaches can open it, so the name and contact typed on joining is all we know — and the organiser can see it is all we know.</li>
+</ul>
+<h4>What the trip already gives us</h4>
+<ul>
+<li>The base (the Parkgate, two nights) is the accommodation item.</li>
+<li>A stop (the stadium tour, Saturday morning) is an activity item.</li>
+<li>Attendees, dates, and the day plan are unchanged — the group hangs off them.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section><h2>2 · The organiser's screen — three ways</h2>
+<p class="sub">Same moment in all three: three weeks in, eighteen of twenty-four have joined, the deadline is Friday 16 October, and Roger has ten minutes on a train to move it along. The difference is what the screen is <i>about</i> — the people, the outstanding work, or the trip's own items.</p>
+<div class="keyline"><span><i class="f"><svg class="ic" style="width:10px;height:10px"><use href="#i-check"/></svg></i> Done — confirmed by the supplier or paid through Roam</span><span><i class="d"></i> Said so — the participant declared it, unconfirmed</span><span><i></i> Outstanding</span><span><i class="l"></i> Outstanding and past the date the organiser asked for</span></div>
+
+<div class="frames" style="margin-top:18px">
+
+<div style="width:390px">
+<div class="opthead"><b>A · People first</b><span class="tiny">the roster is the screen</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head">
+<div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Cardiff · rugby tour</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div>
+<div class="title">The group</div>
+<p class="sub">18 of 24 joined · everything wanted by Fri 16 Oct</p>
+</div>
+<div class="body scroll">
+<div class="stats">
+<div class="stat"><div class="n">18</div><div class="l">joined<br>of 24</div></div>
+<div class="stat"><div class="n">11</div><div class="l">paid you<br>£495</div></div>
+<div class="stat"><div class="n">9</div><div class="l">booked<br>the hotel</div></div>
+<div class="stat"><div class="n">6</div><div class="l">booked<br>the tour</div></div>
+</div>
+<div class="bar"><span class="pill on"><svg class="ic s"><use href="#i-users"/></svg>Everyone</span><span class="pill">Something missing (13)</span><span class="pill">Not joined (6)</span></div>
+<div class="cardlist">
+<div class="person"><div class="avat org">RR</div><div class="n"><div class="nm">Roger Rivers <span class="badge on">You</span></div><div class="who">+ Sam, 15 · 2 heads</div></div><div class="dots"><span class="dot done"><svg class="ic"><use href="#i-pound-sterling"/></svg></span><span class="dot done"><svg class="ic"><use href="#i-bed-double"/></svg></span><span class="dot done"><svg class="ic"><use href="#i-ticket"/></svg></span></div></div>
+<div class="person"><div class="avat">PS</div><div class="n"><div class="nm">Priya Shah</div><div class="who">+ Leo, 15 · 2 heads · joined 21 Sep</div></div><div class="dots"><span class="dot done"><svg class="ic"><use href="#i-pound-sterling"/></svg></span><span class="dot done"><svg class="ic"><use href="#i-bed-double"/></svg></span><span class="dot"><svg class="ic"><use href="#i-ticket"/></svg></span></div></div>
+<div class="person"><div class="avat">TO</div><div class="n"><div class="nm">Tom Okafor</div><div class="who">1 head · joined 19 Sep</div></div><div class="dots"><span class="dot done"><svg class="ic"><use href="#i-pound-sterling"/></svg></span><span class="dot said"><svg class="ic"><use href="#i-bed-double"/></svg></span><span class="dot done"><svg class="ic"><use href="#i-ticket"/></svg></span></div></div>
+<div class="person"><div class="avat">DW</div><div class="n"><div class="nm">Dan Whitmore</div><div class="who">1 head · joined 12 Sep</div></div><div class="dots"><span class="dot late"><svg class="ic"><use href="#i-pound-sterling"/></svg></span><span class="dot late"><svg class="ic"><use href="#i-bed-double"/></svg></span><span class="dot"><svg class="ic"><use href="#i-ticket"/></svg></span></div></div>
+<div class="person"><div class="avat">NK</div><div class="n"><div class="nm">Nina Kovač</div><div class="who">+ 1 · 2 heads · joined 12 Sep · reminded 28 Sep</div></div><div class="dots"><span class="dot done"><svg class="ic"><use href="#i-pound-sterling"/></svg></span><span class="dot done"><svg class="ic"><use href="#i-bed-double"/></svg></span><span class="dot said"><svg class="ic"><use href="#i-ticket"/></svg></span></div></div>
+<div class="person"><div class="avat" style="opacity:.5">MW</div><div class="n"><div class="nm" style="color:var(--muted)">Marie Weeks</div><div class="who">added by you · link sent 8 Sep · not joined</div></div><div class="dots"><span class="badge late"><svg class="ic"><use href="#i-clock"/></svg>3 weeks</span></div></div>
+</div>
+<div class="btn"><svg class="ic" style="color:var(--primaryFg)"><use href="#i-bell"/></svg>Remind the 13 with something missing</div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">One row per party, three dots for the three things wanted. Everything else is a filter.</p>
+</div>
+
+<div class="notes" style="width:290px">
+<h4>A · People first</h4>
+<ul>
+<li><b>Good at</b> the question the organiser actually gets asked — “has Dan paid?” — and at the shape of the group: who is bringing whom, who has gone quiet.</li>
+<li><b>Bad at</b> twenty-four rows on a phone. At six it is perfect; at thirty the dots become a wall and the filters do the work.</li>
+<li><b>Chasing</b> is a filter then one button. The button names what is missing per person, so one send covers thirteen different messages.</li>
+<li><b>Cost</b> one list endpoint and one reminder endpoint. Nothing new in the trip.</li>
+</ul>
+</div>
+</div>
+
+<div class="frames" style="margin-top:26px">
+<div style="width:390px">
+<div class="opthead"><b>B · Outstanding first</b><span class="pickme"><svg class="ic s"><use href="#i-check"/></svg>Recommended</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head">
+<div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Cardiff · rugby tour</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div>
+<div class="title">Still to chase</div>
+<p class="sub">18 of 24 joined · 16 days until Fri 16 Oct</p>
+</div>
+<div class="body scroll">
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-user-round-plus"/></svg><div class="nm">Six people have not joined</div><div class="st late">6</div></div>
+<div class="prog"><i style="flex:18"></i><i class="late" style="flex:6"></i></div>
+<div class="row" style="gap:6px"><div class="btn sm sec" style="flex:1;height:34px;font-size:12px"><svg class="ic s"><use href="#i-link"/></svg>Send the link</div><div class="btn sm" style="flex:1;height:34px;font-size:12px"><svg class="ic s" style="color:var(--primaryFg)"><use href="#i-bell"/></svg>Remind</div></div>
+</div>
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-pound-sterling"/></svg><div class="nm">£45 for the coach and tickets<div class="tiny" style="font-weight:600">7 of 18 have not paid you · £315 outstanding</div></div><div class="st late">7</div></div>
+<div class="prog"><i style="flex:11"></i><i class="late" style="flex:7"></i></div>
+<div class="btn sm" style="height:34px;font-size:12px"><svg class="ic s" style="color:var(--primaryFg)"><use href="#i-bell"/></svg>Remind the seven</div>
+</div>
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-bed-double"/></svg><div class="nm">A room at the Parkgate, 2 nights<div class="tiny" style="font-weight:600">9 booked · 2 say they booked elsewhere · 7 have not</div></div><div class="st late">7</div></div>
+<div class="prog"><i style="flex:9"></i><i style="flex:2;background:var(--tile1)"></i><i class="late" style="flex:7"></i></div>
+<div class="mintbox"><svg class="ic"><use href="#i-info"/></svg><div>Two are Tom's and Nina's word for it — the hotel has not told us. Coach seats say 18, beds say 11.</div></div>
+<div class="btn sm" style="height:34px;font-size:12px"><svg class="ic s" style="color:var(--primaryFg)"><use href="#i-bell"/></svg>Remind the seven</div>
+</div>
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-ticket"/></svg><div class="nm">Principality Stadium tour, Sat 10:30<div class="tiny" style="font-weight:600">6 booked · 12 have not · they hold 30 places</div></div><div class="st">12</div></div>
+</div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-users"/></svg>Everyone</div><div class="m">18 joined</div></div>
+<div class="person"><div class="avat org">RR</div><div class="n"><div class="nm">Roger Rivers <span class="badge on">You</span></div><div class="who">+ Sam, 15 · all done</div></div><svg class="ic"><use href="#i-chevron-right"/></svg></div>
+<div class="person"><div class="avat">DW</div><div class="n"><div class="nm">Dan Whitmore</div><div class="who">fee and room outstanding · reminded once</div></div><svg class="ic"><use href="#i-chevron-right"/></svg></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The screen is the work, not the roster. The roster is underneath it, on the same screen — no tab to lose.</p>
+</div>
+
+<div class="notes" style="width:290px">
+<h4>B · Outstanding first — recommended</h4>
+<ul>
+<li><b>Good at</b> ten minutes on a train. Four blocks, four buttons, and the group has moved. It reads the same at six people and at thirty.</li>
+<li><b>It answers the doc's hardest AC</b> — “the count of confirmed bookings does not match the count of joined participants” (Epic 5, AC5) is the third block, in words, with the reason it does not match.</li>
+<li><b>Bad at</b> the individual question. “Has Dan paid?” needs a scroll or a search — so the roster stays on the same screen, and a name opens the person.</li>
+<li><b>Keeps one tree</b> across phone and web: the same blocks sit in a left column at 1000px with the roster as a table beside them.</li>
+<li><b>Cost</b> one endpoint that returns the group by item and by person; the phone chooses which it leads with.</li>
+</ul>
+</div>
+</div>
+
+<div class="frames" style="margin-top:26px">
+<div style="width:390px">
+<div class="opthead"><b>C · The trip carries it</b><span class="tiny">no group screen at all</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head">
+<div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div>
+<div class="title">Cardiff · rugby tour</div>
+<p class="sub">Fri 13 – Sun 15 Nov · 24 expected · 18 joined</p>
+</div>
+<div class="tabs"><div>Journey</div><div class="on">Shortlist</div><div>Find</div></div>
+<div class="body scroll">
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-bed-double"/></svg><div class="nm">The Parkgate Hotel<div class="tiny" style="font-weight:600">Westgate St · 2 nights · everyone books their own room</div></div></div>
+<div class="prog"><i style="flex:9"></i><i style="flex:2;background:var(--tile1)"></i><i style="flex:13;background:var(--rule)"></i></div>
+<div class="row" style="gap:5px;align-items:center"><div class="avat sm">PS</div><div class="avat sm">TO</div><div class="avat sm">NK</div><div class="avat sm">GP</div><div class="avat sm" style="background:var(--rule)">+7</div><span class="tiny" style="margin-left:auto">11 of 24</span></div>
+</div>
+<div class="lab">Saturday 14 November</div>
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-ticket"/></svg><div class="nm">Principality Stadium tour<div class="tiny" style="font-weight:600">10:30 · 75 min · £16 each · they hold 30</div></div><span class="badge">6 of 24</span></div>
+<div class="prog"><i style="flex:6"></i><i style="flex:18;background:var(--rule)"></i></div>
+</div>
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-utensils"/></svg><div class="nm">The Potted Pig, 19:30<div class="tiny" style="font-weight:600">Table for 26 · booked by you · nothing wanted from anyone</div></div><span class="badge on"><svg class="ic"><use href="#i-check"/></svg></span></div>
+<div class="mintbox"><svg class="ic"><use href="#i-triangle-alert"/></svg><div><b>Three allergies among the eighteen</b> — shellfish, sesame, a coeliac. Tap to send them to the restaurant.</div></div>
+</div>
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-hand-coins"/></svg><div class="nm">£45 to you — coach and match tickets<div class="tiny" style="font-weight:600">11 of 18 paid · £495 in, £315 out</div></div></div>
+<div class="prog"><i style="flex:11"></i><i class="late" style="flex:7"></i></div>
+</div>
+<div class="btn sec"><svg class="ic"><use href="#i-users"/></svg>See the twenty-four</div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The trip's own shortlist, with a headcount bar under each thing. The group is a property of the plan, not a screen.</p>
+</div>
+
+<div class="notes" style="width:290px">
+<h4>C · The trip carries it</h4>
+<ul>
+<li><b>Good at</b> planning. It is the only one of the three that answers “are we going to fill the coach?” while you are still choosing what to do — the tour holds thirty, six have booked, and that is on the same row as the tour.</li>
+<li><b>Bad at</b> chasing. You cannot chase a bar. Every reminder starts by asking who is behind the missing part of it, and that screen does not exist here.</li>
+<li><b>Bad at</b> the fee, which is not a place and sits awkwardly in a list of places.</li>
+<li><b>But keep the bars.</b> They belong on the trip whichever option wins: a stop that thirty can book and six have is a fact about the plan.</li>
+</ul>
+</div>
+</div>
+
+<h3 style="font-size:16px;margin:26px 0 6px">Side by side</h3>
+<table class="cmp" style="max-width:1100px">
+<tr><th style="width:230px">Question</th><th>A · People first</th><th>B · Outstanding first</th><th>C · The trip carries it</th></tr>
+<tr><td>Has Dan paid?</td><td><b>One glance</b></td><td>Search or scroll to the roster underneath</td><td>Two taps, through the fee row</td></tr>
+<tr><td>What do I do next?</td><td>Read twenty-four rows and work it out</td><td><b>It is the screen</b></td><td>Read four bars and work it out</td></tr>
+<tr><td>Chase thirteen people in one go</td><td>Filter, select, send</td><td><b>One button per thing outstanding</b></td><td>Not possible without leaving</td></tr>
+<tr><td>Six people</td><td><b>Perfect</b></td><td>Fine — four short blocks</td><td>Fine</td></tr>
+<tr><td>Thirty people</td><td>A wall of dots</td><td><b>Unchanged</b></td><td>Unchanged</td></tr>
+<tr><td>Will the coach be full?</td><td>Count the rows</td><td>Headcount in the summary line</td><td><b>On the row itself</b></td></tr>
+<tr><td>Confirmed vs “I booked it”</td><td>A dashed dot per person</td><td><b>Said in words, with the consequence</b></td><td>A different shade in the bar</td></tr>
+<tr><td>Web at 1000px</td><td>The same rows, wider, with columns</td><td><b>Blocks left, roster table right</b></td><td>The trip layout it already has</td></tr>
+</table>
+<p class="sub" style="margin-top:12px"><b>Recommendation: B, with C's bars kept on the trip.</b> The organiser opens Roam to answer “what still needs doing”, and B is that question answered in four blocks with four buttons. The roster lives on the same screen underneath — one tree, so the web view is the same blocks in a column with the roster as a table beside them, and nothing is lost when the phone frame is toggled. C's headcount bars are not a rival; they are a fact the trip should show anyway, and they cost nothing once the group exists. A is what you get by opening a name.</p>
+</section>
+
+<section><h2>3 · Joining from a link — three ways</h2>
+<p class="sub">Priya gets a link in a WhatsApp group at 21:40. She has never heard of Roam. Whatever she does next, the organiser needs a name he recognises and a way to reach her, and Roam needs her to still be here in two minutes. The doc is firm on one thing: the link proves nothing about who is holding it, so identity is only ever what she types.</p>
+<div class="frames">
+
+<div style="width:390px">
+<div class="opthead"><b>1 · Name first</b><span class="tiny">a sheet over the trip</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>21:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div><span class="tiny" style="color:var(--headSub);font-weight:700">Invited by Roger</span></div><div class="title">Cardiff · rugby tour</div><p class="sub">Fri 13 – Sun 15 November 2026 · 24 going</p></div>
+<div class="body">
+<div class="pc"><div class="ph"></div><div class="t"><div class="name">The Parkgate Hotel</div><div class="meta">Westgate St · 2 nights</div><span class="why"><svg class="ic s"><use href="#i-bed-double"/></svg>You book your own room</span></div></div>
+<div class="pc"><div class="ph b"></div><div class="t"><div class="name">Principality Stadium</div><div class="meta">Sat 10:30 · the tour · £16</div><span class="why"><svg class="ic s"><use href="#i-ticket"/></svg>You book your own place</span></div></div>
+<div class="scrim" style="top:296px"></div>
+<div class="sheet">
+<div class="handle"></div>
+<div class="h3">Who shall I say you are?</div>
+<div class="small">Roger sees your name and how to reach you, and nothing else about you.</div>
+<div class="grp"><div class="lab">Your name</div><div class="field focus">Priya Shah<span class="cur" style="width:2px;height:18px;background:var(--ink);display:inline-block"></span></div></div>
+<div class="grp"><div class="lab">Mobile</div><div class="field"><span class="ph">So Roger can remind you</span></div></div>
+<div class="grp"><div class="lab">Anyone with you?</div><div class="opts"><span class="opt on">Just me</span><span class="opt"><svg class="ic s"><use href="#i-plus"/></svg>Someone else</span><span class="opt"><svg class="ic s"><use href="#i-baby"/></svg>A child</span></div></div>
+<div class="btn">Join the group</div>
+<div class="tiny" style="text-align:center">No account needed. Roam is free for you until 13 December.</div>
+</div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The trip is visible behind the sheet, so it is an introduction rather than a door.</p>
+</div>
+
+<div style="width:390px">
+<div class="opthead"><b>2 · See first, say who you are at the first action</b><span class="pickme"><svg class="ic s"><use href="#i-check"/></svg>Recommended</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>21:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div><span class="tiny" style="color:var(--headSub);font-weight:700">Invited by Roger</span></div><div class="title">Cardiff · rugby tour</div><p class="sub">Fri 13 – Sun 15 Nov · 24 going · 3 things to do</p></div>
+<div class="body scroll">
+<div class="mintbox"><svg class="ic"><use href="#i-info"/></svg><div><b>Three things Roger needs from you</b>, by Friday 16 October. Start any of them and Roam will ask your name once.</div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-bed-double"/></svg><div class="nm">Book your room at the Parkgate<div class="tiny" style="font-weight:600">Westgate St · Fri 13 – Sun 15 Nov · from £128 a night</div></div><svg class="ic"><use href="#i-chevron-right"/></svg></div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-ticket"/></svg><div class="nm">Book the stadium tour<div class="tiny" style="font-weight:600">Sat 14 Nov, 10:30 · 75 min · £16</div></div><svg class="ic"><use href="#i-chevron-right"/></svg></div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-pound-sterling"/></svg><div class="nm">Pay Roger £45<div class="tiny" style="font-weight:600">“Coach both ways and the match tickets — I have already paid for these. Non-refundable after 16 October.”</div></div><svg class="ic"><use href="#i-chevron-right"/></svg></div></div>
+<div class="hr"></div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-route"/></svg>The weekend</div></div>
+<div class="pc"><div class="ph"></div><div class="t"><div class="name">The Potted Pig</div><div class="meta">Sat 19:30 · table for 26 · Roger has booked it</div></div></div>
+<div class="pc"><div class="ph b"></div><div class="t"><div class="name">Principality Stadium</div><div class="meta">Sat 10:30 · the tour</div></div></div>
+<div class="btn sec"><svg class="ic"><use href="#i-user-round-plus"/></svg>Tell Roger I'm coming</div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">She reads what she is being asked for before she gives anything up. The name is asked once, at the first thing she taps — or by the button at the bottom.</p>
+</div>
+
+<div style="width:390px">
+<div class="opthead"><b>3 · The whole product, walled at the end</b><span class="tiny">sign up to see the trip</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>21:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">Remember every place you love</div><p class="sub">Roger has invited you to Cardiff · rugby tour</p></div>
+<div class="body">
+<div class="cats"><div class="cat"><svg class="ic l"><use href="#i-map-pin"/></svg><div class="n">Places</div><div class="l">Keep the ones you love</div></div><div class="cat"><svg class="ic l"><use href="#i-route"/></svg><div class="n">Trips</div><div class="l">Plan a day or a fortnight</div></div></div>
+<div class="grp"><div class="lab">Email</div><div class="field"><span class="ph">you@example.com</span></div></div>
+<div class="grp"><div class="lab">Password</div><div class="field"><span class="ph">At least 8 characters</span></div></div>
+<div class="btn">Create an account</div>
+<div class="btn ghost">I already have one</div>
+<div class="warnbox"><svg class="ic"><use href="#i-triangle-alert"/></svg><div>Priya wanted to know when the coach leaves. She has been asked to invent a password.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">Included because it is what most products do, and because the doc rules it out in one line: joining cannot depend on having an account.</p>
+</div>
+</div>
+
+<div class="row" style="margin-top:18px">
+<div class="notes" style="width:340px">
+<h4>Why 2 wins</h4>
+<ul>
+<li>The doc's acceptance criterion is that a person who supplies name and contact <b>joins and appears immediately in the organiser view</b>. It does not say that has to be the first screen — and asking at the first action gets a truer name, because by then she knows who is going to read it.</li>
+<li>It is the same screen she will use for the next six weeks. Joining is not a separate flow; it is the first tap on her checklist.</li>
+<li><b>1 is the fallback</b>, not a rejection: when the organiser added her by name beforehand, the sheet opens pre-filled with “Are you Priya Shah?” and joining is one tap.</li>
+</ul>
+</div>
+<div class="notes" style="width:340px">
+<h4>The four link edges, whichever wins</h4>
+<ul>
+<li><b>Opened twice</b> — the same device resumes as the same participant. Never a second row.</li>
+<li><b>Regenerated</b> — the old link says “Roger has issued a new link, ask him for it”. Everyone already joined is untouched.</li>
+<li><b>Group closed</b> — “this group is not taking any more people”, with the organiser's name and no way in.</li>
+<li><b>Matched to a name</b> — the organiser had added “Priya S.”; her join lands on that row rather than making a new one, and he is told they were matched.</li>
+</ul>
+</div>
+<div class="notes" style="width:340px">
+<h4>What she is <i>not</i> asked</h4>
+<ul>
+<li>An account, a password, or a card, to see the trip.</li>
+<li>Her allergens — unless she chooses to add them, and then they travel to the restaurant booking as a requirement, not onto Roger's roster of who has paid.</li>
+<li>Anything about her tastes. The group is a checklist, not a profile.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section><h2>4 · The £45 — the only money Roam touches in v1</h2>
+<p class="sub">The hotel takes the room money, the stadium takes the tour money, and Roam is not in either. The one thing Roam collects is the amount the organiser has already spent out of his own pocket, and the doc is precise about what that costs him: he cannot collect a penny until he has been verified, and the money settles to him, not to us. These are the screens where that is true, drawn in the dark palette — <span class="modelab" style="display:inline;margin:0">Night · mint</span>.</p>
+<div class="frames">
+
+<div style="width:390px">
+<div class="modelab">Organiser · setting it up, before verification</div>
+<div class="phone" data-theme="dark">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>The group</span></div><div class="title">What everyone must do</div><p class="sub">Three things · Cardiff · rugby tour</p></div>
+<div class="body scroll">
+<div class="item"><div class="t"><svg class="ic"><use href="#i-bed-double"/></svg><div class="nm">A room at the Parkgate<div class="tiny" style="font-weight:600">From the trip's base · 2 nights</div></div><span class="badge on"><svg class="ic"><use href="#i-check"/></svg>Wanted</span></div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-ticket"/></svg><div class="nm">Principality Stadium tour<div class="tiny" style="font-weight:600">From Saturday's plan · 10:30</div></div><span class="badge on"><svg class="ic"><use href="#i-check"/></svg>Wanted</span></div></div>
+<div class="hr"></div>
+<div class="lab">Money you are out of pocket</div>
+<div class="grp"><div class="lab">Amount, each</div><div class="field focus"><svg class="ic"><use href="#i-pound-sterling"/></svg>45.00</div></div>
+<div class="grp"><div class="lab">What it covers — in your words</div><div class="field" style="height:auto;align-items:flex-start"><span>Coach both ways and the match tickets — I have already paid for these.</span></div></div>
+<div class="grp"><div class="lab">If someone drops out</div><div class="opts"><span class="opt">Refund it</span><span class="opt on">Refund until 16 Oct, then not</span><span class="opt">Never refund</span></div></div>
+<div class="warnbox"><svg class="ic"><use href="#i-lock"/></svg><div><b>You cannot collect yet.</b> Roam has to know who you are and where the money goes first. Ten minutes, once — and it is Stripe that asks, not us.</div></div>
+<div class="btn"><svg class="ic" style="color:var(--primaryFg)"><use href="#i-shield-check"/></svg>Verify who I am</div>
+<div class="btn ghost">Save the list without the £45</div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The two supplier items came from the trip he has already planned. Only the £45 is typed. The gate is stated before he has spent any effort on it.</p>
+</div>
+
+<div style="width:390px">
+<div class="modelab">Participant · paying it</div>
+<div class="phone" data-theme="dark">
+<div class="status"><span>21:44</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Your three things</span></div><div class="title">Pay Roger £45</div><p class="sub">Priya Shah · Cardiff · rugby tour</p></div>
+<div class="body">
+<div class="mintbox"><svg class="ic"><use href="#i-message-square"/></svg><div><b>Roger says:</b> “Coach both ways and the match tickets — I have already paid for these.”</div></div>
+<div class="money"><span>Your share</span><b>£45.00</b></div>
+<div class="money"><span>Goes to</span><b>Roger Rivers</b></div>
+<div class="hr"></div>
+<div class="warnbox"><svg class="ic"><use href="#i-triangle-alert"/></svg><div><b>Refundable until Friday 16 October.</b> After that Roger keeps it if you drop out, because by then he has paid the coach company.</div></div>
+<div class="grp"><div class="lab">Card</div><div class="field"><svg class="ic"><use href="#i-credit-card"/></svg><span class="ph">Card number</span></div></div>
+<div class="row" style="gap:8px"><div class="field" style="flex:1"><span class="ph">MM / YY</span></div><div class="field" style="flex:1"><span class="ph">CVC</span></div></div>
+<div class="btn">Pay £45.00</div>
+<div class="tiny" style="text-align:center">Roam passes this to Roger and keeps a small fee. Roam never holds it.</div>
+<div class="hr"></div>
+<div class="lab">Also on your list</div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-bed-double"/></svg><div class="nm" style="font-size:13px">A room at the Parkgate</div><span class="badge"><svg class="ic"><use href="#i-clock"/></svg>16 Oct</span></div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">His words, the amount, and the refund rule — all three before the card field, because the doc requires all three to have been shown.</p>
+</div>
+
+<div style="width:390px">
+<div class="modelab">Organiser · when it goes wrong</div>
+<div class="phone" data-theme="dark">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Cardiff · rugby tour</span></div><div class="title">Still to chase</div><p class="sub">18 of 24 joined · collection stopped</p></div>
+<div class="body scroll">
+<div class="warnbox"><svg class="ic"><use href="#i-circle-alert"/></svg><div><b>Nobody can pay you at the moment.</b> Stripe needs your date of birth confirmed before it will keep sending money on. Eleven people have already paid — that money is yours and is unaffected. Seven cannot pay until this is done.</div></div>
+<div class="btn"><svg class="ic" style="color:var(--primaryFg)"><use href="#i-shield-check"/></svg>Finish verifying — 2 minutes</div>
+<div class="hr"></div>
+<div class="lab">Dan Whitmore has dropped out</div>
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-user-round-x"/></svg><div class="nm">He paid you £45 on 14 September<div class="tiny" style="font-weight:600">Before 16 October, so it is refundable. He booked nothing else through Roam.</div></div></div>
+<div class="row" style="gap:6px"><div class="btn sm" style="flex:1;height:34px;font-size:12px">Refund £45</div><div class="btn sm sec" style="flex:1;height:34px;font-size:12px">Keep it — I'll ask him</div></div>
+</div>
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-bed-double"/></svg><div class="nm">His room is still booked<div class="tiny" style="font-weight:600">The Parkgate's booking, the Parkgate's terms. Roam has told him he must cancel it himself — we cannot.</div></div></div>
+</div>
+<div class="mintbox"><svg class="ic"><use href="#i-users"/></svg><div>Twenty-three heads now. The coach is booked for twenty-six, the table is for twenty-six.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">Two of the doc's least comfortable moments on one screen: verification lapsing mid-group, and a drop-out whose supplier booking is not ours to cancel.</p>
+</div>
+</div>
+
+<div class="row" style="margin-top:18px">
+<table class="cmp" style="max-width:860px">
+<tr><th style="width:220px">The money question</th><th>What the doc fixes</th><th>What is still yours to decide</th></tr>
+<tr><td>Who holds it</td><td>Roam never does. It settles to the organiser as a connected account and Roam takes an application fee.</td><td>The size of that fee. It has to cover Stripe's cut before it earns anything.</td></tr>
+<tr><td>Who pays the processing</td><td>Nothing.</td><td><b>Three answers, all defensible:</b> the participant pays £45 + 79p, the organiser receives £43.60, or Roam absorbs it and earns nothing on small groups. The screens above assume the second — she pays £45 and he is told what lands.</td></tr>
+<tr><td>Verification</td><td>An organiser cannot collect until identity is verified. It gates the flow, not just the payout.</td><td>Whether a casual organiser collecting £45 × 18 will do ten minutes of identity checks at all. If the answer is no, v1 ships without the fee and the checklist just says “pay Roger £45” with a tick he sets by hand.</td></tr>
+<tr><td>A trip that is cancelled</td><td>Nothing.</td><td>The money has already settled to the organiser. Roam can ask him to refund; Roam cannot take it back. Say so at the point of payment or do not take the payment.</td></tr>
+<tr><td>Minors</td><td>Named as an expected case. A participant may not be able to hold a card or accept terms.</td><td>The parent's row carries the child — one payment, two heads. Confirm that is enough, because a school group is the case where it is not.</td></tr>
+</table>
+<div class="notes">
+<h4>The un-keyed prototype</h4>
+<ul>
+<li>Nothing on this page requires a Stripe key. Adding one, and setting any spend or payout cap, is <b>yours to do</b> — through Doppler, never in the repo, never as a Railway variable.</li>
+<li>Which means the first build can go all the way to the payment sheet and stop: the button says <i>Mark as paid</i> and the organiser ticks it. Every other screen is unchanged when the key arrives.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section><h2>5 · The part a spreadsheet cannot do</h2>
+<p class="sub">Everything up to here — names, ticks, chasing — a spreadsheet does badly but does. These two do not exist in a spreadsheet, and they are the reason a group would rather run on Roam: the trip already knows the plan, and Roam already knows how to read a place. Both are v1-cheap, because neither needs money or a partner.</p>
+<div class="frames">
+
+<div style="width:390px">
+<div class="modelab">Hotel · one hotel, twenty-four bookings</div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Still to chase</span></div><div class="title">The Parkgate Hotel</div><p class="sub">Westgate St, Cardiff · Fri 13 – Sun 15 Nov</p></div>
+<div class="body scroll">
+<div class="stats"><div class="stat"><div class="n">11</div><div class="l">rooms<br>held</div></div><div class="stat"><div class="n">18</div><div class="l">heads<br>joined</div></div><div class="stat"><div class="n">2</div><div class="l">nights<br>each</div></div></div>
+<div class="warnbox"><svg class="ic"><use href="#i-triangle-alert"/></svg><div><b>Two rooms are not the same weekend.</b> Gav has Friday only; Aisha has Saturday and Sunday.</div></div>
+<div class="lab">Who has a room</div>
+<div class="person"><div class="avat">GP</div><div class="n"><div class="nm">Gav Pryce</div><div class="who">Double · Fri 13 only · booked 19 Sep</div></div><span class="badge late">1 night</span></div>
+<div class="person"><div class="avat">AR</div><div class="n"><div class="nm">Aisha Rahman</div><div class="who">Family room · Sat 14 – Mon 16 · booked 22 Sep</div></div><span class="badge late">Off by a day</span></div>
+<div class="person"><div class="avat">PS</div><div class="n"><div class="nm">Priya Shah</div><div class="who">Twin · Fri 13 – Sun 15 · with Leo</div></div><span class="badge on"><svg class="ic"><use href="#i-check"/></svg></span></div>
+<div class="person"><div class="avat">TO</div><div class="n"><div class="nm">Tom Okafor</div><div class="who">Says he booked it — “on Booking.com, ref 4471”</div></div><span class="badge"><svg class="ic"><use href="#i-circle-dashed"/></svg>His word</span></div>
+<div class="mintbox"><svg class="ic"><use href="#i-bed-double"/></svg><div><b>Sharing</b> is the participants' own business in v1. Roam shows it so the coach and the table add up.</div></div>
+<div class="btn sec"><svg class="ic"><use href="#i-bell"/></svg>Ask the seven without a room</div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The hotel is the trip's base, so Roam already knows the dates it should be. A booking on the wrong night is caught in September rather than in the car park.</p>
+</div>
+
+<div style="width:390px">
+<div class="modelab">The table · what twenty-six people cannot eat</div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Saturday</span></div><div class="title">The Potted Pig</div><p class="sub">Sat 14 Nov, 19:30 · table for 26 · booked</p></div>
+<div class="body scroll">
+<div class="item">
+<div class="t"><svg class="ic"><use href="#i-triangle-alert"/></svg><div class="nm">Three things the kitchen must know<div class="tiny" style="font-weight:600">Given by the people themselves, not guessed from anything</div></div></div>
+<div class="opts"><span class="opt"><svg class="ic s"><use href="#i-circle-x"/></svg>Shellfish × 1</span><span class="opt"><svg class="ic s"><use href="#i-circle-x"/></svg>Sesame × 1</span><span class="opt"><svg class="ic s"><use href="#i-circle-x"/></svg>Coeliac × 1</span></div>
+<div class="btn sm sec" style="height:34px;font-size:12px"><svg class="ic s"><use href="#i-send-horizontal"/></svg>Send these to the restaurant</div>
+</div>
+<div class="mintbox"><svg class="ic"><use href="#i-lock"/></svg><div>Counts, not names, on this screen. Whose is whose goes to the restaurant with the booking, and never onto the roster of who has paid.</div></div>
+<div class="hr"></div>
+<div class="lab">Eleven dishes on their menu are out</div>
+<div class="pc" style="padding:8px 0"><div class="t"><div class="name" style="font-size:14px">Cockle popcorn</div><div class="meta">Shellfish</div></div><span class="badge late">Out</span></div>
+<div class="pc" style="padding:8px 0"><div class="t"><div class="name" style="font-size:14px">Sesame greens</div><div class="meta">Sesame</div></div><span class="badge late">Out</span></div>
+<div class="mintbox"><svg class="ic"><use href="#i-utensils"/></svg><div>Read from the restaurant's own menu, the same way a table for four reads it. An allergy takes a dish off the list; a dislike would only push it down — they never share a control.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">Twenty-six covers, three allergies, and a menu Roam can already read. This is the group feature nobody asked for and everybody uses.</p>
+</div>
+
+<div class="notes" style="width:290px">
+<h4>Both are cheap</h4>
+<ul>
+<li><b>No new provider call.</b> The hotel is the trip's base; the menu is the one Roam already fetches from the restaurant's own site when a place is opened.</li>
+<li><b>No new licence.</b> The room dates come from what the participant tells us or from a booking made through Roam; the allergy list is the household's own words.</li>
+<li><b>No new screen shape.</b> Both are the item view of option B, opened.</li>
+</ul>
+<h4>And one warning</h4>
+<ul>
+<li>A count of allergies is a health fact about a named person. It is theirs, not the organiser's: they choose to add it, they can take it away, and it is not part of what an organiser can export.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section><h2>6 · The rules this has to obey</h2>
+<p class="sub">Group trips reach into every part of Roam that has a rule attached to it. None of these are new decisions; they are existing constraints, and what each one means the moment there are twenty-four people instead of four.</p>
+<table class="cmp" style="max-width:1100px">
+<tr><th style="width:270px">The rule</th><th>What it means here</th><th style="width:230px">What breaks if it is ignored</th></tr>
+<tr><td><b>Rented and owned are different layers</b><br><span class="tiny">licensed content is not ours to keep</span></td><td>A checklist item points at the trip's base or a stop. The name and address a participant reads come from the owned record — what Roam researched from OpenStreetMap, the venue's own page and the encyclopedias — or from the organiser's own words. A provider's name, rating or photo is fetched at display and never written into the group.</td><td>Eighteen participants' devices each holding a copy of a licensed listing for six weeks.</td></tr>
+<tr><td><b>Twenty-four people, one retrieved pool</b><br><span class="tiny">options come from one search</span></td><td>Eighteen participants opening the same trip must not be eighteen searches. The trip's places are fetched once per trip and served to every participant from that; a participant's own browsing is the only thing that costs.</td><td>The bill scaling with headcount instead of with trips.</td></tr>
+<tr><td><b>A device may hold less than the server</b><br><span class="tiny">every answer passes the offline policy</span></td><td>A participant's own checklist and their own bookings are worth having on a phone with no signal in a stadium. <b>The roster is not</b> — other people's payment status must never be written to a participant's device, and the organiser's roster is a live read.</td><td>Someone's payment history sitting in another person's browser storage.</td></tr>
+<tr><td><b>Every provider call is attributed</b><br><span class="tiny">household and session, in provider_calls</span></td><td>A participant who has no household still generates calls. They are attributed to the group's trip and to the participant's session, so the cost of a group is a number the organiser's trip can show.</td><td>Untraceable spend, and a group that quietly costs more than it earns.</td></tr>
+<tr><td><b>Allergens exclude, dislikes rank</b><br><span class="tiny">never one control, never one colour</span></td><td>The group's allergy list takes dishes off a menu. Nothing about a group ever turns a dislike into an exclusion, however many people share it.</td><td>The one thing in Roam that must not be a preference becoming one.</td></tr>
+<tr><td><b>Voice is a closed set, visible on screen</b><br><span class="tiny">and every voice action has a tap</span></td><td>“Remind everyone who hasn't paid” works because it is one of the buttons on the screen. Chasing by voice is a genuine win for an organiser driving to the club — but only the sends that are already drawn.</td><td>A voice command that sends eighteen messages nobody could have tapped.</td></tr>
+<tr><td><b>Phone and wide are one tree</b><br><span class="tiny">and a Modal pins itself to the frame</span></td><td>The group view is one component: blocks then roster on a phone, blocks beside roster at 1000px. The payment sheet and the reminder sheet read the frame's origin, or they cover the browser instead of the phone.</td><td>The toggle losing state, and sheets escaping the phone frame on the deployed site.</td></tr>
+<tr><td><b>Secrets come from Doppler</b><br><span class="tiny">and money is the owner's to arrange</span></td><td>Stripe keys, the Connect platform account, verification, and any payout or spend cap are set up by you. Everything drawn here runs without a key until then.</td><td>A key in the repo, or an agent enabling a paid path you did not ask for.</td></tr>
+</table>
+</section>
+
+<section><h2>7 · The calls to make</h2>
+<p class="sub">The doc leaves twenty-one open questions across seven epics. These eight are the ones that change what gets built; the rest can be answered while it is being built. Each has what I would do, so a nod is enough.</p>
+<table class="cmp" style="max-width:1100px">
+<tr><th style="width:210px">Question</th><th style="width:330px">What I would do</th><th>Why, and what it blocks</th></tr>
+<tr><td><b>Does v1 collect money at all?</b><br><span class="tiny">Epic 4</span></td><td><b>Ship v1 without it.</b> The fee item exists, shows the amount and the organiser's words, and the organiser ticks people off by hand. The pay button appears when Stripe Connect and verification are in place.</td><td>Everything else in the doc works without a payment provider, a platform account, a verification flow, a refund policy or a published privacy notice. Waiting for those five things to ship a group that can be created and chased is the wrong order. <b>Blocks nothing if answered “no”; blocks six weeks if answered “yes”.</b></td></tr>
+<tr><td><b>What must a participant supply?</b><br><span class="tiny">Epic 3</span></td><td>A name and <b>one</b> contact, their choice of mobile or email. Mobile is what an organiser actually has for people.</td><td>Decides the reminder channel, the join screen, and whether an organiser adding someone by name can be matched to them. <b>Blocks the join screen.</b></td></tr>
+<tr><td><b>How is a minor handled?</b><br><span class="tiny">Epic 3, business constraints</span></td><td>A minor is never a participant of their own. A parent's row carries them as a head, pays for them, and books for them. A group that is <i>all</i> minors — a school trip — is a different product and is out of v1.</td><td>Rugby tours and school trips are the same shape until money and consent appear, when they are not. <b>Blocks the participant model.</b></td></tr>
+<tr><td><b>Are bookings confirmed back to us?</b><br><span class="tiny">Epic 5</span></td><td>Assume <b>not</b>. Design self-declaration as the main path and treat any confirmation from a partner as a bonus that upgrades a row from “his word” to “confirmed”.</td><td>Without a partner agreement there is no attribution at all, and the doc's organiser view is built on it. Designing for self-declaration first means the screens do not change when a partner arrives. <b>Blocks the whole of Epic 5 if answered the other way.</b></td></tr>
+<tr><td><b>Reminders — by what?</b><br><span class="tiny">Epic 6</span></td><td>Whatever they gave, one channel each, and a hard limit of one reminder per person per item per 48 hours.</td><td>Outbound contact on someone else's behalf is the part with a real cost and a real complaint attached. <b>Blocks the reminder flow and the privacy notice.</b></td></tr>
+<tr><td><b>Six or thirty?</b><br><span class="tiny">Appendix A2</span></td><td>Build for thirty; check every screen at six. Option B reads the same at both.</td><td>Decides whether the roster is the screen or a section of it.</td></tr>
+<tr><td><b>Can the organiser hand it over?</b><br><span class="tiny">Epic 1</span></td><td>Not in v1. State it plainly at creation.</td><td>Transferring a group with settled money in it is a much bigger question than it looks.</td></tr>
+<tr><td><b>Day trips as well as weekends?</b><br><span class="tiny">Appendix A3</span></td><td>Yes, free. An outing is a trip with one day in Roam's model, so a group hangs off it unchanged — and a minibus to a match is the same three items.</td><td>Costs nothing to allow and doubles what the feature is for.</td></tr>
+</table>
+
+<div class="row" style="margin-top:20px">
+<div class="notes" style="width:420px">
+<h4>What I would build first, in order</h4>
+<ul>
+<li><b>1 · A group on a trip.</b> Create it, name it, say how many are expected. The trip becomes a group trip in the list.</li>
+<li><b>2 · The checklist.</b> Mark the base and any stops as wanted; add the fee as an amount and a description, with no way to pay it yet.</li>
+<li><b>3 · The link and joining.</b> Name, one contact, who they bring. Resume, regenerate, close, and match-to-a-name.</li>
+<li><b>4 · The two views.</b> Option B for the organiser; the three-item checklist for the participant. Bookings are self-declared.</li>
+<li><b>5 · Chasing.</b> One reminder per item, recorded against the person with a date.</li>
+<li><b>6 · Then money</b>, when the Stripe side exists — and nothing above changes.</li>
+</ul>
+</div>
+<div class="notes" style="width:420px">
+<h4>What this page does not answer</h4>
+<ul>
+<li><b>What the organiser's web view looks like at 1000px.</b> Sketched in the table, not drawn. It is the next mock-up if B is the direction.</li>
+<li><b>Splitting one booking between people</b> — one room, four ways. That is v2 and it needs Roam to be taking the money.</li>
+<li><b>Voting on the itinerary.</b> V3, and the more interesting half of “planning as a group”: eighteen people with opinions about Saturday afternoon is a different screen from eighteen people with a checklist.</li>
+<li><b>What a participant's trial actually opens.</b> The doc says time-limited access to the wider product; what that means for their own Places and Plan is unwritten.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section><h2>8 · The one-paragraph version</h2>
+<p class="sub" style="max-width:1000px">Hang a <b>group</b> off a trip: one organiser, an expected count, an invite link, and a checklist of the things the trip already contains — the hotel it is based at, the stops that need booking, and one amount the organiser is out of pocket for. Give the organiser a screen that is <b>the work rather than the roster</b>: four blocks saying what is outstanding, four buttons that chase it, and the twenty-four names underneath. Let a participant open the link, read what is being asked of them, and give a name at the first thing they tap. Take bookings as their word until a partner can confirm them, and leave the money until Stripe Connect and verification exist — everything else works without it. Then add the two things a spreadsheet cannot do: catch the room booked on the wrong night, and put three allergies in front of the kitchen for a table of twenty-six.</p>
+</section>
+
+<p class="lede" style="margin-top:32px;border-top:1px solid #E5EFEA;padding-top:16px">Source: <i>Roam — Group Trips, Requirements v1.0</i>, September 2026. Drawn against the September 2026 style guide: Archivo, 4px corners, ink buttons, one icon colour per mode, red kept for the heart and for a warning that must read. Every icon here is from the app's own set.</p>
+</body></html>
