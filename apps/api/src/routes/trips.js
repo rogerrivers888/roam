@@ -445,7 +445,10 @@ router.get('/:id/shortlist/search', async (req, res, next) => {
 router.get('/:id/shortlist/search/stream', async (req, res) => {
   res.writeHead(200, {
     'content-type': 'text/event-stream',
-    'cache-control': 'no-cache, no-transform',
+    // no-store, not no-cache: with no-cache a browser treats a second identical
+    // GET as a duplicate of the one in flight and holds it until the first
+    // finishes, so the second screen watching the same search sat blank.
+    'cache-control': 'no-store, no-transform',
     connection: 'keep-alive',
     // Railway's proxy buffers by default, which would hold every event back
     // until the search finished and defeat the whole point.

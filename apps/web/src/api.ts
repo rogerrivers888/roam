@@ -693,7 +693,10 @@ export const api = {
     if (typeof EventSource === 'undefined') return api.shortlistSearch(tripId, p);
     try {
       return await new Promise<SearchAnswer>((resolve, reject) => {
-        const es = new EventSource(`${API_URL}/api/trips/${tripId}/shortlist/search/stream${qs(p)}`);
+        // Each stream gets its own address. Two screens watching the same
+        // search send the same GET, and a browser will hold the second one
+        // behind the first unless the URLs differ. The API ignores `at`.
+        const es = new EventSource(`${API_URL}/api/trips/${tripId}/shortlist/search/stream${qs({ ...p, at: String(Date.now()) })}`);
         const stop = () => { try { es.close(); } catch { /* already gone */ } };
         for (const name of ['asking', 'answered', 'failed', 'cached', 'waiting']) {
           es.addEventListener(name, (e) => { try { onEvent(JSON.parse((e as MessageEvent).data)); } catch { /* one unreadable line is not the search */ } });
