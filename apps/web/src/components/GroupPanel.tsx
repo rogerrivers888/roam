@@ -5,6 +5,7 @@ import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Meter, Row, Segmented, StatusLine, Wrap } from './ui';
 import { Icon, IconName } from './Icon';
 import { QrCode } from './QrCode';
+import Svg, { Circle, G, Line, Rect, Text as SvgText } from 'react-native-svg';
 import { useViewport } from '../hooks/useViewport';
 import { getViewer } from '../viewer';
 
@@ -461,12 +462,10 @@ function Minimum({ group: g, joinedHeads, onChange }: { group: TripGroup; joined
 
 /** The front door: what a group is, before there is one. */
 /**
- * The Group tab before there is a group: a page about what the feature is,
- * with nothing to fill in (owner, 4 Sep 2026: "a proper page, big, big, big
- * letters, with some design features to make it nice… like an advert for the
- * group section"). Big display type on the one mint field, six benefits in the
- * organiser's language, and one button. No names, no numbers, no form — every
- * question comes afterwards, in the wizard.
+ * The Group tab before there is a group: a page somebody who tapped Group by
+ * accident can scan in five seconds (owner, 4 Sep 2026). A headline, one
+ * sentence, a picture of what it does, three bullets, one button — and nothing
+ * to fill in, because every question is asked in the wizard afterwards.
  */
 function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup) => void }) {
   const { width } = useViewport();
@@ -487,33 +486,21 @@ function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup)
 
   return (
     <View style={{ gap: spacing.md }}>
-      <View style={styles.hero}>
-        {/* The splash: a crowd, drawn as the people it is about. */}
-        <View style={styles.crowd}>
-          {['P', 'T', 'D', 'A', 'N'].map((initial, i) => (
-            <View key={initial} style={[styles.crowdFace, i > 0 && { marginLeft: -10 }]}>
-              <Text style={styles.crowdInitial}>{initial}</Text>
-            </View>
-          ))}
-          <View style={[styles.crowdFace, styles.crowdMore, { marginLeft: -10 }]}><Text style={[styles.crowdInitial, { color: colors.primaryFg }]}>+19</Text></View>
+      <View style={[styles.hero, wide && { flexDirection: 'row', alignItems: 'center', gap: spacing.xl }]}>
+        <View style={{ flex: 1, gap: spacing.sm }}>
+          <Text style={[styles.hugeText, wide && { fontSize: 38, lineHeight: 40 }]}>Create a group trip.{'\n'}Pay separately.</Text>
+          <Text style={styles.heroSub}>
+            Build the trip, invite a group, and set the reminders and the money once.
+          </Text>
         </View>
-        <Text style={styles.eyebrow}>GROUP TRIPS</Text>
-        <Text style={[styles.hugeText, wide && { fontSize: 46, lineHeight: 48 }]}>Twenty-four people.{'\n'}One weekend.{'\n'}No spreadsheet.</Text>
-        <Text style={styles.heroSub}>
-          The rooms, the coach, the money and the chasing — held in one place, so you stop being the group's admin.
-        </Text>
-        <Wrap>
-          <View style={styles.heroChip}><Text style={styles.heroChipText}>Three minutes to set up</Text></View>
-          <View style={styles.heroChip}><Text style={styles.heroChipText}>No accounts for anybody</Text></View>
-          <View style={styles.heroChip}><Text style={styles.heroChipText}>One link</Text></View>
-        </Wrap>
+        <GroupScene wide={wide} />
       </View>
 
-      <View style={wide ? styles.sellGrid : { gap: spacing.md }}>
-        {SELL.map((f) => (
-          <View key={f.title} style={[styles.sell, wide && styles.sellHalf]}>
-            <View style={styles.sellIcon}><Icon name={f.icon} size={20} /></View>
-            <View style={{ flex: 1, gap: 3 }}>
+      <View style={wide ? styles.sellGrid : { gap: spacing.sm }}>
+        {SELL.map((f, i) => (
+          <View key={f.title} style={[styles.sell, wide && styles.sellThird]}>
+            <View style={styles.sellIcon}><Text style={styles.sellNumber}>{i + 1}</Text></View>
+            <View style={{ flex: 1, gap: 2 }}>
               <Text style={styles.sellTitle}>{f.title}</Text>
               <Text style={type.small}>{f.line}</Text>
             </View>
@@ -522,22 +509,62 @@ function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup)
       </View>
 
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-      <Button label={busy ? 'Setting it up…' : 'Start a group trip'} icon="forward" onPress={start} />
-      <Text style={[type.tiny, { textAlign: 'center' }]}>
-        Six questions, every one of them skippable, and every answer changeable afterwards.
-      </Text>
+      <Button label={busy ? 'Setting it up…' : 'Create a group trip'} icon="forward" onPress={start} />
+      <Text style={[type.tiny, { textAlign: 'center' }]}>Three minutes. Six questions, all skippable.</Text>
     </View>
   );
 }
 
-/** What a group actually gives the person carrying it. */
-const SELL: { icon: IconName; title: string; line: string }[] = [
-  { icon: 'shortlist', title: 'One link and they are in', line: 'Hold up a code or paste a link. No account, no password, nothing to download — they see the trip and say they are coming.' },
-  { icon: 'list', title: 'Everyone gets their own list', line: 'The room to book, the tour, the money owed. They see theirs and nobody else\u2019s; you see all of it on one screen.' },
-  { icon: 'hours', title: 'The chasing sends itself', line: 'Roam writes to whoever still has something outstanding, on a schedule, in your name. You never ask the same person twice.' },
-  { icon: 'money', title: 'A cost that falls as people join', line: 'A £360 coach is £30 each at twelve and £15 at twenty-four — and everybody can watch it get cheaper as more say yes.' },
-  { icon: 'booked', title: 'Nobody pays into thin air', line: 'Nothing is owed until the day it settles. Then the bill goes out with its own arithmetic on it, and a date.' },
-  { icon: 'household', title: 'A minimum that means something', line: 'Not enough people by the closing day? It is called off, everybody is told that morning, and nothing was ever taken.' },
+/**
+ * The picture, because the sentence cannot be made short enough: one trip on
+ * the left, and everybody on it with their own bill. Drawn rather than
+ * photographed, so it takes the palette with it and weighs nothing.
+ */
+function GroupScene({ wide }: { wide: boolean }) {
+  const rows = [
+    { y: 42, initial: 'P', amount: '£15' },
+    { y: 90, initial: 'T', amount: '£15' },
+    { y: 138, initial: 'A', amount: '£15' },
+  ];
+  return (
+    <View style={[styles.scene, wide && { width: 300, height: 190 }]}>
+      <Svg width="100%" height="100%" viewBox="0 0 300 186">
+        {/* the trip itself */}
+        <Rect x={14} y={28} width={92} height={124} rx={10} fill={colors.surface} stroke={colors.ink} strokeWidth={2} />
+        <Rect x={28} y={44} width={64} height={9} rx={4.5} fill={colors.ink} opacity={0.85} />
+        <Rect x={28} y={60} width={44} height={6} rx={3} fill={colors.ink} opacity={0.25} />
+        <Rect x={28} y={76} width={64} height={20} rx={4} fill={colors.mint} />
+        <Rect x={28} y={106} width={64} height={6} rx={3} fill={colors.ink} opacity={0.25} />
+        <Rect x={28} y={119} width={38} height={6} rx={3} fill={colors.ink} opacity={0.25} />
+
+        {rows.map((r) => (
+          <G key={r.initial}>
+            <Line x1={106} y1={90} x2={150} y2={r.y} stroke={colors.ink} strokeWidth={1.2} strokeOpacity={0.3} strokeDasharray="3 4" />
+            <Circle cx={168} cy={r.y} r={16} fill={colors.surface} stroke={colors.ink} strokeWidth={2} />
+            <SvgText x={168} y={r.y + 4} fontSize={12} fontWeight="800" fill={colors.ink} textAnchor="middle" fontFamily={fonts.body}>{r.initial}</SvgText>
+            {/* their own share, paid their own way */}
+            <Rect x={194} y={r.y - 13} width={74} height={26} rx={6} fill={colors.ink} />
+            <SvgText x={231} y={r.y + 5} fontSize={13} fontWeight="800" fill={colors.bg} textAnchor="middle" fontFamily={fonts.body}>{r.amount}</SvgText>
+          </G>
+        ))}
+        <SvgText x={231} y={178} fontSize={11} fontWeight="700" fill={colors.ink} opacity={0.55} textAnchor="middle" fontFamily={fonts.body}>and 21 more</SvgText>
+      </Svg>
+    </View>
+  );
+}
+
+/**
+ * Three lines, one sentence each.
+ *
+ * The middle one is deliberately not "we collect the cash and pay you
+ * directly": Roam holds no money yet, so it works out every share and tells you
+ * who has paid, and you are paid directly. The day a payment account exists
+ * that line becomes the owner's original.
+ */
+const SELL: { title: string; line: string }[] = [
+  { title: 'Mandatory or not, you choose', line: 'Say what everyone must do and what is only being asked about, and let each person pay their own way.' },
+  { title: 'Add your own events', line: 'A coach, a band, a boat: Roam works out what each person owes, and you are paid directly.' },
+  { title: 'A minimum to go ahead', line: 'Set the fewest people it works with, and below it nothing runs and nothing is taken.' },
 ];
 
 /** Block 1's one addition: something to do that is not already on the trip. */
@@ -1018,23 +1045,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.headerBg, borderRadius: radius.lg, padding: spacing.xl, gap: spacing.md, overflow: 'hidden',
     borderWidth: 1, borderColor: colors.line,
   },
-  crowd: { flexDirection: 'row', alignItems: 'center' },
-  crowdFace: {
-    width: 38, height: 38, borderRadius: 19, backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.headerBg,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  crowdMore: { backgroundColor: colors.primary },
-  crowdInitial: { fontFamily: fonts.body, fontSize: 12, fontWeight: '800', color: colors.ink },
+  scene: { width: 280, height: 175, alignSelf: 'center' },
   eyebrow: { fontFamily: fonts.body, fontSize: 11, fontWeight: '800', letterSpacing: 1.4, color: colors.headerSub },
   hugeText: { fontFamily: fonts.heading, fontSize: 34, lineHeight: 36, fontWeight: '800', letterSpacing: -1, color: colors.ink },
   heroSub: { fontFamily: fonts.body, fontSize: 15, lineHeight: 21, color: colors.headerSub, maxWidth: 520 },
-  heroChip: {
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.headerSub,
-  },
-  heroChipText: { fontFamily: fonts.body, fontSize: 12, fontWeight: '700', color: colors.headerSub },
   sellGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   sell: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
   sellHalf: { width: '48%', flexGrow: 1 },
+  sellThird: { width: '31%', flexGrow: 1, minWidth: 220 },
+  sellNumber: { fontFamily: fonts.heading, fontSize: 17, fontWeight: '800', color: colors.ink },
   sellIcon: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   sellTitle: { fontFamily: fonts.heading, fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
   progress: { flexDirection: 'row', gap: 3 },
