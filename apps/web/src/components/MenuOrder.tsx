@@ -560,15 +560,7 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                 ) : null}
               </ScrollView>
               <View style={styles.bar}>
-                <Pressable
-                  onPress={startAgain}
-                  disabled={busy}
-                  accessibilityRole="button"
-                  accessibilityLabel="Start again"
-                  style={styles.barIcon}
-                >
-                  <Icon name="refresh" size={18} color={colors.ink} />
-                </Pressable>
+                <Button label="Restart" icon="refresh" kind="ghost" style={styles.barBtn} onPress={startAgain} disabled={busy} />
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <Button label="Add/Change" icon="edit" kind="secondary" style={styles.barBtn} onPress={() => setStep('menu')} disabled={busy} />
                 </View>
@@ -755,18 +747,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, color: colors.ink, backgroundColor: colors.surface, fontSize: 13,
   },
   bar: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
     padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.surface,
   },
   // Three actions have to sit on one row inside 390px, so the bar's buttons are
   // tighter than the standard one (owner, 4 Sep 2026).
-  barBtn: { paddingHorizontal: 12 },
-  // Starting again is one refresh, not a word: it buys the room for the other
-  // two to keep their icons (owner, 4 Sep 2026).
-  barIcon: {
-    width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'center',
-    borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,
-  },
+  // Three labelled buttons on one row inside 390px: tighter padding than the
+  // standard button, and the bar's own gap trimmed to match (owner, 4 Sep 2026).
+  barBtn: { paddingHorizontal: 10 },
   orderRow: { paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.line },
   whatIs: { backgroundColor: colors.surfaceMuted, borderRadius: radius.sm, padding: spacing.sm, gap: 2 },
   rowBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 15, borderWidth: 1, borderColor: colors.line, marginLeft: 6 },
