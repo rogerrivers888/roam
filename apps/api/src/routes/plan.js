@@ -1147,7 +1147,7 @@ router.post('/start', async (req, res, next) => {
       const prevControl = new Set(state.controlWants || []);
       const kept = (base.wants || []).filter((w) => !prevControl.has(w));
       const control = state.control || {};
-      const next = { ...base, wants: kept, understood: true, question: null, reply: 'Updated.' };
+      const next = { ...base, wants: kept, avoids: base.avoids || [], attending: base.attending || [], understood: true, question: null, reply: 'Updated.' };
       if (set.destination !== undefined) {
         if (set.destination?.lat != null) {
           const pl = { label: set.destination.label, lat: set.destination.lat, lng: set.destination.lng, locality: set.destination.locality ?? null, country: set.destination.country ?? null, countryCode: set.destination.countryCode ?? null, how: 'picked' };
@@ -1679,7 +1679,7 @@ async function executePlan({ household, members, session, state, res }) {
       ].filter(Boolean).join(' ');
       state.transcript.push({ role: 'assistant', text: reply });
       await saveSession(session.id, state, trip.id);
-      return { kind: 'handoff', reply, handoff: { tripId: trip.id, title: trip.title } };
+      return { kind: 'handoff', reply, handoff: { tripId: trip.id, title: trip.title, section: 'day' } };
     }
 
     const { trip, attending } = await createTripFromIntent({ household, members, intent: merged, origin, destination, anchorPlace, sources: pickedSources });
@@ -1770,13 +1770,40 @@ async function executePlan({ household, members, session, state, res }) {
     state.suggestedPreferences = [];
     state.attending = attendees.map((a) => ({ id: a.id, name: a.name }));
     state.attendeePrefs = attendees;
-    const reply = `Here's ${trip.base_label || 'the day'}: ${pool.candidates.length} places to choose from.`;
-    state.transcript.push({ role: 'assistant', text: reply });
     await saveSession(session.id, state, trip.id);
-
     session.state = state;
     session.trip_id = trip.id;
-    return { kind: 'pool', reply, extra: { intent: merged, missing: [], attending: state.attending, reach: { maxTravelMinutes: pool.maxTravelMinutes, estimated: true }, degradedSources: pool.degraded, journey: state.journey, anchor: state.anchor, date: trip.day.date } };
+
+    // Plan it means a planned day (owner, 4 Sep 2026): the first plan is written
+    // onto the day, its stops and the next best go on the shortlist, and the trip
+    // opens in Trips on The day — no second Plan it there.
+    const { options } = await recompose(session, household);
+    const first = options[0] ?? null;
+    let filled = [];
+    if (first) {
+      const opt = await commitOption({ household, session, optionId: first.id });
+      filled = opt.stops.map((x) => x.name);
+    }
+    const kindOf = (cat) => (['restaurant', 'cafe', 'pub', 'bar'].includes(cat) ? 'food' : ['attraction', 'event'].includes(cat) ? 'activity' : 'other');
+    const onList = new Set();
+    const shortlist = async (c, mustDo) => {
+      const ref = c.key || `${c.source}:${c.sourcePlaceId}`;
+      if (onList.has(ref) || String(ref).startsWith('anchor:')) return;
+      onList.add(ref);
+      await query(
+        `insert into trip_shortlist (trip_id, venue_ref, venue_label, kind, category, lat, lng, must_do)
+         values ($1,$2,$3,$4,$5,$6,$7,$8) on conflict (trip_id, venue_ref) do nothing`,
+        [trip.id, ref, c.name, kindOf(c.category), c.category ?? null, c.lat ?? null, c.lng ?? null, mustDo],
+      );
+    };
+    for (const st of first?.stops ?? []) { const c = pool.candidates.find((x) => x.key === st.id || `${x.source}:${x.sourcePlaceId}` === st.venueRef); if (c) await shortlist(c, state.pinned.includes(c.key)); }
+    for (const c of pool.candidates) { if (onList.size >= 12) break; if (!c.fixed) await shortlist(c, false); }
+    const reply = filled.length
+      ? `${trip.title || trip.base_label} is set up for ${dayWords(trip.day.date)}: ${filled.join(', ')}. ${onList.size} places on the shortlist to swap in. Opening it in Trips.`
+      : `${trip.title || trip.base_label} is set up for ${dayWords(trip.day.date)}, with ${onList.size} places on the shortlist — nothing fitted the window yet. Opening it in Trips.`;
+    state.transcript.push({ role: 'assistant', text: reply });
+    await saveSession(session.id, state, trip.id);
+    return { kind: 'handoff', reply, handoff: { tripId: trip.id, title: trip.title || trip.base_label, section: filled.length ? 'day' : 'shortlist' } };
 }
 
 /**

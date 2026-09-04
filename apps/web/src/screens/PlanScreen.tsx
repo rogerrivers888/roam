@@ -36,6 +36,18 @@ const MEALS = ['Breakfast', 'Coffee', 'Lunch', 'Dinner'];
 const MEAL_KINDS = ['Pub', 'Café', 'Italian', 'Indian', 'Japanese', 'Chinese', 'Thai', 'Mexican', 'Seafood', 'Steak', 'Picnic'];
 const PRICE_POINTS: { label: string; value: 'any' | PricePoint }[] = [{ label: 'Any', value: 'any' }, { label: 'Affordable', value: 'affordable' }, { label: 'Mid-range', value: 'mid' }, { label: 'Upmarket', value: 'upmarket' }];
 const BUDGET_BARS = [0.1, 0.2, 0.35, 0.5, 0.7, 0.9, 1, 0.85, 0.7, 0.55, 0.42, 0.3, 0.22, 0.16, 0.1, 0.07, 0.05, 0.04];
+// A price point is a band per head for the day's food and things to do (never the hotel): the pill sets the slider, the slider sets the pill.
+const BAND_PER_HEAD: Record<Exclude<PricePoint, 'any'>, [number, number]> = { affordable: [0, 25], mid: [25, 60], upmarket: [60, 150] };
+const bandFor = (pp: 'any' | PricePoint, per: 'everyone' | 'person', heads: number): [number, number] | null => {
+  if (pp === 'any') return null;
+  const [lo, hi] = BAND_PER_HEAD[pp as Exclude<PricePoint, 'any'>];
+  const k = per === 'person' ? 1 : Math.max(1, heads);
+  return [Math.round((lo * k) / 10) * 10, Math.round((hi * k) / 10) * 10];
+};
+const pointFor = (high: number, per: 'everyone' | 'person', heads: number): 'any' | PricePoint => {
+  const perHead = per === 'person' ? high : high / Math.max(1, heads);
+  return perHead < 25 ? 'affordable' : perHead < 60 ? 'mid' : 'upmarket';
+};
 type Controls = {
   when: { mode: 'day' | 'stay'; start: string | null; end: string | null; duration: number | null };
   do: { kinds: string[]; named: string[]; count: number | null };
@@ -124,7 +136,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
     }
     if (!viewing && next.options?.[0]) setViewing(next.options[0].id);
     // An overnight stay was set up as a dated trip: carry on in Trips.
-    if (next.handoff) onOpenTrip?.(next.handoff.tripId);
+    if (next.handoff) onOpenTrip?.(next.handoff.tripId, next.handoff.section ? { section: next.handoff.section } : undefined);
   }, [viewing, onOpenTrip]);
 
   const send = useCallback(async (text: string, viaVoice = false, field: PlanRowKey | null = null) => {
@@ -165,6 +177,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
   }, [sessionId, attendingIds, take]);
   useEffect(() => { api.browse().then((b) => setKinds(b.activities.flatMap((sec) => sec.items.map((i) => ({ key: i.key, label: i.label }))))).catch(() => {}); }, []);
   const update = <K extends keyof Controls>(key: K, next: Controls[K]) => setCtl((c) => ({ ...c, [key]: next }));
+  const heads = attendingIds?.size ?? (household?.members.length ?? 1);
 
   // Plan it: the rows are settled, run the plan. The server answers at once and
   // works on; the screen asks every few seconds until the trip or the pool lands.
@@ -488,14 +501,14 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
                   ) : null}
                   {isEditing && r.key === 'budget' ? (
                     <View style={styles.panel}>
-                      <Wrap>{PRICE_POINTS.map((pp) => <Chip key={pp.value} label={pp.label} selected={ctl.budget.pricePoint === pp.value} onPress={() => { const b = { ...ctl.budget, pricePoint: pp.value }; update('budget', b); applySet({ budget: { price_point: b.pricePoint, low: b.low, high: b.high, per: b.per } }); }} />)}</Wrap>
+                      <Wrap>{PRICE_POINTS.map((pp) => <Chip key={pp.value} label={pp.label} selected={ctl.budget.pricePoint === pp.value} onPress={() => { const band = bandFor(pp.value, ctl.budget.per, heads); const b = { ...ctl.budget, pricePoint: pp.value, low: band ? band[0] : ctl.budget.low, high: band ? band[1] : ctl.budget.high }; update('budget', b); applySet({ budget: { price_point: b.pricePoint, low: band ? b.low : null, high: band ? b.high : null, per: b.per } }); }} />)}</Wrap>
                       <Row style={{ justifyContent: 'space-between' }}>
-                        <Text style={type.small}>{ctl.budget.per === 'person' ? 'A head, for the day' : 'For the day, everyone'}</Text>
+                        <Text style={type.small}>{ctl.budget.per === 'person' ? 'A head, for the day' : `For the day, all ${heads}`}</Text>
                         <Text style={[type.body, { fontWeight: '700' }]}>£{ctl.budget.low} – £{ctl.budget.high}</Text>
                       </Row>
-                      <RangeSlider min={0} max={400} step={10} low={ctl.budget.low} high={ctl.budget.high} bars={BUDGET_BARS} onChange={(low, high) => { const b = { ...ctl.budget, low, high }; update('budget', b); applySet({ budget: { price_point: b.pricePoint, low, high, per: b.per } }); }} />
-                      <Segmented value={ctl.budget.per} options={[{ value: 'everyone', label: 'For everyone' }, { value: 'person', label: 'Per person' }]} onChange={(v) => { const b = { ...ctl.budget, per: v as 'everyone' | 'person' }; update('budget', b); applySet({ budget: { price_point: b.pricePoint, low: b.low, high: b.high, per: b.per } }); }} />
-                      <Text style={type.tiny}>The bars are the spread of what days like this cost; the plan keeps meals and tickets inside the range.</Text>
+                      <RangeSlider min={0} max={ctl.budget.per === 'person' ? 200 : 600} step={10} low={ctl.budget.low} high={ctl.budget.high} bars={BUDGET_BARS} onChange={(low, high) => { const b = { ...ctl.budget, low, high, pricePoint: pointFor(high, ctl.budget.per, heads) }; update('budget', b); applySet({ budget: { price_point: b.pricePoint, low, high, per: b.per } }); }} />
+                      <Segmented value={ctl.budget.per} options={[{ value: 'everyone', label: 'For everyone' }, { value: 'person', label: 'Per person' }]} onChange={(v) => { const per = v as 'everyone' | 'person'; const k = per === 'person' ? 1 / Math.max(1, heads) : Math.max(1, heads); const b = { ...ctl.budget, per, low: Math.round((ctl.budget.low * k) / 10) * 10, high: Math.round((ctl.budget.high * k) / 10) * 10 }; update('budget', b); applySet({ budget: { price_point: b.pricePoint, low: b.low, high: b.high, per } }); }} />
+                      <Text style={type.tiny}>For food, tickets and things to do on the day — not the hotel. A night away asks about the hotel separately on the trip's Stay tab. The bars are the spread of what days like this cost.</Text>
                     </View>
                   ) : null}
                   {isEditing && !isControl ? (
@@ -591,7 +604,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
             <Card style={{ borderColor: colors.accent }}>
               <Text style={type.h3}>{plan.handoff.title} is set up</Text>
               {lastReply ? <Text style={type.small}>{lastReply}</Text> : null}
-              <Button label="Open the trip" icon="trips" onPress={() => onOpenTrip?.(plan.handoff!.tripId)} />
+              <Button label="Open the trip" icon="trips" onPress={() => onOpenTrip?.(plan.handoff!.tripId, plan.handoff!.section ? { section: plan.handoff!.section } : undefined)} />
             </Card>
           ) : lastReply && !plan?.trip ? <Text style={[type.small, { paddingHorizontal: 4 }]}>{lastReply}</Text> : null}
         </>

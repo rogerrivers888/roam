@@ -228,7 +228,7 @@ export type AtlasCity = { name: string; places: number; been: number; special: n
 export type AtlasCountry = { code: string; name: string; places: number; been: number; cities: AtlasCity[] };
 export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number;
   /** Each person's latest score out of 5 here. */ scores: { memberId: string; member: string; score: number; on: string }[];
-  /** Where it is at a glance: postcode district and the nearest station with its lines; null until looked up. */ postcode: string | null; station: string | null; stationLines: string[]; stationKind: string | null; stationDistanceM: number | null; whereChecked: string | null };
+  /** Where it is at a glance: postcode district and the nearest station with its lines; null until looked up. */ postcode: string | null; station: string | null; stationLines: string[]; stationKind: string | null; whereChecked: string | null };
 
 export type Trip = {
   kind?: TripKind; place?: { label: string } | null; startDate?: string | null; endDate?: string | null; dayStart?: string; dayEnd?: string;
@@ -276,7 +276,7 @@ export type PlanResponse = {
   // Plan it runs in the background: poll the session until this clears.
   running?: boolean; failed?: boolean;
   // An overnight stay was set up as a dated trip: open it in Trips.
-  handoff?: { tripId: string; title: string } | null;
+  handoff?: { tripId: string; title: string; section?: 'find' | 'shortlist' | 'day' } | null;
 };
 
 export type PlanQuestion = { kind: 'place' | 'stay' | 'attending' | 'open' | 'duration'; field?: string | null; text: string; choices: { label: string; say: string }[] };
