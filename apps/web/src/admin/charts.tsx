@@ -81,11 +81,13 @@ function Tip({ text, x, width }: { text: string; x: number; width: number }) {
  * The extreme is labelled and the last column is labelled; nothing else is, and
  * the axis carries the rest.
  */
-export function Columns({ points, height = 140, format = shortNumber, tone }: {
+export function Columns({ points, height = 140, format = shortNumber, tone, empty }: {
   points: Point[];
   height?: number;
   format?: (n: number) => string;
   tone?: string;
+  /** What to say when every value is zero. A box with two hairlines in it looks broken. */
+  empty?: string;
 }) {
   const [w, setW] = useState(0);
   const [over, setOver] = useState<number | null>(null);
@@ -97,6 +99,16 @@ export function Columns({ points, height = 140, format = shortNumber, tone }: {
   // between neighbours — the gap does the separating, not a stroke.
   const bar = Math.max(2, Math.min(MAX_BAR, slot - 2));
   const peak = points.reduce((best, p, i) => (p.value > (points[best]?.value ?? -1) ? i : best), 0);
+
+  // Nothing to draw is a sentence, not an empty box: a chart with two hairlines
+  // and no marks reads as broken rather than as "this has not happened yet".
+  if (points.every((p) => !p.value)) {
+    return (
+      <View style={{ height, justifyContent: 'center' }}>
+        <Text style={type.small}>{empty ?? 'Nothing recorded in this window yet.'}</Text>
+      </View>
+    );
+  }
 
   return (
     <View onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ height }}>

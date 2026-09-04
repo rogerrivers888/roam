@@ -123,7 +123,7 @@ export function Tile({ label, value, sub, tone = 'plain', onPress }: {
       {sub ? <Text style={type.tiny}>{sub}</Text> : null}
     </View>
   );
-  return onPress ? <Pressable onPress={onPress} style={{ flexGrow: 1, flexBasis: 180 }}>{body}</Pressable> : body;
+  return onPress ? <Pressable onPress={onPress} style={{ flexGrow: 1, flexBasis: 180, maxWidth: 420 }}>{body}</Pressable> : body;
 }
 
 /** The auto-fitting row. Tiles grow to fill it, so two look right and seven do too. */
@@ -329,7 +329,11 @@ const styles = StyleSheet.create({
 
   tileRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   tile: {
-    flexGrow: 1, flexBasis: 180, minWidth: 150,
+    // Grows to fill a row, but never past `maxWidth`: a lone tile on the last
+    // row of a wrap would otherwise stretch the full width of the page and read
+    // as a banner rather than a figure. (CSS grid's auto-fit does not have this
+    // problem; flex-wrap does, and this is the fix that keeps one tree.)
+    flexGrow: 1, flexBasis: 180, minWidth: 150, maxWidth: 420,
     borderWidth: 1, borderLeftWidth: 4, borderColor: colors.line, borderRadius: radius.lg,
     backgroundColor: colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: 2,
   },
