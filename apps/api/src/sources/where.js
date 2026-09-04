@@ -47,11 +47,17 @@ const haversineM = (a, b) => {
 };
 
 async function osmStation(lat, lng) {
-  const body = `[out:json][timeout:12];node["railway"="station"](around:3000,${lat},${lng});out tags center 40;`;
+  const body = `[out:json][timeout:12];node["railway"="station"](around:5000,${lat},${lng});out body 40;`;
   let data = null, lastErr = null;
   for (const url of OVERPASS) {
     try {
-      const res = await fetch(url, { method: 'POST', body: `data=${encodeURIComponent(body)}`, headers: { 'content-type': 'application/x-www-form-urlencoded' }, signal: AbortSignal.timeout(15_000) });
+      // Overpass answers 406 without a user agent (the same header the OSM source sends).
+      const res = await fetch(url, {
+        method: 'POST',
+        body: `data=${encodeURIComponent(body)}`,
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Roam/0.1 (+https://github.com/rogerrivers888/roam)' },
+        signal: AbortSignal.timeout(20_000),
+      });
       if (!res.ok) throw new Error(`Overpass ${res.status}`);
       data = await res.json();
       break;
@@ -80,11 +86,20 @@ export async function whereIs(lat, lng, { householdId = null } = {}) {
     await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [householdId, 'osm-nominatim', 'atlas.where', JSON.stringify({ 'osm-nominatim': 1 })]).catch(() => null);
   } catch { /* the postcode is a nicety */ }
   let station = null;
-  const london = inLondon(lat, lng);
-  try {
-    station = london ? await tflStation(lat, lng) : await osmStation(lat, lng);
-    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [householdId, london ? 'tfl' : 'osm-overpass', 'atlas.where', JSON.stringify({ [london ? 'tfl' : 'osm-overpass']: 1 })]).catch(() => null);
-  } catch { /* no station is fine */ }
+  // The bounding box is generous, so somewhere just outside Transport for
+  // London's area (Thorpe Park, on the Surrey edge) asks TfL, gets nothing,
+  // and falls back to the map data like anywhere else in the country.
+  const tried = [];
+  const attempt = async (name, fn) => {
+    if (station) return;
+    tried.push(name);
+    try { station = await fn(); } catch { /* no station is fine */ }
+  };
+  if (inLondon(lat, lng)) await attempt('tfl', () => tflStation(lat, lng));
+  await attempt('osm-overpass', () => osmStation(lat, lng));
+  for (const provider of tried) {
+    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [householdId, provider, 'atlas.where', JSON.stringify({ [provider]: 1 })]).catch(() => null);
+  }
   return { postcode, station };
 }
 
