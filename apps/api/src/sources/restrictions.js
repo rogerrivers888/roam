@@ -49,6 +49,13 @@ function extractJson(text) {
 }
 
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+// Cut at a word, not a syllable: "no accompanime" is not an answer.
+const trim = (s, max) => {
+  const t = String(s || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), max - 20)).trim()}…`;
+};
 const cm = (v) => { const n = Number(v); return Number.isFinite(n) && n > 20 && n < 250 ? Math.round(n) : null; };
 
 /**
@@ -108,9 +115,9 @@ export async function researchRestrictions({ parentRef, parentName, website, hou
       ...(minH ? { minHeightM: minH / 100 } : {}),
       ...(maxH ? { maxHeightM: maxH / 100 } : {}),
       ...(age ? { minAge: age } : {}),
-      ...(said.supervision ? { supervision: String(said.supervision).slice(0, 80) } : {}),
-      ...(said.thrill ? { thrill: String(said.thrill).slice(0, 40) } : {}),
-      ...(said.note ? { note: String(said.note).slice(0, 200) } : {}),
+      ...(said.supervision ? { supervision: trim(said.supervision, 110) } : {}),
+      ...(said.thrill ? { thrill: trim(said.thrill, 40) } : {}),
+      ...(said.note ? { note: trim(said.note, 200) } : {}),
     };
     if (minH || maxH || age || said.supervision) learned += 1;
     await placeContents.updateFacts(parentRef, ride.itemRef, facts, sources);
