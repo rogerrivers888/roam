@@ -10,11 +10,15 @@
  * see their usage and monitor it: when they last logged in, how many times
  * they've logged in, how much their usage is".
  *
- * Every route here is behind `requireOwner` (auth.js), which answers 404 rather
- * than 403 to everybody else: a customer using Roam has no business learning
- * that an admin module exists on the API they are using. The guard is mounted
- * with the router, on `/api/accounts` and nothing above it — a guard mounted on
- * `/api` would 404 every other route in the app for anybody but the owner.
+ * Every route here is behind the admin door (access.js `requireDoor`), which
+ * answers 404 rather than 403 to everybody else: a household using Roam has no
+ * business learning that a back office exists on the API they are using. The
+ * guard is mounted with the router, on `/api/accounts` and nothing above it — a
+ * guard mounted on `/api` would 404 every other route in the app.
+ *
+ * Inside the door, reading and changing are different capabilities:
+ * `view_accounts` lists people, `manage_accounts` invites, suspends and removes.
+ * An analyst who may read the reporting suite cannot delete a household.
  *
  * Two rules this file keeps that are easy to lose:
  *
@@ -35,6 +39,8 @@ import {
 import { firstHousehold } from '../repositories/households.js';
 import { invitationEmail, mailStatus, sendMail, webUrl } from '../sources/mail.js';
 import { HOUSEHOLD_MONTHLY_CALL_BOUND } from '../claude.js';
+import { requires } from '../access.js';
+import { listPlans, recordPlanChange, priceOfPlan, writeAudit } from '../repositories/roles.js';
 
 const router = express.Router();
 
@@ -42,13 +48,17 @@ const router = express.Router();
  * What somebody can be on. No money moves through Roam — the same rule group
  * costs follow — so a plan is a label, a date and a ceiling, not a card.
  */
-export const PLANS = [
-  { key: 'owner', label: 'Owner', note: 'The founding household. No limit beyond the estate default.' },
-  { key: 'trial', label: 'Trial', note: 'Free while they try it. Give it an end date and the screen counts down.' },
-  { key: 'friend', label: 'Friend', note: 'Free, no end date, smaller share of the provider allowance.' },
-  { key: 'standard', label: 'Standard', note: 'A paying household, once there is anything to pay with.' },
-];
-const PLAN_KEYS = new Set(PLANS.map((p) => p.key));
+/**
+ * What somebody can be on.
+ *
+ * Rows in `plans` since the back office arrived, because a plan now carries a
+ * price and revenue reporting is arithmetic over those prices. No money moves
+ * through Roam — the same rule group costs follow — so a price is what a
+ * household is *on*, never a card.
+ */
+const plansForScreen = async () => (await listPlans({ includeInactive: false })).map((p) => ({
+  key: p.key, label: p.label, note: p.note, pricePence: p.price_pence, callBound: p.call_bound,
+}));
 const STATUSES = new Set(['invited', 'active', 'suspended']);
 
 /**
@@ -66,6 +76,9 @@ export const GUEST_MONTHLY_CALL_BOUND = Math.max(50, Math.round(HOUSEHOLD_MONTHL
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const bad = (message, code = 'bad_request') => Object.assign(new Error(message), { status: 400, code });
+
+/** Who is doing this. The shared passcode has no account row behind it. */
+const actor = (req) => ({ actorId: req.account?.id ?? null, actorLabel: req.account?.email ?? 'the owner (passcode)' });
 
 /** What the owner sees for one account. Never a token, never a link. */
 const view = (row) => ({
@@ -165,7 +178,7 @@ async function invite(req, account, { requestedBy = 'owner', returning = false }
  * default ceiling, and whether a mail sender exists — because the answer to
  * "why did that not send" belongs on the screen that tried to send it.
  */
-router.get('/', async (req, res, next) => {
+router.get('/', requires('view_accounts'), async (req, res, next) => {
   try {
     const rows = await listAccounts();
     const accounts = rows.map(view);
@@ -179,7 +192,7 @@ router.get('/', async (req, res, next) => {
     const founding = await firstHousehold();
     res.json({
       accounts,
-      plans: PLANS,
+      plans: await plansForScreen(),
       mail: mailStatus(),
       defaults: { monthlyCallBound: HOUSEHOLD_MONTHLY_CALL_BOUND, guestMonthlyCallBound: GUEST_MONTHLY_CALL_BOUND },
       // Whether the owner himself has an account row yet. Until he does, he is
@@ -196,7 +209,7 @@ router.get('/', async (req, res, next) => {
 });
 
 /** GET /api/accounts/:id — one of them, with the sign-ins behind the count. */
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', requires('view_accounts'), async (req, res, next) => {
   try {
     const account = await accountById(req.params.id);
     if (!account) return res.status(404).json({ error: 'not_found', message: 'No such account.' });
@@ -219,12 +232,13 @@ router.get('/:id', async (req, res, next) => {
  * `invite: false` creates the account without sending anything, for adding
  * several people and inviting them when the sender is configured.
  */
-router.post('/', async (req, res, next) => {
+router.post('/', requires('manage_accounts'), async (req, res, next) => {
   try {
     const b = req.body || {};
     const email = normaliseEmail(b.email);
     if (!EMAIL.test(email)) throw bad('That does not look like an e-mail address.');
-    if (b.plan && !PLAN_KEYS.has(b.plan)) throw bad('That is not one of the plans.');
+    const plans = await plansForScreen();
+    if (b.plan && !plans.some((p) => p.key === b.plan)) throw bad('That is not one of the plans.');
 
     const existing = await accountByEmail(email);
     if (existing) {
@@ -241,11 +255,23 @@ router.post('/', async (req, res, next) => {
       name,
       plan: b.plan || 'trial',
       trialEndsOn: b.trialEndsOn || null,
-      // A guest's smaller share, unless the owner said a number.
-      monthlyCallBound: b.monthlyCallBound ?? GUEST_MONTHLY_CALL_BOUND,
+      // The plan's own ceiling if it names one, else a guest's smaller share —
+      // unless whoever is adding them said a number.
+      monthlyCallBound: b.monthlyCallBound ?? plans.find((p) => p.key === (b.plan || 'trial'))?.callBound ?? GUEST_MONTHLY_CALL_BOUND,
       note: b.note || null,
       // Their household is named after them until they name it themselves.
       householdName: name ? `${name}'s household` : email,
+    });
+
+    // Two records of the same fact, for two different questions: the plan
+    // history prices a month that has already gone, and the audit trail says
+    // who added this person.
+    await recordPlanChange(account.id, {
+      plan: account.plan, status: account.status, pricePence: await priceOfPlan(account.plan), note: 'account created',
+    });
+    await writeAudit({
+      ...actor(req), action: 'account.create', subjectType: 'account', subjectId: account.id, subjectLabel: email,
+      after: { plan: account.plan, monthlyCallBound: account.monthly_call_bound },
     });
 
     const invitation = b.invite === false ? null : await invite(req, account, {});
@@ -287,10 +313,11 @@ router.post('/owner', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 /** PATCH /api/accounts/:id — plan, status, ceiling, note, name. */
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:id', requires('manage_accounts'), async (req, res, next) => {
   try {
     const b = req.body || {};
-    if (b.plan && !PLAN_KEYS.has(b.plan)) throw bad('That is not one of the plans.');
+    const plans = await plansForScreen();
+    if (b.plan && !plans.some((p) => p.key === b.plan)) throw bad('That is not one of the plans.');
     if (b.status && !STATUSES.has(b.status)) throw bad('That is not one of the statuses.');
     const before = await accountById(req.params.id);
     if (!before) return res.status(404).json({ error: 'not_found', message: 'No such account.' });
@@ -306,6 +333,20 @@ router.patch('/:id', async (req, res, next) => {
     });
     // Suspending takes the devices with it; the data stays exactly where it is.
     if (b.status === 'suspended') await revokeAccountSessions(account.id);
+
+    if (account.plan !== before.plan || account.status !== before.status) {
+      await recordPlanChange(account.id, {
+        plan: account.plan, status: account.status, pricePence: await priceOfPlan(account.plan),
+        note: account.status !== before.status ? `status ${before.status} → ${account.status}` : `plan ${before.plan} → ${account.plan}`,
+      });
+    }
+    await writeAudit({
+      ...actor(req),
+      action: account.status !== before.status ? `account.${account.status}` : 'account.update',
+      subjectType: 'account', subjectId: account.id, subjectLabel: account.email,
+      before: { plan: before.plan, status: before.status, monthlyCallBound: before.monthly_call_bound },
+      after: { plan: account.plan, status: account.status, monthlyCallBound: account.monthly_call_bound },
+    });
     res.json({ account: await enriched(account.id) });
   } catch (err) { next(err); }
 });
@@ -316,13 +357,20 @@ router.patch('/:id', async (req, res, next) => {
  * Their household, and everything in it, is only removed when the caller says
  * `?withHousehold=1`. Two different acts, and one of them cannot be undone.
  */
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requires('manage_accounts'), async (req, res, next) => {
   try {
     const account = await accountById(req.params.id);
     if (!account) return res.status(404).json({ error: 'not_found', message: 'No such account.' });
     if (account.role === 'owner') throw bad('The owner account cannot be deleted from here.');
     const withHousehold = String(req.query.withHousehold) === '1' || req.body?.withHousehold === true;
     await revokeAccountSessions(account.id);
+    // Written before the row goes, or the audit trail would have nothing to
+    // point at — which is exactly the act most worth being able to look up.
+    await writeAudit({
+      ...actor(req), action: withHousehold ? 'account.delete_with_data' : 'account.delete',
+      subjectType: 'account', subjectId: account.id, subjectLabel: account.email,
+      before: { plan: account.plan, status: account.status, householdId: account.household_id },
+    });
     await deleteAccount(account.id, { withHousehold });
     res.json({
       removed: true,
@@ -339,22 +387,27 @@ router.delete('/:id', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 /** POST /api/accounts/:id/invite — a fresh link, sent if there is a sender and shown either way. */
-router.post('/:id/invite', async (req, res, next) => {
+router.post('/:id/invite', requires('manage_accounts'), async (req, res, next) => {
   try {
     const account = await accountById(req.params.id);
     if (!account) return res.status(404).json({ error: 'not_found', message: 'No such account.' });
     if (account.status === 'suspended') throw bad('That account is suspended. Make it active before inviting them back.');
     const invitation = await invite(req, account, { returning: account.sign_in_count > 0 });
+    await writeAudit({
+      ...actor(req), action: 'account.invite', subjectType: 'account', subjectId: account.id, subjectLabel: account.email,
+      after: { delivery: invitation.delivery },
+    });
     res.json({ account: await enriched(account.id), invitation });
   } catch (err) { next(err); }
 });
 
 /** POST /api/accounts/:id/sign-out — every device that account is signed in on. */
-router.post('/:id/sign-out', async (req, res, next) => {
+router.post('/:id/sign-out', requires('manage_accounts'), async (req, res, next) => {
   try {
     const account = await accountById(req.params.id);
     if (!account) return res.status(404).json({ error: 'not_found', message: 'No such account.' });
     await revokeAccountSessions(account.id);
+    await writeAudit({ ...actor(req), action: 'account.sign_out', subjectType: 'account', subjectId: account.id, subjectLabel: account.email });
     res.json({ account: await enriched(account.id), signedOut: true });
   } catch (err) { next(err); }
 });

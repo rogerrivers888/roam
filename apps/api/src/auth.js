@@ -38,6 +38,7 @@
 import crypto from 'node:crypto';
 import { findLiveSession, insertSession, revokeSession, touchSession } from './repositories/sessions.js';
 import { accountById, touchAccount } from './repositories/accounts.js';
+import { accessFor, accessOf } from './access.js';
 import { runAsAccount } from './context.js';
 
 export const COOKIE = 'roam_session';
@@ -233,6 +234,10 @@ export async function requireSession(req, res, next) {
 
     req.session = session;
     req.account = account;
+    // Which doors and capabilities this request holds (access.js). Resolved
+    // once, here, so no route below has to ask the database what somebody is
+    // allowed to do — and so that "allowed" has exactly one definition.
+    req.access = await accessFor(req);
     void touchSession(session.id);
     if (account) void touchAccount(account.id);
 
@@ -257,7 +262,6 @@ export async function requireSession(req, res, next) {
  * admin module exists on the API they are using.
  */
 export function requireOwner(req, res, next) {
-  const isOwner = !req.session?.account_id || req.account?.role === 'owner';
-  if (isOwner) return next();
+  if (accessOf(req).isOwner) return next();
   return res.status(404).json({ error: 'not_found', message: 'Not found.' });
 }

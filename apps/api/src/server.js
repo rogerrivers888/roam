@@ -13,6 +13,8 @@ import conceptRoutes from './routes/concepts.js';
 import prototypeRoutes from './routes/prototypes.js';
 import groupRoutes, { startReminderLoop } from './routes/groups.js';
 import accountRoutes from './routes/accounts.js';
+import adminRoutes from './routes/admin.js';
+import activityRoutes from './routes/activity.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 import { atlas as atlasRoutes } from './routes/atlas.js';
 import { menu as menuRoutes, orders as orderRoutes } from './routes/menus.js';
@@ -24,7 +26,8 @@ import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
 import { enabledSources, defaultSourceKeys, loadSourceSettings, setSourceOff, sourceHasKey, sourceOff, sourceKeys } from './sources/index.js';
 import { routingEnabled } from './sources/routing.js';
 import sessionRoutes, { devices as deviceRoutes } from './routes/session.js';
-import { authConfigured, deployed, originAllowed, requireOwner, requireSession } from './auth.js';
+import { authConfigured, deployed, originAllowed, requireSession } from './auth.js';
+import { requireDoor } from './access.js';
 import { generalLimit, signInLimit, spendLimit } from './limits.js';
 import { sweepDeadSessions } from './repositories/sessions.js';
 import { sweepExpiredPlanSessions } from './repositories/planSessions.js';
@@ -80,12 +83,18 @@ app.use('/api', deviceRoutes);
 // than the rest of the API (limits.js).
 for (const path of ['/api/discover', '/api/plan', '/api/atlas', '/api/menu', '/api/photos', '/api/places']) app.use(path, spendLimit);
 
-// The admin module, behind the owner's own door inside the household one
-// (auth.js `requireOwner`): who has Roam, what they are on, and what their
-// searching has cost. Mounted before the household routes so that nothing about
-// other people's accounts can be reached through a path that resolves to the
-// caller's own household.
-app.use('/api/accounts', requireOwner, accountRoutes);
+// The back office, behind the admin door (access.js). `requireDoor` answers 404
+// rather than 403, so a household using Roam never learns any of it is there;
+// each route inside then names the capability it needs.
+//
+// Mounted before the household routes so nothing about other people's accounts
+// can be reached through a path that resolves to the caller's own household.
+app.use('/api/accounts', requireDoor('admin'), accountRoutes);
+app.use('/api/admin', requireDoor('admin'), adminRoutes);
+
+// Telemetry is the household's own — which screen, and still here — and is
+// always written against the session's own household (routes/activity.js).
+app.use('/api', activityRoutes);
 
 app.use('/api/household', householdRoutes);
 app.use('/api/discover', discoverRoutes);

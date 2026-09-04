@@ -20,7 +20,7 @@ export const normaliseEmail = (email) => String(email ?? '').trim().toLowerCase(
 
 // A deliberately plain shape — the routes decide what the owner sees and what
 // an account holder sees, and neither is served a database row directly.
-const COLUMNS = `id, household_id, email, name, role, status, plan, trial_ends_on,
+const COLUMNS = `id, household_id, email, name, role, role_id, status, plan, trial_ends_on,
                  monthly_call_bound, note, invited_at, activated_at, last_seen_at,
                  sign_in_count, created_at, updated_at`;
 
@@ -49,7 +49,7 @@ export async function ownerAccount() {
  */
 export async function listAccounts() {
   const { rows } = await query(
-    `select a.id, a.household_id, a.email, a.name, a.role, a.status, a.plan, a.trial_ends_on,
+    `select a.id, a.household_id, a.email, a.name, a.role, a.role_id, a.status, a.plan, a.trial_ends_on,
             a.monthly_call_bound, a.note, a.invited_at, a.activated_at, a.last_seen_at,
             a.sign_in_count, a.created_at, a.updated_at,
             h.name as household_name,

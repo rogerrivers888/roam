@@ -82,6 +82,12 @@ test('the passcode carries no account, which is what makes it the founding house
 
 const { isPublicPath, requireOwner } = await import('../src/auth.js');
 
+/**
+ * `requireOwner` reads the access the door resolved (access.js), so a test that
+ * fakes a request has to fake that too — which is the point: "who is this" is
+ * answered once, in one place, and every guard downstream reads that answer
+ * rather than working it out again from the session row.
+ */
 const call = (req) => {
   let passed = false;
   let refused = null;
@@ -94,12 +100,12 @@ const call = (req) => {
 };
 
 test('the owner gets in, on an account or on the passcode', () => {
-  assert.equal(call({ session: { account_id: null }, account: null }).passed, true, 'shared passcode');
-  assert.equal(call({ session: { account_id: 'x' }, account: { role: 'owner' } }).passed, true, 'owner account');
+  assert.equal(call({ access: { isOwner: true, doors: ['client', 'admin'], capabilities: new Set() } }).passed, true, 'shared passcode');
+  assert.equal(call({ access: { isOwner: true, doors: ['client', 'admin'], capabilities: new Set() } }).passed, true, 'owner account');
 });
 
 test('a customer is told the admin module does not exist, not that they may not have it', () => {
-  const { passed, refused } = call({ session: { account_id: 'x' }, account: { role: 'customer' } });
+  const { passed, refused } = call({ access: { isOwner: false, doors: ['client'], capabilities: new Set() } });
   assert.equal(passed, false);
   assert.equal(refused.code, 404, '403 would confirm there is something there');
   assert.equal(refused.body.error, 'not_found');
