@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { api, API_URL, HouseholdResponse } from './src/api';
@@ -115,13 +115,19 @@ function Shell() {
   // page can be reloaded, bookmarked or sent to somebody and come back to the
   // same place — and the browser's own back button walks the tabs.
   const openTripId = tripPrefill?.openTripId ?? null;
+  const wroteUrl = useRef(false);
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
     const q = new URLSearchParams(window.location.search);
     q.set('tab', tab);
     if (openTripId) q.set('trip', openTripId); else q.delete('trip');
     const next = `${window.location.pathname}?${q.toString()}`;
-    if (next !== `${window.location.pathname}${window.location.search}`) window.history.pushState({ tab, trip: openTripId }, '', next);
+    if (next === `${window.location.pathname}${window.location.search}`) return;
+    // The first write is the address the app was opened at getting its name;
+    // only a move afterwards is a step the back button should walk back over.
+    if (wroteUrl.current) window.history.pushState({ tab, trip: openTripId }, '', next);
+    else window.history.replaceState({ tab, trip: openTripId }, '', next);
+    wroteUrl.current = true;
   }, [tab, openTripId]);
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
