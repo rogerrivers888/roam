@@ -74,8 +74,9 @@ async function osmStation(lat, lng) {
 }
 
 /**
- * Look up where a place is. Returns { postcode, station } where station is
- * { name, lines, kind, distanceM } or null. Every outbound call is attributed
+ * Look up where a place is. Returns { postcode, station, failed } where station
+ * is { name, lines, kind, distanceM } or null, and `failed` means a provider
+ * refused rather than answered — the caller should ask again later. Every outbound call is attributed
  * to the household in provider_calls.
  */
 export async function whereIs(lat, lng, { householdId = null } = {}) {
@@ -90,17 +91,21 @@ export async function whereIs(lat, lng, { householdId = null } = {}) {
   // London's area (Thorpe Park, on the Surrey edge) asks TfL, gets nothing,
   // and falls back to the map data like anywhere else in the country.
   const tried = [];
+  // A provider that refuses (Overpass rate-limits by IP) is different from one
+  // that answers "nothing near here": the first must be asked again later, so
+  // the row is not stamped as checked.
+  let failed = false;
   const attempt = async (name, fn) => {
     if (station) return;
     tried.push(name);
-    try { station = await fn(); } catch { /* no station is fine */ }
+    try { station = await fn(); } catch { failed = true; }
   };
   if (inLondon(lat, lng)) await attempt('tfl', () => tflStation(lat, lng));
   await attempt('osm-overpass', () => osmStation(lat, lng));
   for (const provider of tried) {
     await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [householdId, provider, 'atlas.where', JSON.stringify({ [provider]: 1 })]).catch(() => null);
   }
-  return { postcode, station };
+  return { postcode, station, failed };
 }
 
 /** Fill in postcode and station for atlas rows that have not been looked up yet, a few at a time. */
@@ -109,9 +114,9 @@ export async function fillWhere(householdId, rows, { limit = 6 } = {}) {
   for (const r of todo) {
     const w = await whereIs(r.lat, r.lng, { householdId });
     await query(
-      `update household_places set postcode = $3, station = $4, station_lines = $5, station_kind = $6, where_checked = now()
+      `update household_places set postcode = coalesce($3, postcode), station = $4, station_lines = $5, station_kind = $6, where_checked = $7
         where household_id = $1 and venue_ref = $2`,
-      [householdId, r.venue_ref, w.postcode, w.station?.name ?? null, w.station ? JSON.stringify(w.station.lines) : null, w.station?.kind ?? null],
+      [householdId, r.venue_ref, w.postcode, w.station?.name ?? null, w.station ? JSON.stringify(w.station.lines) : null, w.station?.kind ?? null, w.failed ? null : new Date()],
     ).catch(() => null);
   }
   return todo.length;
