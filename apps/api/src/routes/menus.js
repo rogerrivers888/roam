@@ -18,6 +18,7 @@
 
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
+import { recordMenuRead, knownMenu } from '../domain/placeMenus.js';
 import { currentHousehold, loadMembers } from './household.js';
 import { recallVenue } from '../sources/index.js';
 import { findMenuUrl } from '../sources/menuLink.js';
@@ -246,7 +247,32 @@ menu.post('/read', async (req, res, next) => {
       return id;
     });
 
+    // The same read, recorded against the place as well as the household, so the
+    // next family to open this restaurant sees what this one found and does not
+    // pay to read it again (owner, 4 Sep 2026). Behind the response, and it
+    // cannot fail the household's own copy.
+    recordMenuRead({ venueRef: ref, venueLabel: label, read }).catch(() => null);
+
     res.status(201).json({ menu: await menuPayload(menuId) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/menu/known?ref=… — the menu Roam knows for a place, whoever read it.
+ *
+ * Not the household's own copy (that is GET /api/menu?ref=…, and it carries the
+ * restaurant's descriptions). This is the pooled record: dish names, prices and
+ * sections, kept for good and replaced whenever anyone reads the menu again.
+ * Online only, on purpose — a menu is what you look at on the way in, and the
+ * address of it is what the offline record carries.
+ */
+menu.get('/known', async (req, res, next) => {
+  try {
+    const ref = String(req.query.ref || '').trim();
+    if (!ref) return res.status(400).json({ error: 'ref_required' });
+    const known = await knownMenu(ref);
+    if (!known) return res.status(404).json({ error: 'no_menu_known', message: 'Nobody has read this menu yet.' });
+    res.json({ menu: known });
   } catch (err) { next(err); }
 });
 

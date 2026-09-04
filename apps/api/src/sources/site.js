@@ -87,6 +87,33 @@ function addressFrom(node) {
   return { address: line || null, postcode: text(a.postalCode) };
 }
 
+/**
+ * A telephone number a place prints on its page but does not mark up.
+ *
+ * Plenty of small restaurants publish no schema.org block and no `tel:` link —
+ * the number is simply typed into the footer. It is a fact they publish in
+ * order to be rung, so it is worth reading, but only when we can be reasonably
+ * sure it is a phone number and not a date, a price or a company number. So:
+ * it has to look like one, and it has to sit near a word that introduces one.
+ */
+export function printedPhone(html) {
+  const flat = html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;?/gi, ' ').replace(/\s+/g, ' ');
+  // +44 20 7946 0958 · 020 7946 0958 · 01225 460705 — nine to eleven digits,
+  // in the groupings people actually write.
+  const pattern = /(?:\+\d{1,3}[\s(]?)?(?:\(?0\)?[\s-]?)?\d[\d\s().-]{8,16}\d/g;
+  for (const m of flat.matchAll(pattern)) {
+    const raw = m[0].trim();
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length < 9 || digits.length > 15) continue;
+    // A year, a price, a VAT number or a run of dates is not a phone number.
+    if (/^\d{4}\s?[-–]\s?\d{4}$/.test(raw)) continue;
+    const before = flat.slice(Math.max(0, m.index - 40), m.index).toLowerCase();
+    if (!/(tel|phone|call|reservations?|bookings?|contact|enquir)/.test(before)) continue;
+    return raw.replace(/[().]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  return null;
+}
+
 async function fetchPage(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -133,7 +160,7 @@ export async function siteFacts({ website, name = '', category = null, locality 
     const hit = links.find((h) => scheme.test(h));
     return hit ? hit.replace(scheme, '').split('?')[0].trim() || null : null;
   };
-  const tel = text(node.telephone) ?? linked(/^tel:/i);
+  const tel = text(node.telephone) ?? linked(/^tel:/i) ?? printedPhone(html);
   const mail = text(node.email) ?? linked(/^mailto:/i);
 
   // The one piece of their prose that is written to be quoted elsewhere.

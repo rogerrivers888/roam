@@ -34,6 +34,7 @@ import { matchOsm } from './openMatch.js';
 import { venueFromOsmElement, OSM_ATTRIBUTION } from './osm.js';
 import { encyclopediaFor } from './encyclopedia.js';
 import { siteFacts } from './site.js';
+import { reverseGeocode } from './geocode.js';
 import { googleSource } from './google.js';
 // Whether the owner has a key for it, and has not switched it off in Settings:
 // asking a source the owner has turned off is not ours to do.
@@ -64,6 +65,11 @@ const LICENCE = {
   site: { licence: "the venue's own published page", retention: 'indefinite', attribution: null },
   wikipedia: { licence: 'CC BY-SA 4.0', retention: 'indefinite', attribution: 'Wikipedia, CC BY-SA 4.0' },
   wikidata: { licence: 'CC0 1.0', retention: 'indefinite', attribution: 'Wikidata, CC0' },
+  // The street address a point sits at. Nominatim is OpenStreetMap, so this is
+  // the same licence as the map itself, and it is the one fact we can establish
+  // for a place whatever else fails: everything else needs the place to be
+  // *findable*, and this only needs it to be somewhere.
+  nominatim: { licence: 'ODbL 1.0', retention: 'indefinite', attribution: OSM_ATTRIBUTION },
 };
 
 /** When a fact under these terms must be gone. Null means never (§4). */
@@ -115,8 +121,8 @@ const PRECEDENCE = {
   name: ['osm', 'wikipedia'],
   category: ['osm'],
   lat: ['osm'], lng: ['osm'],
-  address: ['site', 'osm'],
-  postcode: ['site', 'osm'],
+  address: ['site', 'osm', 'nominatim'],
+  postcode: ['site', 'osm', 'nominatim'],
   website: ['site', 'osm', 'wikidata'],
   phone: ['site', 'osm'],
   email: ['site', 'osm'],
@@ -200,6 +206,11 @@ async function seedFor(venueRef, given = {}, { householdId = null } = {}) {
     [venueRef],
   );
   const r = rows[0];
+  // What we already worked out about this place last time. A category is what
+  // decides whether we go looking for a menu, and the household's own row often
+  // has none — so a restaurant we had already identified as a restaurant was
+  // being researched again as if we knew nothing about it.
+  const known = (await query('select category, website from place_records where venue_ref = $1', [venueRef])).rows[0] ?? {};
   const shortlist = r ? null : (await query(
     `select venue_label as label, category, lat, lng, venue from trip_shortlist where venue_ref = $1 and lat is not null order by added_at desc limit 1`,
     [venueRef],
@@ -207,10 +218,10 @@ async function seedFor(venueRef, given = {}, { householdId = null } = {}) {
   const base = r ?? shortlist ?? {};
   const seed = {
     name: given.name ?? (base.label && base.label !== venueRef ? base.label : null),
-    category: given.category ?? base.category ?? null,
+    category: given.category ?? base.category ?? known.category ?? null,
     lat: given.lat ?? base.lat ?? null,
     lng: given.lng ?? base.lng ?? null,
-    website: given.website ?? base.venue?.website ?? null,
+    website: given.website ?? base.venue?.website ?? known.website ?? null,
   };
   if (seed.name && seed.lat != null) return seed;
 
@@ -316,6 +327,9 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
       ]);
       found += 1;
       if (!seed.website) seed.website = v?.website ?? null;
+      // The map has just said what kind of place this is, and that is what
+      // decides whether their page is worth reading for a menu.
+      if (v?.category) seed.category = v.category;
     } else {
       problems.push('no match in OpenStreetMap');
     }
@@ -355,7 +369,33 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     }
   }
 
-  // 3. The encyclopedias, for the places that have an article.
+  // 3. Where it is, from the point alone.
+  //
+  //    Everything above needs the place to be findable — matched in the map, or
+  //    reachable at a website. This only needs it to be somewhere. So the one
+  //    thing a household most wants standing outside with no signal, the street
+  //    address, is the one we can get for nearly every place rather than the
+  //    one in six we were managing (owner, 4 Sep 2026).
+  const point = { lat: osm?.lat ?? seed.lat, lng: osm?.lng ?? seed.lng };
+  if (point.lat != null && point.lng != null) {
+    try {
+      const geo = await reverseGeocode(point.lat, point.lng, { zoom: 18 });
+      await logCall(householdId, 'osm-nominatim', 'own.where');
+      if (geo) {
+        matched.nominatim = { formatted: geo.formatted ?? null };
+        await forgetSource(venueRef, ['nominatim']);
+        await Promise.all([
+          putFact(venueRef, 'address', 'nominatim', geo.formatted || null, 1),
+          putFact(venueRef, 'postcode', 'nominatim', geo.address?.postcode ?? null, 1),
+        ]);
+        found += 1;
+      }
+    } catch (err) {
+      problems.push(`the address lookup: ${String(err?.message || err).slice(0, 120)}`);
+    }
+  }
+
+  // 4. The encyclopedias, for the places that have an article.
   try {
     let enc;
     try { enc = await encyclopediaFor({ name: seed.name, lat: osm?.lat ?? seed.lat, lng: osm?.lng ?? seed.lng }); }
