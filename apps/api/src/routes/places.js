@@ -8,7 +8,8 @@
 // takes. Everything on it survives even if the source's record goes away.
 
 import { Router } from 'express';
-import { query, withTransaction } from '../db.js';
+import { withTransaction } from '../db.js';
+import * as visitsRepo from '../repositories/visits.js';
 import { searchAllSources, enabledSources, recallVenue, optInFrom } from '../sources/index.js';
 import { geocode, reverseGeocode, providerCalls as geocodeCalls } from '../sources/geocode.js';
 import { searchAreas, AREA_ATTRIBUTION, providerCalls as areaCalls } from '../sources/areas.js';
@@ -104,7 +105,7 @@ async function homeCountryOf(household) {
   if (household.home_lat == null) return null;
   const hit = await reverseGeocode(household.home_lat, household.home_lng, { zoom: 8 }).catch(() => null);
   if (!hit?.countryCode) return null;
-  await query('update households set home_country_code = $2, home_country = $3 where id = $1', [household.id, hit.countryCode, hit.country ?? null]);
+  await visitsRepo.rememberHomeCountry(household.id, hit.countryCode, hit.country ?? null);
   household.home_country_code = hit.countryCode;
   household.home_country = hit.country ?? null;
   return { code: hit.countryCode, name: hit.country ?? null };
@@ -124,26 +125,10 @@ async function resolveNear(nearParam, household) {
 /** The household's relationship with a set of venue refs, in one query each. */
 export async function householdStatus(householdId, refs) {
   if (!refs.length) return {};
-  const [{ rows: v }, { rows: l }] = await Promise.all([
-    query(
-      `select v.venue_ref, count(*)::int as visits, max(v.visited_on) as last_on,
-              count(*) filter (where r.take = 'loved')::int as loved,
-              count(*) filter (where r.take = 'not_for_me')::int as not_for_me
-         from visits v left join ratings r on r.visit_id = v.id and r.subject = 'visit'
-        where v.household_id = $1 and v.venue_ref = any($2)
-        group by v.venue_ref`,
-      [householdId, refs],
-    ),
-    query(
-      `select distinct on (source, source_place_id) source || ':' || source_place_id as venue_ref, status
-         from place_ledger where household_id = $1 and source || ':' || source_place_id = any($2)
-        order by source, source_place_id, created_at desc`,
-      [householdId, refs],
-    ),
-  ]);
+  const { visitRows, ledgerRows } = await visitsRepo.statusForRefs(householdId, refs);
   const out = {};
-  for (const r of v) out[r.venue_ref] = { visits: r.visits, lastOn: r.last_on, loved: r.loved, notForMe: r.not_for_me };
-  for (const r of l) out[r.venue_ref] = { ...(out[r.venue_ref] || {}), ledger: r.status };
+  for (const r of visitRows) out[r.venue_ref] = { visits: r.visits, lastOn: r.last_on, loved: r.loved, notForMe: r.not_for_me };
+  for (const r of ledgerRows) out[r.venue_ref] = { ...(out[r.venue_ref] || {}), ledger: r.status };
   return out;
 }
 
@@ -191,22 +176,16 @@ async function writeTakes(client, visitId, takes, venue) {
     let concept = null;
     if (subject === 'visit') concept = visitConcept(venue);
     else concept = t.conceptKey ? conceptByKey(t.conceptKey) : resolveConcept(subject, { kinds: ['dish', 'experience'] });
-    await client.query(
-      `insert into ratings (visit_id, member_id, subject, take, comment, concept_key, score)
-       values ($1, $2, $3, $4, $5, $6, $7)`,
-      [visitId, t.memberId, subject, take, t.comment?.trim() || null, concept?.key ?? null, score],
-    );
+    await visitsRepo.insertRating(visitId, {
+      memberId: t.memberId, subject, take, comment: t.comment?.trim() || null, conceptKey: concept?.key ?? null, score,
+    }, client);
   }
 }
 
 async function visitPayload(id) {
-  const { rows } = await query('select * from visits where id = $1', [id]);
-  if (!rows[0]) return null;
-  const v = rows[0];
-  const [{ rows: attendees }, { rows: takes }] = await Promise.all([
-    query('select m.id, m.name from visit_attendees va join members m on m.id = va.member_id where va.visit_id = $1 order by m.name', [id]),
-    query('select r.*, m.name as member_name from ratings r join members m on m.id = r.member_id where r.visit_id = $1 order by r.created_at', [id]),
-  ]);
+  const v = await visitsRepo.visitById(id);
+  if (!v) return null;
+  const { attendees, takes } = await visitsRepo.visitDetail(id);
   return {
     id: v.id,
     venueRef: v.venue_ref,
@@ -260,7 +239,7 @@ places.get('/geocode', async (req, res, next) => {
       geocodeCalls() > before.osm ? 'osm-nominatim' : null,
     ].filter(Boolean);
     for (const provider of made) {
-      await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, provider, kind === 'area' ? 'places.areas' : 'places.geocode']);
+      await visitsRepo.recordProviderCall(household.id, provider, kind === 'area' ? 'places.areas' : 'places.geocode');
     }
     res.json({ results, home: home ?? undefined, attribution: kind === 'area' ? AREA_ATTRIBUTION : '© OpenStreetMap contributors' });
   } catch (err) {
@@ -294,7 +273,7 @@ places.get('/where', async (req, res, next) => {
     // there at all (mid-Atlantic, a new estate), the point itself is still a
     // usable starting place.
     const hit = await reverseGeocode(lat, lng, { zoom: 17 });
-    await query('insert into provider_calls (household_id, provider, purpose) values ($1, $2, $3)', [household.id, 'osm-nominatim', 'places.where']);
+    await visitsRepo.recordProviderCall(household.id, 'osm-nominatim', 'places.where');
     // The street and the bit of town, and no more: a picker prints this line
     // above the town, region and postcode, so the full postal address would
     // just say everything twice. "Great Court, Bloomsbury", not "Great Court,
@@ -332,7 +311,7 @@ places.get('/search', async (req, res, next) => {
     const { venues, degraded, sourcesQueried, units } = await searchAllSources({
       center: { lat: near.lat, lng: near.lng }, radiusKm, categories, query: q, includeEvents: false, sources, deadlineMs,
     });
-    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'places.search', units]);
+    await visitsRepo.recordProviderCall(household.id, sourcesQueried.join('+') || 'none', 'places.search', units);
 
     // A name is not a place on the map: searching "Sebastian's" from home must
     // not throw the restaurant away for being 10.75 km out when the radius says
@@ -375,14 +354,7 @@ places.get('/suggest', async (req, res, next) => {
     // Somewhere already in the atlas comes first: searching "Sebastian's" the
     // week after you went there must not put a charity of the same name above
     // your own restaurant (owner, 4 Sep 2026).
-    const { rows: mine } = await query(
-      `select hp.venue_ref, hp.label, hp.category, hp.locality, hp.postcode,
-              exists (select 1 from visits v where v.household_id = hp.household_id and v.venue_ref = hp.venue_ref) as been
-         from household_places hp
-        where hp.household_id = $1 and lower(hp.label) like $2
-        order by been desc, hp.last_seen desc limit 4`,
-      [household.id, `%${q.toLowerCase()}%`],
-    );
+    const mine = await visitsRepo.knownPlacesMatching(household.id, q);
     const ours = mine.map((r) => ({
       venueRef: r.venue_ref, placeId: String(r.venue_ref).startsWith('google:') ? String(r.venue_ref).slice(7) : null,
       name: r.label, where: [r.postcode, r.locality].filter(Boolean).join(' · ') || null,
@@ -426,7 +398,7 @@ places.get('/suggest', async (req, res, next) => {
     }
     // Somewhere you can walk into comes before the map it sits on.
     suggestions = suggestions.map((p, i) => ({ p, i })).sort((a, b) => (isPlace(b.p) ? 1 : 0) - (isPlace(a.p) ? 1 : 0) || a.i - b.i).map((x) => x.p);
-    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, 'google', 'places.suggest', JSON.stringify(meter)]).catch(() => null);
+    await visitsRepo.recordProviderCall(household.id, 'google', 'places.suggest', JSON.stringify(meter)).catch(() => null);
     const seen = new Set(ours.map((o) => o.placeId).filter(Boolean));
     res.json({ suggestions: [...ours, ...suggestions.filter((x) => !seen.has(x.placeId)).map((x) => ({ ...x, venueRef: `google:${x.placeId}`, mine: false }))] });
   } catch (err) { next(err); }
@@ -453,7 +425,7 @@ places.get('/detail', async (req, res, next) => {
       const meter = {};
       try { venue = await src.get(id, { meter }); } catch (err) { sourceError = String(err?.message || err); }
       // A detail fetch is a provider call too (Google: one Place Details request; Tripadvisor: two billable entities).
-      if (Object.keys(meter).length) await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, source, 'places.detail', meter]);
+      if (Object.keys(meter).length) await visitsRepo.recordProviderCall(household.id, source, 'places.detail', meter);
     }
     // The menu address, found now by following the website the source gave us:
     // one request to the restaurant's own page, free, and only for somewhere
@@ -463,9 +435,9 @@ places.get('/detail', async (req, res, next) => {
       ? findMenuUrl({ website: venue.website, name: venue.name, locality: venue.locality ?? null, address: typeof venue.address === 'string' ? venue.address : venue.address?.line1 ?? null }).catch((err) => ({ url: null, label: null, how: null, why: `Could not reach their site (${String(err?.message || err).slice(0, 80)}).`, checkedAt: new Date().toISOString() }))
       : Promise.resolve(null);
 
-    const { rows } = await query('select id from visits where household_id = $1 and venue_ref = $2 order by visited_on desc', [household.id, ref]);
+    const visitRows = await visitsRepo.visitIdsAt(household.id, ref);
     const [history, status, menu, ours] = await Promise.all([
-      Promise.all(rows.map((r) => visitPayload(r.id))),
+      Promise.all(visitRows.map((r) => visitPayload(r.id))),
       householdStatus(household.id, [ref]),
       menuLookup,
       // Our own record of this place, if the household has claimed it: open-data
@@ -492,10 +464,11 @@ places.post('/save', async (req, res, next) => {
     // been (owner, 4 Sep 2026). Somewhere you have not been can be saved to
     // try; it cannot be special yet.
     if (status === 'special') {
-      const { rows } = await query('select 1 from visits where household_id = $1 and venue_ref = $2 limit 1', [household.id, `${source}:${id}`]);
-      if (!rows.length) return res.status(409).json({ error: 'not_been', message: 'Special comes after you have been. Record the visit first, then mark it special.' });
+      if (!await visitsRepo.hasVisited(household.id, `${source}:${id}`)) {
+        return res.status(409).json({ error: 'not_been', message: 'Special comes after you have been. Record the visit first, then mark it special.' });
+      }
     }
-    await query('insert into place_ledger (household_id, source, source_place_id, status) values ($1, $2, $3, $4)', [household.id, source, id, status]);
+    await visitsRepo.recordLedger(household.id, source, id, status);
     if (status !== 'dismissed') await upsertHouseholdPlace(null, household.id, { venueRef: `${source}:${id}`, label: req.body?.label, venue: req.body?.venue, category: req.body?.category, lat: req.body?.lat, lng: req.body?.lng, note: req.body?.note, country: req.body?.country, countryCode: req.body?.countryCode, locality: req.body?.locality });
     // Saving it is the household saying this one matters: our own research on it
     // starts now, behind the response (sources/own.js).
@@ -552,8 +525,8 @@ visits.post('/', async (req, res, next) => {
 
     // Same client id twice must not make two visits (Epic 6 C5).
     if (b.clientId) {
-      const { rows } = await query('select id from visits where client_id = $1', [b.clientId]);
-      if (rows[0]) return res.json({ visit: await visitPayload(rows[0].id), deduplicated: true });
+      const already = await visitsRepo.visitByClientId(b.clientId);
+      if (already) return res.json({ visit: await visitPayload(already.id), deduplicated: true });
     }
 
     let where = { country: b.country ?? null, countryCode: b.countryCode ?? null, locality: b.locality ?? null };
@@ -569,19 +542,14 @@ visits.post('/', async (req, res, next) => {
       .filter((id) => members.some((m) => m.id === id));
 
     const visitId = await withTransaction(async (client) => {
-      const { rows } = await client.query(
-        `insert into visits (client_id, household_id, trip_id, stop_id, venue_ref, venue_label, category, lat, lng, visited_on, note, country, country_code, locality)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning id`,
-        [b.clientId ?? null, household.id, b.tripId ?? null, b.stopId ?? null, b.venueRef, b.venueLabel, b.category ?? null, b.lat ?? null, b.lng ?? null,
-         visitedOn, b.note?.trim() || null, where.country, where.countryCode, where.locality],
-      );
-      const id = rows[0].id;
-      for (const memberId of attendeeIds) {
-        await client.query('insert into visit_attendees (visit_id, member_id) values ($1, $2) on conflict do nothing', [id, memberId]);
-      }
+      const id = await visitsRepo.insertVisit(household.id, {
+        clientId: b.clientId, tripId: b.tripId, stopId: b.stopId, venueRef: b.venueRef, venueLabel: b.venueLabel,
+        category: b.category, lat: b.lat, lng: b.lng, visitedOn, note: b.note?.trim() || null, ...where,
+      }, client);
+      for (const memberId of attendeeIds) await visitsRepo.addAttendee(id, memberId, client);
       await writeTakes(client, id, b.takes, b.venue ?? { category: b.category });
       const [source, ...rest] = b.venueRef.split(':');
-      await client.query('insert into place_ledger (household_id, source, source_place_id, status) values ($1, $2, $3, $4)', [household.id, source, rest.join(':'), 'visited']);
+      await visitsRepo.recordLedger(household.id, source, rest.join(':'), 'visited', client);
       await upsertHouseholdPlace(client, household.id, { venueRef: b.venueRef, label: b.venueLabel, category: b.category, lat: b.lat, lng: b.lng, venue: b.venue, ...where });
       return id;
     });
@@ -602,28 +570,8 @@ visits.get('/', async (req, res, next) => {
     const household = await currentHousehold();
     const { country, q, memberId, take } = req.query;
     const params = [household.id];
-    const where = ['v.household_id = $1'];
-    if (country) { params.push(String(country).toUpperCase()); where.push(`v.country_code = $${params.length}`); }
-    if (q) { params.push(`%${String(q).toLowerCase()}%`); where.push(`(lower(v.venue_label) like $${params.length} or lower(coalesce(v.locality,'')) like $${params.length} or lower(coalesce(v.note,'')) like $${params.length})`); }
-    if (memberId) { params.push(String(memberId)); where.push(`exists (select 1 from visit_attendees va where va.visit_id = v.id and va.member_id = $${params.length})`); }
-    if (take && TAKES.includes(String(take))) { params.push(String(take)); where.push(`exists (select 1 from ratings r where r.visit_id = v.id and r.subject = 'visit' and r.take = $${params.length}::take)`); }
-
-    const { rows } = await query(
-      `select v.*,
-              (select json_agg(json_build_object('member', m.name, 'memberId', m.id, 'take', r.take, 'comment', r.comment, 'score', r.score))
-                 from ratings r join members m on m.id = r.member_id where r.visit_id = v.id and r.subject = 'visit') as visit_takes,
-              (select count(*)::int from ratings r where r.visit_id = v.id and r.subject <> 'visit') as item_takes,
-              (select json_agg(m.name order by m.name) from visit_attendees va join members m on m.id = va.member_id where va.visit_id = v.id) as attendees
-         from visits v
-        where ${where.join(' and ')}
-        order by v.visited_on desc, v.created_at desc
-        limit 500`,
-      params,
-    );
-    const { rows: facets } = await query(
-      `select country_code, country, count(*)::int as visits from visits where household_id = $1 and country_code is not null group by country_code, country order by visits desc`,
-      [household.id],
-    );
+    const rows = await visitsRepo.visitsFor(household.id, { country, q, memberId, take }, TAKES);
+    const facets = await visitsRepo.visitCountries(household.id);
     res.json({
       visits: rows.map((v) => ({
         id: v.id, venueRef: v.venue_ref, venueLabel: v.venue_label, category: v.category, lat: v.lat, lng: v.lng,
@@ -650,10 +598,7 @@ visits.get('/:id', async (req, res, next) => {
 visits.patch('/:id', async (req, res, next) => {
   try {
     const { note, visitedOn, venueLabel } = req.body || {};
-    await query(
-      `update visits set note = coalesce($2, note), visited_on = coalesce($3, visited_on), venue_label = coalesce($4, venue_label) where id = $1`,
-      [req.params.id, note ?? null, visitedOn ?? null, venueLabel ?? null],
-    );
+    await visitsRepo.updateVisit(req.params.id, { note, visitedOn, venueLabel });
     res.json({ visit: await visitPayload(req.params.id) });
   } catch (err) {
     next(err);
@@ -663,11 +608,11 @@ visits.patch('/:id', async (req, res, next) => {
 /** PUT /api/visits/:id/takes — replace what everyone thought. Body: { takes: [...], venue? } */
 visits.put('/:id/takes', async (req, res, next) => {
   try {
-    const { rows } = await query('select * from visits where id = $1', [req.params.id]);
-    if (!rows[0]) return res.status(404).json({ error: 'visit_not_found' });
-    const venue = req.body?.venue ?? { category: rows[0].category };
+    const visit = await visitsRepo.visitById(req.params.id);
+    if (!visit) return res.status(404).json({ error: 'visit_not_found' });
+    const venue = req.body?.venue ?? { category: visit.category };
     await withTransaction(async (client) => {
-      await client.query('delete from ratings where visit_id = $1', [req.params.id]);
+      await visitsRepo.clearRatings(req.params.id, client);
       await writeTakes(client, req.params.id, req.body?.takes, venue);
     });
     res.json({ visit: await visitPayload(req.params.id) });
@@ -678,8 +623,7 @@ visits.put('/:id/takes', async (req, res, next) => {
 
 visits.delete('/:id', async (req, res, next) => {
   try {
-    const { rowCount } = await query('delete from visits where id = $1', [req.params.id]);
-    if (!rowCount) return res.status(404).json({ error: 'visit_not_found' });
+    if (!await visitsRepo.deleteVisit(req.params.id)) return res.status(404).json({ error: 'visit_not_found' });
     res.status(204).end();
   } catch (err) {
     next(err);

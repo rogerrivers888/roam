@@ -16,7 +16,8 @@
 // offline copy cannot drift from the online one.
 
 import { Router } from 'express';
-import { query } from '../db.js';
+import * as atlasRepo from '../repositories/atlas.js';
+import * as tripsRepo from '../repositories/trips.js';
 import { currentHousehold } from './household.js';
 import { ownedRecords, ownedSummary, catchUp } from '../sources/own.js';
 
@@ -25,13 +26,9 @@ export const offline = Router();
 offline.get('/manifest', async (_req, res, next) => {
   try {
     const household = await currentHousehold();
-    const [{ rows: cities }, { rows: trips }, owned] = await Promise.all([
-      query(
-        `select distinct country_code, coalesce(locality, 'Elsewhere') as locality
-           from household_places where household_id = $1 and country_code is not null`,
-        [household.id],
-      ),
-      query('select id from trips where household_id = $1 order by coalesce(start_date, depart_at::date) desc limit 60', [household.id]),
+    const [cities, trips, owned] = await Promise.all([
+      atlasRepo.citiesWithPlaces(household.id),
+      tripsRepo.recentTripIds(household.id),
       ownedSummary(household.id),
     ]);
 
@@ -91,8 +88,7 @@ offline.get('/manifest', async (_req, res, next) => {
 offline.get('/records', async (_req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { rows } = await query('select distinct venue_ref from place_claims where household_id = $1', [household.id]);
-    const records = await ownedRecords(rows.map((r) => r.venue_ref));
+    const records = await ownedRecords(await atlasRepo.claimedRefs(household.id));
     res.json({
       records,
       count: Object.keys(records).length,

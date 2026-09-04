@@ -425,3 +425,101 @@ export async function recordProviderCall(householdId, provider, purpose, units =
     [householdId, provider, purpose, units],
   );
 }
+
+// ---------------------------------------------------------------------------
+// the journey: the day worked out end to end
+// ---------------------------------------------------------------------------
+
+export async function dayById(tripId, dayId) {
+  const { rows } = await query('select * from trip_days where trip_id = $1 and id = $2', [tripId, dayId]);
+  return rows[0] ?? null;
+}
+
+export async function firstDayOf(tripId) {
+  const { rows } = await query('select * from trip_days where trip_id = $1 order by date limit 1', [tripId]);
+  return rows[0] ?? null;
+}
+
+export async function dayIdsInOrder(tripId) {
+  const { rows } = await query('select id from trip_days where trip_id = $1 order by date', [tripId]);
+  return rows;
+}
+
+/**
+ * The shortlist's places for a day, in the running, in order.
+ *
+ * A place with no day yet belongs to whichever day is open, which is why the
+ * `day_id is null` arm is here rather than being filtered afterwards.
+ */
+export async function runningShortlist(tripId, dayId) {
+  const { rows } = await query(
+    `select * from trip_shortlist
+      where trip_id = $1 and (day_id = $2 or day_id is null) and status in ('to_call','booked','no_booking')
+      order by position nulls last, must_do desc, added_at`,
+    [tripId, dayId],
+  );
+  return rows;
+}
+
+/** The ones set aside or full: shown beside the day, not in it. */
+export async function setAsideShortlist(tripId, dayId) {
+  const { rows } = await query(
+    `select id, venue_label, category, status, status_note, status_on from trip_shortlist
+      where trip_id = $1 and (day_id = $2 or day_id is null) and status not in ('to_call','booked','no_booking')
+      order by position nulls last, added_at`,
+    [tripId, dayId],
+  );
+  return rows;
+}
+
+export async function stopsOnDay(tripId, dayId) {
+  const { rows } = await query('select * from trip_stops where trip_id = $1 and day_id = $2 order by position', [tripId, dayId]);
+  return rows;
+}
+
+/**
+ * Hold the trip while a day is rewritten.
+ *
+ * Saving a journey deletes the day's stops and writes them again. Two taps in
+ * the same instant would otherwise both delete and both insert, and the day
+ * would end up with everything twice.
+ */
+export async function lockTrip(tripId, client) {
+  await on(client)('select id from trips where id = $1 for update', [tripId]);
+}
+
+export async function clearStopsOnDay(tripId, dayId, client) {
+  await on(client)('delete from trip_stops where trip_id = $1 and day_id = $2', [tripId, dayId]);
+}
+
+/** A stop as the journey engine worked it out: with its time, booking and how they get there. */
+export async function insertPlannedStop(tripId, dayId, s, client) {
+  await on(client)(
+    `insert into trip_stops (trip_id, day_id, slot, start_time, position, venue_ref, venue_name, lat, lng, dwell_minutes, booking_status, booking_ref, leg_mode)
+     values ($1,$2,$3,$4::time,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    [tripId, dayId, s.slot, s.startTime, s.position, s.venueRef, s.name, s.lat, s.lng, s.dwellMinutes, s.status, s.bookingRef, s.legMode],
+  );
+}
+
+export async function assignShortlistToDay(tripId, itemId, dayId, position, client) {
+  await on(client)('update trip_shortlist set day_id = $3, position = $4 where id = $2 and trip_id = $1', [tripId, itemId, dayId, position]);
+}
+
+export async function setShortlistPosition(tripId, itemId, position, client) {
+  await on(client)('update trip_shortlist set position = $3 where id = $2 and trip_id = $1', [tripId, itemId, position]);
+}
+
+/** The most recent trips, for the offline manifest. */
+export async function recentTripIds(householdId, limit = 60) {
+  const { rows } = await query(
+    'select id from trips where household_id = $1 order by coalesce(start_date, depart_at::date) desc limit $2',
+    [householdId, limit],
+  );
+  return rows;
+}
+
+/** One trip, but only if it belongs to this household. */
+export async function tripOfHousehold(tripId, householdId) {
+  const { rows } = await query('select id, title, start_date from trips where id = $1 and household_id = $2', [tripId, householdId]);
+  return rows[0] ?? null;
+}

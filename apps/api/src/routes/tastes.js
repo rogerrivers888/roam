@@ -14,7 +14,8 @@
 // provider call is attributed to a household and a session.
 
 import { Router } from 'express';
-import { query } from '../db.js';
+import * as planSessions from '../repositories/planSessions.js';
+import * as tripsRepo from '../repositories/trips.js';
 import { currentHousehold, loadMembers, toAttendees } from './household.js';
 import { searchCached } from '../sources/cache.js';
 import { defaultSourceKeys, sourceHasKey, sourceOff } from '../sources/index.js';
@@ -112,8 +113,7 @@ async function buildTable({ household, attending, attendees, session, taste, hom
   const params = { center: home, radiusKm, categories: FOOD_CATEGORIES, query: queryFor(taste), includeEvents: false, sources };
   const r = await searchCached(params);
   if (r.fetched) {
-    await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)',
-      [household.id, session?.id ?? null, r.sourcesQueried.join('+') || 'none', 'plan.tastes', r.units]);
+    await planSessions.recordSessionCall(household.id, session?.id ?? null, r.sourcesQueried.join('+') || 'none', 'plan.tastes', r.units);
   }
 
   const venues = (r.venues || [])
@@ -255,10 +255,9 @@ async function runTables({ household, attending, attendees, session, input }) {
   // What the drive times cost, attributed like every other outbound call.
   try {
     if (Object.keys(meter).length) {
-      await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)',
-        [household.id, session.id, 'google-routes', 'plan.tastes.routing', meter]);
+      await planSessions.recordSessionCall(household.id, session.id, 'google-routes', 'plan.tastes.routing', meter);
     }
-    await query('update plan_sessions set state = $2 where id = $1', [session.id, JSON.stringify({ kind: 'tastes', input, running: false })]);
+    await planSessions.savePlanState(session.id, { kind: 'tastes', input, running: false });
   } catch { /* the tables are already in hand */ }
 }
 
@@ -290,8 +289,7 @@ router.post('/tastes', async (req, res, next) => {
     // a statement, not a preference left on a default.
     const said = capFromText(brief);
     const input = { brief: String(brief || '').trim() || null, moods, maxTravelMinutes: said ?? maxTravelMinutes ?? null, capFromWords: said != null, budget };
-    const { rows } = await query('insert into plan_sessions (household_id, state) values ($1, $2) returning *', [household.id, JSON.stringify({ kind: 'tastes', input, running: true })]);
-    const session = rows[0];
+    const session = await planSessions.insertPlanSession(household.id, { kind: 'tastes', input, running: true });
     const all = foodTastes(attendees, { brief: input.brief || '' });
     const tastes = all.slice(0, MAX_TABLES);
     // Tables cost a search each, so they are built when food is the point of
@@ -444,8 +442,8 @@ router.post('/tastes/trip', async (req, res, next) => {
     if (household.home_lat == null) return res.status(400).json({ error: 'home_required', message: 'Set a home address in Settings first.' });
     const { table, place } = found;
     if (place.tripId) {
-      const { rows } = await query('select id, title, start_date from trips where id = $1 and household_id = $2', [place.tripId, household.id]);
-      if (rows[0]) return res.json({ tripId: rows[0].id, title: rows[0].title, date: rows[0].start_date, seeded: place.seeded ?? [], reply: `${rows[0].title} is already set up — opening it.`, existing: true });
+      const already = await tripsRepo.tripOfHousehold(place.tripId, household.id);
+      if (already) return res.json({ tripId: already.id, title: already.title, date: already.start_date, seeded: place.seeded ?? [], reply: `${already.title} is already set up — opening it.`, existing: true });
     }
 
     const home = { label: household.home_label, lat: household.home_lat, lng: household.home_lng, how: 'home' };

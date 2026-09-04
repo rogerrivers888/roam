@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { query } from '../db.js';
+import * as impressions from '../repositories/impressions.js';
+import * as visitsRepo from '../repositories/visits.js';
 import { searchAllSources } from '../sources/index.js';
 import { deriveCatchment, detourMinutes, reachRadiusKm, TRAVEL_MODES } from '../domain/travel.js';
 import { applyConstraints } from '../domain/ranking.js';
@@ -59,7 +60,7 @@ router.post('/', async (req, res, next) => {
       sources,
     });
     // Every browse is attributed, whichever sources ran (Technical Constraints §14); it used to log Tripadvisor only.
-    await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'discover', units]);
+    await visitsRepo.recordProviderCall(household.id, sourcesQueried.join('+') || 'none', 'discover', units);
 
     const pace = paceOf(household);
     let inCatchment = deriveCatchment({ origin, maxTravelMinutes, mode, venues }).filter((v) => v.travelMinutes <= Math.max(maxTravelMinutes, travelLimitFor(pace, v)));
@@ -75,12 +76,7 @@ router.post('/', async (req, res, next) => {
     // client-side filter over fresh results (Technical Constraints §13.1).
     let ledgerFiltered = 0;
     if (excludeSeen) {
-      const { rows } = await query(
-        `select source, source_place_id from place_ledger
-          where household_id = $1 and status in ('shown', 'dismissed')`,
-        [household.id],
-      );
-      const seen = new Set(rows.map((r) => `${r.source}:${r.source_place_id}`));
+      const seen = new Set(await impressions.seenRefs(household.id));
       const before = inCatchment.length;
       inCatchment = inCatchment.filter((v) => !seen.has(`${v.source}:${v.sourcePlaceId}`));
       ledgerFiltered = before - inCatchment.length;
@@ -91,25 +87,7 @@ router.post('/', async (req, res, next) => {
 
     // Attribution logging, from the first day (Epic 2 C5, Technical Constraints §2).
     const queryId = crypto.randomUUID();
-    if (candidates.length > 0) {
-      const values = [];
-      const params = [household.id, queryId];
-      candidates.forEach((c, i) => {
-        values.push(`($1, $2, $${params.length + 1}, $${params.length + 2}, $${params.length + 3})`);
-        params.push(c.source, c.sourcePlaceId, c.key);
-      });
-      await query(
-        `insert into source_impressions (household_id, query_id, source, source_place_id, resolved_venue_key)
-         values ${values.join(', ')}`,
-        params,
-      );
-      await query(
-        `insert into place_ledger (household_id, source, source_place_id, status)
-         select $1, source, source_place_id, 'shown'
-           from unnest($2::text[], $3::text[]) as t(source, source_place_id)`,
-        [household.id, candidates.map((c) => c.source), candidates.map((c) => c.sourcePlaceId)],
-      );
-    }
+    await impressions.recordImpressions(household.id, queryId, candidates);
 
     res.json({
       queryId,
@@ -154,18 +132,9 @@ router.post('/select', async (req, res, next) => {
       return res.status(400).json({ error: 'invalid_status' });
     }
 
-    const { rows } = await query(
-      `update source_impressions set selected = true
-        where query_id = $1 and resolved_venue_key = $2
-        returning source, source_place_id`,
-      [queryId, venueKey],
-    );
+    const rows = await impressions.markSelected(queryId, venueKey);
     if (!rows.length) return res.status(404).json({ error: 'impression_not_found' });
-
-    await query(
-      `insert into place_ledger (household_id, source, source_place_id, status) values ($1, $2, $3, $4)`,
-      [household.id, rows[0].source, rows[0].source_place_id, status],
-    );
+    await visitsRepo.recordLedger(household.id, rows[0].source, rows[0].source_place_id, status);
     res.json({ recorded: true, venueKey, status, sources: rows.map((r) => r.source) });
   } catch (err) {
     next(err);
@@ -175,14 +144,7 @@ router.post('/select', async (req, res, next) => {
 /** Which sources are earning their place. Reads the evidence Epic 2 requires. */
 router.get('/source-value', async (_req, res, next) => {
   try {
-    const { rows } = await query(
-      `select source,
-              count(*)                                  as impressions,
-              count(*) filter (where selected)          as selections
-         from source_impressions
-        group by source
-        order by selections desc, impressions desc`,
-    );
+    const rows = await impressions.sourceValue();
     res.json({
       sources: rows.map((r) => ({
         source: r.source,

@@ -10,7 +10,8 @@
 // walking, public transport and a taxi, the quickest by default.
 
 import { Router } from 'express';
-import { query, withTransaction } from '../db.js';
+import { withTransaction } from '../db.js';
+import * as trips from '../repositories/trips.js';
 import { estimateTravelMinutes } from '../domain/travel.js';
 import { routingEnabled, routeBetween, directions as fetchDirections } from '../sources/routing.js';
 import { dayAsTrip, slotFor } from '../domain/days.js';
@@ -23,16 +24,16 @@ const RUNNING = new Set(['to_call', 'booked', 'no_booking']);
 const TAXI_WAIT_MINUTES = 4;
 
 async function loadTrip(tripId) {
-  const { rows } = await query('select * from trips where id = $1', [tripId]);
-  if (!rows[0]) { const err = new Error('Trip not found'); err.status = 404; err.code = 'trip_not_found'; throw err; }
-  return rows[0];
+  const trip = await trips.tripById(tripId);
+  if (!trip) { const err = new Error('Trip not found'); err.status = 404; err.code = 'trip_not_found'; throw err; }
+  return trip;
 }
+
+/** The day asked for, or the trip's first — a day out has only one. */
 async function loadDay(trip, dayId) {
-  const { rows } = dayId
-    ? await query('select * from trip_days where trip_id = $1 and id = $2', [trip.id, dayId])
-    : await query('select * from trip_days where trip_id = $1 order by date limit 1', [trip.id]);
-  if (!rows[0]) { const err = new Error('Day not found'); err.status = 404; err.code = 'day_not_found'; throw err; }
-  return rows[0];
+  const day = dayId ? await trips.dayById(trip.id, dayId) : await trips.firstDayOf(trip.id);
+  if (!day) { const err = new Error('Day not found'); err.status = 404; err.code = 'day_not_found'; throw err; }
+  return day;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +106,7 @@ async function resolveEndpoints(trip, day, household) {
   const usual = home ?? base ?? origin;
   let start = usual; let end = usual;
   if (trip.kind === 'trip' && base) {
-    const { rows } = await query('select id from trip_days where trip_id = $1 order by date', [trip.id]);
+    const rows = await trips.dayIdsInOrder(trip.id);
     const i = rows.findIndex((r) => r.id === day.id);
     start = i === 0 ? (home ?? base) : base;
     end = i === rows.length - 1 ? (home ?? base) : base;
@@ -222,20 +223,17 @@ async function buildJourney({ trip, day, household, items, source }) {
 
 async function logRouting(household, purpose, calls) {
   if (!calls) return;
-  await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, 'google-routes', purpose, calls]).catch(() => null);
+  await trips.recordProviderCall(household.id, 'google-routes', purpose, calls).catch(() => null);
 }
 
 /** The shortlist's places for this day, in the running, in order. Unassigned places belong to whichever day is open. */
 async function runningItems(trip, day) {
-  const { rows } = await query(
-    `select * from trip_shortlist where trip_id = $1 and (day_id = $2 or day_id is null) and status in ('to_call','booked','no_booking')
-      order by position nulls last, must_do desc, added_at`, [trip.id, day.id]);
-  return rows;
+  return trips.runningShortlist(trip.id, day.id);
 }
 
 /** A saved day's stops, in the same shape the engine reads. */
 async function savedItems(trip, day) {
-  const { rows } = await query('select * from trip_stops where trip_id = $1 and day_id = $2 order by position', [trip.id, day.id]);
+  const rows = await trips.stopsOnDay(trip.id, day.id);
   return rows.map((s) => ({
     id: s.id, venue_ref: s.venue_ref, venue_label: s.venue_name, category: s.category ?? null, kind: null, lat: s.lat, lng: s.lng, venue: null,
     status: s.booking_status ?? 'no_booking', booked_time: s.booking_status === 'booked' ? s.start_time : null, party_size: null, booking_ref: s.booking_ref ?? null, note: null,
@@ -258,7 +256,7 @@ router.get('/:id/journey', async (req, res, next) => {
     const journey = await buildJourney({ trip, day, household, items, source });
     await logRouting(household, `trip.journey.${source}`, journey.lookups);
     if (source === 'shortlist') {
-      const { rows: others } = await query(`select id, venue_label, category, status, status_note, status_on from trip_shortlist where trip_id = $1 and (day_id = $2 or day_id is null) and status not in ('to_call','booked','no_booking') order by position nulls last, added_at`, [trip.id, day.id]);
+      const others = await trips.setAsideShortlist(trip.id, day.id);
       journey.others = others.map((o) => ({ id: o.id, name: o.venue_label, category: o.category, status: o.status, statusNote: o.status_note, statusOn: o.status_on }));
     }
     res.json(journey);
@@ -279,16 +277,16 @@ router.post('/:id/journey/save', async (req, res, next) => {
     const tz = trip.timezone || DEFAULT_TZ;
     await withTransaction(async (client) => {
       // One save at a time per trip: two taps in the same instant must not both delete and both insert.
-      await client.query('select id from trips where id = $1 for update', [trip.id]);
-      await client.query('delete from trip_stops where trip_id = $1 and day_id = $2', [trip.id, day.id]);
+      await trips.lockTrip(trip.id, client);
+      await trips.clearStopsOnDay(trip.id, day.id, client);
       for (const s of journey.stops) {
         const arrive = wallToUtc(day.date, s.arriveAt, tz);
-        await client.query(
-          `insert into trip_stops (trip_id, day_id, slot, start_time, position, venue_ref, venue_name, lat, lng, dwell_minutes, booking_status, booking_ref, leg_mode)
-           values ($1,$2,$3,$4::time,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-          [trip.id, day.id, slotFor(arrive, tz), s.arriveAt, s.position, s.venueRef, s.name, s.lat, s.lng, s.dwellMinutes, s.status, s.bookingRef, s.legIn.mode],
-        );
-        await client.query('update trip_shortlist set day_id = $3, position = $4 where id = $2 and trip_id = $1', [trip.id, s.id, day.id, s.position]);
+        await trips.insertPlannedStop(trip.id, day.id, {
+          slot: slotFor(arrive, tz), startTime: s.arriveAt, position: s.position, venueRef: s.venueRef,
+          name: s.name, lat: s.lat, lng: s.lng, dwellMinutes: s.dwellMinutes,
+          status: s.status, bookingRef: s.bookingRef, legMode: s.legIn.mode,
+        }, client);
+        await trips.assignShortlistToDay(trip.id, s.id, day.id, s.position, client);
       }
     });
     res.json({ saved: journey.stops.length, dayId: day.id, trip: await tripPayload(trip.id) });
@@ -300,7 +298,7 @@ router.post('/:id/shortlist/reorder', async (req, res, next) => {
   try {
     const ids = Array.isArray(req.body?.itemIds) ? req.body.itemIds : [];
     await withTransaction(async (client) => {
-      for (let i = 0; i < ids.length; i += 1) await client.query('update trip_shortlist set position = $3 where id = $2 and trip_id = $1', [req.params.id, ids[i], i + 1]);
+      for (let i = 0; i < ids.length; i += 1) await trips.setShortlistPosition(req.params.id, ids[i], i + 1, client);
     });
     res.json(await tripPayload(req.params.id));
   } catch (err) { next(err); }

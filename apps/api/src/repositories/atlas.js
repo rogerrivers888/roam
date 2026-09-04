@@ -216,3 +216,19 @@ export async function upsertCity(householdId, c) {
 export async function deleteCity(householdId, countryCode, locality) {
   await query('delete from atlas_cities where household_id = $1 and country_code = $2 and locality = $3', [householdId, countryCode, locality]);
 }
+
+/** The cities the household has places in, for the offline manifest. */
+export async function citiesWithPlaces(householdId) {
+  const { rows } = await query(
+    `select distinct country_code, coalesce(locality, 'Elsewhere') as locality
+       from household_places where household_id = $1 and country_code is not null`,
+    [householdId],
+  );
+  return rows;
+}
+
+/** Every place the household has claimed, for the owned records the device keeps. */
+export async function claimedRefs(householdId) {
+  const { rows } = await query('select distinct venue_ref from place_claims where household_id = $1', [householdId]);
+  return rows.map((r) => r.venue_ref);
+}

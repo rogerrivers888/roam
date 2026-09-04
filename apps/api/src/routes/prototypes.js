@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from '../db.js';
+import * as prototypes from '../repositories/prototypes.js';
 
 const router = Router();
 
@@ -10,7 +10,7 @@ const STATUSES = new Set(['new', 'approved', 'rejected', 'archived']);
 /** Every verdict recorded so far, keyed by file. Files with no row are 'new'. */
 router.get('/', async (_req, res, next) => {
   try {
-    const { rows } = await query('select file, status, note, updated_at from prototype_reviews');
+    const rows = await prototypes.allReviews();
     const reviews = {};
     for (const r of rows) reviews[r.file] = { status: r.status, note: r.note, updatedAt: r.updated_at };
     res.json({ reviews });
@@ -28,16 +28,11 @@ router.put('/:file', async (req, res, next) => {
     if (!STATUSES.has(status)) return res.status(400).json({ error: 'bad_status', message: `status must be one of ${[...STATUSES].join(', ')}` });
     const note = req.body?.note == null || req.body.note === '' ? null : String(req.body.note).slice(0, 2000);
     if (status === 'new' && !note) {
-      await query('delete from prototype_reviews where file = $1', [file]);
+      await prototypes.clearReview(file);
       return res.json({ review: { file, status: 'new', note: null, updatedAt: null } });
     }
-    const { rows } = await query(
-      `insert into prototype_reviews (file, status, note, updated_at) values ($1, $2, $3, now())
-       on conflict (file) do update set status = excluded.status, note = excluded.note, updated_at = now()
-       returning file, status, note, updated_at`,
-      [file, status, note],
-    );
-    res.json({ review: { file: rows[0].file, status: rows[0].status, note: rows[0].note, updatedAt: rows[0].updated_at } });
+    const row = await prototypes.saveReview(file, status, note);
+    res.json({ review: { file: row.file, status: row.status, note: row.note, updatedAt: row.updated_at } });
   } catch (err) { next(err); }
 });
 
