@@ -36,7 +36,15 @@ function Fit({ fit }: { fit: TasteFit }) {
 
 /** What one menu said, in the same shape as the lines above it. */
 function MenuLines({ menu }: { menu: MenuRead }) {
-  if (!menu.checked) return <StatusLine tone="warn">{menu.whyNot || 'No menu published anywhere Roam could read.'}</StatusLine>;
+  // Not read is still an answer: what stopped it, and the link, so the family
+  // can look themselves.
+  if (!menu.checked) return (
+    <View style={styles.menu}>
+      <Text style={[type.tiny, { color: colors.ink }]}>{menu.whyNot || menu.summary || 'No menu published anywhere Roam could read.'}</Text>
+      {menu.menuUrl ? <Pressable onPress={() => Linking.openURL(menu.menuUrl!)} accessibilityRole="link"><Text style={[type.tiny, { color: colors.accent, fontWeight: '700' }]}>Open the menu yourself</Text></Pressable> : null}
+      {menu.allergens.length ? <Text style={[type.tiny, { color: colors.overrun }]}>Nothing was read, so nothing is known about {menu.allergens.map((a) => `${a.allergen} for ${a.person}`).join(', ')}. Ask when you book.</Text> : null}
+    </View>
+  );
   const line = (verdict: string, text: string, key: string) => (
     <Row key={key} style={{ alignItems: 'flex-start', gap: 6 }}>
       <View style={{ paddingTop: 2 }}><Icon name={VERDICT_ICON[verdict] ?? 'info'} size={14} color={VERDICT_COLOUR[verdict] ?? colors.inkMuted} /></View>
