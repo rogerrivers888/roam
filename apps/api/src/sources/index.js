@@ -274,7 +274,7 @@ export function pointsAlong(from, to, count) {
  * guarantee a result sits on the route, and a sampled circle certainly does
  * not. The caller must compute and display what each stop costs in detour.
  */
-export async function searchCorridor({ encodedPolyline, origin, destination, sources = null, meter = {}, samples = 3, radiusKm = null }) {
+export async function searchCorridor({ encodedPolyline, origin, destination, sources = null, meter = {}, samples = 2, radiusKm = null }) {
   const only = optInFrom(sources);
   const live = enabledSources({ only });
   const google = live.find((s) => s.key === 'google');
@@ -296,7 +296,13 @@ export async function searchCorridor({ encodedPolyline, origin, destination, sou
     const km = metresBetween(origin, destination) / 1000;
     const radius = radiusKm ?? Math.min(15, Math.max(5, km / (samples * 1.6)));
     const at = pointsAlong(origin, destination, samples);
-    const settled = await Promise.allSettled(at.map((p) => searchAllSources({ center: p, radiusKm: radius, categories: [], query: '', sources })));
+    // Places only, and only the ones that cost nothing to ask: a corridor is
+    // several searches, and a listings source has nothing to say about a road
+    // (you are driving past, not going to a gig) while the scout charges for
+    // every place it reads about.
+    const cheap = live.filter((x) => !x.events && x.key !== 'scout').map((x) => x.key);
+    if (!cheap.length) return { venues: [], degraded, sourcesQueried: [], units: meter };
+    const settled = await Promise.allSettled(at.map((p) => searchAllSources({ center: p, radiusKm: radius, categories: [], query: '', sources: cheap })));
     for (const outcome of settled) {
       if (outcome.status !== 'fulfilled') { degraded.push({ source: 'corridor', error: String(outcome.reason?.message || outcome.reason) }); continue; }
       // Already resolved venues; the second resolve below folds the overlaps between samples.
