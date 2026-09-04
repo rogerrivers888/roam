@@ -82,6 +82,8 @@ type InspireMemory = {
   query: string;
   sessionId: string | null;
   tasteSession: string | null;
+  /** When the ideas on screen were actually found — not when the screen was last saved. */
+  foundAt: string | null;
 };
 
 /**
@@ -183,9 +185,38 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   // through a redeploy, then the session is polled until the ideas are on it,
   // so a slow model call or a restart mid-way never ends in "Failed to fetch".
   // The tables are started first and land long before it.
+  /**
+   * Watch a run until it stops, putting whatever it has so far on screen. Split
+   * out from starting one so that coming back to the tab can rejoin a run that
+   * is still thinking, rather than either starting a second one or showing
+   * nothing at all.
+   */
+  const watchRun = async (id: number, ofSession: string, ref: string | null, startedAt: number) => {
+    for (;;) {
+      await wait(2000);
+      if (inspireRun.current !== id) return;
+      let s: Awaited<ReturnType<typeof api.inspireStatus>> | null = null;
+      try { s = await api.inspireStatus(ofSession); } catch { /* a dropped poll is harmless; the next one asks again */ }
+      if (!s) {
+        if (Date.now() - startedAt > 100_000) throw new Error(`Roam has not answered for over a minute and a half. Try Inspire me again${ref ? ` — quote run ${ref} if it keeps happening` : ''}.`);
+        continue;
+      }
+      // Whatever it has so far goes on screen now: the titles arrive before
+      // the pins do, and the pins arrive one at a time.
+      if (s.ideas) { setIdeas(s.ideas); setReply(s.reply); setFoundAt(new Date().toISOString()); }
+      setStage(s.stage); setPlaced(s.placed ?? 0);
+      if (s.error) throw new Error(`${s.error}${ref ? ` (run ${ref})` : ''}`);
+      if (!s.running) break;
+    }
+  };
+
+  // Inspire me runs on the server in the background: the request is retried
+  // through a redeploy, then the session is polled until the ideas are on it,
+  // so a slow model call or a restart mid-way never ends in "Failed to fetch".
+  // The tables are started first and land long before it.
   const inspire = async () => {
     const id = ++inspireRun.current;
-    setBusy(true); setError(null); setIdeas(null); setStage('thinking'); setPlaced(0); setElapsed(0); setRunRef(null); setThings({}); setOpened({});
+    setBusy(true); setError(null); setIdeas(null); setStage('thinking'); setPlaced(0); setElapsed(0); setRunRef(null); setThings({}); setOpened({}); setFoundAt(null); setRestoring(false);
     findTables();
     const startedAt = Date.now();
     const ticking = setInterval(() => setElapsed(Math.round((Date.now() - startedAt) / 1000)), 1000);
@@ -197,22 +228,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
       }
       if (inspireRun.current !== id) return;
       setRunRef(started!.ref); setSessionId(started!.sessionId);
-      for (;;) {
-        await wait(2000);
-        if (inspireRun.current !== id) return;
-        let s: Awaited<ReturnType<typeof api.inspireStatus>> | null = null;
-        try { s = await api.inspireStatus(started!.sessionId); } catch { /* a dropped poll is harmless; the next one asks again */ }
-        if (!s) {
-          if (Date.now() - startedAt > 100_000) throw new Error(`Roam has not answered for over a minute and a half. Try Inspire me again — quote run ${started!.ref} if it keeps happening.`);
-          continue;
-        }
-        // Whatever it has so far goes on screen now: the titles arrive before
-        // the pins do, and the pins arrive one at a time.
-        if (s.ideas) { setIdeas(s.ideas); setReply(s.reply); }
-        setStage(s.stage); setPlaced(s.placed ?? 0);
-        if (s.error) throw new Error(`${s.error} (run ${started!.ref})`);
-        if (!s.running) break;
-      }
+      await watchRun(id, started!.sessionId, started!.ref, startedAt);
     } catch (e: any) {
       if (inspireRun.current === id) setError(e?.message || String(e));
     } finally {
@@ -220,6 +236,92 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
       if (inspireRun.current === id) { setBusy(false); setStage(null); }
     }
   };
+
+  /**
+   * Come back to what was here (owner, 4 Sep 2026: "everything's disappeared").
+   *
+   * The ideas were never lost — they are on the planning session for twelve
+   * hours. This asks the session for them again, which is a read of our own
+   * database and costs nothing. A run still thinking is rejoined; a session the
+   * server has since let go is forgotten, so the screen starts clean rather
+   * than showing an error nobody can act on.
+   */
+  /**
+   * An idea from a session, made safe to render.
+   *
+   * Restoring means showing something written by whatever build was running
+   * when the run happened — this morning's, or the one before the deploy at
+   * lunchtime. A field this screen expects and an older session does not carry
+   * used to be a white screen. It is a missing chip now.
+   */
+  const usableIdea = (i: any): Idea | null => (i && typeof i.id === 'string' && typeof i.title === 'string' ? {
+    id: i.id, title: i.title, why: i.why ?? '', placeText: i.placeText ?? '', place: i.place ?? null,
+    travelMinutes: i.travelMinutes ?? null, distanceKm: i.distanceKm ?? null, overnight: Boolean(i.overnight),
+    do: Array.isArray(i.do) ? i.do : [], eat: Array.isArray(i.eat) ? i.eat : [], placing: Boolean(i.placing),
+  } : null);
+
+  const restore = async (memory: InspireMemory, savedAt: string) => {
+    const id = ++inspireRun.current;
+    try {
+      if (memory.tasteSession) void rejoinTables(memory.tasteSession);
+      if (!memory.sessionId) return;
+      const s = await api.inspireStatus(memory.sessionId);
+      if (inspireRun.current !== id) return;
+      setSessionId(memory.sessionId);
+      setRunRef(s.ref ?? null);
+      const kept = (s.ideas ?? []).map(usableIdea).filter((i): i is Idea => Boolean(i));
+      // When the ideas were found, not when the screen was last put away: the
+      // session knows, and its answer survives the tab being opened and closed
+      // all afternoon.
+      if (kept.length) { setIdeas(kept); setReply(s.reply); setFoundAt(s.startedAt ?? memory.foundAt ?? savedAt); }
+      if (s.running) {
+        setBusy(true); setStage(s.stage ?? 'thinking');
+        const startedAt = s.startedAt ? new Date(s.startedAt).getTime() : Date.now();
+        const ticking = setInterval(() => setElapsed(Math.round((Date.now() - startedAt) / 1000)), 1000);
+        try { await watchRun(id, memory.sessionId, s.ref ?? null, startedAt); }
+        finally { clearInterval(ticking); if (inspireRun.current === id) { setBusy(false); setStage(null); } }
+      }
+    } catch {
+      // Expired, or from a household that has since been deleted. Nothing to say.
+      rememberScreen('inspire', null);
+      if (inspireRun.current === id) { setIdeas(null); setSessionId(null); }
+    } finally {
+      if (inspireRun.current === id) setRestoring(false);
+    }
+  };
+
+  /** The tables, from the session they were found in, without searching again. */
+  const rejoinTables = async (ofSession: string) => {
+    const id = ++tasteRun.current;
+    try {
+      const s = await api.tastesStatus(ofSession);
+      if (tasteRun.current !== id) return;
+      setTasteSession(ofSession);
+      setTastes(s.tastes); setTables(s.tables); setTastesNote(s.note); setTastesError(s.error);
+      setTablesRunning(Boolean(s.running));
+      while (s.running) {
+        await wait(2000);
+        if (tasteRun.current !== id) return;
+        let next: Awaited<ReturnType<typeof api.tastesStatus>> | null = null;
+        try { next = await api.tastesStatus(ofSession); } catch { continue; }
+        setTastes(next.tastes); setTables(next.tables); setTastesNote(next.note); setTastesError(next.error);
+        if (!next.running) { setTablesRunning(false); return; }
+      }
+    } catch { /* the tables are a bonus; a lost session simply leaves them off */ }
+  };
+
+  // Put the screen back where it was, once, on the way in.
+  useEffect(() => {
+    if (held) { void restore(held.data, held.savedAt); if (held.data.query && !query) setQuery(held.data.query); }
+    else setRestoring(false);
+    // Deliberately once: this is the return to the tab, not a reaction to state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // And remember it as it changes, so leaving mid-thought loses nothing.
+  useEffect(() => {
+    rememberScreen<InspireMemory>('inspire', { picks, cap, budget, query, sessionId, tasteSession, foundAt });
+  }, [picks, cap, budget, query, sessionId, tasteSession, foundAt]);
 
   /** Stop waiting. The run carries on server-side; its number still finds it. */
   const stopWaiting = () => { inspireRun.current += 1; setBusy(false); setStage(null); };
@@ -383,8 +485,18 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
       ) : null}
       {busy && elapsed > 25 && runRef ? <Text style={type.tiny}>Taking longer than it should. This is run {runRef} — quote that number and Roam can say exactly where it got stuck.</Text> : null}
 
+      {restoring && !ideas ? <Text style={type.tiny}>Putting back what you were looking at…</Text> : null}
+
       {ideas ? (
         <Card>
+          {/* These are the ideas from earlier today, not new ones: say so, and
+              make asking again a tap rather than a guess (owner, 4 Sep 2026). */}
+          {foundAt && !busy ? (
+            <Row style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={type.tiny}>Found {howLongAgo(Date.now() - new Date(foundAt).getTime())} · kept until tonight</Text>
+              <Chip label="Refresh" icon="refresh" onPress={inspire} />
+            </Row>
+          ) : null}
           {reply ? <Text style={type.small}>{reply}</Text> : null}
           {ideas.length === 0 ? <Text style={type.small}>Nothing came to mind for that — try \u2018Don\u2019t mind\u2019 on one of the questions, or a wider distance.</Text> : null}
           {ideas.map((idea) => {

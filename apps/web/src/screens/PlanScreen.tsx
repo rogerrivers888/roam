@@ -17,6 +17,7 @@ import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { InspireMe } from '../components/InspireMe';
 import { Icon } from '../components/Icon';
 import { getSpeakPref } from './SettingsScreen';
+import { recallScreen, rememberScreen } from '../screenState';
 
 const speak = (text: string) => { if (getSpeakPref()) speakRaw(text); };
 
@@ -71,7 +72,11 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
   const [whoOpen, setWhoOpen] = useState(false);
   const [travelOpen, setTravelOpen] = useState(false);
   const [fromText, setFromText] = useState('');
-  const [mode, setMode] = useState<Mode>('tell');
+  // Which half of Plan you were on, kept for the day (owner, 4 Sep 2026:
+  // "everything's disappeared"). Coming back to a set of ideas you asked for
+  // this morning should not land you on the empty form instead.
+  const [mode, setMode] = useState<Mode>(recallScreen<Mode>('plan.mode')?.data ?? 'tell');
+  useEffect(() => { rememberScreen<Mode>('plan.mode', mode); }, [mode]);
   const [inspireQuery, setInspireQuery] = useState('');
   // A tapped row opens in place; its own mic scopes the words to that row alone.
   const [editing, setEditing] = useState<PlanRowKey | null>(null);

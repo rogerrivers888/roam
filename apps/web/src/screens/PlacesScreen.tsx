@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
+import { recallScreen, rememberScreen } from '../screenState';
 import { CategoryIcon, Icon } from '../components/Icon';
 import { api, AtlasCity, AtlasCountry, AtlasHome, AtlasPlace, BrowseItem, HouseholdResponse, Place, Venue, Visit } from '../api';
 import { MapView, MapPin } from '../components/MapView';
@@ -121,6 +122,12 @@ function atlasToBrowseItem(p: AtlasPlace): BrowseItem {
   };
 }
 
+/** Where the Places tab was: the city being looked at, and which countries were open. */
+type PlacesMemory = { sel: { home: true } | { country: string; city: string } | null; openCodes: string[] };
+
+/** And inside a city: how the list was filtered and sorted, and whether it was a map. */
+type CityMemory = { kind: Kind; status: Status; typeF: string | null; sort: Sort; view: 'list' | 'map' };
+
 // ---------------------------------------------------------------------------
 // The screen
 // ---------------------------------------------------------------------------
@@ -130,9 +137,14 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
   const wide = width >= 1000;
   const [data, setData] = useState<{ countries: AtlasCountry[]; unplaced: number; home: AtlasHome | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [openCodes, setOpenCodes] = useState<Set<string>>(new Set());
+  // Where this tab was left (owner, 4 Sep 2026: "same for any of the other
+  // tabs"). Only the choice of city and which countries were open — the places
+  // themselves are fetched again from the atlas, which is our own data and is
+  // on the device anyway.
+  const heldPlaces = useRef(recallScreen<PlacesMemory>('places')).current;
+  const [openCodes, setOpenCodes] = useState<Set<string>>(new Set(heldPlaces?.data.openCodes ?? []));
   // Either a city in the atlas, or the standing "close to home" view.
-  const [sel, setSel] = useState<{ home: true } | { country: string; city: string } | null>(null);
+  const [sel, setSel] = useState<{ home: true } | { country: string; city: string } | null>(heldPlaces?.data.sel ?? null);
   const atHome = !!sel && 'home' in sel;
   const [addingCity, setAddingCity] = useState(false);
   const [places, setPlaces] = useState<AtlasPlace[]>([]);
@@ -143,6 +155,11 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
   const members = household?.members ?? [];
   const [viewer, setViewer] = useState<string | null>(null);
   useEffect(() => { setViewer(getViewer(members)); return onViewerChange(setViewer); }, [members.map((m) => m.id).join(',')]);
+
+  // Remember it as it changes, so coming back lands on the same city.
+  useEffect(() => {
+    rememberScreen<PlacesMemory>('places', { sel, openCodes: [...openCodes] });
+  }, [sel, openCodes]);
 
   const loadAtlas = useCallback(async () => { try { setData(await api.atlas()); } catch (e: any) { setError(e.message); } }, []);
   useEffect(() => { loadAtlas(); }, [loadAtlas]);
@@ -299,11 +316,18 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
   country: AtlasCountry | null; city: AtlasCity | null; home: AtlasHome | null; places: AtlasPlace[]; household: HouseholdResponse | null; viewer: string | null; wide: boolean; viewportHeight: number;
   onBack: () => void; onOpen: (p: AtlasPlace) => void; openRef: string | null; onPlanTrip: () => void; onChanged: () => Promise<void>;
 }) {
-  const [kind, setKind] = useState<Kind>('all');
-  const [status, setStatus] = useState<Status>('any');
-  const [typeF, setTypeF] = useState<string | null>(null);
-  const [sort, setSort] = useState<Sort>('name');
-  const [view, setView] = useState<'list' | 'map'>('list');
+  // The filters are per city: coming back to London should not bring Lisbon's
+  // "food only, been" with it.
+  const memoryKey = `places.city.${home ? 'home' : `${country?.code ?? '?'}.${city?.name ?? '?'}`}`;
+  const heldCity = useRef(recallScreen<CityMemory>(memoryKey)).current;
+  const [kind, setKind] = useState<Kind>(heldCity?.data.kind ?? 'all');
+  const [status, setStatus] = useState<Status>(heldCity?.data.status ?? 'any');
+  const [typeF, setTypeF] = useState<string | null>(heldCity?.data.typeF ?? null);
+  const [sort, setSort] = useState<Sort>(heldCity?.data.sort ?? 'name');
+  const [view, setView] = useState<'list' | 'map'>(heldCity?.data.view ?? 'list');
+  useEffect(() => {
+    rememberScreen<CityMemory>(memoryKey, { kind, status, typeF, sort, view });
+  }, [memoryKey, kind, status, typeF, sort, view]);
   const [sheet, setSheet] = useState<'status' | 'type' | 'sort' | null>(null);
   const [adding, setAdding] = useState(false);
   const [selPin, setSelPin] = useState<string | null>(null);
