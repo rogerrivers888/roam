@@ -14,6 +14,7 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { PrototypesScreen } from './src/screens/PrototypesScreen';
 import { Wordmark } from './src/components/Wordmark';
 import { useViewport, ViewportProvider } from './src/hooks/useViewport';
+import { useOffline } from './src/hooks/useOffline';
 import { Icon, IconName } from './src/components/Icon';
 
 type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes';
@@ -108,6 +109,11 @@ function Shell() {
   const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking');
   const [household, setHousehold] = useState<HouseholdResponse | null>(null);
   const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(fromUrl.trip ? { openTripId: fromUrl.trip } : null);
+  const offline = useOffline();
+  // Showing the saved copy: the browser says there is no connection, the app has
+  // already had to fall back to the device, or the API cannot be reached at all
+  // and there is something saved to fall back to.
+  const showingSaved = !offline.online || offline.serving || (health === 'down' && offline.pages > 0);
 
   const refreshHousehold = useCallback(async () => {
     try {
@@ -126,6 +132,16 @@ function Shell() {
     refreshHousehold();
   }, [refreshHousehold]);
 
+  // Keep the device's copy fresh without being asked (owner, 4 Sep 2026: they
+  // should not have to research every time they come back). Once a day, a few
+  // seconds after the app settles so it never competes with the first screen,
+  // and only the pages the API answers for free — the atlas place lists can ask
+  // Google what kind of place a row is, and those are saved by opening Places.
+  useEffect(() => {
+    const t = setTimeout(() => { void api.keepDeviceCopyFresh(); }, 8000);
+    return () => clearTimeout(t);
+  }, []);
+
   const screen = (
     <>
       {tab === 'plan' ? <PlanScreen household={household} onOpenTrip={(id, opts) => { setTripPrefill({ openTripId: id, ...(opts ?? {}) }); setTab('trips'); }} /> : null}
@@ -140,6 +156,29 @@ function Shell() {
   const banner = (
     <View style={[styles.banner, health === 'down' && styles.bannerDown]}>
       <Text style={type.small}>{health === 'checking' ? `Reaching API at ${API_URL}…` : `Can't reach the API at ${API_URL}. Is it running?`}</Text>
+    </View>
+  );
+
+  // No signal is not a failure (owner, 4 Sep 2026): everything the household has
+  // already looked at is on the device, so this says which and gets out of the
+  // way. It replaces the "can't reach the API" banner, which would be the wrong
+  // thing to say to someone on a train.
+  //
+  // `navigator.onLine` is not the test. It only says whether the device has a
+  // network interface, so a phone attached to a train's wifi with no working
+  // connection behind it reports itself online. What is actually true is
+  // whether the answers on screen came from the device, which is what
+  // `serving` says (src/offline/cache.ts).
+  const offlineBanner = (
+    <View style={styles.banner}>
+      <View style={styles.bannerRow}>
+        <Icon name="offline" size={14} color={colors.ink} />
+        <Text style={type.small}>
+          {offline.pages
+            ? `No signal — showing what's saved on this device. Your places, trips and visits are all here.`
+            : `No signal, and nothing saved yet. Open Settings › On this device when you're back to save it all.`}
+        </Text>
+      </View>
     </View>
   );
 
@@ -172,9 +211,9 @@ function Shell() {
         ) : (
           <View style={styles.header}><Wordmark height={34} /></View>
         )}
-        {!desktop && health !== 'ok' ? banner : null}
+        {!desktop && showingSaved ? offlineBanner : !desktop && health !== 'ok' ? banner : null}
         <View style={styles.content}>
-          {desktop && health === 'down' ? banner : null}
+          {desktop && showingSaved ? offlineBanner : desktop && health === 'down' ? banner : null}
           {screen}
         </View>
         {!desktop ? (
@@ -276,6 +315,7 @@ const styles = StyleSheet.create({
   navLabel: { fontSize: 15, fontWeight: '600', color: colors.ink },
   content: { flex: 1 },
   banner: { padding: spacing.sm, backgroundColor: colors.accentSoft, alignItems: 'center' },
+  bannerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   bannerDown: { backgroundColor: colors.overrunSoft },
   tabs: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.tabbar, paddingBottom: 4 },
   tab: { flex: 1, minHeight: TARGET + 10, alignItems: 'center', justifyContent: 'center', gap: 2 },

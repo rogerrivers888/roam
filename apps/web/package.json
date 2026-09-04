@@ -8,7 +8,7 @@
     "web": "expo start --web",
     "ios": "expo start --ios",
     "android": "expo start --android",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node --stack-size=8000 ../../node_modules/typescript/lib/tsc.js --noEmit",
     "build": "expo export --platform web --output-dir dist"
   },
   "dependencies": {

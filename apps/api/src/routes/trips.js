@@ -14,6 +14,7 @@ import { kmBetween } from '../domain/travel.js';
 import { currentHousehold } from './household.js';
 import { visitPayload } from './places.js';
 import { upsertHouseholdPlace } from './atlas.js';
+import { claimPlace } from '../sources/own.js';
 
 const router = Router();
 const SLOTS = ['morning', 'afternoon', 'evening'];
@@ -431,6 +432,10 @@ export async function addShortlistItem(trip, household, b) {
     [trip.id, b.venueRef, b.venueLabel, kind, b.category ?? null, b.lat ?? null, b.lng ?? null, snapshot ? JSON.stringify(snapshot) : null, b.note?.trim() || null, Boolean(b.mustDo), b.preferredDayId ?? null],
   );
   await upsertHouseholdPlace({ query }, household.id, { venueRef: b.venueRef, label: b.venueLabel, kind, category: b.category, lat: b.lat, lng: b.lng, venue: b.venue, note: b.note, country: trip.country, countryCode: trip.country_code, locality: trip.locality });
+  // Shortlisting is the household saying this one matters, which is what starts
+  // our own research (sources/own.js). It runs behind the response: the answer
+  // is the trip, not the record.
+  claimPlace(household.id, b.venueRef, 'shortlisted', { name: b.venueLabel, category: b.category ?? null, lat: b.lat ?? null, lng: b.lng ?? null, website: b.venue?.website ?? null });
 }
 
 router.post('/:id/shortlist', async (req, res, next) => {

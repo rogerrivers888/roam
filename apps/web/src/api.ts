@@ -1,6 +1,8 @@
 // The web app talks to the Roam API over HTTP and nothing else. No provider
 // key ever reaches this bundle (Technical Constraints §13.7).
 
+import { recall, remember, servingSaved, warm, warmQuietly } from './offline/cache';
+
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
 
 export class ApiError extends Error {
@@ -15,15 +17,54 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Thrown when there is no signal and nothing saved for this page. Told apart
+ * from an ApiError so a screen can say "you are offline and we have not been
+ * here before" rather than showing a network message nobody can act on.
+ */
+export class OfflineError extends Error {
+  code = 'offline';
+  constructor(public path: string) { super('No signal, and this page is not saved on your device yet.'); }
+}
+
+/**
+ * Every request goes through here, and so does the device's copy of it
+ * (offline/cache.ts). A GET that succeeds is saved if its licence allows
+ * (offline/policy.ts); a GET that cannot reach the API is answered from what
+ * was saved, and the app is told it is showing an older copy.
+ *
+ * Writes are never answered from the copy: the household has to know whether
+ * their booking status actually reached the server.
+ */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: { 'content-type': 'application/json', ...(init?.headers || {}) },
-  });
-  if (res.status === 204) return undefined as T;
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, body);
-  return body as T;
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const readOnly = method === 'GET';
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: { 'content-type': 'application/json', ...(init?.headers || {}) },
+    });
+    if (res.status === 204) return undefined as T;
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // The API answering "no" is an answer; only an API that cannot answer at
+      // all falls back to the copy.
+      if (readOnly && [502, 503, 504].includes(res.status)) {
+        const saved = await recall<T>(path);
+        if (saved) { servingSaved(true); return saved.body; }
+      }
+      throw new ApiError(res.status, body);
+    }
+    servingSaved(false);
+    if (readOnly) void remember(path, body);
+    return body as T;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (!readOnly) throw err;
+    const saved = await recall<T>(path);
+    if (saved) { servingSaved(true); return saved.body; }
+    throw new OfflineError(path);
+  }
 }
 
 const post = <T,>(path: string, body: unknown) => request<T>(path, { method: 'POST', body: JSON.stringify(body) });
@@ -129,6 +170,37 @@ export type Venue = {
  * drawer opens. `url` is null when there is nothing to follow, and `why` says
  * so in words worth showing.
  */
+/**
+ * What Roam owns about a place: the research done when the household
+ * shortlisted, saved or visited it, from OpenStreetMap, the venue's own
+ * published details and the open encyclopedias. None of it expires, so it is
+ * the part that is on the device when there is no signal.
+ *
+ * `provenance` says which source each field came from, and `attribution` is the
+ * credit those licences require on screen.
+ */
+export type OwnedRecord = {
+  venueRef: string;
+  name: string | null; category: string | null; lat: number | null; lng: number | null;
+  address: string | null; postcode: string | null;
+  website: string | null; phone: string | null; email: string | null;
+  bookingUrl: string | null; menuUrl: string | null; menuLabel: string | null;
+  openingHours: string | null; priceRange: string | null;
+  cuisines: string[]; experiences: string[]; dietaryOptions: string[];
+  accessibility: { wheelchair?: string | null; wheelchairToilet?: string | null; stepFree?: string | null };
+  socials: Record<string, string>;
+  goodForChildren: boolean | null;
+  summary: string | null; summarySource: string | null; imageUrl: string | null;
+  osmRef: string | null; wikidataId: string | null; wikipediaUrl: string | null;
+  attribution: string[];
+  matched: Record<string, any>;
+  provenance: Record<string, string>;
+  researchedAt: string | null;
+  state: 'pending' | 'done' | 'partial' | 'failed';
+  why: string | null;
+  updatedAt: string | null;
+};
+
 export type MenuLink = { url: string | null; label: string | null; how: string | null; why?: string | null; checkedAt: string; cached?: boolean };
 
 
@@ -465,7 +537,11 @@ export const api = {
   searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number; sources?: string }) =>
     request<{ near: Place & { how: string }; radiusKm: number; results: Venue[]; sourcesQueried: string[]; degradedSources: { source: string; error: string }[]; attribution: string[] }>(`/api/places/search${qs(p)}`),
   place: (venueRef: string) =>
-    request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[]; menu?: MenuLink | null; sourceError?: string | null }>(`/api/places/detail${qs({ ref: venueRef })}`),
+    request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[]; menu?: MenuLink | null; ours?: OwnedRecord | null; sourceError?: string | null }>(`/api/places/detail${qs({ ref: venueRef })}`),
+  /** What Roam owns about these places — no provider is called, and this answer keeps. */
+  placeRecords: (venueRefs: string[]) => request<{ records: Record<string, OwnedRecord>; missing: string[] }>(`/api/places/record${qs({ refs: venueRefs.join(',') })}`),
+  /** Research a place again now (Settings, and "look again" in the drawer). */
+  researchPlace: (venueRef: string) => post<{ state: string; fields: number; matched: Record<string, any>; problems: string[]; record: OwnedRecord | null }>('/api/places/record', { ref: venueRef }),
   savePlace: (venueRef: string, status: 'saved' | 'dismissed' | 'special' = 'saved', context?: { label?: string; venue?: Partial<Venue>; category?: string | null; lat?: number; lng?: number; note?: string; country?: string | null; countryCode?: string | null; locality?: string | null }) =>
     post<{ venueRef: string; status: string }>('/api/places/save', { ref: venueRef, status, ...(context ?? {}) }),
   /** A place the atlas held only by its identifier learns its name once the source has been asked. */
@@ -543,4 +619,26 @@ export const api = {
   planCommit: (sessionId: string, optionId: string) => post<{ tripId: string; optionId: string; stops: number }>('/api/plan/commit', { sessionId, optionId }),
   planGet: (sessionId: string) => request<PlanResponse>(`/api/plan/${sessionId}`),
   planLatestForDay: (tripId: string, dayId: string) => request<PlanResponse & { sessionId: string | null }>(`/api/plan/day/latest${qs({ tripId, dayId })}`),
+
+  // offline
+  /** What is worth having on the device, and how much of the research Roam owns. */
+  offlineManifest: () => request<OfflineManifest>('/api/offline/manifest'),
+  /** Every owned record for this household's places, in one request. */
+  offlineRecords: () => request<{ records: Record<string, OwnedRecord>; count: number; terms: string; generatedAt: string }>('/api/offline/records'),
+  /**
+   * Fill the device's copy: fetch every page in the manifest so that the atlas,
+   * the trips, the visit history and every owned place record are there before
+   * the signal goes. Each page is saved by the same rule as any other answer.
+   */
+  saveForOffline: (): Promise<void> => warm((path) => request<any>(path)),
+  /** The quiet daily fill, on start-up: only what the API answers for free. */
+  keepDeviceCopyFresh: (): Promise<void> => warmQuietly((path) => request<any>(path)),
+};
+
+export type OfflineManifest = {
+  generatedAt: string;
+  paths: string[];
+  /** The subset that costs nothing to fetch; the automatic fill uses only these. */
+  free: string[];
+  owned: { claimed: number; researched: number; inOpenMap: number; described: number; waiting: number; failed: number; lastChange: string | null };
 };

@@ -434,6 +434,8 @@ Distinct from per-call charges and payable regardless of usage:
 
 **None of this is amortisable.** The retention constraint means the same search for the same user in the same area next week bills again. This is the strongest argument for the V2 owned place layer and for the source rationalisation in Requirements Appendix B.
 
+**Partly answered, 4 Sep 2026.** The owned place layer (§13.10) does not make searching cheaper — a search is still a search — but it means that everything a household *keeps* is researched once, from free sources, and never bought again. Opening a saved place costs nothing after the first time, works with no signal, and the record improves rather than expiring.
+
 ### 12.4 Other running costs
 
 - **Speech:** negligible. ~$0.21–$0.40 per hour of audio; a family debrief is one minute.
@@ -458,9 +460,45 @@ Issue several deliberately different query formulations against the same area an
 
 Search once into a shared pool, then compose multiple day options by varying selection, ordering and intensity. Roughly one third the cost of three independent searches for the same output.
 
-### 13.4 Per-field provenance and expiry
+### 13.4 Per-field provenance and expiry — **built** (4 Sep 2026)
 
-A combined venue record carries, per field, which source supplied it and when it must be discarded. Required because provider retention allowances differ — see §4. Design this before the second source goes live.
+A combined venue record carries, per field, which source supplied it and when it must be discarded. Required because provider retention allowances differ — see §4.
+
+Implemented as `place_facts` (migration 021): one row per venue, field and source, carrying the licence, the retention rule and the computed `expires_at`. `sweepExpired()` deletes what has run out and rebuilds the record that lost it. Nothing in the table has an expiry today, because every source feeding it is indefinite — but the machinery is in place and running before the day a 30-day source is enabled, which was the requirement.
+
+### 13.10 The owned place layer — **built** (owner, 4 Sep 2026)
+
+> "We don't need to store all this data for every single search of every single record that's returned. What would be good to store is the shortlisted venues, the activities, hotels, and restaurants that they've actually visited previously… once they add that action to store it, or say we visited it, we go off and get our own research… that way we then own it, and we're building up that store."
+
+The answer to §1 and to the "not amortisable" finding in §12.3. Not a cache of anybody's search results: a **second, parallel record**, researched only when a household does something that means the place matters — shortlists it, saves it, marks it special, or records a visit — from sources whose licences permit keeping the answer for good.
+
+| Source | What it gives | Licence | Cost |
+|---|---|---|---|
+| OpenStreetMap (Overpass) | The same place in the open map: name, category, cuisine, diets, hours, address, phone, website | ODbL, attribution required | free |
+| The venue's own website | The schema.org block a business publishes for machines: phone, address, hours, price band, booking link, menu URL | published for republication | free |
+| Wikipedia | A description for places with an article | CC BY-SA 4.0, credit and link required | free |
+| Wikidata | Official website, year opened | CC0 | free |
+
+The rented record is used only as a **description of what to go and find** — a name and a point on the map — and is never written down. `place_records` holds only fields whose facts have no expiry, which is what makes it the copy a device may keep.
+
+Two consequences worth naming:
+
+- **A Google-identified place becomes an open-data one.** Matching to OpenStreetMap replaces a coordinate we may keep for 30 days with one we may keep for ever, and gives the place an `osm_ref` that outlives our relationship with any provider.
+- **The research compounds.** `place_records` is not scoped to a household: a restaurant researched because one family shortlisted it is known to every family after them. This is the asset that a competitor signing up for the same APIs does not get.
+
+Files: `api/src/sources/own.js` (claim, research, compose, sweep, the background loop), `openMatch.js`, `encyclopedia.js`, `site.js`. Triggered from `POST /api/places/save`, `POST /api/visits` and `addShortlistItem`.
+
+### 13.11 Offline — **built** (owner, 4 Sep 2026)
+
+> "Sometimes, often, users will be offline or not have signal. It's very important to me that when a user does research, that research is stored… They do not have to research every time they come back to the page."
+
+Three parts:
+
+1. **The app opens with no signal.** A service worker (`web/public/sw.js`) caches the shell — bundle, fonts, icons. It never touches `/api`, so no licence decision is made twice.
+2. **Every answer the app is given is saved, if its licence allows.** `web/src/offline/policy.ts` is the licence in code: an endpoint not named there is not saved, so a new one has to be thought about rather than inherited. Searches, plans, routes and photos are never written down; the atlas, the trips, the visits and the owned records are. A GET that cannot reach the API is answered from the copy and the screen says so.
+3. **The rule on a device is stricter than on the server.** A phone is somewhere we cannot reach to delete anything from, so nothing rented goes to one at all — not even the 30-day coordinates §4 would permit. That is affordable precisely because 13.10 exists.
+
+`navigator.onLine` is not used as the test for "offline": it reports a network interface, not a working connection. What the app shows is whether answers actually came off the device.
 
 ### 13.5 Closed-vocabulary matching for voice
 
@@ -525,7 +563,7 @@ Cost is the central commercial risk: provider content cannot be retained between
 | L4 | **GDPR / UK GDPR** | Not started | Any EU or UK launch | Applies if EU/UK users are served, regardless of where the company sits |
 | L5 | **Terms of Use and Privacy Policy** | Not started | Any release | Must incorporate each place provider's ToS and Privacy Policy by reference. Also required for App Store submission |
 | L6 | **Multi-source attribution implementation** | Not started | Any release | Each provider imposes its own crediting rules. A combined venue view must satisfy all of them at once — Google logo and third-party credits, Yelp crediting, TripAdvisor crediting, author info and links on every review shown |
-| L7 | **Per-source retention compliance** | Not started | Second source going live | Different expiry per provider. A single cache lifetime breaches the strictest source |
+| L7 | **Per-source retention compliance** | **Built** (4 Sep 2026) | Second source going live | Different expiry per provider. A single cache lifetime breaches the strictest source. `place_facts` carries licence, retention and `expires_at` per field; `sweepExpired()` runs on the API's background loop. See §13.4 |
 | L8 | **Bystander audio capture** | Not started | Voice feature release | Recording in a public venue captures third parties who have not consented. Some US states require all-party consent for recording. Mitigation: transcribe and discard; prefer on-device processing |
 | L9 | **Menu prose copyright review** | Not started | Any menu database beyond the capturing household | Item names are not protectable; descriptive prose is. Gates the V3 menu search feature |
 | L10 | **OpenTable affiliate application** | Not started | V2 booking improvements | 3–4 week review, approval not guaranteed |

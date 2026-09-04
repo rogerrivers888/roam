@@ -2,10 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import { Icon, IconText, Rating, Stars } from './Icon';
-import { API_URL, api, BrowseItem, MenuLink, Venue } from '../api';
+import { API_URL, api, BrowseItem, MenuLink, OwnedRecord, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
 import { MenuOrder } from './MenuOrder';
+import { OwnedFacts } from './OwnedFacts';
+import { useOffline } from '../hooks/useOffline';
+import { savedRecord } from '../offline/cache';
 import { SOURCE_LABEL, priceMarks, typeLine } from './StopCard';
 
 /**
@@ -15,6 +18,13 @@ import { SOURCE_LABEL, priceMarks, typeLine } from './StopCard';
  * map), reviews (best to most critical, with attribution), opening hours, and
  * photos. Detail is fetched when opened and never stored: licensed content is
  * rented, identifiers are ours (Technical Constraints §4).
+ *
+ * Underneath all of that sits the part that does not disappear (owner, 4 Sep
+ * 2026): Roam's own record of the place, researched when the household kept it,
+ * from sources whose licences let us hold on to the answer. With no signal the
+ * provider's half of this drawer is empty and that record is the whole of it —
+ * the address, the phone number, the hours, the menu — which is what makes a
+ * place openable standing outside it with no bars.
  *
  * Three things it answers for someone standing outside (owner, 4 Sep 2026):
  * whether it is open today, what each review actually gave it in stars, and
@@ -72,15 +82,43 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   const [menu, setMenu] = useState<MenuLink | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Roam's own record: what survives when the provider cannot be reached.
+  const [ownRecord, setOwnRecord] = useState<OwnedRecord | null | undefined>(undefined);
+  const { online, serving } = useOffline();
+  // The same test the shell uses: not what the browser claims, but whether the
+  // answers on screen actually came off the device.
+  const showingSaved = !online || serving;
   // The table half of the evening: read the menu, tick who wants what, show the
   // order to the waiter, star what stood out (owner, 4 Sep 2026).
   const [ordering, setOrdering] = useState(false);
 
   useEffect(() => {
-    setTab('overview'); setVenue(undefined); setMenu(undefined); setError(null); setSaved(false);
+    setTab('overview'); setVenue(undefined); setMenu(undefined); setError(null); setSaved(false); setOwnRecord(undefined);
     if (!item) return;
     let live = true;
-    api.place(item.venueRef).then((d) => { if (live) { setVenue(d.venue); setMenu(d.menu ?? null); if (d.venue) onVenue?.(d.venue); if (d.sourceError) setError(d.sourceError); } }).catch((e) => { if (live) { setVenue(null); setMenu(null); setError(e.message); } });
+    // A place the household has never opened has no saved answer of its own, but
+    // every owned record arrived in one piece when the copy was filled — so with
+    // no signal the address and the phone number are still here.
+    const fromDevice = async () => {
+      const ref = item.venueRef;
+      const r = await savedRecord(ref);
+      if (live) setOwnRecord(r);
+    };
+    api.place(item.venueRef)
+      .then((d) => {
+        if (!live) return;
+        setVenue(d.venue); setMenu(d.menu ?? null);
+        if (d.venue) onVenue?.(d.venue);
+        if (d.sourceError) setError(d.sourceError);
+        if (d.ours) setOwnRecord(d.ours);
+        else void fromDevice();
+      })
+      .catch((e) => {
+        if (!live) return;
+        setVenue(null); setMenu(null);
+        setError(e?.code === 'offline' ? null : e.message);
+        void fromDevice();
+      });
     return () => { live = false; };
   }, [item?.venueRef]);
 
@@ -91,7 +129,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   const photos = (v?.photos?.length ? v.photos : item.photos) ?? [];
   const reviews = [...(v?.reviews ?? [])].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
   const hours = (v?.openingHours ?? item.openingHours ?? '').split(' · ').filter(Boolean);
-  const website = v?.website ?? item.website;
+  const website = v?.website ?? ownRecord?.website ?? item.website;
   const mapsUrl = v?.mapsUrl ?? item.mapsUrl;
   const externalUrl = v?.externalUrl ?? item.externalUrl;
   const price = priceMarks(v?.priceLevel ?? item.priceLevel);
@@ -169,6 +207,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                 {v?.summary ?? item.summary ? <Text style={type.body}>{v?.summary ?? item.summary}</Text> : null}
                 {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
                 {v?.address ?? item.address ? <IconText name="address">{v?.address ?? item.address}</IconText> : null}
+                {venue === null && !error ? <IconText name="offline" color={colors.inkMuted}>No signal — showing what is saved on this device.</IconText> : null}
                 {item.venueName ? <IconText name="ticket">At {item.venueName}</IconText> : null}
                 {(v?.goodForChildren ?? item.goodForChildren) != null ? <IconText name="children">{(v?.goodForChildren ?? item.goodForChildren) ? 'Good for children' : 'Not noted as good for children'}{(v?.menuForChildren ?? item.menuForChildren) ? " · children's menu" : ''}</IconText> : null}
                 {item.reservable != null ? <IconText name="phone">{item.reservable ? 'Takes bookings' : 'Walk-in only'}</IconText> : null}
@@ -197,6 +236,16 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                     <Text style={type.tiny}>Reads their menu into dishes you can tick off, one each, and makes the order to show the waiter.</Text>
                   </View>
                 ) : null}
+
+                <OwnedFacts
+                  record={ownRecord}
+                  offline={showingSaved}
+                  onResearch={async () => {
+                    setOwnRecord(undefined);
+                    const r = await api.researchPlace(item.venueRef).catch(() => null);
+                    setOwnRecord(r?.record ?? null);
+                  }}
+                />
               </View>
             ) : null}
 
@@ -226,6 +275,12 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
                   return o ? <Text style={[type.body, { fontWeight: '700' }]}>{o.state}{o.detail ? ` · ${o.detail}` : ''}</Text> : null;
                 })()}
                 {hours.length ? hours.map((h, i) => <Text key={i} style={type.body}>{h}</Text>) : <Text style={type.small}>{venue === undefined ? '' : `No opening hours from ${sourceName}.`}</Text>}
+                {!hours.length && ownRecord?.openingHours ? (
+                  <View style={{ gap: 1, marginTop: spacing.sm }}>
+                    <Text style={type.body}>{ownRecord.openingHours}</Text>
+                    <Text style={type.tiny}>Roam's own record, from {ownRecord.provenance?.opening_hours === 'site' ? 'their own website' : 'OpenStreetMap'} — kept, so it is here with no signal.</Text>
+                  </View>
+                ) : null}
               </View>
             ) : null}
 

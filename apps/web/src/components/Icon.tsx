@@ -2,8 +2,8 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import {
   Archive, ArrowLeft, ArrowRight, Baby, Ban, BedDouble, Beer, Bookmark, BookmarkCheck, Calendar, Camera, Car, CarTaxiFront, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck,
-  Clock, Coffee, Compass, ExternalLink, Footprints, GripVertical, Heart, House, Info, Landmark, List, Lock, Map, MapPin, Mic, Minus, Monitor, Navigation, Pencil, Phone, Pin, Plus, Route, Search, Settings, Smartphone,
-  Moon, Sparkles, Square, Star, StarHalf, Sun, Ticket, TrainFront, TriangleAlert, User, Users, Utensils, Wine, X,
+  Clock, CloudOff, Coffee, Compass, Database, Download, ExternalLink, Footprints, GripVertical, Heart, House, Info, Landmark, List, Lock, Map, MapPin, Mic, Minus, Monitor, Navigation, Pencil, Phone, Pin, Plus, Route, Search, Settings, Smartphone,
+  Moon, RefreshCw, Sparkles, Square, Star, StarHalf, Sun, Ticket, TrainFront, TriangleAlert, User, Users, Utensils, Wine, X,
 } from 'lucide-react-native';
 import { colors, spacing, type } from '../theme';
 
@@ -24,7 +24,9 @@ const ICONS = {
   back: ArrowLeft, forward: ArrowRight, external: ExternalLink,
   expand: ChevronDown, collapse: ChevronUp, more: ChevronRight,
   keep: Heart, favourite: Star, halfStar: StarHalf, shortlist: Bookmark, shortlisted: BookmarkCheck, pinned: Pin,
-  allergen: TriangleAlert, archived: Archive,
+  allergen: TriangleAlert, archived: Archive, refresh: RefreshCw,
+  // the device's own copy: no signal, saving it, and what Roam owns outright
+  offline: CloudOff, download: Download, owned: Database,
   // facts about a place
   address: MapPin, hours: Clock, children: Baby, phone: Phone, camera: Camera, calendar: Calendar, ticket: Ticket,
   // the journey: ways of getting about, booking states, list and map, order

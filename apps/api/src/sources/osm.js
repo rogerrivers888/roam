@@ -58,7 +58,12 @@ function buildQuery({ center, radiusM, categories, query, limit }) {
   return `[out:json][timeout:25];(${parts.join('')});out center tags ${limit};`;
 }
 
-function toVenue(el) {
+/**
+ * One Overpass element as a resolved venue. Exported because the owned place
+ * layer (sources/own.js) matches a rented place to its OpenStreetMap element
+ * and needs exactly this mapping, without asking Overpass a second time.
+ */
+export function venueFromOsmElement(el) {
   const t = el.tags || {};
   const lat = el.lat ?? el.center?.lat;
   const lng = el.lon ?? el.center?.lon;
@@ -182,7 +187,7 @@ export const osmSource = {
       if (!data) throw lastErr ?? new Error('Overpass unavailable');
       elements.push(...(data.elements || []));
     }
-    const venues = elements.map(toVenue).filter(Boolean);
+    const venues = elements.map(venueFromOsmElement).filter(Boolean);
     // Dedupe identical names at the same spot (a node and its building way),
     // then keep the nearest — Overpass's own order is arbitrary.
     const seen = new Map();
@@ -206,5 +211,5 @@ osmSource.get = async (ref) => {
   if (!['node', 'way', 'relation'].includes(type) || !/^\d+$/.test(id || '')) return null;
   const data = await overpass(`[out:json][timeout:15];${type}(${id});out center tags;`);
   const el = (data.elements || [])[0];
-  return el ? toVenue(el) : null;
+  return el ? venueFromOsmElement(el) : null;
 };

@@ -9,6 +9,7 @@ import { useTheme } from '../hooks/useTheme';
 import { getViewer, setViewer } from '../viewer';
 import { isAdmin, setAdmin } from '../admin';
 import { Icon } from '../components/Icon';
+import { OfflineCard } from '../components/OfflineCard';
 
 export const SPEAK_KEY = 'roam.speakReplies';
 export const getSpeakPref = () => (Platform.OS === 'web' && typeof localStorage !== 'undefined' ? localStorage.getItem(SPEAK_KEY) !== 'off' : true);
@@ -127,6 +128,9 @@ function Preferences({ data, refresh }: { data: HouseholdResponse; refresh: () =
         <Text style={type.body}>Private beta: one household, no sign-in.</Text>
         <Text style={type.small}>Sign in with Apple arrives with the public beta. Apple shares a name and email only, never a photo, so photos are set per person in Household.</Text>
       </Card>
+
+      <SectionTitle hint="What Roam keeps on this phone so it works with no signal, and what it has researched and owns outright.">On this device</SectionTitle>
+      <OfflineCard />
 
       <SectionTitle hint="Everything the household has generated. Place content from licensed sources is never included, only identifiers and what you wrote.">Your data</SectionTitle>
       <Card>

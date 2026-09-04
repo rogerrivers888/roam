@@ -38,5 +38,19 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      The installed app has to open with no signal (owner, 4 Sep 2026: "sometimes,
+      often, users will be offline or not have signal"). The worker caches the
+      app itself; the household's data is kept separately in IndexedDB by
+      src/offline/cache.ts, under the licence rules in src/offline/policy.ts.
+      Registered after load so it never competes with the first paint.
+    -->
+    <script>
+      if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () { /* no offline shell; the app still works online */ });
+        });
+      }
+    </script>
   </body>
 </html>

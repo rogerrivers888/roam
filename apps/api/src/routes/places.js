@@ -16,6 +16,7 @@ import { resolveConcept, conceptByKey } from '../domain/concepts.js';
 import { kmBetween } from '../domain/travel.js';
 import { currentHousehold, loadMembers } from './household.js';
 import { upsertHouseholdPlace } from './atlas.js';
+import { claimPlace, ownedRecord, ownedRecords, enrich } from '../sources/own.js';
 
 export const places = Router();
 export const visits = Router();
@@ -233,12 +234,17 @@ places.get('/detail', async (req, res, next) => {
       : Promise.resolve(null);
 
     const { rows } = await query('select id from visits where household_id = $1 and venue_ref = $2 order by visited_on desc', [household.id, ref]);
-    const [history, status, menu] = await Promise.all([
+    const [history, status, menu, ours] = await Promise.all([
       Promise.all(rows.map((r) => visitPayload(r.id))),
       householdStatus(household.id, [ref]),
       menuLookup,
+      // Our own record of this place, if the household has claimed it: open-data
+      // and own-page facts that we may keep, and that the device may keep too.
+      // It is what the drawer falls back to when the source is unreachable, and
+      // the only part of this response that survives on a phone with no signal.
+      ownedRecord(ref).catch(() => null),
     ]);
-    res.json({ venueRef: ref, venue: venue ? { ...venue, venueRef: ref } : null, household: status[ref] ?? null, visits: history, menu, sourceError });
+    res.json({ venueRef: ref, venue: venue ? { ...venue, venueRef: ref } : null, household: status[ref] ?? null, visits: history, menu, ours, sourceError });
   } catch (err) {
     next(err);
   }
@@ -261,10 +267,41 @@ places.post('/save', async (req, res, next) => {
     }
     await query('insert into place_ledger (household_id, source, source_place_id, status) values ($1, $2, $3, $4)', [household.id, source, id, status]);
     if (status !== 'dismissed') await upsertHouseholdPlace({ query }, household.id, { venueRef: `${source}:${id}`, label: req.body?.label, venue: req.body?.venue, category: req.body?.category, lat: req.body?.lat, lng: req.body?.lng, note: req.body?.note, country: req.body?.country, countryCode: req.body?.countryCode, locality: req.body?.locality });
+    // Saving it is the household saying this one matters: our own research on it
+    // starts now, behind the response (sources/own.js).
+    if (status !== 'dismissed') {
+      claimPlace(household.id, `${source}:${id}`, status === 'special' ? 'special' : 'saved',
+        { name: req.body?.label ?? null, category: req.body?.category ?? null, lat: req.body?.lat ?? null, lng: req.body?.lng ?? null, website: req.body?.venue?.website ?? null });
+    }
     res.json({ venueRef: `${source}:${id}`, status });
   } catch (err) {
     next(err);
   }
+});
+
+/**
+ * GET /api/places/record?ref=osm:node/123 (or ?refs=a,b,c) — what Roam owns
+ * about a place: the research done when the household claimed it. No provider
+ * is called and nothing here expires, so this is the endpoint a device can keep.
+ */
+places.get('/record', async (req, res, next) => {
+  try {
+    const refs = String(req.query.refs || req.query.ref || '').split(',').map((r) => r.trim()).filter(Boolean);
+    if (!refs.length) return res.status(400).json({ error: 'ref_required' });
+    const records = await ownedRecords(refs);
+    res.json({ records, missing: refs.filter((r) => !records[r]) });
+  } catch (err) { next(err); }
+});
+
+/** POST /api/places/record { ref, force } — research it again now (Settings, and the drawer's "look again"). */
+places.post('/record', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const ref = String(req.body?.ref || '').trim();
+    if (!ref) return res.status(400).json({ error: 'ref_required' });
+    const result = await enrich(ref, { householdId: household.id, force: req.body?.force !== false, seed: req.body?.seed ?? {} });
+    res.json({ ...result, record: await ownedRecord(ref) });
+  } catch (err) { next(err); }
 });
 
 // ---------------------------------------------------------------------------
@@ -318,6 +355,10 @@ visits.post('/', async (req, res, next) => {
       await upsertHouseholdPlace(client, household.id, { venueRef: b.venueRef, label: b.venueLabel, category: b.category, lat: b.lat, lng: b.lng, venue: b.venue, ...where });
       return id;
     });
+
+    // "We visited it" is the strongest claim there is: research it now and keep
+    // it for good, whatever happens to the source's record afterwards.
+    claimPlace(household.id, b.venueRef, 'visited', { name: b.venueLabel, category: b.category ?? null, lat: b.lat ?? null, lng: b.lng ?? null, website: b.venue?.website ?? null });
 
     res.status(201).json({ visit: await visitPayload(visitId) });
   } catch (err) {

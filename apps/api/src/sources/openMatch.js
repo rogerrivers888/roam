@@ -1,0 +1,209 @@
+// The same place, in open data.
+//
+// A place found through Google arrives as an identifier and a name we may not
+// keep. Nearly all of them are also in OpenStreetMap, where the same facts are
+// ODbL: keepable for good, with attribution. So the first act of owning a place
+// is to find it again in the open map — by where it is and what it is called —
+// and from then on to hold the open record rather than the rented one.
+//
+// A match is only claimed when it is safe: within 250 m, and with names that
+// agree once the noise is stripped. A wrong match is worse than none, because
+// it would put another restaurant's phone number on this one's card, so the
+// confidence is returned and the caller stores what it was.
+
+import { bump } from './meter.js';
+
+// The interactive search (sources/osm.js) makes one Overpass call when somebody
+// taps; the researcher here makes one per claimed place, for ever. That is a
+// different kind of load on a service run for nothing, so it spreads across
+// every public mirror rather than leaning on the two the search uses, paces
+// itself, and stands down from a mirror that says no.
+const ENDPOINTS = (process.env.ROAM_OVERPASS_URLS || [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass.osm.ch/api/interpreter',
+].join(',')).split(',').map((u) => u.trim()).filter(Boolean);
+const UA = 'Roam/0.1 (+https://github.com/rogerrivers888/roam)';
+
+// How far a match may be. A restaurant's Google pin and its OSM node are rarely
+// the same point — one is the door, the other the building — but they are never
+// streets apart.
+const MAX_M = 250;
+// One endpoint's patience, not the whole lookup's: with two endpoints a blocked
+// first one used to cost 25 seconds before the second was even asked.
+const ENDPOINT_TIMEOUT_MS = 15_000;
+
+const R = 6371000;
+const toRad = (d) => (d * Math.PI) / 180;
+export function metresBetween(a, b) {
+  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// Words that are in one source's name and not the other's, and mean nothing:
+// "The Ivy" and "Ivy Restaurant" are the same restaurant.
+const NOISE = /\b(the|a|an|le|la|les|el|il|restaurant|ristorante|trattoria|osteria|cafe|caf[eé]|coffee|bar|pub|inn|tavern|kitchen|bistro|brasserie|grill|house|co|company|ltd|limited|llp|plc|and)\b/g;
+
+export function normalise(name) {
+  return String(name || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')          // café -> cafe
+    .replace(/&/g, ' and ')
+    .replace(/['’`]/g, '')                                   // Nando's → nandos
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(NOISE, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 0–1: how much two names agree once the noise is gone. */
+export function nameScore(a, b) {
+  const x = normalise(a), y = normalise(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  if (x.startsWith(y) || y.startsWith(x)) return 0.9;
+  const ax = new Set(x.split(' ')), by = new Set(y.split(' '));
+  const shared = [...ax].filter((t) => by.has(t)).length;
+  if (!shared) return 0;
+  // Jaccard, but a single shared word that is the whole of the shorter name
+  // ("Dishoom" vs "Dishoom Covent Garden") counts for more than the ratio says.
+  const jaccard = shared / new Set([...ax, ...by]).size;
+  const containment = shared / Math.min(ax.size, by.size);
+  return Math.max(jaccard, containment * 0.85);
+}
+
+/**
+ * The parts of a name worth searching a map for: long enough to be distinctive,
+ * cut to a prefix so that "Lunn" still finds "Lunn's" and "Bath" still finds
+ * "Bathwick". Three is plenty; more only widens the net.
+ */
+export function significantStems(name) {
+  return normalise(name)
+    .split(' ')
+    .filter((t) => t.length >= 3 && !/^\d+$/.test(t))
+    .slice(0, 3)
+    // Four characters, not five: the possessive is lost in normalising, so
+    // "lunns" would never find "Lunn's" but "lunn" does.
+    .map((t) => t.slice(0, 4));
+}
+
+// Overpass is somebody else's machine, run for free, and its fair use is about
+// a request a second. The background researcher is the only caller here, so it
+// paces itself rather than relying on being small.
+const MIN_GAP_MS = 2000;
+let lastCall = 0;
+const pace = async () => {
+  const wait = lastCall + MIN_GAP_MS - Date.now();
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastCall = Date.now();
+};
+
+// A mirror that rate-limits us stops answering altogether for a while. Asking
+// it again every time costs the full timeout on every call and is rude besides,
+// so a refusal buys it ten minutes off and the work moves to another.
+const COOL_OFF_MS = 10 * 60_000;
+const restingUntil = new Map();
+const resting = (url) => (restingUntil.get(url) ?? 0) > Date.now();
+
+// Start where we last got an answer rather than at the top of the list.
+let preferred = 0;
+
+async function overpass(body, meter = null) {
+  bump(meter, 'osm');
+  let lastErr;
+  const order = ENDPOINTS.map((_, i) => ENDPOINTS[(preferred + i) % ENDPOINTS.length]);
+  // Everything resting goes to the back rather than being skipped: if they are
+  // all resting, one of them still has to be asked.
+  for (const url of [...order.filter((u) => !resting(u)), ...order.filter(resting)]) {
+    await pace();
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': UA },
+        body: `data=${encodeURIComponent(body)}`,
+        signal: AbortSignal.timeout(ENDPOINT_TIMEOUT_MS),
+      });
+      // 429 is "slow down" and 504 is "I gave up"; both mean leave this one alone.
+      if (!res.ok) {
+        if ([429, 503, 504].includes(res.status)) restingUntil.set(url, Date.now() + COOL_OFF_MS);
+        throw new Error(`Overpass ${res.status}`);
+      }
+      const data = await res.json();
+      restingUntil.delete(url);
+      preferred = ENDPOINTS.indexOf(url);
+      return data;
+    } catch (err) {
+      // A timeout is the same signal as a 429 from a mirror that just stops
+      // replying, which is what the busy ones actually do.
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') restingUntil.set(url, Date.now() + COOL_OFF_MS);
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
+/** Everything OSM knows about one element, as tags — the raw material for the record. */
+export async function osmElement(ref, { meter = null } = {}) {
+  const [type, id] = String(ref).split('/');
+  if (!['node', 'way', 'relation'].includes(type) || !/^\d+$/.test(id || '')) return null;
+  const data = await overpass(`[out:json][timeout:15];${type}(${id});out center tags;`, meter);
+  const el = (data.elements || [])[0];
+  if (!el) return null;
+  return { ref: `${el.type}/${el.id}`, tags: el.tags || {}, lat: el.lat ?? el.center?.lat, lng: el.lon ?? el.center?.lon };
+}
+
+/**
+ * Find this place in OpenStreetMap.
+ *
+ * Returns `{ ref, tags, lat, lng, distanceM, confidence, how }` or null. The
+ * caller decides what to do with a low confidence; nothing here writes.
+ */
+export async function matchOsm({ venueRef, name, lat, lng, meter = null } = {}) {
+  // A place that is already an OSM place needs no matching — it is its own match.
+  if (String(venueRef || '').startsWith('osm:')) {
+    const el = await osmElement(String(venueRef).slice(4), { meter });
+    return el ? { ...el, distanceM: 0, confidence: 1, how: 'It is an OpenStreetMap place already.' } : null;
+  }
+  if (lat == null || lng == null || !String(name || '').trim()) return null;
+
+  // Ask for the place by name, not for everything nearby. A 250 m circle in a
+  // city centre holds more than four hundred named shops and benches, Overpass
+  // returns them in no particular order and truncates at the limit, so the
+  // restaurant we came for falls off the end and the match silently fails.
+  // Searching on the distinctive part of the name instead returns a handful.
+  const stems = significantStems(name);
+  const around = `(around:${MAX_M},${lat},${lng})`;
+  const KINDS = ['amenity', 'tourism', 'leisure', 'shop', 'historic', 'craft', 'club'];
+  const byName = stems.length ? `[out:json][timeout:20];nwr["name"~"(${stems.join('|')})",i]${around};out center tags 200;` : null;
+  // A name that is all short or common words gives nothing to search on; then
+  // fall back to everything of the right kind, in a tighter circle.
+  const byKind = `[out:json][timeout:20];nwr["name"][~"^(${KINDS.join('|')})$"~"."](around:${Math.round(MAX_M / 2)},${lat},${lng});out center tags 300;`;
+
+  let elements = [];
+  if (byName) elements = (await overpass(byName, meter)).elements ?? [];
+  if (!elements.length) elements = (await overpass(byKind, meter)).elements ?? [];
+
+  const here = { lat, lng };
+  let best = null;
+  for (const el of elements) {
+    const elat = el.lat ?? el.center?.lat, elng = el.lon ?? el.center?.lon;
+    const tags = el.tags || {};
+    if (elat == null || !tags.name) continue;
+    // A bus stop or a car park with the venue's name on it is not the venue.
+    if (tags.highway || tags.public_transport || tags.amenity === 'parking' || tags.amenity === 'bench') continue;
+    const distanceM = metresBetween(here, { lat: elat, lng: elng });
+    if (distanceM > MAX_M) continue;
+    // Names agree first; distance only separates two that both do.
+    const n = Math.max(nameScore(name, tags.name), ...(['int_name', 'official_name', 'alt_name', 'brand', 'operator'].map((k) => (tags[k] ? nameScore(name, tags[k]) : 0))));
+    if (n < 0.6) continue;
+    const confidence = Math.min(1, n * (1 - Math.min(distanceM, MAX_M) / (MAX_M * 4)));
+    if (!best || confidence > best.confidence) {
+      best = { ref: `${el.type}/${el.id}`, tags, lat: elat, lng: elng, distanceM: Math.round(distanceM), confidence: Number(confidence.toFixed(2)), matchedName: tags.name };
+    }
+  }
+  if (!best) return null;
+  best.how = `Matched “${best.matchedName}” in OpenStreetMap, ${best.distanceM} m away.`;
+  return best;
+}

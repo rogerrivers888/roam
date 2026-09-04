@@ -14,6 +14,8 @@ import prototypeRoutes from './routes/prototypes.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 import { atlas as atlasRoutes } from './routes/atlas.js';
 import { menu as menuRoutes, orders as orderRoutes } from './routes/menus.js';
+import { offline as offlineRoutes } from './routes/offline.js';
+import { startOwnLoop } from './sources/own.js';
 import { fetchPhoto } from './sources/google.js';
 import { currentHousehold } from './routes/household.js';
 import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
@@ -53,6 +55,7 @@ app.use('/api/visits', visitRoutes);
 app.use('/api/atlas', atlasRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/offline', offlineRoutes);
 
 /** Licensed review text must not be crawlable (Tripadvisor review implementation policy); the API is not a website. */
 app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
@@ -136,6 +139,10 @@ app.use((err, _req, res, _next) => {
 const port = Number(process.env.PORT) || 4000;
 // 0.0.0.0 rather than localhost: the container/platform decides the interface.
 await loadSourceSettings();
+// The owned place layer researches in the background: anything a household has
+// claimed but that has not been looked at yet, and the sweep that discards any
+// fact whose licence has run out (sources/own.js).
+startOwnLoop();
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`roam-api listening on 0.0.0.0:${port}`);
 });
