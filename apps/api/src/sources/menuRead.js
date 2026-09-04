@@ -45,9 +45,12 @@ const MAX_BYTES = 12_000_000;
 const RENDER_TIMEOUT_MS = Number(process.env.ROAM_RENDER_TIMEOUT_MS || 25_000);
 // Below this much readable text a page is a shell, not a menu.
 const THIN_TEXT = 700;
-// One Claude call reads this much; a long menu is split and merged.
-const CHUNK_CHARS = 20_000;
-const MAX_CHUNKS = 4;
+// One Claude call reads this much and answers with rather more than it read:
+// a chunk of menu text becomes JSON with a line per dish, so the piece has to
+// be small enough that the answer fits in one reply.
+const CHUNK_CHARS = 9_000;
+const MAX_CHUNKS = 8;
+const MAX_ANSWER_TOKENS = 16_000;
 // Menus are read by the model the owner is paying for; a menu is mechanical
 // extraction, not reasoning, so the default is the cheaper current-generation
 // model. ROAM_MENU_MODEL moves it without a deploy.
@@ -307,24 +310,32 @@ const chunks = (text) => {
 async function parseMenuText({ text, venueLabel, householdId, sessionId }) {
   const parts = chunks(text);
   const sections = [];
+  const failed = [];
   let currency = null;
   let note = null;
   for (const [i, part] of parts.entries()) {
-    const parsed = await parseStructured({
-      system: PARSE_SYSTEM,
-      messages: [{
-        role: 'user',
-        content: `Menu text for ${venueLabel || 'this restaurant'}${parts.length > 1 ? ` (part ${i + 1} of ${parts.length})` : ''}:\n\n${part}`,
-      }],
-      schema: MenuShape,
-      householdId,
-      sessionId,
-      purpose: 'menu.read',
-      effort: 'low',
-      thinking: 'off',
-      model: MODEL,
-      maxTokens: 8000,
-    });
+    let parsed;
+    try {
+      parsed = await parseStructured({
+        system: PARSE_SYSTEM,
+        messages: [{
+          role: 'user',
+          content: `Menu text for ${venueLabel || 'this restaurant'}${parts.length > 1 ? ` (part ${i + 1} of ${parts.length})` : ''}:\n\n${part}`,
+        }],
+        schema: MenuShape,
+        householdId,
+        sessionId,
+        purpose: 'menu.read',
+        effort: 'low',
+        thinking: 'off',
+        model: MODEL,
+        maxTokens: MAX_ANSWER_TOKENS,
+      });
+    } catch (err) {
+      // One unreadable stretch must not lose the rest of the menu.
+      failed.push(`part ${i + 1}: ${err.message}`);
+      continue;
+    }
     currency = currency || parsed.currency;
     note = note || parsed.note;
     for (const section of parsed.sections || []) {
@@ -333,7 +344,7 @@ async function parseMenuText({ text, venueLabel, householdId, sessionId }) {
       else sections.push({ title: section.title, note: section.note ?? null, items: section.items || [] });
     }
   }
-  return { currency, note, sections: sections.filter((s) => s.items.length) };
+  return { currency, note, failed, sections: sections.filter((s) => s.items.length) };
 }
 
 /* ------------------------------------------------------------------- the job */
@@ -423,6 +434,7 @@ export async function readMenu({ url, venueLabel, householdId, sessionId }) {
 
   const menu = await parseMenuText({ text, venueLabel, householdId, sessionId });
   const items = menu.sections.reduce((n, s) => n + s.items.length, 0);
+  if (menu.failed?.length) steps.push(`${menu.failed.length} of ${Math.ceil(text.length / CHUNK_CHARS)} parts would not read`);
   if (!items) {
     const err = new Error('menu_had_no_items');
     err.status = 422;

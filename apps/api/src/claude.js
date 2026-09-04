@@ -16,9 +16,20 @@ export const MODEL = 'claude-opus-5';
 export const SESSION_CALL_BOUND = Number(process.env.ROAM_SESSION_CALL_BOUND || 40);
 export const HOUSEHOLD_MONTHLY_CALL_BOUND = Number(process.env.ROAM_HOUSEHOLD_MONTHLY_CALL_BOUND || 3000);
 
-// Indicative list rates for Claude Opus 5 ($ per token), for the cost-per-session
-// instrumentation. Cache rates are approximate; the point is the trend.
-const RATE = { input: 5 / 1e6, output: 25 / 1e6, cacheRead: 0.5 / 1e6, cacheWrite: 6.25 / 1e6 };
+// Indicative list rates ($ per million tokens) for the cost instrumentation, per
+// model: the planner runs on Opus, while a mechanical read like a menu runs on
+// a cheaper one (sources/menuRead.js), and Settings should say what was really
+// spent rather than the planner's rate for everything. Cache rates are
+// approximate; the point is the trend.
+const RATES = {
+  'claude-opus-5': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+  'claude-haiku-4-5': { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+};
+const rateFor = (model) => {
+  const r = RATES[model] ?? RATES['claude-opus-5'];
+  return { input: r.input / 1e6, output: r.output / 1e6, cacheRead: r.cacheRead / 1e6, cacheWrite: r.cacheWrite / 1e6 };
+};
 // Server-side web search is billed per search on top of tokens ($10 per 1,000).
 const WEB_SEARCH_RATE = 10 / 1000;
 
@@ -52,7 +63,8 @@ export async function assertWithinBounds({ householdId, sessionId }) {
   if (h[0].n >= HOUSEHOLD_MONTHLY_CALL_BOUND) throw new SpendBoundError('household', HOUSEHOLD_MONTHLY_CALL_BOUND);
 }
 
-async function recordCall({ householdId, sessionId, provider, purpose, usage }) {
+async function recordCall({ householdId, sessionId, provider, purpose, usage, model = MODEL }) {
+  const RATE = rateFor(model);
   const cost = usage
     ? (usage.input_tokens || 0) * RATE.input +
       (usage.output_tokens || 0) * RATE.output +
@@ -106,7 +118,7 @@ export async function parseStructured({
     output_config: { effort, format: zodOutputFormat(schema) },
   });
 
-  await recordCall({ householdId, sessionId, provider: 'anthropic', purpose, usage: response.usage });
+  await recordCall({ householdId, sessionId, provider: 'anthropic', purpose, usage: response.usage, model });
 
   if (response.stop_reason === 'refusal') {
     const err = new Error('The planner declined this request');
