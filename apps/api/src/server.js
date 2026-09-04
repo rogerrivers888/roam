@@ -29,7 +29,9 @@ app.use(cors({ origin: true }));
 app.get('/health', async (_req, res) => {
   try {
     await query('select 1');
-    res.json({ ok: true, service: 'roam-api', db: 'up' });
+    // Which build answered: Railway sets the commit on the deployment, so
+    // "is my change live yet" is a question the API can answer itself.
+    res.json({ ok: true, service: 'roam-api', db: 'up', commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? null });
   } catch (err) {
     res.status(503).json({ ok: false, service: 'roam-api', db: 'down', error: err.message });
   }
