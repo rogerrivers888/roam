@@ -28,16 +28,21 @@ async function post(path, body, fieldMask) {
 const wp = (p) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
 const secondsToMinutes = (s) => Math.round(Number(String(s || '0s').replace('s', '')) / 60);
 
-/** Minutes from one origin to many destinations, in the given mode, at departAt. Null entries where no route. */
-export async function travelMatrixMinutes({ origin, destinations, mode = 'driving', departAt = null, meter = null }) {
-  if (!KEY() || !destinations.length) return null;
-  const out = new Array(destinations.length).fill(null);
+/**
+ * Minutes for every origin × destination pair, in the given mode, at departAt.
+ * Returns rows[origin][destination], null where no route exists. Billed per
+ * element, so the caller keeps the two sides small.
+ */
+export async function routeMatrixMinutes({ origins, destinations, mode = 'driving', departAt = null, meter = null }) {
+  if (!KEY() || !origins.length || !destinations.length) return null;
+  const out = origins.map(() => new Array(destinations.length).fill(null));
   // The matrix allows up to 625 elements; keep batches small so one failure is cheap.
-  for (let i = 0; i < destinations.length; i += 100) {
-    const batch = destinations.slice(i, i + 100);
-    bump(meter, 'google-routes', batch.length); // billed per origin×destination element
+  const perBatch = Math.max(1, Math.floor(100 / origins.length));
+  for (let i = 0; i < destinations.length; i += perBatch) {
+    const batch = destinations.slice(i, i + perBatch);
+    bump(meter, 'google-routes', batch.length * origins.length); // billed per origin×destination element
     const body = {
-      origins: [{ waypoint: wp(origin) }],
+      origins: origins.map((o) => ({ waypoint: wp(o) })),
       destinations: batch.map((d) => ({ waypoint: wp(d) })),
       travelMode: MODE[mode] || 'DRIVE',
       ...(mode === 'driving' ? { routingPreference: 'TRAFFIC_AWARE' } : {}),
@@ -45,10 +50,16 @@ export async function travelMatrixMinutes({ origin, destinations, mode = 'drivin
     };
     const rows = await post('/distanceMatrix/v2:computeRouteMatrix', body, 'originIndex,destinationIndex,duration,distanceMeters,condition');
     for (const r of rows) {
-      if (r.condition === 'ROUTE_EXISTS') out[i + r.destinationIndex] = { minutes: secondsToMinutes(r.duration), meters: r.distanceMeters ?? null };
+      if (r.condition === 'ROUTE_EXISTS') out[r.originIndex ?? 0][i + r.destinationIndex] = { minutes: secondsToMinutes(r.duration), meters: r.distanceMeters ?? null };
     }
   }
   return out;
+}
+
+/** Minutes from one origin to many destinations. Null entries where no route. */
+export async function travelMatrixMinutes({ origin, destinations, mode = 'driving', departAt = null, meter = null }) {
+  const rows = await routeMatrixMinutes({ origins: [origin], destinations, mode, departAt, meter });
+  return rows ? rows[0] : null;
 }
 
 /** One journey: minutes, distance and the encoded polyline (for search-along-route). */

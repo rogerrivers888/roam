@@ -396,8 +396,8 @@ export function composeOptions({
   return { options, browse: browseCapped, poolSize: usable.length, target, hiddenChains, pricePoint, includeChains };
 }
 
-/** The facts a card needs, in one shape for plan stops and for browsing. */
-function richFields(s, base) {
+/** The facts a card needs, in one shape for plan stops, for browsing and for a stop on the way. */
+export function richFields(s, base) {
   return {
     id: s.key,
     venueRef: `${s.source}:${s.sourcePlaceId}`,

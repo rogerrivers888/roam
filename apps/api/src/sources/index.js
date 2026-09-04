@@ -245,3 +245,68 @@ export async function searchAllSources(params) {
   for (const v of venues) for (const k of v.contributingSources || [v.source]) resolvedCounts[k] = (resolvedCounts[k] || 0) + 1;
   return { venues, degraded, sourcesQueried: sources.map((s) => s.key), units: meter, rawCounts, resolvedCounts };
 }
+
+// ---------------------------------------------------------------------------
+// The corridor: what is on the way (Epic 4 C2, Requirements §5 "Corridor").
+// ---------------------------------------------------------------------------
+
+/** A few points spread along the line between two ends, the ends themselves left out. */
+export function pointsAlong(from, to, count) {
+  const out = [];
+  for (let i = 1; i <= count; i += 1) {
+    const f = i / (count + 1);
+    out.push({ lat: from.lat + (to.lat - from.lat) * f, lng: from.lng + (to.lng - from.lng) * f, fraction: f });
+  }
+  return out;
+}
+
+/**
+ * Places along a journey rather than around either end.
+ *
+ * With Google on, the journey's own encoded polyline goes to Places text
+ * search, which ranks by the smallest detour a place adds between the two ends
+ * (Technical Constraints §3.1) — two searches, one for a meal and one for
+ * something to do, however long the drive is. Without a key there is no
+ * polyline, so the corridor is sampled instead: a few points along the line,
+ * each searched at a radius wide enough to overlap its neighbours.
+ *
+ * The corridor is a bias and not a restriction in either case: Google does not
+ * guarantee a result sits on the route, and a sampled circle certainly does
+ * not. The caller must compute and display what each stop costs in detour.
+ */
+export async function searchCorridor({ encodedPolyline, origin, destination, sources = null, meter = {}, samples = 3, radiusKm = null }) {
+  const only = optInFrom(sources);
+  const live = enabledSources({ only });
+  const google = live.find((s) => s.key === 'google');
+  const raw = [];
+  const degraded = [];
+  const queried = new Set();
+
+  if (google && encodedPolyline) {
+    const searches = [
+      ['food', 'restaurant or pub for a meal on the way'],
+      ['things', 'places worth stopping at on the way — attractions, gardens, castles, viewpoints'],
+    ];
+    const settled = await Promise.allSettled(searches.map(([, q]) => google.searchAlongRoute({ encodedPolyline, query: q, limit: 20, meter })));
+    settled.forEach((outcome, i) => {
+      if (outcome.status === 'fulfilled') { raw.push(...outcome.value); queried.add('google'); }
+      else degraded.push({ source: `google (${searches[i][0]} along the route)`, error: String(outcome.reason?.message || outcome.reason) });
+    });
+  } else if (origin && destination) {
+    const km = metresBetween(origin, destination) / 1000;
+    const radius = radiusKm ?? Math.min(15, Math.max(5, km / (samples * 1.6)));
+    const at = pointsAlong(origin, destination, samples);
+    const settled = await Promise.allSettled(at.map((p) => searchAllSources({ center: p, radiusKm: radius, categories: [], query: '', sources })));
+    for (const outcome of settled) {
+      if (outcome.status !== 'fulfilled') { degraded.push({ source: 'corridor', error: String(outcome.reason?.message || outcome.reason) }); continue; }
+      // Already resolved venues; the second resolve below folds the overlaps between samples.
+      raw.push(...outcome.value.venues);
+      for (const k of outcome.value.sourcesQueried) queried.add(k);
+      for (const [k, v] of Object.entries(outcome.value.units || {})) meter[k] = (meter[k] || 0) + v;
+      degraded.push(...outcome.value.degraded);
+    }
+  }
+
+  rememberVenues(raw);
+  return { venues: resolveVenues(raw), degraded, sourcesQueried: [...queried], units: meter };
+}

@@ -757,8 +757,8 @@ async function retrieveCorridor({ household, trip, dayTrip, attendees, sessionId
     candidates,
     mode,
     journeyMinutes: direct,
-    leaveHomeAt: new Date(new Date(dayTrip.depart_at).getTime() - direct * 60_000).toISOString(),
-    backHomeAt: new Date(new Date(dayTrip.return_at).getTime() + direct * 60_000).toISOString(),
+    windowStart: dayTrip.depart_at,
+    windowEnd: dayTrip.return_at,
     timezone: trip.timezone || household.timezone || DEFAULT_TZ,
     dwellFor: (c) => dwellFor(c, household, attendees).minutes,
     includeChains,
@@ -1958,6 +1958,8 @@ async function commitOption({ household, session, optionId }) {
     session.state.chosenOptionId = optionId;
     session.state.committed = true;
     await saveSession(session.id, session.state, null);
+    // What was actually written: the option's stops plus whatever was chosen on the way.
+    option.saved = plan.length;
     return option;
 }
 
@@ -1967,7 +1969,7 @@ router.post('/commit', async (req, res, next) => {
     const { sessionId, optionId } = req.body || {};
     const session = await loadSession(sessionId);
     const option = await commitOption({ household, session, optionId });
-    res.json({ tripId: session.trip_id, optionId, stops: option.stops.length });
+    res.json({ tripId: session.trip_id, optionId, stops: option.saved ?? option.stops.length });
   } catch (err) {
     if (err.code === 'option_not_found') return res.status(404).json({ error: err.code });
     next(err);
