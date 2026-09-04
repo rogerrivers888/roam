@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, IdeaBudget, Idea, IdeaThing, InspireStage, Taste, TasteTable } from '../api';
+import { api, IdeaBudget, Idea, IdeaHeadline, IdeaThing, InspireStage, Taste, TasteTable } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, StatusLine, Wrap, minutes } from './ui';
-import { Icon } from './Icon';
+import { Icon, CategoryIcon, Rating } from './Icon';
+import { VenuePhoto } from './VenuePhoto';
 import { TasteTables } from './TasteTables';
 import type { OpenTripOptions } from '../screens/PlanScreen';
 
@@ -62,30 +63,7 @@ const BUDGETS: { value: IdeaBudget; label: string }[] = [
 ];
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// What is there, in a few words: kinds of thing first, then where to eat.
-const KIND_LABELS: [string, string][] = [
-  ['museum', 'museums'], ['art-gallery', 'galleries'], ['park', 'parks'], ['history', 'landmarks'], ['market', 'markets'], ['viewpoint', 'views'],
-  ['zoo', 'zoos'], ['aquarium', 'aquariums'], ['theme-park', 'theme parks'], ['walk', 'walks'], ['beach', 'beaches'], ['playground', 'playgrounds'],
-  ['theatre', 'theatres'], ['cinema', 'cinemas'], ['shopping', 'shops'], ['bookshop', 'bookshops'], ['swimming', 'swimming'], ['bowling', 'bowling'],
-  ['ice-skating', 'ice rinks'], ['climbing', 'climbing'], ['boat-trip', 'boat trips'], ['sports-game', 'stadiums'],
-];
-const EAT_LABELS: Record<string, string> = { restaurant: 'restaurants', cafe: 'cafés', pub: 'pubs', bar: 'bars' };
-function summarise(things: IdeaThing[]): string {
-  const kinds = new Map<string, number>();
-  const eats = new Map<string, number>();
-  let other = 0;
-  for (const t of things) {
-    if (t.kind === 'eat') { eats.set(t.category, (eats.get(t.category) ?? 0) + 1); continue; }
-    const k = KIND_LABELS.find(([key]) => t.experiences.includes(key));
-    if (k) kinds.set(k[1], (kinds.get(k[1]) ?? 0) + 1); else other += 1;
-  }
-  const top = [...kinds.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([l, n]) => `${n} ${l}`);
-  if (other && top.length < 5) top.push(`${other} other sight${other === 1 ? '' : 's'}`);
-  const eat = [...eats.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => `${n} ${EAT_LABELS[c] ?? c}`);
-  return [top.join(', '), eat.join(', ')].filter(Boolean).join(' · ');
-}
-
-type Things = { status: 'loading' | 'ready' | 'error'; items: IdeaThing[] };
+type Things = { status: 'loading' | 'ready' | 'error'; items: IdeaThing[]; headline?: IdeaHeadline | null };
 
 /**
  * Inspire me: a loose brief (typed or spoken), a mood or two, a travel cap →
@@ -233,7 +211,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
         setThings((s) => ({ ...s, [idea.id]: { status: 'loading', items: [] } }));
         try {
           const r = await api.inspireThings({ lat: idea.place.lat, lng: idea.place.lng, label: idea.place.label, locality: idea.place.locality ?? undefined });
-          if (run.current === id) setThings((s) => ({ ...s, [idea.id]: { status: 'ready', items: r.items } }));
+          if (run.current === id) setThings((s) => ({ ...s, [idea.id]: { status: 'ready', items: r.items, headline: r.headline } }));
         } catch {
           if (run.current === id) setThings((s) => ({ ...s, [idea.id]: { status: 'error', items: [] } }));
         }
@@ -275,8 +253,6 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   const nextUnanswered = STEPS.find((step) => !picks[step.key]) ?? null;
   const openStep = editing ? STEPS.find((step) => step.key === editing) ?? null : nextUnanswered;
   const budgetLabel = budget === 'any' ? 'any budget' : (BUDGETS.find((b) => b.value === budget)?.label ?? 'any budget').toLowerCase();
-
-  const summaries = useMemo(() => Object.fromEntries(Object.entries(things).map(([id, t]) => [id, t.status === 'ready' ? summarise(t.items) : ''])), [things]);
 
   return (
     <>
@@ -386,28 +362,34 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
             const t = things[idea.id];
             const done = opened[idea.id];
             const isOpening = opening === idea.id;
+            const head = t?.headline ?? null;
+            const far = [
+              idea.travelMinutes != null ? `${minutes(idea.travelMinutes)} by car` : null,
+              idea.distanceKm != null ? `${idea.distanceKm} km` : head?.distanceKm != null ? `${head.distanceKm} km` : null,
+            ].filter(Boolean).join(' · ');
             return (
               <View key={idea.id} style={styles.idea}>
-                <View style={{ flex: 1, gap: 3 }}>
-                  <Text style={type.h3}>{idea.title}</Text>
-                  <Text style={type.small}>{idea.travelMinutes != null ? `${minutes(idea.travelMinutes)} by car · ` : ''}{idea.why}</Text>
-                  {idea.do.length || idea.eat.length ? <Text style={type.tiny}>{[...idea.do, ...idea.eat].slice(0, 4).join(' · ')}</Text> : null}
-                  {idea.placing ? <Row style={{ gap: 6 }}><ActivityIndicator size="small" color={colors.accent} /><Text style={type.tiny}>Finding {idea.placeText.split(',')[0]} on the map…</Text></Row>
-                    : !idea.place ? <Text style={type.tiny}>Roam couldn't pin this one on the map, so there is no list to browse — Plan this still works from the idea itself.</Text>
-                    : t?.status === 'ready' ? <Text style={type.tiny}>{t.items.length ? `What's there: ${summaries[idea.id]}` : 'Nothing found around it yet — the sources may be off.'}</Text>
-                    : t?.status === 'error' ? <Text style={type.tiny}>Couldn't look around it just now; Things to do and see will try again.</Text>
-                    : <Row style={{ gap: 6 }}><ActivityIndicator size="small" color={colors.accent} /><Text style={type.tiny}>Looking around {idea.placeText.split(',')[0]}…</Text></Row>}
+                {/* The picture is the first thing, and it is the place itself. */}
+                {head?.photos?.length ? <VenuePhoto photos={head.photos} size={84} credit={false} />
+                  : <View style={styles.tile}><CategoryIcon category={head?.category ?? 'attraction'} size={22} color={colors.accent} /></View>}
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={type.h3} numberOfLines={2}>{idea.title}</Text>
+                  <Row style={{ flexWrap: 'wrap', gap: 10 }}>
+                    {head?.rating != null ? <Rating value={head.rating}>{head.ratingCount ? ` (${head.ratingCount.toLocaleString()})` : ''}</Rating> : null}
+                    {far ? <Text style={type.small}>{far}</Text> : null}
+                  </Row>
+                  <Text style={type.small} numberOfLines={2}>{idea.why}</Text>
+                  {idea.do.length || idea.eat.length ? <Text style={type.tiny} numberOfLines={1}>{[...idea.do, ...idea.eat].slice(0, 3).join(' · ')}</Text> : null}
                   <Row style={{ marginTop: 4, flexWrap: 'wrap' }}>
-                    {idea.place ? <Chip label={isOpening ? 'Setting up the day…' : done ? 'Open in Trips' : 'Things to do and see'} icon={done ? 'trips' : 'more'} tone="accent" onPress={() => openTrip(idea)} /> : null}
+                    {idea.place ? <Chip label={isOpening ? 'Setting up the day…' : done ? 'Open in Trips' : 'Plan the day'} icon={done ? 'trips' : 'more'} tone="accent" onPress={() => openTrip(idea)} /> : null}
                     <Chip label="Plan this" onPress={() => planIdea(idea)} />
                   </Row>
-                  {done ? <Text style={type.tiny}>{done.title} is in Trips{done.seeded.length ? ` with ${done.seeded.join(', ')} on the shortlist` : ''}.</Text> : null}
+                  {done ? <Text style={type.tiny} numberOfLines={1}>In Trips as {done.title}.</Text> : null}
                 </View>
               </View>
             );
           })}
-          {runRef ? <Text style={type.tiny}>Run {runRef}</Text> : null}
-          <Text style={type.tiny}>Ideas come from your atlas first, then the sources. Things to do and see opens the day in Trips with everything around it to browse; Plan this fills the rows instead. Nothing is booked.</Text>
+          <Text style={type.tiny}>Nothing is booked.{runRef ? ` Run ${runRef}` : ''}</Text>
         </Card>
       ) : null}
     </>
@@ -420,7 +402,8 @@ const styles = StyleSheet.create({
   mic: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.ink },
   stop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET, paddingHorizontal: spacing.lg, borderRadius: radius.pill, backgroundColor: colors.overrun },
   stopText: { color: colors.bg, fontWeight: '700', fontSize: 15 },
-  idea: { paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line, flexDirection: 'row', gap: spacing.sm },
+  idea: { paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.line, flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
+  tile: { width: 84, height: 84, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   settings: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: spacing.sm },
   settingsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
 });

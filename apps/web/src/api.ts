@@ -327,6 +327,30 @@ export type AtlasCity = { name: string; places: number; been: number; special: n
 /** Everything within the household's radius of the front door: a standing view, not a city. */
 export type AtlasHome = { label: string | null; lat: number; lng: number; radiusMiles: number; places: number; been: number; special: number };
 export type AtlasCountry = { code: string; name: string; places: number; been: number; cities: AtlasCity[] };
+/** The map a search is drawn on while it runs (SearchSketch). Open data, in Mercator units. */
+export type SketchArea = { ref: string; name: string; d: string; cx: number; cy: number };
+export type SketchMap = {
+  centre: { lat: number; lng: number }; radiusKm: number;
+  place: string | null; areas: SketchArea[]; complete: boolean;
+  country: { code: string; name: string; d: string; box: [number, number, number, number] } | null;
+  attribution: string;
+};
+
+/**
+ * What a search says while it runs. Each one is something that happened: a
+ * source asked, a source answering with a count, a source giving up. Nothing
+ * here is a timer, which is the only reason the screen may show it.
+ */
+export type SketchEvent =
+  | { type: 'asking'; sources: { key: string; label: string }[] }
+  | { type: 'answered'; source: string; label: string; count: number; points: [number, number][] }
+  | { type: 'failed'; source: string; label: string; error: string }
+  | { type: 'cached'; count: number }
+  | { type: 'waiting'; at: number };
+
+export type SearchParams = { q?: string; categories?: string; radiusKm?: number; near?: string; sources?: string; refresh?: '1' };
+export type SearchAnswer = { near: Place; radiusKm: number; results: (Venue & { onShortlist: boolean })[]; degradedSources: { source: string; error: string }[]; sourcesQueried?: string[]; cached?: boolean; fetchedAt?: string; tookMs?: number };
+
 export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number;
   /** Each person's latest score out of 5 here. */ scores: { memberId: string; member: string; score: number; on: string }[];
   /** Where it is at a glance: postcode district and the nearest station with its lines; null until looked up. */ postcode: string | null; station: string | null; stationLines: string[]; stationKind: string | null; stationDistanceM: number | null; whereChecked: string | null };
@@ -348,6 +372,52 @@ export type TripSummary = Trip & { dayCount: number; stopCount: number; shortlis
 export type TripStop = { id: string; position: number; venueRef: string; name: string; lat: number | null; lng: number | null; dwellMinutes: number; visit: Visit | null };
 
 export type TripDetail = { trip: Trip; attendees: { id: string; name: string; isMinor: boolean; avatarUrl?: string | null }[]; days: TripDay[]; shortlist: ShortlistItem[]; stops: TripStop[]; budget: Budget };
+
+// --- group trips -----------------------------------------------------------
+// A group hangs off a trip: one organiser, a checklist of the things the trip
+// already contains, and the people who have to do them. The organiser's screen
+// leads with what is outstanding; Roam does the chasing on a schedule.
+
+export type GroupItemKind = 'stay' | 'activity' | 'fee';
+export type GroupStatus = 'booked' | 'declared' | 'paid' | 'in' | 'out';
+export type GroupItemState = { status: GroupStatus; bookingRef: string | null; whereBooked: string | null; startsOn: string | null; endsOn: string | null; amountPence: number | null; note: string | null; markedBy: 'participant' | 'organiser' | 'roam'; on: string };
+export type GroupItem = {
+  id: string; kind: GroupItemKind; required: boolean; label: string; detail: string | null; venueRef: string | null; stopId: string | null;
+  amountPence: number | null; refundRule: string | null; refundUntil: string | null; position: number;
+  done: number; declared: number; confirmed: number; coming: number; notComing: number; heads: number;
+  outstanding: number; outstandingNames: string[]; paidPence: number | null; duePence: number | null;
+};
+export type GroupParticipant = {
+  id: string; name: string; contact: string | null; contactKind: 'mobile' | 'email' | null; heads: number; brings: string | null;
+  memberId: string | null; note: string | null; invitedAt: string | null; joinedAt: string | null; withdrawnAt: string | null; withdrawnNote: string | null;
+  states: Record<string, GroupItemState>; outstanding: { id: string; label: string; kind: GroupItemKind }[];
+  reminders: { on: string; kind: string; status: string; body: string }[]; lastRemindedAt: string | null;
+};
+export type GroupReminders = {
+  on: boolean; cadence: string; cadences: { key: string; label: string; runs: number }[]; channelReady: boolean;
+  schedule: { date: string; daysBefore: number; at: string; done: boolean }[];
+  next: { date: string; daysBefore: number; at: string; recipients: number } | null;
+  written: number; undelivered: number;
+  recent: { id: string; on: string; runOn: string | null; kind: string; status: string; reason: string | null; who: string | null; body: string }[];
+};
+export type TripGroup = {
+  group: { id: string; tripId: string; name: string | null; expectedCount: number | null; wantedBy: string | null; inviteToken: string; closed: boolean; remindersOn: boolean; cadence: string };
+  trip: { id: string; title: string | null; place: string | null; startDate: string | null; endDate: string | null; base: { label: string; kind: string | null } | null };
+  items: GroupItem[]; participants: GroupParticipant[];
+  summary: { expected: number | null; joined: number; notJoined: number; withdrawn: number; heads: number; complete: number; missing: number };
+  reminders: GroupReminders;
+  warnings: { kind: string; participantId: string; name: string; itemId: string; item: string; said: string; wanted: string }[];
+  wrote?: { participant: string; status: string }[];
+};
+/** What the invite link opens: the checklist, and nothing about anybody else. */
+export type JoinView = {
+  group: { name: string | null; wantedBy: string | null; closed: boolean; organiser: string | null; expectedCount: number | null; joined: number; heads: number };
+  trip: { title: string | null; place: string | null; startDate: string | null; endDate: string | null; base: { label: string } | null };
+  items: (Omit<GroupItem, 'done' | 'declared' | 'confirmed' | 'coming' | 'notComing' | 'heads' | 'outstanding' | 'outstandingNames' | 'paidPence' | 'duePence'> & { mine: GroupItemState | null })[];
+  expecting: { id: string; name: string }[];
+  you: { id: string; name: string; heads: number; brings: string | null; joinedAt: string | null; outstanding: number } | null;
+  participantToken?: string;
+};
 
 export type SuggestedPreference = { member: string | null; kind: 'like' | 'dislike'; value: string };
 
@@ -418,8 +488,10 @@ export type AroundThing = IdeaThing & { why: { memberId: string; name: string; f
 
 /** How far along a run of Inspire me is, for the line that says what is happening. */
 export type InspireStage = 'thinking' | 'thinking-again' | 'placing' | 'ready' | 'error';
-export type Idea = { id: string; title: string; why: string; placeText: string; place: Place | null; travelMinutes: number | null; overnight: boolean; do: string[]; eat: string[]; placing?: boolean };
-export type IdeaThing = { venueRef: string; name: string; category: string; kind: 'do' | 'eat' | 'see'; experiences: string[]; rating: number | null; ratingCount: number | null; priceLevel: number | null; distanceKm: number | null; lat: number | null; lng: number | null; reasons: string[] };
+export type Idea = { id: string; title: string; why: string; placeText: string; place: Place | null; travelMinutes: number | null; distanceKm?: number | null; overnight: boolean; do: string[]; eat: string[]; placing?: boolean };
+export type IdeaThing = { venueRef: string; name: string; category: string; kind: 'do' | 'eat' | 'see'; experiences: string[]; rating: number | null; ratingCount: number | null; priceLevel: number | null; photos?: VenuePhotoRef[]; distanceKm: number | null; lat: number | null; lng: number | null; reasons: string[] };
+/** The place an idea is about, as its source holds it: the picture, the stars, how far. */
+export type IdeaHeadline = { venueRef: string; name: string; category: string; rating: number | null; ratingCount: number | null; priceLevel: number | null; photos: VenuePhotoRef[]; distanceKm: number | null; summary: string | null; attribution: string | null };
 
 export type PlanAction =
   | { type: 'like' | 'unlike' | 'dislike' | 'restore'; stopId: string }
@@ -566,19 +638,71 @@ export const api = {
   setTakes: (id: string, takes: VisitTake[], venue?: Partial<Venue>) => put<{ visit: Visit }>(`/api/visits/${id}/takes`, { takes, venue }),
   deleteVisit: (id: string) => del<void>(`/api/visits/${id}`),
 
+  // group trips
+  tripGroup: (tripId: string) => request<TripGroup | { group: null }>(`/api/trips/${tripId}/group`),
+  createTripGroup: (tripId: string, body: { name?: string; expectedCount?: number | null; wantedBy?: string | null; cadence?: string; organiserMemberId?: string | null }) => post<TripGroup>(`/api/trips/${tripId}/group`, body),
+  updateGroup: (id: string, body: Partial<{ name: string; expectedCount: number | null; wantedBy: string | null; remindersOn: boolean; cadence: string; closed: boolean; newLink: boolean }>) => patch<TripGroup>(`/api/groups/${id}`, body),
+  deleteGroup: (id: string) => del<{ deleted: boolean }>(`/api/groups/${id}`),
+  addGroupItem: (id: string, body: { kind: GroupItemKind; label: string; detail?: string; required?: boolean; amountPence?: number | null; refundRule?: string | null; refundUntil?: string | null; venueRef?: string | null }) => post<TripGroup>(`/api/groups/${id}/items`, body),
+  updateGroupItem: (id: string, itemId: string, body: Partial<{ label: string; detail: string; required: boolean; amountPence: number | null; refundRule: string | null; refundUntil: string | null; position: number }>) => patch<TripGroup>(`/api/groups/${id}/items/${itemId}`, body),
+  removeGroupItem: (id: string, itemId: string) => del<TripGroup>(`/api/groups/${id}/items/${itemId}`),
+  addGroupParticipant: (id: string, body: { name: string; contact?: string; contactKind?: string; heads?: number; brings?: string; note?: string }) => post<TripGroup>(`/api/groups/${id}/participants`, body),
+  updateGroupParticipant: (id: string, pid: string, body: Partial<{ name: string; contact: string; contactKind: string; heads: number; brings: string; note: string; withdrawn: boolean; withdrawnNote: string }>) => patch<TripGroup>(`/api/groups/${id}/participants/${pid}`, body),
+  removeGroupParticipant: (id: string, pid: string) => del<TripGroup>(`/api/groups/${id}/participants/${pid}`),
+  markGroupItem: (id: string, pid: string, itemId: string, body: { status: GroupStatus | 'clear'; bookingRef?: string | null; whereBooked?: string | null; startsOn?: string | null; endsOn?: string | null; note?: string | null }) =>
+    post<TripGroup>(`/api/groups/${id}/participants/${pid}/items/${itemId}`, body),
+  chaseGroup: (id: string, body: { participantIds?: string[]; itemId?: string } = {}) => post<TripGroup>(`/api/groups/${id}/reminders`, body),
+
+  // the invite link's side: no household, no roster
+  joinView: (token: string, participantToken?: string | null) => request<JoinView>(`/api/join/${token}${participantToken ? `?p=${encodeURIComponent(participantToken)}` : ''}`),
+  join: (token: string, body: { name: string; contact?: string; contactKind?: string; heads?: number; brings?: string; matchId?: string | null }) => post<JoinView & { participantToken: string }>(`/api/join/${token}`, body),
+  setJoinItem: (token: string, itemId: string, body: { participantToken: string; status: 'booked' | 'declared' | 'in' | 'out' | 'clear'; bookingRef?: string | null; whereBooked?: string | null; startsOn?: string | null; endsOn?: string | null; note?: string | null }) =>
+    post<JoinView>(`/api/join/${token}/items/${itemId}`, body),
+
   // trips
   trips: (p: { country?: string; when?: 'upcoming' | 'past'; q?: string; kind?: TripKind } = {}) =>
     request<{ trips: TripSummary[]; countries: { code: string; name: string; trips: number }[] }>(`/api/trips${qs(p)}`),
   // atlas
   atlas: () => request<{ countries: AtlasCountry[]; unplaced: number; home: AtlasHome | null }>('/api/atlas'),
   atlasPlaces: (p: { country?: string; city?: string; kind?: string; status?: string; q?: string; nearHome?: boolean } = {}) => request<{ places: AtlasPlace[]; wherePending?: number }>(`/api/atlas/places${qs(p)}`),
+  /** The country, the areas and the ground a search covers. Answers from what the API holds, so it never delays a search. */
+  atlasSketch: (p: { lat: number; lng: number; radiusKm?: number; country?: string }) => request<SketchMap>(`/api/atlas/sketch${qs(p)}`),
   // trips v2
   createMultiDayTrip: (body: { title?: string; notes?: string; place?: Place; placeText?: string; startDate: string; endDate: string; base?: Place; baseText?: string; baseKind?: string; checkIn?: string; checkOut?: string; hasCar?: boolean; travelMode?: Trip['travelMode']; intensity?: Trip['intensity']; dayStart?: string; dayEnd?: string; attendingMemberIds?: string[]; seedFromAtlas?: boolean }) =>
     post<TripDetail>('/api/trips', { kind: 'trip', ...body }),
   updateTripV2: (id: string, body: Partial<{ title: string; notes: string; startDate: string; endDate: string; hasCar: boolean; travelMode: Trip['travelMode']; intensity: Trip['intensity']; dayStart: string; dayEnd: string; base: Place; baseText: string; baseKind: string; checkIn: string; checkOut: string; sources: string[] | null }>) => patch<TripDetail>(`/api/trips/${id}`, body),
   updateDay: (tripId: string, dayId: string, body: Partial<{ intensity: Trip['intensity']; travelMode: Trip['travelMode']; startTime: string; endTime: string; notes: string; startPoint: Endpoint | Place | null; endPoint: Endpoint | Place | null }>) => patch<TripDetail>(`/api/trips/${tripId}/days/${dayId}`, body),
-  shortlistSearch: (tripId: string, p: { q?: string; categories?: string; radiusKm?: number; near?: string; sources?: string; refresh?: '1' }) =>
-    request<{ near: Place; radiusKm: number; results: (Venue & { onShortlist: boolean })[]; degradedSources: { source: string; error: string }[]; sourcesQueried?: string[]; cached?: boolean; fetchedAt?: string; tookMs?: number }>(`/api/trips/${tripId}/shortlist/search${qs(p)}`),
+  shortlistSearch: (tripId: string, p: SearchParams) => request<SearchAnswer>(`/api/trips/${tripId}/shortlist/search${qs(p)}`),
+
+  /**
+   * The same search, said out loud while it runs, so the map drawn over the
+   * wait (SearchSketch) can show what has really happened rather than a clock.
+   *
+   * Server-sent events. Where they are not available — native, or a proxy that
+   * will not stream — this falls back to the plain route and the map simply has
+   * less to say. A stream that breaks falls back too: the search matters, the
+   * commentary does not.
+   */
+  shortlistSearchStream: async (tripId: string, p: SearchParams, onEvent: (e: SketchEvent) => void): Promise<SearchAnswer> => {
+    if (typeof EventSource === 'undefined') return api.shortlistSearch(tripId, p);
+    try {
+      return await new Promise<SearchAnswer>((resolve, reject) => {
+        const es = new EventSource(`${API_URL}/api/trips/${tripId}/shortlist/search/stream${qs(p)}`);
+        const stop = () => { try { es.close(); } catch { /* already gone */ } };
+        for (const name of ['asking', 'answered', 'failed', 'cached', 'waiting']) {
+          es.addEventListener(name, (e) => { try { onEvent(JSON.parse((e as MessageEvent).data)); } catch { /* one unreadable line is not the search */ } });
+        }
+        es.addEventListener('done', (e) => { stop(); resolve(JSON.parse((e as MessageEvent).data)); });
+        es.addEventListener('fault', (e) => { stop(); const b = JSON.parse((e as MessageEvent).data); reject(new ApiError(b.status ?? 500, b)); });
+        // The browser reopens a closed stream by itself, which would run the
+        // whole search a second time. Closing here is what stops that.
+        es.onerror = () => { stop(); reject(new Error('stream closed')); };
+      });
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      return api.shortlistSearch(tripId, p);
+    }
+  },
   addToShortlist: (tripId: string, body: { venueRef: string; venueLabel: string; kind?: string; category?: string | null; lat?: number | null; lng?: number | null; venue?: Partial<Venue>; note?: string; mustDo?: boolean; preferredDayId?: string | null }) => post<TripDetail>(`/api/trips/${tripId}/shortlist`, body),
   updateShortlist: (tripId: string, itemId: string, body: { note?: string; mustDo?: boolean; preferredDayId?: string | null; kind?: string; status?: ShortlistStatus; bookedTime?: string | null; partySize?: string | null; bookingRef?: string | null; statusNote?: string | null; statusOn?: string | null; dwellMinutes?: number | null; legMode?: LegMode | '' | null; dayId?: string | null }) => patch<TripDetail>(`/api/trips/${tripId}/shortlist/${itemId}`, body),
   reorderShortlist: (tripId: string, itemIds: string[]) => post<TripDetail>(`/api/trips/${tripId}/shortlist/reorder`, { itemIds }),
@@ -612,7 +736,7 @@ export const api = {
   inspireStatus: (sessionId: string) => request<{ sessionId: string; ref: string; running: boolean; ideas: Idea[] | null; reply: string | null; budget: IdeaBudget; stage: InspireStage | null; placed: number; startedAt: string | null; error: string | null }>(`/api/plan/inspire/${sessionId}`),
   /** What one run did, by the number shown on screen: what was asked, how long, and every call it made. */
   planRun: (ref: string) => request<{ ref: string; sessionId: string; kind: string; asked: any; startedAt: string; seconds: number; stage: string; running: boolean; error: string | null; answered: { title: string; pinned: boolean }[] | null; calls: { provider: string; purpose: string; units: any; costUsd: number | null; at: string; afterSeconds: number }[] }>(`/api/plan/runs/${ref}`),
-  inspireThings: (q: { lat: number; lng: number; label: string; locality?: string }) => request<{ items: IdeaThing[]; cached?: boolean; tookMs?: number }>(`/api/plan/inspire/things${qs(q)}`),
+  inspireThings: (q: { lat: number; lng: number; label: string; locality?: string }) => request<{ items: IdeaThing[]; headline: IdeaHeadline | null; cached?: boolean; tookMs?: number }>(`/api/plan/inspire/things${qs(q)}`),
   /** Things to do and see: the idea becomes a day out in Trips, what Roam named already shortlisted. */
   inspireTrip: (body: { sessionId: string; ideaId: string; attendingMemberIds?: string[] | null }) => post<{ tripId: string; title: string; date: string; seeded: string[]; reply: string; existing: boolean }>('/api/plan/inspire/trip', body),
   /** The family's table: the best places for the food the people coming love. Runs in the background like Inspire me. */

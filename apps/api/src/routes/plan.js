@@ -18,7 +18,7 @@ const MATRIX_MAX = Number(process.env.ROAM_MATRIX_MAX || 60);
 
 // Rows fill while the household is still talking: a smaller, quicker model reads the words so far.
 const PREVIEW_MODEL = process.env.ROAM_PREVIEW_MODEL || 'claude-sonnet-5';
-import { searchAllSources, searchCorridor, eventSources, optInFrom, defaultSourceKeys, enabledSources } from '../sources/index.js';
+import { searchAllSources, searchCorridor, eventSources, optInFrom, defaultSourceKeys, enabledSources, sourceHasKey, sourceOff } from '../sources/index.js';
 import { resolvePlace, KNOWN_PLACES } from '../sources/fixtures.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { deriveCatchment, reachRadiusKm, estimateTravelMinutes, detourMinutes as estimateDetour, TRAVEL_MODES, kmBetween } from '../domain/travel.js';
@@ -1506,6 +1506,7 @@ async function runInspire({ household, attending, session, state }) {
         }
       } catch { /* the idea stands without a pin */ }
       idea.placing = false;
+      if (home && idea.place) idea.distanceKm = Number(kmBetween(home, idea.place).toFixed(1));
       await publish({ ideas, placed: ideas.filter((x) => !x.placing).length });
     }
     await publish({ running: false, stage: 'ready' });
@@ -1554,6 +1555,28 @@ export async function thingsAround({ household, session, place }) {
   return r;
 }
 
+/**
+ * The venue a place name refers to, among what a search returned: the same
+ * name, or one that contains it ("Thorpe Park" in "Thorpe Park Resort"), the
+ * best reviewed of those, and nothing that is merely nearby.
+ */
+function bestNameMatch(venues, label, center) {
+  const want = normName(label.split(',')[0]);
+  if (want.length < 4) return null;
+  const hits = venues.filter((v) => {
+    const n = normName(v.name);
+    return n === want || n.includes(want) || want.includes(n);
+  });
+  if (!hits.length) return null;
+  const best = hits.sort((a, b) => (b.ratingCount ?? 0) - (a.ratingCount ?? 0))[0];
+  return {
+    venueRef: `${best.source}:${best.sourcePlaceId}`, name: best.name, category: best.category,
+    rating: best.rating ?? null, ratingCount: best.ratingCount ?? null, priceLevel: best.priceLevel ?? null,
+    photos: (best.photos ?? []).slice(0, 1), distanceKm: Number(kmBetween(center, best).toFixed(1)),
+    summary: best.summary ?? null, attribution: best.attributionText ?? best.attribution ?? null,
+  };
+}
+
 /** What there is to do, eat and see around an idea — the ordinary place search, cached, no model call. */
 router.get('/inspire/things', async (req, res, next) => {
   try {
@@ -1569,12 +1592,29 @@ router.get('/inspire/things', async (req, res, next) => {
     // says what is there; the trip's Find tab is where it is browsed and judged.
     const kindOf = (c) => (['restaurant', 'cafe', 'pub', 'bar'].includes(c.category) ? 'eat' : ['attraction', 'event', 'activity'].includes(c.category) ? 'do' : 'see');
     const weight = (c) => (c.rating ?? 0) * Math.log10((c.ratingCount ?? 0) + 2);
-    const items = [...venues].sort((a, b) => weight(b) - weight(a)).map((c) => ({
+    const sorted = [...venues].sort((a, b) => weight(b) - weight(a));
+    const items = sorted.map((c) => ({
       venueRef: `${c.source}:${c.sourcePlaceId}`, name: c.name, category: c.category, kind: kindOf(c), experiences: c.experiences ?? [],
       rating: c.rating ?? null, ratingCount: c.ratingCount ?? null, priceLevel: c.priceLevel ?? null,
+      photos: (c.photos ?? []).slice(0, 1),
       distanceKm: Number(kmBetween(center, c).toFixed(1)), lat: c.lat, lng: c.lng, reasons: [],
     }));
-    res.json({ items, label: req.query.label ?? null, cached, tookMs: Date.now() - started });
+
+    // The place itself, not only what is around it (owner, 4 Sep 2026: "no
+    // stars, no colour, and no little image to show you what this place is").
+    // The look-around has usually already returned it — Thorpe Park is the
+    // biggest thing within five kilometres of Thorpe Park — so it is looked for
+    // there first and only asked for by name when it is not.
+    const label = String(req.query.label || '').trim();
+    let headline = label ? bestNameMatch(sorted, label, center) : null;
+    if (!headline && label && sourceHasKey('google') && !sourceOff('google')) {
+      try {
+        const r = await searchCached({ center, radiusKm: 3, categories: [], query: label, includeEvents: false, sources: ['google'] });
+        if (r.fetched) await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, null, 'google', 'plan.inspire.headline', r.units]);
+        headline = bestNameMatch(r.venues || [], label, center);
+      } catch { /* the idea does fine without a picture */ }
+    }
+    res.json({ items, headline, label: req.query.label ?? null, cached, tookMs: Date.now() - started });
   } catch (err) {
     next(err);
   }
