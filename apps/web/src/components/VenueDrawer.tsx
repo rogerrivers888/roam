@@ -154,11 +154,16 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   const photoUri = (p: { ref?: string; url?: string }, w: number) => p.url ?? (p.ref ? `${API_URL}/api/photos/google?name=${encodeURIComponent(p.ref)}&w=${w}` : null);
 
   const eating = EATING.has(item.category);
+  // Somewhere you eat leads with the two things you want while you are standing
+  // in it, because only three or four tabs fit a phone without scrolling.
   const tabs: { value: Tab; label: string }[] = [
     { value: 'overview', label: 'Overview' },
+    ...(eating ? [
+      { value: 'menu' as Tab, label: 'Menu' },
+      { value: 'order' as Tab, label: `Order${ctl.order?.items.length ? ` (${ctl.order.items.length})` : ''}` },
+    ] : []),
     ...(gettingThere || mapsUrl ? [{ value: 'travel' as Tab, label: 'Getting there' }] : []),
     { value: 'reviews', label: `Reviews${reviews.length ? ` (${reviews.length})` : ''}` },
-    ...(eating ? [{ value: 'menu' as Tab, label: 'Menu' }, { value: 'order' as Tab, label: 'Order' }] : []),
   ];
   const shown = tabs.some((t) => t.value === tab) ? tab : 'overview';
 
