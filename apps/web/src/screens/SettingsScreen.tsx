@@ -6,6 +6,7 @@ import { Button, Card, Row, Segmented, SectionTitle, StatusLine, Stepper, minute
 import { PlacePicker } from '../components/PlacePicker';
 import { ProvidersTable } from '../components/ProvidersTable';
 import { useTheme } from '../hooks/useTheme';
+import { getViewer, setViewer } from '../viewer';
 import { isAdmin, setAdmin } from '../admin';
 import { Icon } from '../components/Icon';
 
@@ -45,6 +46,7 @@ function Preferences({ data, refresh }: { data: HouseholdResponse; refresh: () =
   const [name, setName] = useState(household.name ?? '');
   const [speak, setSpeak] = useState(getSpeakPref());
   const { pref: themePref, setPref: setThemePref } = useTheme();
+  const [viewer, setViewerState] = useState<string | null>(getViewer(data.members));
   const [confirm, setConfirm] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [homeMsg, setHomeMsg] = useState<string | null>(null);
@@ -97,6 +99,11 @@ function Preferences({ data, refresh }: { data: HouseholdResponse; refresh: () =
       <SectionTitle hint="Follow the device, or pick one. Kept on this device.">Appearance</SectionTitle>
       <Card>
         <Segmented value={themePref} options={[{ value: 'system', label: 'Device' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} onChange={setThemePref} />
+      </Card>
+
+      <SectionTitle hint="A place's row in Places shows one score: this person's. Everyone's are in the drawer. Kept on this device.">Ratings shown as</SectionTitle>
+      <Card>
+        <Segmented value={viewer ?? ''} options={data.members.map((m) => ({ value: m.id, label: m.name.split(' ')[0] }))} onChange={(id) => { setViewer(id); setViewerState(id); }} />
       </Card>
 
       <SectionTitle>Voice</SectionTitle>

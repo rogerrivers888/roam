@@ -79,17 +79,28 @@ function visitConcept(venue) {
   return null;
 }
 
+/** A score out of 5 in halves, or null. */
+const cleanScore = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0.5 || n > 5 || Math.round(n * 2) !== n * 2) return null;
+  return n;
+};
+/** The planner still learns from a three-way take; when only a score was given, the take follows it. */
+const takeFromScore = (score) => (score >= 4 ? 'loved' : score <= 2 ? 'not_for_me' : 'fine');
+
 async function writeTakes(client, visitId, takes, venue) {
   for (const t of takes || []) {
-    if (!TAKES.includes(t.take)) continue;
+    const score = cleanScore(t.score);
+    const take = TAKES.includes(t.take) ? t.take : score != null ? takeFromScore(score) : null;
+    if (!take) continue;
     const subject = (t.subject || 'visit').trim();
     let concept = null;
     if (subject === 'visit') concept = visitConcept(venue);
     else concept = t.conceptKey ? conceptByKey(t.conceptKey) : resolveConcept(subject, { kinds: ['dish', 'experience'] });
     await client.query(
-      `insert into ratings (visit_id, member_id, subject, take, comment, concept_key)
-       values ($1, $2, $3, $4, $5, $6)`,
-      [visitId, t.memberId, subject, t.take, t.comment?.trim() || null, concept?.key ?? null],
+      `insert into ratings (visit_id, member_id, subject, take, comment, concept_key, score)
+       values ($1, $2, $3, $4, $5, $6, $7)`,
+      [visitId, t.memberId, subject, take, t.comment?.trim() || null, concept?.key ?? null, score],
     );
   }
 }
@@ -118,7 +129,7 @@ async function visitPayload(id) {
     stopId: v.stop_id,
     attendees,
     takes: takes.map((t) => ({
-      id: t.id, memberId: t.member_id, member: t.member_name, subject: t.subject, take: t.take, comment: t.comment,
+      id: t.id, memberId: t.member_id, member: t.member_name, subject: t.subject, take: t.take, comment: t.comment, score: t.score == null ? null : Number(t.score),
       conceptKey: t.concept_key, concept: conceptByKey(t.concept_key)?.label ?? null,
     })),
   };
@@ -305,7 +316,7 @@ visits.get('/', async (req, res, next) => {
 
     const { rows } = await query(
       `select v.*,
-              (select json_agg(json_build_object('member', m.name, 'memberId', m.id, 'take', r.take, 'comment', r.comment))
+              (select json_agg(json_build_object('member', m.name, 'memberId', m.id, 'take', r.take, 'comment', r.comment, 'score', r.score))
                  from ratings r join members m on m.id = r.member_id where r.visit_id = v.id and r.subject = 'visit') as visit_takes,
               (select count(*)::int from ratings r where r.visit_id = v.id and r.subject <> 'visit') as item_takes,
               (select json_agg(m.name order by m.name) from visit_attendees va join members m on m.id = va.member_id where va.visit_id = v.id) as attendees

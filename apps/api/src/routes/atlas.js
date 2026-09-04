@@ -12,9 +12,12 @@ import { query } from '../db.js';
 import { reverseGeocode, geocode } from '../sources/geocode.js';
 import { recallVenue } from '../sources/index.js';
 import { currentHousehold } from './household.js';
+import { fillWhere } from '../sources/where.js';
 
 export const atlas = Router();
 
+// One background fill per household at a time.
+const whereRunning = new Set();
 const kindOfCategory = (c) => (['restaurant', 'cafe', 'pub', 'bar'].includes(c) ? 'food' : ['attraction', 'event'].includes(c) ? 'activity' : 'other');
 
 // Reverse-geocoding is rate-limited; nearby points share a result.
@@ -132,7 +135,13 @@ atlas.get('/places', async (req, res, next) => {
                  from ratings r join visits v on v.id = r.visit_id join members m on m.id = r.member_id
                 where v.household_id = hp.household_id and v.venue_ref = hp.venue_ref and r.subject = 'visit') as takes,
               (select l.status from place_ledger l where l.household_id = hp.household_id and l.source || ':' || l.source_place_id = hp.venue_ref and l.status in ('special','saved','dismissed') order by case l.status when 'special' then 0 when 'saved' then 1 else 2 end, l.created_at desc limit 1) as ledger,
-              (select json_agg(distinct t.title) from trip_shortlist s join trips t on t.id = s.trip_id where s.venue_ref = hp.venue_ref and t.household_id = hp.household_id) as on_trips
+              (select json_agg(distinct t.title) from trip_shortlist s join trips t on t.id = s.trip_id where s.venue_ref = hp.venue_ref and t.household_id = hp.household_id) as on_trips,
+              -- Each person's latest score out of 5 here (owner, 3 Sep 2026: the row shows one number, mine; the drawer shows the history).
+              (select json_agg(json_build_object('memberId', s.member_id, 'member', s.name, 'score', s.score, 'on', s.visited_on)) from (
+                 select distinct on (r.member_id) r.member_id, m.name, r.score, v.visited_on
+                   from ratings r join visits v on v.id = r.visit_id join members m on m.id = r.member_id
+                  where v.household_id = hp.household_id and v.venue_ref = hp.venue_ref and r.subject = 'visit' and r.score is not null
+                  order by r.member_id, v.visited_on desc, r.created_at desc) s) as scores
          from household_places hp
         where ${where.join(' and ')}
         order by hp.kind, hp.label`,
@@ -144,11 +153,20 @@ atlas.get('/places', async (req, res, next) => {
       visits: r.visits, lastOn: r.last_on, takes: r.takes ?? [], ledger: r.ledger, onTrips: (r.on_trips ?? []).filter(Boolean),
       status: r.visits > 0 ? 'been' : r.ledger === 'special' ? 'special' : 'saved',
       special: r.ledger === 'special',
+      scores: r.scores ?? [],
+      postcode: r.postcode ?? null, station: r.station ?? null, stationLines: r.station_lines ?? [], stationKind: r.station_kind ?? null, whereChecked: r.where_checked ?? null,
       loved: (r.takes ?? []).filter((t) => t.take === 'loved').length,
       notForMe: (r.takes ?? []).filter((t) => t.take === 'not_for_me').length,
     }));
     if (status) places = places.filter((p) => (status === 'special' ? p.special : p.status === status));
-    res.json({ places });
+    // Postcode and nearest station are looked up lazily, a few rows per read, after the response has gone;
+    // the web asks again shortly when any row is still waiting.
+    const pending = rows.filter((r) => r.lat != null && r.lng != null && !r.where_checked).length;
+    res.json({ places, wherePending: pending });
+    if (pending && !whereRunning.has(household.id)) {
+      whereRunning.add(household.id);
+      fillWhere(household.id, rows).catch(() => null).finally(() => whereRunning.delete(household.id));
+    }
   } catch (err) { next(err); }
 });
 
@@ -175,6 +193,10 @@ atlas.post('/cities', async (req, res, next) => {
     // A city search returns the city itself; its locality is its own name.
     const locality = place.locality || place.label.split(',')[0];
     if (!place.countryCode) return res.status(400).json({ error: 'country_unknown', message: 'That place has no country in the map data.' });
+    // A country is not a destination (owner, 3 Sep 2026): "United Kingdom" typed here used to become a city called United Kingdom.
+    if (place.country && locality.trim().toLowerCase() === String(place.country).trim().toLowerCase()) {
+      return res.status(400).json({ error: 'country_not_city', message: `${place.country} is a country — type a city or a region in it, like "Bath" or "Lake District".` });
+    }
     await query(
       `insert into atlas_cities (household_id, country, country_code, locality, lat, lng) values ($1,$2,$3,$4,$5,$6)
        on conflict (household_id, country_code, locality) do update set lat = coalesce(excluded.lat, atlas_cities.lat), lng = coalesce(excluded.lng, atlas_cities.lng)`,

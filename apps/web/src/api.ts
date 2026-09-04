@@ -119,14 +119,14 @@ export type Venue = {
 };
 
 export type Take = 'loved' | 'fine' | 'not_for_me';
-export type VisitTake = { id?: string; memberId: string; member?: string; subject: string; take: Take; comment: string | null; conceptKey?: string | null; concept?: string | null };
+export type VisitTake = { id?: string; memberId: string; member?: string; subject: string; take: Take; comment: string | null; conceptKey?: string | null; concept?: string | null; /** Out of 5, in halves (owner, 3 Sep 2026). */ score?: number | null };
 export type Visit = {
   id: string; venueRef: string; venueLabel: string; category: string | null; lat: number | null; lng: number | null;
   visitedOn: string; note: string | null; country: string | null; countryCode: string | null; locality: string | null;
   tripId: string | null; stopId?: string | null;
   attendees: { id: string; name: string }[] | string[];
   takes?: VisitTake[];
-  visitTakes?: { member: string; memberId: string; take: Take; comment: string | null }[];
+  visitTakes?: { member: string; memberId: string; take: Take; comment: string | null; score?: number | null }[];
   itemTakes?: number;
 };
 
@@ -182,7 +182,9 @@ export type DirectionStep = { text: string; minutes: number; meters: number | nu
 export type Directions = { mode: LegMode; minutes: number; meters: number | null; encodedPolyline: string | null; steps: DirectionStep[]; estimated: boolean; source: string };
 export type AtlasCity = { name: string; places: number; been: number; special: number; trips: number; lastSeen: string | null; lat: number | null; lng: number | null; created: boolean };
 export type AtlasCountry = { code: string; name: string; places: number; been: number; cities: AtlasCity[] };
-export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number };
+export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number;
+  /** Each person's latest score out of 5 here. */ scores: { memberId: string; member: string; score: number; on: string }[];
+  /** Where it is at a glance: postcode district and the nearest station with its lines; null until looked up. */ postcode: string | null; station: string | null; stationLines: string[]; stationKind: string | null; whereChecked: string | null };
 
 export type Trip = {
   kind?: TripKind; place?: { label: string } | null; startDate?: string | null; endDate?: string | null; dayStart?: string; dayEnd?: string;
@@ -235,6 +237,13 @@ export type PlanQuestion = { kind: 'place' | 'stay' | 'attending' | 'open' | 'du
 export type PlanCheck = PlanQuestion & { id: string; skippable: boolean };
 export type PlanRowKey = 'from' | 'to' | 'when' | 'who' | 'stay' | 'do' | 'eat' | 'budget';
 export type PlanRow = { key: PlanRowKey; label: string; value: string | null; detail: string | null; state: 'plain' | 'check' | 'empty' };
+// A tapped control lands in the plan exactly as tapped — no interpretation.
+export type PlanSet = {
+  destination?: Place | null; date?: string | null; end_date?: string | null; nights?: number | null; duration_minutes?: number | null; depart_time?: string | null;
+  do?: { kinds: string[]; named: string[]; count: number | null };
+  eat?: { meals: Record<string, string | null>; avoid_chains?: boolean | null; special?: boolean | null };
+  budget?: { price_point?: 'any' | PricePoint | null; low?: number | null; high?: number | null; per?: 'everyone' | 'person' | null };
+};
 export type IdeaBudget = 'any' | 'free' | 'cheap' | 'mid' | 'treat';
 export type Idea = { id: string; title: string; why: string; placeText: string; place: Place | null; travelMinutes: number | null; overnight: boolean; do: string[]; eat: string[] };
 export type IdeaThing = { venueRef: string; name: string; category: string; kind: 'do' | 'eat' | 'see'; experiences: string[]; rating: number | null; ratingCount: number | null; priceLevel: number | null; distanceKm: number | null; lat: number | null; lng: number | null; reasons: string[] };
@@ -354,7 +363,7 @@ export const api = {
     request<{ trips: TripSummary[]; countries: { code: string; name: string; trips: number }[] }>(`/api/trips${qs(p)}`),
   // atlas
   atlas: () => request<{ countries: AtlasCountry[]; unplaced: number }>('/api/atlas'),
-  atlasPlaces: (p: { country?: string; city?: string; kind?: string; status?: string; q?: string } = {}) => request<{ places: AtlasPlace[] }>(`/api/atlas/places${qs(p)}`),
+  atlasPlaces: (p: { country?: string; city?: string; kind?: string; status?: string; q?: string } = {}) => request<{ places: AtlasPlace[]; wherePending?: number }>(`/api/atlas/places${qs(p)}`),
   // trips v2
   createMultiDayTrip: (body: { title?: string; notes?: string; place?: Place; placeText?: string; startDate: string; endDate: string; base?: Place; baseText?: string; baseKind?: string; checkIn?: string; checkOut?: string; hasCar?: boolean; travelMode?: Trip['travelMode']; intensity?: Trip['intensity']; dayStart?: string; dayEnd?: string; attendingMemberIds?: string[]; seedFromAtlas?: boolean }) =>
     post<TripDetail>('/api/trips', { kind: 'trip', ...body }),
@@ -386,6 +395,8 @@ export const api = {
   // planner
   planStart: (utterance: string, sessionId?: string | null, sources?: string[] | null, attendingMemberIds?: string[] | null, extra: { field?: PlanRowKey | null; skip?: string | null } = {}) =>
     post<PlanResponse>('/api/plan/start', { utterance, sessionId: sessionId ?? undefined, sources: sources ?? undefined, attendingMemberIds: attendingMemberIds ?? undefined, field: extra.field ?? undefined, skip: extra.skip ?? undefined }),
+  planSet: (set: PlanSet, sessionId?: string | null, attendingMemberIds?: string[] | null) => post<PlanResponse>('/api/plan/start', { set, sessionId: sessionId ?? undefined, attendingMemberIds: attendingMemberIds ?? undefined }),
+  planPlaces: (q: string) => request<{ places: { label: string; where: string; kind: string; isRoad: boolean; travelMinutes: number | null; place: Place }[] }>(`/api/plan/places${qs({ q })}`),
   planGo: (sessionId: string) => post<PlanResponse>('/api/plan/go', { sessionId }),
   planPreview: (utterance: string, sessionId?: string | null) => post<{ sessionId: string; rows: PlanRow[] }>('/api/plan/preview', { utterance, sessionId: sessionId ?? undefined }),
   /** Inspire me runs in the background: the answer is the session; poll inspireStatus until running is false. */

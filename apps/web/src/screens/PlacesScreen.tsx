@@ -1,47 +1,77 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import { CategoryIcon, Icon } from '../components/Icon';
-import { api, AtlasCity, AtlasCountry, AtlasPlace, BrowseItem, HouseholdResponse, Place, Take, Venue, Visit, VisitTake } from '../api';
+import { api, AtlasCity, AtlasCountry, AtlasPlace, BrowseItem, HouseholdResponse, Place, Venue, Visit } from '../api';
 import { MapView, MapPin } from '../components/MapView';
 import { VenueDrawer } from '../components/VenueDrawer';
-import { memberColor } from '../theme';
-import { VenuePhoto } from '../components/VenuePhoto';
 import type { TripPrefill } from './TripsScreen';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap } from '../components/ui';
-import { SourcePicker } from '../components/SourcePicker';
-import { FaceRow } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
-import { TakePicker, TakeRow } from '../components/TakePicker';
+import { SourcePicker } from '../components/SourcePicker';
+import { VenueRow, VisitForm, VisitSummary, rowsForVisit } from '../components/Visits';
+import { getViewer, onViewerChange } from '../viewer';
 
-const today = () => new Date().toISOString().slice(0, 10);
-const uuid = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+// Trips still imports these from here.
+export { VenueRow, VisitForm, VisitSummary } from '../components/Visits';
+export type { VisitCreateBody } from '../components/Visits';
 
-export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; onPlanTrip?: (p: TripPrefill) => void }) {
-  const [tab, setTab] = useState<'atlas' | 'find' | 'been'>('atlas');
-  const { width } = useViewport();
-  const wide = width >= 1000;
-  return (
-    <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={type.title}>Places</Text>
-          <Text style={type.small}>Your atlas: every country and city you've been to, the places you loved, the ones to try — and the start of the next trip there.</Text>
-        </View>
-      </View>
-      <Segmented value={tab} options={[{ value: 'atlas', label: 'Our atlas' }, { value: 'find', label: 'Find places' }, { value: 'been', label: 'Visits' }]} onChange={setTab} />
-      {tab === 'atlas' ? <AtlasPanel household={household} wide={wide} refreshHousehold={refreshHousehold} onPlanTrip={onPlanTrip} /> : null}
-      {tab === 'find' ? <FindPanel household={household} wide={wide} refreshHousehold={refreshHousehold} /> : null}
-      {tab === 'been' ? <BeenPanel household={household} wide={wide} refreshHousehold={refreshHousehold} /> : null}
-    </ScrollView>
-  );
+/**
+ * Places (owner, 3 Sep 2026, /mockups/places-styled.html): the atlas is rows —
+ * countries that fold open to cities, the cities first when there is only one
+ * country — and inside a city everything the household has put there, with
+ * Everything / Things to do / Food & drink on top, Status and Type as
+ * dropdowns, list or map, and no trips (trips live in Trips). A row shows one
+ * number, your own score out of 5, and where the place is at a glance: the
+ * postcode district and the nearest station with its line. Special is a red
+ * heart on the row's icon (style guide: red is the heart). Everything else
+ * about a place is in the drawer.
+ */
+
+type Kind = 'all' | 'do' | 'eat';
+type Status = 'any' | 'been' | 'try' | 'special';
+type Sort = 'name' | 'mine' | 'recent';
+
+const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1).replace(/-/g, ' ');
+const fmtScore = (s: number) => s.toFixed(1).replace('.0', '');
+
+// Transport for London's own colours for its lines: the line's identity, not a UI code.
+const LINE_COLOURS: Record<string, string> = {
+  Bakerloo: '#B36305', Central: '#E32017', Circle: '#FFD300', District: '#00782A', 'Hammersmith & City': '#F3A9BB', Jubilee: '#A0A5A9',
+  Metropolitan: '#9B0056', Northern: '#000000', Piccadilly: '#003688', Victoria: '#0098D4', 'Waterloo & City': '#95CDBA', 'Elizabeth line': '#6950A1',
+  DLR: '#00A4A7', 'London Overground': '#EE7C0E', Liberty: '#5D6061', Lioness: '#FAA61A', Mildmay: '#0077AD', Suffragette: '#5BBD72', Weaver: '#823A62', Windrush: '#ED1B00', Tram: '#84B817',
+};
+
+/** Which segment a place belongs to. A pub that serves food is under both. */
+function kindsOf(p: AtlasPlace): Kind[] {
+  const v = (p.venue ?? {}) as Partial<Venue>;
+  const c = p.category ?? '';
+  if (c === 'restaurant' || c === 'cafe') return ['eat'];
+  if ((c === 'pub' || c === 'bar') && (v.cuisines?.length ?? 0) > 0) return ['do', 'eat'];
+  if (!c && p.kind === 'food') return ['eat'];
+  return ['do'];
 }
 
+/** The kind of thing it is, in the words the Type dropdown uses, for the segment being looked at. */
+function typeOf(p: AtlasPlace, kind: Kind): string {
+  const v = (p.venue ?? {}) as Partial<Venue>;
+  const c = p.category ?? '';
+  const k = kind === 'all' ? kindsOf(p)[0] : kind;
+  if (k === 'eat') {
+    if (c === 'pub' || c === 'bar') return 'Pub food';
+    if (v.cuisines?.length) return cap(v.cuisines[0]);
+    return c === 'cafe' ? 'Cafés' : 'Restaurants';
+  }
+  if (c === 'pub' || c === 'bar') return 'Pubs & bars';
+  if (c === 'event') return 'Events';
+  if (v.experiences?.length) return cap(v.experiences[0]);
+  return c === 'attraction' ? 'Attractions' : 'Other';
+}
 
-// ---------------------------------------------------------------------------
-// Atlas: countries → cities → our places
-// ---------------------------------------------------------------------------
+const statusOf = (p: AtlasPlace): Exclude<Status, 'any'> => (p.visits > 0 ? 'been' : 'try');
+const matchesStatus = (p: AtlasPlace, s: Status) => s === 'any' || (s === 'special' ? p.special : statusOf(p) === s);
+const myScore = (p: AtlasPlace, viewer: string | null) => (viewer ? p.scores.find((s) => s.memberId === viewer)?.score ?? null : null);
 
 function atlasToVenue(p: AtlasPlace): Venue {
   const [source, ...rest] = p.venueRef.split(':');
@@ -55,286 +85,6 @@ function atlasToVenue(p: AtlasPlace): Venue {
   };
 }
 
-function AtlasPanel({ household, wide, refreshHousehold, onPlanTrip }: { household: HouseholdResponse | null; wide: boolean; refreshHousehold: () => Promise<void>; onPlanTrip?: (p: TripPrefill) => void }) {
-  const [data, setData] = useState<{ countries: AtlasCountry[]; unplaced: number } | null>(null);
-  const [country, setCountry] = useState<AtlasCountry | null>(null);
-  const [city, setCity] = useState<string | null>(null);
-  const [places, setPlaces] = useState<AtlasPlace[]>([]);
-  const [open, setOpen] = useState<AtlasPlace | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [addingCity, setAddingCity] = useState(false);
-  const [addingPlace, setAddingPlace] = useState(false);
-
-  const loadAtlas = useCallback(async () => { try { setData(await api.atlas()); } catch (e: any) { setError(e.message); } }, []);
-  useEffect(() => { loadAtlas(); }, [loadAtlas]);
-  const loadPlaces = useCallback(async () => {
-    if (!country || !city) { setPlaces([]); return; }
-    try { setPlaces((await api.atlasPlaces({ country: country.code, city })).places); } catch (e: any) { setError(e.message); }
-  }, [country?.code, city]);
-  useEffect(() => { loadPlaces(); }, [loadPlaces]);
-
-  const refreshAll = async () => { await loadAtlas(); await loadPlaces(); await refreshHousehold(); };
-  // Keep the open drawer on the same place after a change (a visit saved, a status set).
-  useEffect(() => { if (open) { const fresh = places.find((p) => p.venueRef === open.venueRef); if (fresh && fresh !== open) setOpen(fresh); } }, [places]);
-
-  if (!data) return <Card><Text style={type.small}>{error ?? 'Loading your atlas…'}</Text></Card>;
-
-  if (!country) {
-    return (
-      <View style={{ gap: spacing.md }}>
-        <Card style={{ borderColor: colors.accent }}>
-          <Row style={{ justifyContent: 'space-between' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={type.h3}>Add a country or city</Text>
-              <Text style={type.tiny}>Somewhere you've been or are going — then add the places you know there.</Text>
-            </View>
-            {!addingCity ? <Button label="+ Add" onPress={() => setAddingCity(true)} /> : null}
-          </Row>
-          {addingCity ? (
-            <>
-              <PlacePicker value={null} onPick={async (p) => { if (!p) return; try { const r = await api.createAtlasCity({ place: p }); await loadAtlas(); setAddingCity(false); const c = (await api.atlas()).countries.find((x) => x.code === r.city.countryCode); if (c) { setCountry(c); setCity(r.city.name); } } catch (e: any) { setError(e.message); } }} placeholder="City and country — Lisbon, Portugal · Lake District · New York" />
-              <Button label="Cancel" kind="ghost" onPress={() => setAddingCity(false)} style={{ alignSelf: 'flex-start' }} />
-            </>
-          ) : null}
-          {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-        </Card>
-        {data.countries.length === 0 ? <Card><Text style={type.body}>Your atlas is empty so far.</Text><Text style={type.small}>Add a city above, then add the places you've been to or want to try. Visits, saves and trip shortlists also land here automatically.</Text></Card> : null}
-        <View style={[styles.grid, wide && { flexDirection: 'row', flexWrap: 'wrap' }]}>
-          {data.countries.map((c) => (
-            <Pressable key={c.code} onPress={() => { setCountry(c); setCity(c.cities.length === 1 ? c.cities[0].name : null); }} style={wide ? { width: '49%' } : undefined}>
-              <Card style={{ gap: 4 }}>
-                <Text style={type.h2}>{c.name}</Text>
-                <Text style={type.small}>{c.places} place{c.places === 1 ? '' : 's'} · {c.been} been · {c.cities.length} {c.cities.length === 1 ? 'city' : 'cities'}</Text>
-                <Wrap>{c.cities.slice(0, 6).map((ci) => <Chip key={ci.name} label={`${ci.name} (${ci.places})`} />)}</Wrap>
-              </Card>
-            </Pressable>
-          ))}
-        </View>
-        {data.unplaced ? <Text style={type.tiny}>{data.unplaced} place{data.unplaced === 1 ? '' : 's'} still being placed on the map.</Text> : null}
-      </View>
-    );
-  }
-
-  if (!city) {
-    return (
-      <View style={{ gap: spacing.md }}>
-        <Button label="All countries" icon="back" kind="ghost" onPress={() => setCountry(null)} style={{ alignSelf: 'flex-start' }} />
-        <Text style={type.h2}>{country.name}</Text>
-        {country.cities.map((ci) => (
-          <Pressable key={ci.name} onPress={() => setCity(ci.name)}>
-            <Card style={{ gap: 4 }}>
-              <Text style={type.h3}>{ci.name}</Text>
-              <Text style={type.small}>{ci.places} place{ci.places === 1 ? '' : 's'} · {ci.been} been · {ci.special} special · {ci.trips} trip{ci.trips === 1 ? '' : 's'}</Text>
-            </Card>
-          </Pressable>
-        ))}
-      </View>
-    );
-  }
-
-  return (
-    <View style={{ gap: spacing.md }}>
-      <Row>
-        <Button label={country.name} icon="back" kind="ghost" onPress={() => { setCity(null); setOpen(null); }} />
-        <View style={{ flex: 1 }} />
-        <Button label={`Plan a trip to ${city}`} onPress={() => onPlanTrip?.({ placeText: `${city}, ${country.name}`, countryCode: country.code })} />
-      </Row>
-      <Row style={{ flexWrap: 'wrap' }}>
-        <Text style={[type.title, { flex: 1 }]}>{city}</Text>
-        <Button label={addingPlace ? 'Close' : `+ Add a place`} kind={addingPlace ? 'ghost' : 'secondary'} onPress={() => setAddingPlace((a) => !a)} />
-      </Row>
-      {addingPlace ? (
-        <AddPlaceHere household={household} country={country} city={country.cities.find((c) => c.name === city) ?? null} cityName={city} onAdded={async () => { await refreshAll(); }} />
-      ) : null}
-      <PlaceList
-        places={places} household={household} wide={wide} openRef={open?.venueRef ?? null} onOpen={setOpen}
-        map={(pins) => (
-          <Card style={{ padding: spacing.sm }}>
-            <MapView pins={pins} height={wide ? 560 : 260} focusId={open?.venueRef ?? null} />
-            <Text style={type.tiny}>green = been · purple = to try · gold = special. Tap a pin or a row.</Text>
-          </Card>
-        )}
-      />
-      <VenueDrawer
-        item={open ? atlasToBrowseItem(open) : null}
-        baseLabel={city}
-        onClose={() => setOpen(null)}
-        onVenue={async (v) => { if (open?.unnamed && v.name) { try { await api.nameAtlasPlace(open.venueRef, v.name); await loadPlaces(); } catch { /* the drawer still shows the fetched name */ } } }}
-        ours={open ? <OursPanel place={open} household={household} country={country} cityName={city} onChanged={refreshAll} /> : null}
-      />
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// The city's list: dense rows, filters that stack, our own verdicts on show
-// ---------------------------------------------------------------------------
-
-type StatusFilter = '' | 'been' | 'saved' | 'special';
-type VerdictFilter = '' | 'loved' | 'not_for_me';
-type SortKey = 'name' | 'ours' | 'recent' | 'visits';
-const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1).replace(/-/g, ' ');
-const CATEGORY_LABEL: Record<string, string> = { restaurant: 'Restaurant', cafe: 'Café', pub: 'Pub', bar: 'Bar', attraction: 'Attraction', event: 'Event' };
-
-/** Everything the place is, in the words we file it under: its category plus its cuisines or kinds of thing. */
-function tagsOf(p: AtlasPlace): string[] {
-  const v = (p.venue ?? {}) as Partial<Venue>;
-  return [...new Set([...(v.cuisines ?? []), ...(v.experiences ?? [])].filter((t) => t && t !== p.category))];
-}
-
-/** Each person's latest verdict on the place, in household order. */
-function latestTakes(p: AtlasPlace, members: { name: string }[]): { member: string; index: number; take: Take; comment: string | null }[] {
-  const seen = new Map<string, { member: string; index: number; take: Take; comment: string | null }>();
-  for (const t of p.takes) { // takes arrive newest first
-    if (!seen.has(t.member)) seen.set(t.member, { member: t.member, index: Math.max(0, members.findIndex((m) => m.name === t.member)), take: t.take, comment: t.comment });
-  }
-  return [...seen.values()].sort((a, b) => a.index - b.index);
-}
-
-/**
- * Forty places in a city must fit on one screen (owner, 3 Sep 2026): one line
- * per place with what the family thought, and everything else behind the
- * drawer. Filters stack — kind, then been / to try / special, then the type of
- * food or thing, then who loved it — and each choice shows how many it leaves.
- */
-function PlaceList({ places, household, wide, openRef, onOpen, map }: {
-  places: AtlasPlace[]; household: HouseholdResponse | null; wide: boolean; openRef: string | null; onOpen: (p: AtlasPlace) => void;
-  map: (pins: MapPin[]) => React.ReactNode;
-}) {
-  const [kind, setKind] = useState<'' | 'food' | 'activity'>('');
-  const [status, setStatus] = useState<StatusFilter>('');
-  const [verdict, setVerdict] = useState<VerdictFilter>('');
-  const [facets, setFacets] = useState<Set<string>>(new Set());
-  const [sort, setSort] = useState<SortKey>('name');
-  const [q, setQ] = useState('');
-  const members = household?.members ?? [];
-
-  const inKind = useMemo(() => places.filter((p) => !kind || p.kind === kind || (kind === 'activity' && p.kind === 'other')), [places, kind]);
-  const count = (list: AtlasPlace[], f: (p: AtlasPlace) => boolean) => list.filter(f).length;
-  const byStatus = (p: AtlasPlace) => !status || (status === 'special' ? p.special : p.status === status);
-  const byVerdict = (p: AtlasPlace) => !verdict || (verdict === 'loved' ? p.loved > 0 : p.notForMe > 0);
-  const afterStatus = useMemo(() => inKind.filter(byStatus), [inKind, status]);
-  const afterVerdict = useMemo(() => afterStatus.filter(byVerdict), [afterStatus, verdict]);
-
-  // Facets from what is actually here after the filters above, most common first.
-  const facetList = useMemo(() => {
-    const c = new Map<string, number>();
-    for (const p of afterVerdict) for (const t of tagsOf(p)) c.set(t, (c.get(t) ?? 0) + 1);
-    return [...c.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 16);
-  }, [afterVerdict]);
-
-  const list = useMemo(() => {
-    let l = afterVerdict;
-    if (facets.size) l = l.filter((p) => tagsOf(p).some((t) => facets.has(t)));
-    const needle = q.trim().toLowerCase();
-    if (needle) l = l.filter((p) => p.name.toLowerCase().includes(needle) || (p.note ?? '').toLowerCase().includes(needle) || tagsOf(p).some((t) => t.toLowerCase().includes(needle)));
-    const by: Record<SortKey, (a: AtlasPlace, b: AtlasPlace) => number> = {
-      name: (a, b) => a.name.localeCompare(b.name),
-      ours: (a, b) => (b.loved - b.notForMe) - (a.loved - a.notForMe) || b.loved - a.loved || b.visits - a.visits || a.name.localeCompare(b.name),
-      recent: (a, b) => (b.lastOn ?? '').localeCompare(a.lastOn ?? '') || a.name.localeCompare(b.name),
-      visits: (a, b) => b.visits - a.visits || a.name.localeCompare(b.name),
-    };
-    return [...l].sort(by[sort]);
-  }, [afterVerdict, facets, q, sort]);
-
-  const toggleFacet = (f: string) => setFacets((s) => { const n = new Set(s); n.has(f) ? n.delete(f) : n.add(f); return n; });
-  const switchKind = (k: typeof kind) => { setKind(k); setFacets(new Set()); };
-  const pins: MapPin[] = list.filter((p) => p.lat != null && p.lng != null).map((p) => ({ id: p.venueRef, lat: p.lat!, lng: p.lng!, label: p.name, tone: p.special ? 'special' : p.status === 'been' ? 'been' : 'shortlist', onPress: () => onOpen(p) }));
-
-  const n = (f: (p: AtlasPlace) => boolean, from: AtlasPlace[] = inKind) => count(from, f);
-  const filters = (
-    <View style={{ gap: spacing.sm }}>
-      <Segmented value={kind} options={[
-        { value: '', label: `Everything (${places.length})` },
-        { value: 'activity', label: `Things to do (${count(places, (p) => p.kind !== 'food')})` },
-        { value: 'food', label: `Food & drink (${count(places, (p) => p.kind === 'food')})` },
-      ]} onChange={switchKind} />
-      <Wrap>
-        <Chip label={`All (${inKind.length})`} selected={status === ''} onPress={() => setStatus('')} />
-        <Chip label={`Been (${n((p) => p.status === 'been')})`} tone="like" selected={status === 'been'} onPress={() => setStatus(status === 'been' ? '' : 'been')} />
-        <Chip label={`To try (${n((p) => p.status !== 'been')})`} tone="want" selected={status === 'saved'} onPress={() => setStatus(status === 'saved' ? '' : 'saved')} />
-        <Chip icon="favourite" iconFill label={`Special (${n((p) => p.special)})`} tone="accent" selected={status === 'special'} onPress={() => setStatus(status === 'special' ? '' : 'special')} />
-        <View style={styles.vr} />
-        <Chip icon="keep" iconFill label={`Loved (${n((p) => p.loved > 0, afterStatus)})`} tone="like" selected={verdict === 'loved'} onPress={() => setVerdict(verdict === 'loved' ? '' : 'loved')} />
-        <Chip icon="close" label={`Not for us (${n((p) => p.notForMe > 0, afterStatus)})`} tone="dislike" selected={verdict === 'not_for_me'} onPress={() => setVerdict(verdict === 'not_for_me' ? '' : 'not_for_me')} />
-      </Wrap>
-      {facetList.length ? (
-        <Wrap>
-          <Text style={[type.tiny, { alignSelf: 'center' }]}>{kind === 'food' ? 'Food' : kind === 'activity' ? 'Kind' : 'Type'}</Text>
-          {facetList.map(([f, c]) => <Chip key={f} label={`${cap(f)} (${c})`} selected={facets.has(f)} onPress={() => toggleFacet(f)} />)}
-          {facets.size ? <Chip label="Clear" onPress={() => setFacets(new Set())} /> : null}
-        </Wrap>
-      ) : null}
-      <Row style={{ flexWrap: 'wrap' }}>
-        <View style={{ flex: 1, minWidth: 280 }}>
-          <Segmented value={sort} options={[{ value: 'name', label: 'A–Z' }, { value: 'ours', label: 'Our rating' }, { value: 'recent', label: 'Most recent' }, { value: 'visits', label: 'Most visited' }]} onChange={setSort} />
-        </View>
-        <TextInput value={q} onChangeText={setQ} placeholder="Find by name…" placeholderTextColor={colors.inkFaint} style={[styles.input, { minWidth: 160, flex: 1, minHeight: 38 }]} accessibilityLabel="Find a place by name" />
-      </Row>
-    </View>
-  );
-
-  const rows = (
-    <View style={styles.list}>
-      {list.map((p) => <PlaceRow key={p.venueRef} place={p} members={members} selected={p.venueRef === openRef} narrow={!wide} onPress={() => onOpen(p)} />)}
-      {list.length === 0 ? <Text style={[type.small, { padding: spacing.md }]}>{places.length ? 'Nothing here with those filters.' : 'No places in this city yet — add one above.'}</Text> : null}
-    </View>
-  );
-
-  return (
-    <View style={{ gap: spacing.md }}>
-      {filters}
-      <Text style={type.tiny}>{list.length} of {places.length} place{places.length === 1 ? '' : 's'} · tap a row for details, our history and where it is</Text>
-      <View style={[styles.split, wide && { flexDirection: 'row', alignItems: 'flex-start' }]}>
-        {wide ? <View style={{ width: 400 }}>{map(pins)}</View> : null}
-        <View style={{ flex: 1, minWidth: 0 }}>{rows}</View>
-        {!wide ? map(pins) : null}
-      </View>
-    </View>
-  );
-}
-
-/** One line on a wide screen; on a phone the family's verdicts drop to a second line so the name keeps its room. */
-function PlaceRow({ place, members, selected, narrow, onPress }: { place: AtlasPlace; members: { name: string }[]; selected: boolean; narrow?: boolean; onPress: () => void }) {
-  const takes = latestTakes(place, members);
-  const tags = tagsOf(place);
-  const verdicts = takes.length ? (
-    <View style={[styles.verdicts, narrow && { justifyContent: 'flex-start', maxWidth: undefined }]} accessibilityLabel={takes.map((t) => `${t.member}: ${t.take === 'loved' ? 'loved it' : t.take === 'fine' ? 'fine' : 'not for them'}`).join(', ')}>
-      {takes.map((t) => (
-        <View key={t.member} style={[styles.verdict, { backgroundColor: t.take === 'loved' ? colors.likeSoft : t.take === 'not_for_me' ? colors.dislikeSoft : colors.surfaceMuted }]}>
-          <View style={[styles.verdictDot, { backgroundColor: memberColor(t.index) }]} />
-          <Text style={[styles.verdictText, { color: t.take === 'loved' ? colors.like : t.take === 'not_for_me' ? colors.dislike : colors.inkMuted }]}>{t.member.split(' ')[0]}</Text>{t.take !== 'fine' ? <Icon name={t.take === 'loved' ? 'keep' : 'close'} size={11} color={t.take === 'loved' ? colors.like : colors.dislike} fill={t.take === 'loved'} /> : null}
-        </View>
-      ))}
-    </View>
-  ) : null;
-  const status = (
-    <View style={{ minWidth: 84, alignItems: 'flex-end' }}>
-      {place.visits ? <Text style={[type.small, { color: colors.like, fontWeight: '600' }]}>Been {place.visits}×</Text> : <Text style={[type.small, { color: colors.want, fontWeight: '600' }]}>To try</Text>}
-      {place.lastOn ? <Text style={type.tiny}>{place.lastOn}</Text> : place.onTrips.length ? <Text style={type.tiny} numberOfLines={1}>on a trip</Text> : null}
-    </View>
-  );
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`Open ${place.name}`} style={({ pressed }) => [styles.placeRow, selected && styles.placeRowOn, pressed && { opacity: 0.8 }]}>
-      <View style={{ width: 26, alignItems: 'center' }}><CategoryIcon category={place.category} size={18} /></View>
-      <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          {place.special ? <Icon name="keep" size={13} color={colors.red} fill /> : null}
-          <Text style={[type.h3, { flexShrink: 1 }, place.unnamed && { fontStyle: 'italic', color: colors.inkMuted }]} numberOfLines={1}>{place.unnamed ? 'Unnamed place — open for its name' : place.name}</Text>
-        </View>
-        <Text style={type.small} numberOfLines={1}>
-          {[CATEGORY_LABEL[place.category ?? ''] ?? (place.category ? cap(place.category) : null), ...tags.map(cap)].filter(Boolean).join(' · ')}
-          {place.note ? <Text style={{ color: colors.inkFaint }}> · “{place.note}”</Text> : null}
-        </Text>
-        {narrow && verdicts ? <View style={{ marginTop: 3 }}>{verdicts}</View> : null}
-      </View>
-      {!narrow ? verdicts : null}
-      {status}
-    </Pressable>
-  );
-}
-
-/** The drawer's shape for a place we hold in the atlas; the source's record fills in the rest when it opens. */
 function atlasToBrowseItem(p: AtlasPlace): BrowseItem {
   const v = (p.venue ?? {}) as Partial<Venue>;
   const [source] = p.venueRef.split(':');
@@ -345,17 +95,348 @@ function atlasToBrowseItem(p: AtlasPlace): BrowseItem {
   };
 }
 
-/**
- * Our side of a place, at the top of the drawer: what it is to us (been,
- * to try, special, on which trips), what everyone thought each time with their
- * comments, and the ways to change that. Rented facts sit below in the tabs.
- */
-function OursPanel({ place, household, country, cityName, onChanged }: { place: AtlasPlace; household: HouseholdResponse | null; country: AtlasCountry; cityName: string; onChanged: () => Promise<void> }) {
+// ---------------------------------------------------------------------------
+// The screen
+// ---------------------------------------------------------------------------
+
+export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; onPlanTrip?: (p: TripPrefill) => void }) {
+  const { width, height } = useViewport();
+  const wide = width >= 1000;
+  const [data, setData] = useState<{ countries: AtlasCountry[]; unplaced: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [openCodes, setOpenCodes] = useState<Set<string>>(new Set());
+  const [sel, setSel] = useState<{ country: string; city: string } | null>(null);
+  const [addingCity, setAddingCity] = useState(false);
+  const [places, setPlaces] = useState<AtlasPlace[]>([]);
+  const [wherePending, setWherePending] = useState(0);
+  const [open, setOpen] = useState<AtlasPlace | null>(null);
+  const refills = useRef(0);
+
+  const members = household?.members ?? [];
+  const [viewer, setViewer] = useState<string | null>(null);
+  useEffect(() => { setViewer(getViewer(members)); return onViewerChange(setViewer); }, [members.map((m) => m.id).join(',')]);
+
+  const loadAtlas = useCallback(async () => { try { setData(await api.atlas()); } catch (e: any) { setError(e.message); } }, []);
+  useEffect(() => { loadAtlas(); }, [loadAtlas]);
+
+  const single = data && data.countries.length === 1 ? data.countries[0] : null;
+  const country = sel ? data?.countries.find((c) => c.code === sel.country) ?? null : null;
+  const city = sel && country ? country.cities.find((c) => c.name === sel.city) ?? null : null;
+
+  const loadPlaces = useCallback(async () => {
+    if (!sel) { setPlaces([]); setWherePending(0); return; }
+    try {
+      const r = await api.atlasPlaces({ country: sel.country, city: sel.city });
+      setPlaces(r.places); setWherePending(r.wherePending ?? 0);
+    } catch (e: any) { setError(e.message); }
+  }, [sel?.country, sel?.city]);
+  useEffect(() => { refills.current = 0; loadPlaces(); }, [loadPlaces]);
+  // Postcode and station are looked up in the background after the first read; ask again a few times while any row is waiting.
+  useEffect(() => {
+    if (!wherePending || refills.current >= 6) return;
+    const t = setTimeout(() => { refills.current += 1; loadPlaces(); }, 5000);
+    return () => clearTimeout(t);
+  }, [wherePending, places]);
+  // Keep the open drawer on the same place after a change (a visit saved, a status set).
+  useEffect(() => { if (open) { const fresh = places.find((p) => p.venueRef === open.venueRef); if (fresh && fresh !== open) setOpen(fresh); } }, [places]);
+
+  const refreshAll = async () => { await loadAtlas(); await loadPlaces(); await refreshHousehold(); };
+  const pick = (c: AtlasCountry, ci: AtlasCity) => { setSel({ country: c.code, city: ci.name }); setOpen(null); setOpenCodes((s) => new Set(s).add(c.code)); };
+
+  const showAtlas = wide || !sel;
+  const showCity = !!sel && (wide || true);
+
+  return (
+    <ScrollView contentContainerStyle={[styles.page, wide && styles.pageWide]} keyboardShouldPersistTaps="handled">
+      {showAtlas ? (
+        <View style={[styles.atlasCol, wide && styles.atlasColWide]}>
+          <View style={styles.field}>
+            <Row style={{ justifyContent: 'space-between' }}>
+              <Text style={type.title}>Places</Text>
+              <Button label={addingCity ? 'Close' : 'Add'} icon={addingCity ? 'close' : 'add'} kind="secondary" onPress={() => setAddingCity((a) => !a)} />
+            </Row>
+            <Text style={[type.small, { color: colors.headerSub }]}>Where you've been and what you liked.</Text>
+            {addingCity ? (
+              <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+                <PlacePicker value={null} onPick={async (p) => { if (!p) return; try { const r = await api.createAtlasCity({ place: p }); await loadAtlas(); setAddingCity(false); setSel({ country: r.city.countryCode, city: r.city.name }); setOpenCodes((s) => new Set(s).add(r.city.countryCode)); setError(null); } catch (e: any) { setError(e.message); } }} placeholder="A city or a region — Lisbon · Bath · Lake District" />
+                <Text style={[type.tiny, { color: colors.headerSub }]}>A country is not a destination: type the city or region you'd say you were going to.</Text>
+              </View>
+            ) : null}
+            {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+          </View>
+          <View style={styles.body}>
+            {!data ? <Text style={type.small}>Loading your atlas…</Text> : null}
+            {data && data.countries.length === 0 ? <Card><Text style={type.body}>Your atlas is empty so far.</Text><Text style={type.small}>Add a city above, then the places you know there. Visits and trip shortlists land here by themselves.</Text></Card> : null}
+            {data && data.countries.length > 0 ? (
+              <View style={styles.list}>
+                {single ? single.cities.map((ci, i) => <CityRow key={ci.name} city={ci} first={i === 0} selected={sel?.city === ci.name} onPress={() => pick(single, ci)} />) : data.countries.map((c, i) => {
+                  const isOpen = openCodes.has(c.code);
+                  const total = c.cities.reduce((a, x) => a + x.places, 0);
+                  return (
+                    <View key={c.code}>
+                      <Pressable onPress={() => setOpenCodes((s) => { const n = new Set(s); n.has(c.code) ? n.delete(c.code) : n.add(c.code); return n; })} style={[styles.row, i > 0 && styles.rowLine]} accessibilityRole="button" accessibilityState={{ expanded: isOpen }}>
+                        <View style={{ width: 22, alignItems: 'center' }}><Icon name={isOpen ? 'expand' : 'more'} size={18} color={colors.inkMuted} /></View>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={type.h3} numberOfLines={1}>{c.name}</Text>
+                          <Text style={type.tiny} numberOfLines={1}>{c.cities.length} {c.cities.length === 1 ? 'city' : 'cities'} · {total ? `${total} place${total === 1 ? '' : 's'}` : 'no places yet'}</Text>
+                        </View>
+                      </Pressable>
+                      {isOpen ? c.cities.map((ci) => <CityRow key={ci.name} city={ci} sub selected={sel?.country === c.code && sel?.city === ci.name} onPress={() => pick(c, ci)} />) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+            {single ? <Text style={type.tiny}>One country in your atlas, so its cities are the list.</Text> : null}
+            {data?.unplaced ? <Text style={type.tiny}>{data.unplaced} place{data.unplaced === 1 ? '' : 's'} still being placed on the map.</Text> : null}
+          </View>
+        </View>
+      ) : null}
+
+      {showCity && country && city ? (
+        <CityPanel
+          key={`${country.code}/${city.name}`}
+          country={country} city={city} places={places} household={household} viewer={viewer} wide={wide} viewportHeight={height}
+          onBack={() => { setSel(null); setOpen(null); }} onOpen={setOpen} openRef={open?.venueRef ?? null}
+          onPlanTrip={() => onPlanTrip?.({ placeText: `${city.name}, ${country.name}`, countryCode: country.code })}
+          onChanged={refreshAll}
+        />
+      ) : wide ? (
+        <View style={[styles.body, { flex: 1, paddingTop: spacing.xl }]}><Text style={type.small}>Pick a city to see everything you've put there.</Text></View>
+      ) : null}
+
+      <VenueDrawer
+        item={open ? atlasToBrowseItem(open) : null}
+        baseLabel={city?.name ?? null}
+        onClose={() => setOpen(null)}
+        onVenue={async (v) => { if (open?.unnamed && v.name) { try { await api.nameAtlasPlace(open.venueRef, v.name); await loadPlaces(); } catch { /* the drawer still shows the fetched name */ } } }}
+        ours={open && country && city ? <OursPanel place={open} household={household} country={country} cityName={city.name} viewer={viewer} onChanged={refreshAll} /> : null}
+      />
+    </ScrollView>
+  );
+}
+
+function CityRow({ city, sub, first, selected, onPress }: { city: AtlasCity; sub?: boolean; first?: boolean; selected: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.row, !first && styles.rowLine, sub && styles.rowSub, selected && styles.rowOn]} accessibilityRole="button" accessibilityState={{ selected }}>
+      <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+        <Text style={type.h3} numberOfLines={1}>{city.name}</Text>
+        {city.places ? (
+          <View style={styles.counts}>
+            <Text style={type.tiny}>{city.places} place{city.places === 1 ? '' : 's'}</Text>
+            <Count label={`${city.been} been`} />
+            <Count label={`${city.places - city.been} to try`} />
+            {city.special ? <Count label={String(city.special)} heart /> : null}
+          </View>
+        ) : <Text style={type.tiny}>No places yet{city.trips ? ` · ${city.trips} trip${city.trips === 1 ? '' : 's'}` : ''}</Text>}
+      </View>
+      <Icon name="more" size={18} color={colors.inkMuted} />
+    </Pressable>
+  );
+}
+
+const Count = ({ label, heart }: { label: string; heart?: boolean }) => (
+  <View style={styles.count}>
+    {heart ? <Icon name="keep" size={10} color={colors.red} fill /> : null}
+    <Text style={styles.countText}>{label}</Text>
+  </View>
+);
+
+// ---------------------------------------------------------------------------
+// Inside a city
+// ---------------------------------------------------------------------------
+
+function CityPanel({ country, city, places, household, viewer, wide, viewportHeight, onBack, onOpen, openRef, onPlanTrip, onChanged }: {
+  country: AtlasCountry; city: AtlasCity; places: AtlasPlace[]; household: HouseholdResponse | null; viewer: string | null; wide: boolean; viewportHeight: number;
+  onBack: () => void; onOpen: (p: AtlasPlace) => void; openRef: string | null; onPlanTrip: () => void; onChanged: () => Promise<void>;
+}) {
+  const [kind, setKind] = useState<Kind>('all');
+  const [status, setStatus] = useState<Status>('any');
+  const [typeF, setTypeF] = useState<string | null>(null);
+  const [sort, setSort] = useState<Sort>('name');
+  const [view, setView] = useState<'list' | 'map'>('list');
+  const [sheet, setSheet] = useState<'status' | 'type' | 'sort' | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [selPin, setSelPin] = useState<string | null>(null);
+
+  const inKind = (p: AtlasPlace) => kind === 'all' || kindsOf(p).includes(kind);
+  const counts = useMemo(() => ({ all: places.length, do: places.filter((p) => kindsOf(p).includes('do')).length, eat: places.filter((p) => kindsOf(p).includes('eat')).length }), [places]);
+  const inKindAndType = places.filter((p) => inKind(p) && (!typeF || typeOf(p, kind) === typeF));
+  const statusOptions = [
+    { value: 'any', label: 'Any status', count: inKindAndType.length },
+    { value: 'been', label: 'Been', count: inKindAndType.filter((p) => statusOf(p) === 'been').length },
+    { value: 'try', label: 'To try', count: inKindAndType.filter((p) => statusOf(p) === 'try').length },
+    { value: 'special', label: 'Special', count: inKindAndType.filter((p) => p.special).length },
+  ];
+  const typeCounts = new Map<string, number>();
+  places.filter((p) => inKind(p) && matchesStatus(p, status)).forEach((p) => { const t = typeOf(p, kind); typeCounts.set(t, (typeCounts.get(t) ?? 0) + 1); });
+  const typeOptions = [{ value: '', label: kind === 'eat' ? 'Any cuisine' : kind === 'do' ? 'Any kind' : 'Any type', count: [...typeCounts.values()].reduce((a, b) => a + b, 0) }, ...[...typeCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t, n]) => ({ value: t, label: t, count: n }))];
+  const sortOptions = [{ value: 'name', label: 'A–Z' }, { value: 'mine', label: 'My rating' }, { value: 'recent', label: 'Most recent' }];
+
+  const rows = useMemo(() => {
+    const list = places.filter((p) => inKind(p) && matchesStatus(p, status) && (!typeF || typeOf(p, kind) === typeF));
+    const by: Record<Sort, (a: AtlasPlace, b: AtlasPlace) => number> = {
+      name: (a, b) => a.name.localeCompare(b.name),
+      mine: (a, b) => (myScore(b, viewer) ?? -1) - (myScore(a, viewer) ?? -1) || a.name.localeCompare(b.name),
+      recent: (a, b) => (b.lastOn ?? '').localeCompare(a.lastOn ?? '') || a.name.localeCompare(b.name),
+    };
+    return [...list].sort(by[sort]);
+  }, [places, kind, status, typeF, sort, viewer]);
+
+  const pins: MapPin[] = rows.filter((p) => p.lat != null && p.lng != null).map((p) => ({
+    id: p.venueRef, lat: p.lat as number, lng: p.lng as number, label: p.name, number: '', heart: p.special,
+    tone: statusOf(p) === 'been' ? 'base' : 'hollow', onPress: () => setSelPin(p.venueRef),
+  }));
+  const selected = selPin ? rows.find((p) => p.venueRef === selPin) ?? null : null;
+  const mapHeight = wide ? 640 : Math.max(360, viewportHeight - 330);
+  const showMap = view === 'map';
+  const showList = view === 'list' || wide;
+
+  return (
+    <View style={[styles.cityCol, wide && styles.cityColWide]}>
+      <View style={[styles.field, wide && styles.fieldWide]}>
+        <Row style={{ justifyContent: 'space-between' }}>
+          {!wide ? <Button label={country.name} icon="back" kind="ghost" onPress={onBack} /> : <View />}
+          <Button label="Plan a trip here" icon="plan" onPress={onPlanTrip} />
+        </Row>
+        <Row style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={type.title}>{city.name}</Text>
+            <Text style={[type.small, { color: colors.headerSub }]} numberOfLines={2}>{country.name} · {places.length} place{places.length === 1 ? '' : 's'}{'\n'}{places.filter((p) => p.visits > 0).length} been · {places.filter((p) => !p.visits).length} to try{places.filter((p) => p.special).length ? ` · ${places.filter((p) => p.special).length} special` : ''}</Text>
+          </View>
+          <Button label={adding ? 'Close' : 'Add a place'} icon={adding ? 'close' : 'add'} kind="secondary" onPress={() => setAdding((a) => !a)} />
+        </Row>
+      </View>
+      <View style={styles.body}>
+        {adding ? <AddPlaceHere household={household} country={country} city={city} cityName={city.name} onAdded={async () => { await onChanged(); }} /> : null}
+        <Segmented value={kind} options={[{ value: 'all', label: `Everything ${counts.all}` }, { value: 'do', label: `Things to do ${counts.do}` }, { value: 'eat', label: `Food & drink ${counts.eat}` }]} onChange={(k) => { setKind(k); setTypeF(null); setSelPin(null); }} />
+        <View style={styles.filters}>
+          <FilterChip label={statusOptions.find((o) => o.value === status)?.label ?? 'Any status'} on={status !== 'any'} onPress={() => setSheet('status')} />
+          <FilterChip label={typeF ?? typeOptions[0].label} on={!!typeF} onPress={() => setSheet('type')} />
+          <FilterChip label={sortOptions.find((o) => o.value === sort)?.label ?? 'A–Z'} on={sort !== 'name'} onPress={() => setSheet('sort')} />
+          <View style={{ flex: 1 }} />
+          <View style={styles.viewToggle}>
+            <Pressable onPress={() => setView('list')} style={[styles.viewBtn, view === 'list' && styles.viewBtnOn]} accessibilityRole="button" accessibilityLabel="List" accessibilityState={{ selected: view === 'list' }}><Icon name="list" size={15} color={view === 'list' ? colors.primaryFg : colors.ink} /></Pressable>
+            <Pressable onPress={() => setView('map')} style={[styles.viewBtn, view === 'map' && styles.viewBtnOn]} accessibilityRole="button" accessibilityLabel="Map" accessibilityState={{ selected: view === 'map' }}><Icon name="map" size={15} color={view === 'map' ? colors.primaryFg : colors.ink} /></Pressable>
+          </View>
+        </View>
+
+        <View style={[styles.split, wide && showMap && styles.splitWide]}>
+          {showList ? (
+            <View style={[{ gap: spacing.sm }, wide && showMap && { width: 440 }]}>
+              {rows.length ? (
+                <View style={styles.list}>
+                  {rows.map((p, i) => <PlaceRow key={p.venueRef} place={p} kind={kind} viewer={viewer} first={i === 0} selected={openRef === p.venueRef} onPress={() => onOpen(p)} />)}
+                </View>
+              ) : (
+                <Card><Text style={type.small}>{places.length ? 'Nothing matches — clear a filter.' : 'Nothing here yet. Add a place you know, or a trip\'s shortlist will fill it.'}</Text></Card>
+              )}
+              <Text style={type.tiny}>{rows.length} of {places.length} · tap a row for the drawer.</Text>
+            </View>
+          ) : null}
+          {showMap ? (
+            <View style={[styles.mapWrap, wide && { flex: 1 }]}>
+              <MapView pins={pins} height={mapHeight} focusId={selPin} />
+              {selected ? (
+                <View style={styles.pinCard}>
+                  <PlaceRow place={selected} kind={kind} viewer={viewer} first selected={false} onPress={() => onOpen(selected)} />
+                </View>
+              ) : <Text style={[type.tiny, styles.mapHint]}>{pins.length} pins · filled been · hollow to try · tap one</Text>}
+            </View>
+          ) : null}
+        </View>
+      </View>
+
+      <PickSheet visible={sheet === 'status'} title="Status" options={statusOptions} value={status} onPick={(v) => { setStatus(v as Status); setSheet(null); setSelPin(null); }} onClose={() => setSheet(null)} />
+      <PickSheet visible={sheet === 'type'} title={kind === 'eat' ? 'Cuisine' : 'Kind of thing'} options={typeOptions} value={typeF ?? ''} onPick={(v) => { setTypeF(v || null); setSheet(null); setSelPin(null); }} onClose={() => setSheet(null)} />
+      <PickSheet visible={sheet === 'sort'} title="Sort by" options={sortOptions} value={sort} onPick={(v) => { setSort(v as Sort); setSheet(null); }} onClose={() => setSheet(null)} />
+    </View>
+  );
+}
+
+function FilterChip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.fchip, on && styles.fchipOn]} accessibilityRole="button">
+      <Text style={[styles.fchipText, on && { color: colors.primaryFg }]} numberOfLines={1}>{label}</Text>
+      <Icon name="expand" size={13} color={on ? colors.primaryFg : colors.ink} />
+    </Pressable>
+  );
+}
+
+/** One place, one line: what it is, where it is, and my score. */
+function PlaceRow({ place, kind, viewer, first, selected, onPress }: { place: AtlasPlace; kind: Kind; viewer: string | null; first?: boolean; selected: boolean; onPress: () => void }) {
+  const mine = myScore(place, viewer);
+  const lines = (place.stationLines ?? []).slice(0, 3);
+  const been = statusOf(place) === 'been';
+  return (
+    <Pressable onPress={onPress} style={[styles.prow, !first && styles.rowLine, selected && styles.rowOn]} accessibilityRole="button">
+      <View style={styles.well}>
+        <CategoryIcon category={place.category} size={16} />
+        {place.special ? <View style={styles.heart}><Icon name="keep" size={9} color={colors.red} fill /></View> : null}
+      </View>
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+        <Text style={[type.h3, place.unnamed && { fontStyle: 'italic', color: colors.inkMuted }]} numberOfLines={1}>{place.unnamed ? 'Unnamed place — open for its name' : place.name}</Text>
+        <View style={styles.meta}>
+          <Text style={type.tiny} numberOfLines={1}>{typeOf(place, kind)}{place.postcode ? ` · ${place.postcode}` : ''}{place.station ? ' · ' : ''}</Text>
+          {place.station ? (
+            <>
+              {lines.map((l) => <View key={l} style={[styles.dot, { backgroundColor: LINE_COLOURS[l] ?? colors.inkMuted }]} />)}
+              <Text style={[type.tiny, { flexShrink: 1 }]} numberOfLines={1}>{place.station}</Text>
+            </>
+          ) : null}
+        </View>
+      </View>
+      {mine != null ? (
+        <View style={styles.score}><Icon name="favourite" size={14} fill /><Text style={styles.scoreText}>{fmtScore(mine)}</Text></View>
+      ) : <View style={styles.tryChip}><Text style={styles.tryText}>{been ? 'Been' : 'To try'}</Text></View>}
+    </Pressable>
+  );
+}
+
+/** A dropdown as a sheet pinned to the frame: the options with counts, the current one in ink. */
+function PickSheet({ visible, title, options, value, onPick, onClose }: { visible: boolean; title: string; options: { value: string; label: string; count?: number }[]; value: string; onPick: (v: string) => void; onClose: () => void }) {
+  const { width, height, framed, origin } = useViewport();
+  const wide = width >= 900 && !framed;
+  const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height, borderRadius: radius.lg, overflow: 'hidden' as const } : null;
+  if (!visible) return null;
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={[styles.sheetWrap, wide && styles.sheetWrapWide, frameBox]}>
+        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+        <View style={[styles.sheet, wide && styles.sheetWide]}>
+          <Row style={{ justifyContent: 'space-between' }}>
+            <Text style={type.h2}>{title}</Text>
+            <Pressable onPress={onClose} style={styles.close} accessibilityRole="button" accessibilityLabel="Close"><Icon name="close" size={18} color={colors.ink} /></Pressable>
+          </Row>
+          <ScrollView style={{ maxHeight: 420 }}>
+            {options.map((o) => {
+              const on = o.value === value;
+              return (
+                <Pressable key={o.value} onPress={() => onPick(o.value)} style={[styles.opt, on && styles.optOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
+                  <Text style={[type.body, { flex: 1 }, on && { color: colors.primaryFg, fontWeight: '600' }]}>{o.label}</Text>
+                  {o.count != null ? <Text style={[type.small, on && { color: colors.primaryFg }]}>{o.count}</Text> : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Our side of a place, at the top of the drawer
+// ---------------------------------------------------------------------------
+
+function OursPanel({ place, household, country, cityName, viewer, onChanged }: { place: AtlasPlace; household: HouseholdResponse | null; country: AtlasCountry; cityName: string; viewer: string | null; onChanged: () => Promise<void> }) {
   const [detail, setDetail] = useState<{ visits: Visit[] } | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Visit | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const ctx = { label: place.name, category: place.category, lat: place.lat ?? undefined, lng: place.lng ?? undefined, country: country.name, countryCode: country.code, locality: cityName };
   const venue = atlasToVenue(place);
+  const mine = myScore(place, viewer);
 
   const load = useCallback(async () => {
     try { const d = await api.place(place.venueRef); setDetail({ visits: d.visits }); } catch { setDetail({ visits: [] }); }
@@ -366,25 +447,42 @@ function OursPanel({ place, household, country, cityName, onChanged }: { place: 
     <View style={styles.ours}>
       <Row style={{ flexWrap: 'wrap' }}>
         <Text style={type.h3}>Ours</Text>
-        {place.visits ? <Chip label={`Been ${place.visits}×${place.lastOn ? ` · last ${place.lastOn}` : ''}`} tone="like" /> : <Chip label="To try" tone="want" />}
-        {place.special ? <Chip label="Special" tone="accent" icon="favourite" iconFill /> : null}
+        {place.visits ? <Chip label={`Been ${place.visits}×${place.lastOn ? ` · last ${place.lastOn}` : ''}`} /> : <Chip label="To try" />}
+        {place.special ? <Chip label="Special" icon="keep" iconFill /> : null}
         {place.onTrips.map((t) => <Chip key={t} label={`On: ${t}`} />)}
       </Row>
+      {place.scores.length ? (
+        <View style={styles.scores}>
+          {place.scores.map((s) => (
+            <View key={s.memberId} style={styles.scoreLine}>
+              <Icon name="favourite" size={14} fill />
+              <Text style={[type.small, { color: colors.ink, fontWeight: '700' }]}>{fmtScore(s.score)}</Text>
+              <Text style={type.small}>{s.member.split(' ')[0]}{s.memberId === viewer ? ' (you)' : ''}</Text>
+            </View>
+          ))}
+          {mine == null ? <Text style={type.tiny}>You haven't scored it yet.</Text> : null}
+        </View>
+      ) : null}
       <Wrap>
-        <Button label="We've been here" onPress={() => setAdding((a) => !a)} kind={adding ? 'ghost' : 'primary'} />
-        {!place.visits && place.ledger !== 'saved' && !place.special ? <Button label="Save for later" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'saved', ctx); setMsg('Saved to try.'); await onChanged(); }} /> : null}
-        {!place.special ? <Button label="Mark as special" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'special', ctx); setMsg('Marked special — the planner will go further for it.'); await onChanged(); }} /> : null}
+        <Button label="We've been here" onPress={() => { setEditing(null); setAdding((a) => !a); }} kind={adding ? 'ghost' : 'primary'} />
+        {!place.visits && place.ledger !== 'saved' && !place.special ? <Button label="Save to try" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'saved', ctx); setMsg('Saved to try.'); await onChanged(); }} /> : null}
+        {!place.special ? <Button label="Mark as special" icon="keep" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'special', ctx); setMsg('Marked special — the planner will go further for it.'); await onChanged(); }} /> : null}
       </Wrap>
       {msg ? <StatusLine tone="good">{msg}</StatusLine> : null}
       {adding && household ? (
         <VisitForm venue={venue} household={household} onDone={async () => { setAdding(false); await load(); await onChanged(); }} onCancel={() => setAdding(false)}
           createVia={async (body) => { await api.createVisit({ venueRef: place.venueRef, venueLabel: place.name, category: venue.category, lat: venue.lat, lng: venue.lng, visitedOn: body.visitedOn, note: body.note, attendeeIds: body.attendeeIds, takes: body.takes, venue: body.venue, country: country.name, countryCode: country.code, locality: cityName }); }} />
       ) : null}
+      {editing && household ? (
+        <VisitForm venue={venue} household={household} onDone={async () => { setEditing(null); await load(); await onChanged(); }} onCancel={() => setEditing(null)}
+          initial={{ visitId: editing.id, date: editing.visitedOn, note: editing.note ?? '', rows: rowsForVisit(editing, household.members), attending: (editing.attendees as any[]).map((a) => (typeof a === 'string' ? household.members.find((m) => m.name === a)?.id ?? '' : a.id)).filter(Boolean) }} />
+      ) : null}
       {place.note ? <Text style={type.small}>Our note: “{place.note}”</Text> : null}
       {detail?.visits.length ? (
         <View style={{ gap: spacing.sm }}>
           <Text style={type.h3}>Our history here</Text>
-          {detail.visits.map((v) => <VisitSummary key={v.id} visit={v} />)}
+          <Text style={type.tiny}>Tap a visit to change what everyone thought.</Text>
+          {detail.visits.map((v) => <VisitSummary key={v.id} visit={v} onPress={() => { setAdding(false); setEditing(v); }} />)}
         </View>
       ) : detail ? <Text style={type.small}>No visit recorded here yet.</Text> : <Text style={type.tiny}>Loading our history…</Text>}
       <Text style={type.tiny}>Menus: none captured for this place yet — photographing a menu at the table is a later step (Requirements, Epic 6).</Text>
@@ -392,12 +490,15 @@ function OursPanel({ place, household, country, cityName, onChanged }: { place: 
   );
 }
 
-/** Search near a city and file a place under it — as somewhere we've been (rate it) or want to try. */
+// ---------------------------------------------------------------------------
+// Add a place you already know, by name, near somewhere in the city
+// ---------------------------------------------------------------------------
+
 function AddPlaceHere({ household, country, city, cityName, onAdded }: { household: HouseholdResponse | null; country: AtlasCountry; city: AtlasCity | null; cityName: string; onAdded: () => Promise<void> }) {
   const [near, setNear] = useState<Place | null>(city?.lat != null ? { label: cityName, lat: city.lat!, lng: city.lng! } : null);
   const [cat, setCat] = useState<'things' | 'food' | ''>('things');
   const [q, setQ] = useState('');
-  const [radius, setRadius] = useState(3);
+  const [radiusKm, setRadiusKm] = useState(3);
   const [sources, setSources] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<Venue[] | null>(null);
@@ -407,19 +508,19 @@ function AddPlaceHere({ household, country, city, cityName, onAdded }: { househo
   const search = async () => {
     if (!near) { setMsg('Pick where in the city to look.'); return; }
     setBusy(true); setMsg(null);
-    try { setRes((await api.searchPlaces({ near: `${near.lat},${near.lng}`, categories: cat || undefined, q: q || undefined, radiusKm: radius, sources: sources?.join(',') })).results); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
+    try { setRes((await api.searchPlaces({ near: `${near.lat},${near.lng}`, categories: cat || undefined, q: q || undefined, radiusKm, sources: sources?.join(',') })).results); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   };
   return (
-    <Card style={{ borderColor: colors.accent }}>
+    <Card>
       <Text style={type.h3}>Add a place in {cityName}</Text>
-      <Text style={type.tiny}>Near</Text>
-      <PlacePicker value={near} onPick={setNear} placeholder={`A neighbourhood, landmark or address in ${cityName}`} />
+      <Text style={type.tiny}>A place you already know. Finding somewhere new is a trip's job — Trips › Find.</Text>
+      <PlacePicker value={near} onPick={setNear} placeholder={`Near — a neighbourhood, landmark or address in ${cityName}`} />
       <Segmented value={cat} options={[{ value: 'things', label: 'Things to do' }, { value: 'food', label: 'Food & drink' }, { value: '', label: 'Everything' }]} onChange={setCat} />
       <Row>
         <TextInput value={q} onChangeText={setQ} placeholder="Name contains… (optional)" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} onSubmitEditing={search} />
         <Button label="Search" onPress={search} loading={busy} />
       </Row>
-      <Wrap>{[1, 3, 5, 10].map((r) => <Chip key={r} label={`${r} km`} selected={radius === r} onPress={() => setRadius(r)} />)}</Wrap>
+      <Wrap>{[1, 3, 5, 10].map((r) => <Chip key={r} label={`${r} km`} selected={radiusKm === r} onPress={() => setRadiusKm(r)} />)}</Wrap>
       <SourcePicker value={sources} onChange={setSources} />
       {msg ? <StatusLine tone={msg.startsWith('Added') || msg.startsWith('Saved') ? 'good' : 'warn'}>{msg}</StatusLine> : null}
       {rating && household ? (
@@ -430,7 +531,7 @@ function AddPlaceHere({ household, country, city, cityName, onAdded }: { househo
         <VenueRow key={v.venueRef} venue={v} action={
           <Row>
             <Button label="Been" kind="secondary" onPress={() => setRating(v)} />
-            <Button label="Want to try" kind="ghost" onPress={async () => { await api.savePlace(v.venueRef, 'saved', { label: v.name, venue: v, category: v.category, lat: v.lat, lng: v.lng, ...ctx }); setMsg(`Saved ${v.name} to try.`); await onAdded(); }} />
+            <Button label="To try" kind="ghost" onPress={async () => { await api.savePlace(v.venueRef, 'saved', { label: v.name, venue: v, category: v.category, lat: v.lat, lng: v.lng, ...ctx }); setMsg(`Saved ${v.name} to try.`); await onAdded(); }} />
           </Row>
         } />
       ))}
@@ -438,350 +539,59 @@ function AddPlaceHere({ household, country, city, cityName, onAdded }: { househo
   );
 }
 
-// ---------------------------------------------------------------------------
-// Find
-// ---------------------------------------------------------------------------
-
-function FindPanel({ household, wide, refreshHousehold }: { household: HouseholdResponse | null; wide: boolean; refreshHousehold: () => Promise<void> }) {
-  const home = household?.household.home ?? null;
-  const [near, setNear] = useState<Place | null>(home);
-  const [cat, setCat] = useState<'things' | 'food' | ''>('things');
-  const [q, setQ] = useState('');
-  const [radius, setRadius] = useState(2);
-  const [sources, setSources] = useState<string[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [res, setRes] = useState<Awaited<ReturnType<typeof api.searchPlaces>> | null>(null);
-  const [open, setOpen] = useState<Venue | null>(null);
-
-  useEffect(() => { if (!near && home) setNear(home); }, [home]);
-
-  const search = useCallback(async () => {
-    if (!near) { setError('Pick where to look — or set your home address in Settings.'); return; }
-    setBusy(true); setError(null);
-    try {
-      setRes(await api.searchPlaces({ near: `${near.lat},${near.lng}`, categories: cat || undefined, q: q.trim() || undefined, radiusKm: radius, sources: sources?.join(',') }));
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
-  }, [near, cat, q, radius, sources]);
-
-  return (
-    <View style={[styles.split, wide && { flexDirection: 'row', alignItems: 'flex-start' }]}>
-      <View style={[{ gap: spacing.md }, wide && { width: 380 }]}>
-        <Card>
-          <Text style={type.h3}>Near</Text>
-          <PlacePicker value={near} onPick={setNear} extra={home ? [home] : []} placeholder="A town, an address, a landmark" />
-          {!home ? <StatusLine>No home address yet — set one in Settings and it'll be the default.</StatusLine> : null}
-          <Text style={type.h3}>What kind of place</Text>
-          <Segmented value={cat} options={[{ value: 'things', label: 'Things to do' }, { value: 'food', label: 'Food & drink' }, { value: '', label: 'Everything' }]} onChange={setCat} />
-          <TextInput value={q} onChangeText={setQ} placeholder="Name contains… (optional)" placeholderTextColor={colors.inkFaint} style={styles.input} onSubmitEditing={search} returnKeyType="search" />
-          <Wrap>{[1, 2, 5, 10].map((r) => <Chip key={r} label={`${r} km`} selected={radius === r} onPress={() => setRadius(r)} />)}</Wrap>
-          <SourcePicker value={sources} onChange={setSources} />
-          <Button label="Search" onPress={search} loading={busy} />
-          {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-        </Card>
-      </View>
-
-      <View style={[{ flex: 1, gap: spacing.md }, wide && { minWidth: 0 }]}>
-        {open ? <PlaceDetail venue={open} household={household} onClose={() => setOpen(null)} onChanged={async () => { await refreshHousehold(); await search(); }} /> : null}
-        {res ? (
-          <>
-            <Text style={type.small}>
-              {res.results.length} places within {res.radiusKm} km of {res.near.label} · from {res.sourcesQueried.join(', ')}
-              {res.degradedSources.length ? ` · ${res.degradedSources.map((d) => `${d.source} failed: ${d.error}`).join('; ')}` : ''}
-            </Text>
-            {res.results.map((v) => <VenueRow key={v.venueRef} venue={v} onPress={() => setOpen(v)} />)}
-            <Text style={type.tiny}>{res.attribution.join(' · ')}</Text>
-          </>
-        ) : !open ? (
-          <Card><Text style={type.small}>Search to see museums, parks, playgrounds, cafés and restaurants near wherever you are. Places you've been show how many times and what you thought.</Text></Card>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-export function VenueRow({ venue, onPress, action }: { venue: Venue; onPress?: () => void; action?: React.ReactNode }) {
-  const h = venue.household;
-  return (
-    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined}>
-      <Card style={{ gap: 4 }}>
-        <Row>
-          {venue.photos?.length ? <VenuePhoto photos={venue.photos} size={56} credit={false} /> : <View style={{ width: 56, height: 56, borderRadius: 12, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' }}><CategoryIcon category={venue.category} size={22} /></View>}
-          <View style={{ flex: 1 }}>
-            <Text style={type.h3}>{venue.name}</Text>
-            <Text style={type.small}>
-              {[venue.category, ...venue.experiences, ...venue.cuisines].filter(Boolean).join(' · ')}
-              {venue.rating != null ? ` · rated ${venue.rating.toFixed(1)}${venue.ratingCount ? ` (${venue.ratingCount.toLocaleString()})` : ''}` : ''}
-              {venue.distanceKm != null ? ` · ${venue.distanceKm} km` : ''}
-            </Text>
-            <Text style={type.tiny}>via {(venue.contributingSources?.length ? venue.contributingSources : [venue.source]).join(' + ')}</Text>
-          </View>
-          {action}
-        </Row>
-        <Wrap>
-          {h?.visits ? <Chip label={`Been ${h.visits}×${h.lastOn ? ` · last ${h.lastOn}` : ''}`} tone="accent" /> : null}
-          {h?.loved ? <Chip label={`${h.loved}`} tone="like" icon="keep" iconFill /> : null}
-          {h?.notForMe ? <Chip label={`${h.notForMe}`} tone="dislike" icon="close" /> : null}
-          {h?.ledger === 'saved' && !h?.visits ? <Chip label="Saved" /> : null}
-          {h?.ledger === 'special' ? <Chip label="Special" tone="accent" icon="favourite" iconFill /> : null}
-          {(venue.dietaryOptions ?? []).map((d) => <Chip key={d} label={d} />)}
-          {venue.goodForChildren ? <Chip label="Good for children" /> : null}
-        </Wrap>
-      </Card>
-    </Pressable>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Detail + visit form
-// ---------------------------------------------------------------------------
-
-function PlaceDetail({ venue, household, onClose, onChanged }: { venue: Venue; household: HouseholdResponse | null; onClose: () => void; onChanged: () => Promise<void> }) {
-  const [detail, setDetail] = useState<{ visits: Visit[]; household: Venue['household'] } | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [saved, setSaved] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try { const d = await api.place(venue.venueRef); setDetail({ visits: d.visits, household: d.household }); } catch { setDetail({ visits: [], household: null }); }
-  }, [venue.venueRef]);
-  useEffect(() => { load(); }, [load]);
-
-  return (
-    <Card style={{ borderColor: colors.accent }}>
-      <Row>
-        <CategoryIcon category={venue.category} size={24} color={colors.ink} />
-        <View style={{ flex: 1 }}>
-          <Text style={type.h2}>{venue.name}</Text>
-          <Text style={type.small}>{[venue.category, ...venue.experiences, ...venue.cuisines].join(' · ')}{venue.address ? ` · ${venue.address}` : ''}</Text>
-        </View>
-        <Button label="Close" kind="ghost" onPress={onClose} />
-      </Row>
-      {venue.openingHours ? <Text style={type.small}>Hours: {venue.openingHours}</Text> : null}
-      {venue.website ? <Pressable onPress={() => Linking.openURL(venue.website!)}><Text style={[type.small, { color: colors.accent }]}>{venue.website}</Text></Pressable> : null}
-      {venue.dishes?.length ? (
-        <View style={{ gap: 4 }}>
-          <Text style={type.h3}>Known for</Text>
-          {venue.dishes.map((d) => <Text key={d.name} style={type.small}>• {d.name}{d.comment ? ` — "${d.comment}"` : ''}</Text>)}
-        </View>
-      ) : null}
-      <Text style={type.tiny}>{venue.attribution ?? ''} · No reviews or allergen data from this source yet; what you record here is yours.</Text>
-
-      <Row>
-        <Button label="We've been here" onPress={() => setAdding(true)} />
-        <Button label={saved === 'yes' ? 'Saved' : 'Save for later'} icon={saved === 'yes' ? 'check' : 'shortlist'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'saved', { label: venue.name, venue, category: venue.category, lat: venue.lat, lng: venue.lng }); setSaved('yes'); await onChanged(); }} />
-        <Button label={saved === 'special' ? 'Special' : 'Mark as special'} icon={saved === 'special' ? 'check' : 'keep'} kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'special', { label: venue.name, venue, category: venue.category, lat: venue.lat, lng: venue.lng }); setSaved('special'); await onChanged(); }} />
-      </Row>
-      <Text style={type.tiny}>Special places are worth going further for — the planner uses your "if it's special" travel limit for them.</Text>
-
-      {adding && household ? (
-        <VisitForm venue={venue} household={household} onDone={async () => { setAdding(false); await load(); await onChanged(); }} onCancel={() => setAdding(false)} />
-      ) : null}
-
-      {detail?.visits.length ? (
-        <View style={{ gap: spacing.sm }}>
-          <Text style={type.h3}>Our history here</Text>
-          {detail.visits.map((v) => <VisitSummary key={v.id} visit={v} />)}
-        </View>
-      ) : detail ? <Text style={type.small}>We haven't recorded a visit here yet.</Text> : null}
-    </Card>
-  );
-}
-
-export function VisitSummary({ visit, onPress }: { visit: Visit; onPress?: () => void }) {
-  const takes = visit.takes?.filter((t) => t.subject === 'visit') ?? visit.visitTakes ?? [];
-  const names = (visit.attendees as any[]).map((a) => (typeof a === 'string' ? a : a.name));
-  return (
-    <Pressable onPress={onPress} disabled={!onPress}>
-      <View style={styles.visitRow}>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <Text style={type.h3}>{visit.visitedOn}</Text>
-          <Text style={type.tiny}>{names.join(', ')}</Text>
-        </Row>
-        <Wrap>
-          {takes.map((t: any, i: number) => (
-            <Chip key={i} label={`${t.member}: ${t.take === 'loved' ? 'loved it' : t.take === 'fine' ? 'fine' : 'not for me'}${t.comment ? ` — ${t.comment}` : ''}`} tone={t.take === 'loved' ? 'like' : t.take === 'not_for_me' ? 'dislike' : 'neutral'} />
-          ))}
-        </Wrap>
-        {visit.note ? <Text style={type.small}>“{visit.note}”</Text> : null}
-      </View>
-    </Pressable>
-  );
-}
-
-export type VisitCreateBody = { visitedOn: string; note: string; attendeeIds: string[]; takes: VisitTake[]; venue: Partial<Venue> };
-
-export function VisitForm({ venue, household, onDone, onCancel, initial, createVia }: {
-  venue: Pick<Venue, 'venueRef' | 'name' | 'category' | 'lat' | 'lng' | 'experiences' | 'cuisines'>;
-  household: HouseholdResponse; onDone: () => Promise<void>; onCancel: () => void;
-  initial?: { visitId: string; date: string; note: string; rows: TakeRow[]; attending: string[] };
-  /** Create the visit some other way (e.g. against a trip stop) instead of a free-standing visit. */
-  createVia?: (body: VisitCreateBody) => Promise<void>;
-}) {
-  const members = household.members;
-  const [date, setDate] = useState(initial?.date ?? today());
-  const [note, setNote] = useState(initial?.note ?? '');
-  const [attending, setAttending] = useState<Set<string>>(new Set(initial?.attending ?? members.map((m) => m.id)));
-  const [rows, setRows] = useState<TakeRow[]>(initial?.rows ?? members.map((m, i) => ({ memberId: m.id, name: m.name, index: i, take: null, comment: '' })));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [clientId] = useState(uuid());
-
-  const visible = rows.filter((r) => attending.has(r.memberId));
-  const toTakes = (): VisitTake[] => visible.filter((r) => r.take).map((r) => ({ memberId: r.memberId, subject: 'visit', take: r.take as Take, comment: r.comment || null }));
-
-  const submit = async () => {
-    setBusy(true); setError(null);
-    try {
-      if (initial) {
-        await api.updateVisit(initial.visitId, { note, visitedOn: date });
-        await api.setTakes(initial.visitId, toTakes(), { experiences: venue.experiences, cuisines: venue.cuisines, category: venue.category });
-      } else if (createVia) {
-        await createVia({ visitedOn: date, note, attendeeIds: [...attending], takes: toTakes(), venue: { experiences: venue.experiences, cuisines: venue.cuisines, category: venue.category } });
-      } else {
-        await api.createVisit({
-          venueRef: venue.venueRef, venueLabel: venue.name, category: venue.category, lat: venue.lat, lng: venue.lng,
-          visitedOn: date, note, attendeeIds: [...attending], clientId,
-          venue: { experiences: venue.experiences, cuisines: venue.cuisines, category: venue.category }, takes: toTakes(),
-        });
-      }
-      await onDone();
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
-  };
-
-  return (
-    <View style={styles.form}>
-      <Text style={type.h3}>{initial ? 'Edit this visit' : `We went to ${venue.name}`}</Text>
-      <Row>
-        <Text style={[type.small, { width: 70 }]}>When</Text>
-        <TextInput value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} />
-      </Row>
-      <Text style={type.small}>Who came</Text>
-      <FaceRow members={members} attending={attending} onToggle={(id) => setAttending((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; })} />
-      <Text style={type.small}>What everyone thought</Text>
-      <TakePicker rows={visible} onChange={(v) => setRows(rows.map((r) => v.find((x) => x.memberId === r.memberId) ?? r))} />
-      <TextInput value={note} onChangeText={setNote} placeholder="A note for future us (optional)" placeholderTextColor={colors.inkFaint} style={styles.input} />
-      {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-      <Row>
-        <Button label={initial ? 'Save changes' : 'Save visit'} onPress={submit} loading={busy} />
-        <Button label="Cancel" kind="ghost" onPress={onCancel} />
-      </Row>
-      <Text style={type.tiny}>Ratings are attributed to the kind of place as well as the place, so they help everywhere similar.</Text>
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Been
-// ---------------------------------------------------------------------------
-
-function BeenPanel({ household, wide, refreshHousehold }: { household: HouseholdResponse | null; wide: boolean; refreshHousehold: () => Promise<void> }) {
-  const [country, setCountry] = useState<string>('');
-  const [q, setQ] = useState('');
-  const [take, setTake] = useState<'' | Take>('');
-  const [data, setData] = useState<Awaited<ReturnType<typeof api.visits>> | null>(null);
-  const [open, setOpen] = useState<Visit | null>(null);
-  const [editing, setEditing] = useState(false);
-
-  const load = useCallback(async () => {
-    setData(await api.visits({ country: country || undefined, q: q || undefined, take: take || undefined }));
-  }, [country, q, take]);
-  useEffect(() => { load(); }, [load]);
-
-  const grouped = useMemo(() => {
-    const g = new Map<string, Visit[]>();
-    for (const v of data?.visits ?? []) { const k = v.locality ? `${v.locality}, ${v.country ?? ''}` : (v.country ?? 'Somewhere'); if (!g.has(k)) g.set(k, []); g.get(k)!.push(v); }
-    return [...g.entries()];
-  }, [data]);
-
-  return (
-    <View style={[styles.split, wide && { flexDirection: 'row', alignItems: 'flex-start' }]}>
-      <View style={[{ gap: spacing.md }, wide && { width: 320 }]}>
-        <Card>
-          <Text style={type.h3}>Filter</Text>
-          <Wrap>
-            <Chip label="Everywhere" selected={!country} onPress={() => setCountry('')} />
-            {(data?.countries ?? []).map((c) => <Chip key={c.code} label={`${c.name} (${c.visits})`} selected={country === c.code} onPress={() => setCountry(c.code)} />)}
-          </Wrap>
-          <TextInput value={q} onChangeText={setQ} placeholder="Search places, towns, notes" placeholderTextColor={colors.inkFaint} style={styles.input} />
-          <Segmented value={take} options={[{ value: '', label: 'All' }, { value: 'loved', label: 'Loved' }, { value: 'not_for_me', label: 'Not for us' }]} onChange={setTake} />
-        </Card>
-      </View>
-      <View style={{ flex: 1, gap: spacing.md }}>
-        {open ? (
-          <Card style={{ borderColor: colors.accent }}>
-            <Row>
-              <View style={{ flex: 1 }}>
-                <Text style={type.h2}>{open.venueLabel}</Text>
-                <Text style={type.small}>{[open.locality, open.country].filter(Boolean).join(', ')} · {open.visitedOn}</Text>
-              </View>
-              <Button label="Close" kind="ghost" onPress={() => { setOpen(null); setEditing(false); }} />
-            </Row>
-            {editing && household ? (
-              <VisitForm
-                venue={{ venueRef: open.venueRef, name: open.venueLabel, category: open.category ?? 'attraction', lat: open.lat ?? 0, lng: open.lng ?? 0, experiences: [], cuisines: [] }}
-                household={household}
-                initial={{
-                  visitId: open.id, date: open.visitedOn, note: open.note ?? '',
-                  attending: (open.attendees as any[]).map((a) => (typeof a === 'string' ? household.members.find((m) => m.name === a)?.id ?? '' : a.id)).filter(Boolean),
-                  rows: household.members.map((m, i) => { const t = open.takes?.find((x) => x.memberId === m.id && x.subject === 'visit'); return { memberId: m.id, name: m.name, index: i, take: t?.take ?? null, comment: t?.comment ?? '' }; }),
-                }}
-                onDone={async () => { setEditing(false); const v = await api.visit(open.id); setOpen(v.visit); await load(); await refreshHousehold(); }}
-                onCancel={() => setEditing(false)}
-              />
-            ) : (
-              <>
-                <VisitSummary visit={open} />
-                <Row>
-                  <Button label="Edit what we thought" kind="secondary" onPress={() => setEditing(true)} />
-                  <Button label="Delete visit" kind="danger" onPress={async () => { await api.deleteVisit(open.id); setOpen(null); await load(); await refreshHousehold(); }} />
-                </Row>
-              </>
-            )}
-          </Card>
-        ) : null}
-        {grouped.length === 0 ? <Card><Text style={type.small}>No visits yet. Find a place and tap "We've been here" — or mark a stop on a trip as visited.</Text></Card> : null}
-        {grouped.map(([place, list]) => (
-          <View key={place} style={{ gap: spacing.sm }}>
-            <Text style={type.h2}>{place}</Text>
-            {list.map((v) => (
-              <Pressable key={v.id} onPress={async () => { const d = await api.visit(v.id); setOpen(d.visit); setEditing(false); }}>
-                <Card style={{ gap: 4 }}>
-                  <Row style={{ justifyContent: 'space-between' }}>
-                    <Row><CategoryIcon category={v.category} size={16} color={colors.ink} /><Text style={type.h3}>{v.venueLabel}</Text></Row>
-                    <Text style={type.tiny}>{v.visitedOn}</Text>
-                  </Row>
-                  <Wrap>
-                    {(v.visitTakes ?? []).map((t, i) => <Chip key={i} label={`${t.member}${t.take === 'fine' ? ': fine' : ''}`} icon={t.take === 'loved' ? 'keep' : t.take === 'fine' ? undefined : 'close'} iconFill={t.take === 'loved'} tone={t.take === 'loved' ? 'like' : t.take === 'not_for_me' ? 'dislike' : 'neutral'} />)}
-                    {(v.attendees as string[]).length ? <Chip label={(v.attendees as string[]).join(', ')} /> : null}
-                  </Wrap>
-                </Card>
-              </Pressable>
-            ))}
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  page: { padding: spacing.lg, gap: spacing.md, width: '100%', maxWidth: 1100, alignSelf: 'center' },
-  header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  page: { width: '100%', paddingBottom: spacing.xl },
+  pageWide: { flexDirection: 'row', alignItems: 'flex-start', maxWidth: 1400, alignSelf: 'center' },
+  atlasCol: { width: '100%' },
+  atlasColWide: { width: 340, borderRightWidth: 1, borderRightColor: colors.line, minHeight: 600 },
+  cityCol: { width: '100%' },
+  cityColWide: { flex: 1, minWidth: 0 },
+  // The one mint field (style guide): no shadow, just its colour.
+  field: { backgroundColor: colors.headerBg, padding: spacing.lg, gap: spacing.sm },
+  fieldWide: { backgroundColor: 'transparent', paddingBottom: 0 },
+  body: { padding: spacing.lg, gap: spacing.md },
+  list: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 10, paddingHorizontal: spacing.md, minHeight: TARGET },
+  rowLine: { borderTopWidth: 1, borderTopColor: colors.line },
+  rowSub: { paddingLeft: 40, backgroundColor: colors.panel },
+  rowOn: { backgroundColor: colors.accentSoft },
+  counts: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  count: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 7, height: 20, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line },
+  countText: { fontSize: 11, fontWeight: '600', color: colors.inkMuted },
+  filters: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  fchip: { flexDirection: 'row', alignItems: 'center', gap: 2, height: 32, paddingLeft: 10, paddingRight: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, maxWidth: 150 },
+  fchipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  fchipText: { fontSize: 12, fontWeight: '600', color: colors.ink, flexShrink: 1 },
+  viewToggle: { flexDirection: 'row', height: 32, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 2, gap: 2 },
+  viewBtn: { width: 30, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
+  viewBtnOn: { backgroundColor: colors.primary },
   split: { gap: spacing.md },
-  grid: { gap: spacing.md, justifyContent: 'space-between' },
+  splitWide: { flexDirection: 'row', alignItems: 'flex-start' },
+  prow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.md, minHeight: TARGET },
+  well: { width: 28, height: 28, borderRadius: radius.md, backgroundColor: colors.well, alignItems: 'center', justifyContent: 'center' },
+  heart: { position: 'absolute', right: -5, top: -5, width: 14, height: 14, borderRadius: 7, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  meta: { flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 0 },
+  dot: { width: 8, height: 8, borderRadius: 4, borderWidth: 1, borderColor: colors.line },
+  score: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 4 },
+  scoreText: { fontSize: 13, fontWeight: '700', color: colors.ink },
+  tryChip: { height: 24, paddingHorizontal: 9, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  tryText: { fontSize: 11, fontWeight: '600', color: colors.inkMuted },
+  mapWrap: { position: 'relative' },
+  pinCard: { position: 'absolute', left: spacing.sm, right: spacing.sm, bottom: spacing.sm, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
+  mapHint: { position: 'absolute', left: spacing.sm, bottom: spacing.sm, backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.md, overflow: 'hidden' },
+  sheetWrap: { flex: 1, justifyContent: 'flex-end' },
+  sheetWrapWide: { justifyContent: 'center', alignItems: 'center' },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(29,27,22,0.35)' },
+  sheet: { backgroundColor: colors.panel, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.sm, maxHeight: '80%' },
+  sheetWide: { width: 360, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line },
+  close: { width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'center' },
+  opt: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md },
+  optOn: { backgroundColor: colors.primary },
+  ours: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
+  scores: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, alignItems: 'center' },
+  scoreLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   input: {
     minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink,
   },
-  form: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
-  list: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
-  placeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 8, paddingHorizontal: spacing.md, minHeight: TARGET, borderBottomWidth: 1, borderBottomColor: colors.line },
-  placeRowOn: { backgroundColor: colors.accentSoft },
-  verdicts: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: 220 },
-  verdict: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, height: 22, borderRadius: radius.pill },
-  verdictDot: { width: 7, height: 7, borderRadius: 4 },
-  verdictText: { fontSize: 11, fontWeight: '700' },
-  vr: { width: 1, height: 24, backgroundColor: colors.line, alignSelf: 'center', marginHorizontal: 2 },
-  ours: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent },
-  visitRow: { gap: 6, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
 });
