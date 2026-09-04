@@ -450,16 +450,20 @@ router.post('/tastes/trip', async (req, res, next) => {
     const intent = { date, duration_minutes: 480, travel_mode: 'driving', intensity: null, anchor: null, depart_time: null, attending: attending.map((m) => m.name), wants };
     const { trip } = await createTripFromIntent({ household, members, intent, origin: home, destination, anchorPlace: null, title });
 
-    // The restaurant itself is the point of the day, so it goes on first.
+    // What the family was shown around it goes on by name, exactly as Inspire
+    // me does it; the restaurant follows, so the note that says why it is here
+    // is the one that survives the shortlist's upsert.
+    const idea = { title, place: { label: place.name, lat: place.lat, lng: place.lng, locality, countryCode: null }, do: wants, eat: [] };
+    let others = [];
+    try { others = await seedShortlistFromIdea({ household, session: null, trip, idea }); } catch { /* the restaurant alone is enough */ }
     await addShortlistItem(trip, household, {
       venueRef: place.venueRef, venueLabel: place.name, kind: 'food', category: place.category,
       lat: place.lat, lng: place.lng, mustDo: true,
       note: `Roam suggested: best ${table.label.toLowerCase()}${table.loved?.length ? ` for ${namesOf(table.loved)}` : ''}`,
     });
-    // Then whatever the family was shown around it, by name, exactly as Inspire me does.
-    const idea = { title, place: { label: place.name, lat: place.lat, lng: place.lng, locality, countryCode: null }, do: wants, eat: [] };
-    let seeded = [place.name];
-    try { seeded = [place.name, ...(await seedShortlistFromIdea({ household, session: null, trip, idea }))]; } catch { /* the restaurant alone is enough */ }
+    // The restaurant is named once, whatever the look-around also called it.
+    const norm = (n) => String(n).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const seeded = [place.name, ...others.filter((n) => norm(n) !== norm(place.name) && !norm(place.name).includes(norm(n)))];
     place.tripId = trip.id;
     place.seeded = seeded;
     const reply = `${title} set up for ${dayWords(date)}, with ${namesOf(seeded.map((s) => ({ name: s })))} on the shortlist. Opening it in Trips.`;
