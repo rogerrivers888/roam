@@ -432,7 +432,7 @@ export type GroupItemInput = {
   closesOn?: string | null; lateJoiners?: 'capacity' | 'no' | 'ask';
 };
 export type TripGroup = {
-  group: { id: string; tripId: string; name: string | null; expectedCount: number | null; minimumCount: number | null; wantedBy: string | null; inviteToken: string; closed: boolean; remindersOn: boolean; cadence: string; cancelledAt: string | null; cancelledNote: string | null };
+  group: { id: string; tripId: string; name: string | null; expectedCount: number | null; minimumCount: number | null; wantedBy: string | null; inviteToken: string; closed: boolean; remindersOn: boolean; cadence: string; setupDone: boolean; cancelledAt: string | null; cancelledNote: string | null };
   trip: { id: string; title: string | null; place: string | null; startDate: string | null; endDate: string | null; base: { label: string; kind: string | null } | null };
   items: GroupItem[]; participants: GroupParticipant[];
   summary: { expected: number | null; joined: number; notJoined: number; withdrawn: number; heads: number; complete: number; missing: number };
@@ -492,7 +492,7 @@ export type PlanRowKey = 'from' | 'to' | 'when' | 'who' | 'stay' | 'do' | 'eat' 
 export type PlanRow = { key: PlanRowKey; label: string; value: string | null; detail: string | null; state: 'plain' | 'check' | 'empty' };
 // A tapped control lands in the plan exactly as tapped — no interpretation.
 export type PlanSet = {
-  destination?: Place | null; date?: string | null; end_date?: string | null; nights?: number | null; duration_minutes?: number | null; depart_time?: string | null;
+  origin?: Place | null; destination?: Place | null; date?: string | null; end_date?: string | null; nights?: number | null; duration_minutes?: number | null; depart_time?: string | null;
   do?: { kinds: string[]; named: string[]; count: number | null };
   eat?: { meals: Record<string, string | null>; avoid_chains?: boolean | null; special?: boolean | null };
   budget?: { price_point?: 'any' | PricePoint | null; low?: number | null; high?: number | null; per?: 'everyone' | 'person' | null };
@@ -653,6 +653,8 @@ export const api = {
    */
   geocode: (q: string, limit = 6, bias?: { near?: Place | null; country?: string | null; kind?: 'lodging' | 'area' | null }) =>
     request<{ results: Place[]; attribution: string }>(`/api/places/geocode${qs({ q, limit, near: bias?.near ? `${bias.near.lat},${bias.near.lng}` : undefined, country: bias?.country ?? undefined, kind: bias?.kind ?? undefined })}`),
+  /** Coordinates from the device → the address they sit at. Nothing is stored; the household asked for this one. */
+  where: (lat: number, lng: number) => request<{ place: Place; named: boolean; attribution: string }>(`/api/places/where${qs({ at: `${lat},${lng}` })}`),
   /** `sources` is the exact set of sources for this one search (e.g. 'osm,tripadvisor'); omitted = the default set, which never includes opt-in sources. */
   searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number; sources?: string }) =>
     request<{ near: Place & { how: string }; radiusKm: number; results: Venue[]; sourcesQueried: string[]; degradedSources: { source: string; error: string }[]; attribution: string[] }>(`/api/places/search${qs(p)}`),
@@ -685,7 +687,7 @@ export const api = {
   // group trips
   tripGroup: (tripId: string) => request<TripGroup | { group: null }>(`/api/trips/${tripId}/group`),
   createTripGroup: (tripId: string, body: { name?: string; expectedCount?: number | null; minimumCount?: number | null; wantedBy?: string | null; cadence?: string; organiserMemberId?: string | null }) => post<TripGroup>(`/api/trips/${tripId}/group`, body),
-  updateGroup: (id: string, body: Partial<{ name: string; expectedCount: number | null; minimumCount: number | null; wantedBy: string | null; remindersOn: boolean; cadence: string; closed: boolean; newLink: boolean }>) => patch<TripGroup>(`/api/groups/${id}`, body),
+  updateGroup: (id: string, body: Partial<{ name: string; expectedCount: number | null; minimumCount: number | null; wantedBy: string | null; remindersOn: boolean; cadence: string; closed: boolean; newLink: boolean; setupDone: boolean }>) => patch<TripGroup>(`/api/groups/${id}`, body),
   deleteGroup: (id: string) => del<{ deleted: boolean }>(`/api/groups/${id}`),
   addGroupItem: (id: string, body: GroupItemInput) => post<TripGroup>(`/api/groups/${id}/items`, body),
   updateGroupItem: (id: string, itemId: string, body: Partial<GroupItemInput & { position: number; state: GroupItemState2 }>) => patch<TripGroup>(`/api/groups/${id}/items/${itemId}`, body),

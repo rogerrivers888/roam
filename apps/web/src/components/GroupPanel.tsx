@@ -21,6 +21,24 @@ import { getViewer } from '../viewer';
  * not behind on anything.
  */
 
+
+/**
+ * The six things setting a group up asks, in the order they build on each
+ * other. Each carries a line saying what it is for, because a title and a count
+ * assume the organiser already knows what a group is — and they do not (owner,
+ * 4 Sep 2026). The same six are the wizard on the first run and the settings
+ * afterwards.
+ */
+type StepKey = 'what' | 'wanted' | 'minimum' | 'costs' | 'chasing' | 'invite';
+const STEPS: { key: StepKey; title: string; blurb: string }[] = [
+  { key: 'what', title: 'What this is', blurb: 'Give it a name the people you invite will recognise, and say roughly how many you are expecting. Both can be changed later.' },
+  { key: 'wanted', title: 'What must everyone do?', blurb: 'Not everyone has to do everything. Mark what you want from every single person, and what you are only asking about — a dinner you need a number for, say.' },
+  { key: 'minimum', title: 'How many do you need?', blurb: 'If this only works with a certain number of people, say so. Below it on the closing day the trip is called off and everybody is told. Most trips do not need one — leave it empty and it goes ahead with whoever comes.' },
+  { key: 'costs', title: 'Anything you are paying for?', blurb: 'Things you are out of pocket for that others should chip in on: a coach, tickets, a kitty. A coach can be an extra that only some people want, priced by how many say yes — cheaper the more of them there are.' },
+  { key: 'chasing', title: 'How often Roam chases', blurb: 'You should not have to ask anybody twice. Roam writes to whoever still has something outstanding, on a schedule counting back from the date you want it all by.' },
+  { key: 'invite', title: 'Ask them in', blurb: 'A code to hold up at training, a link to paste, a WhatsApp group, or the names you already know. Anyone holding the link can join, so what they type is all anybody knows about them.' },
+];
+
 const WIDE = 1000;
 const money = (p?: number | null) => (p == null ? '—' : `£${(p / 100).toFixed(p % 100 === 0 ? 0 : 2)}`);
 const day = (iso?: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) : '');
@@ -52,8 +70,8 @@ function NumberBox({ value, onChange, placeholder, width = 88, prefix }: {
 }
 
 /** One of the four numbered questions: open, or folded to a line. */
-function Block({ n, title, summary, open, onToggle, children }: {
-  n: number; title: string; summary: string; open: boolean; onToggle: () => void; children?: React.ReactNode;
+function Block({ n, title, blurb, summary, open, onToggle, children }: {
+  n: number; title: string; blurb: string; summary: string; open: boolean; onToggle: () => void; children?: React.ReactNode;
 }) {
   return (
     <Card style={{ gap: open ? spacing.sm : 0 }}>
@@ -69,10 +87,12 @@ function Block({ n, title, summary, open, onToggle, children }: {
           <Icon name={open ? 'collapse' : 'expand'} size={16} />
         </Row>
       </Pressable>
+      {open ? <Text style={type.small}>{blurb}</Text> : null}
       {open ? children : null}
     </Card>
   );
 }
+
 
 export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => Promise<void> }) {
   const { width } = useViewport();
@@ -182,20 +202,12 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
   );
 
   // --- the four questions ---------------------------------------------------
-  const wantedSummary = `${wanted.filter((i) => i.required).length} wanted from everyone, ${wanted.filter((i) => !i.required).length} asked about`;
-  const inviteSummary = group.expectedCount
-    ? `${group.expectedCount} expected${group.minimumCount ? `, ${group.minimumCount} needed` : ''}${settingUp ? ' · nobody asked in yet' : ` · ${summary.joined} joined`}`
-    : 'A code, a link, a WhatsApp group, or names';
-  const chaseSummary = !reminders.on ? 'Off — you are chasing them yourself'
-    : reminders.next ? `${reminders.cadence} — next on ${day(reminders.next.date)}`
-    : group.wantedBy ? 'Every reminder has been sent' : 'Set a date and Roam will chase';
-  const costSummary = costs.length
-    ? `${costs.length} cost${costs.length === 1 ? '' : 's'} · ${money(gotIn)} in, ${money(owed)} owed`
-    : 'The coach, the tickets, a kitty';
-
-  const blocks = (
-    <View style={{ gap: spacing.md }}>
-      <Block n={1} title="What must everyone do?" summary={wantedSummary} open={block === 1} onToggle={() => setBlock(block === 1 ? null : 1)}>
+  // Each step's content, written once: the wizard shows one at a time, the
+  // settings page shows them folded.
+  const content: Record<StepKey, React.ReactNode> = {
+    what: <WhatThisIs group={g} onChange={(body) => run(() => api.updateGroup(group.id, body))} />,
+    wanted: (
+      <>
         {wanted.map((i) => (
           <View key={i.id} style={styles.wantedRow}>
             <Row style={{ alignItems: 'flex-start' }}>
@@ -212,18 +224,13 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
             </Wrap>
           </View>
         ))}
+        {wanted.length === 0 ? <Text style={type.small}>Nothing on this trip yet. Add what people need to book or bring.</Text> : null}
         <AddWanted onAdd={(body) => run(() => api.addGroupItem(group.id, body))} />
-      </Block>
-
-      <Block n={2} title="Ask them in" summary={inviteSummary} open={block === 2} onToggle={() => setBlock(block === 2 ? null : 2)}>
-        <Invite group={g} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onAdd={(body) => run(() => api.addGroupParticipant(group.id, body))} />
-      </Block>
-
-      <Block n={3} title="How often Roam chases" summary={chaseSummary} open={block === 3} onToggle={() => setBlock(block === 3 ? null : 3)}>
-        <Chasing group={g} busy={busy} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onSendNow={() => run(() => api.chaseGroup(group.id))} />
-      </Block>
-
-      <Block n={4} title="Anything to charge for?" summary={costSummary} open={block === 4} onToggle={() => setBlock(block === 4 ? null : 4)}>
+      </>
+    ),
+    minimum: <Minimum group={g} joinedHeads={summary.heads} onChange={(body) => run(() => api.updateGroup(group.id, body))} />,
+    costs: (
+      <>
         {costs.map((i) => (
           <CostCard
             key={i.id}
@@ -236,7 +243,52 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
           />
         ))}
         <AddCost group={g} onAdd={(body) => run(() => api.addGroupItem(group.id, body))} />
-      </Block>
+      </>
+    ),
+    chasing: <Chasing group={g} busy={busy} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onSendNow={() => run(() => api.chaseGroup(group.id))} />,
+    invite: <Invite group={g} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onAdd={(body) => run(() => api.addGroupParticipant(group.id, body))} />,
+  };
+
+  const summaries: Record<StepKey, string> = {
+    what: `${group.name ?? 'Unnamed'}${group.expectedCount ? ` · ${group.expectedCount} expected` : ''}`,
+    wanted: `${wanted.filter((i) => i.required).length} wanted from everyone, ${wanted.filter((i) => !i.required).length} asked about`,
+    minimum: group.minimumCount ? `${group.minimumCount} needed, or it is off` : 'No minimum — it goes ahead with whoever comes',
+    costs: costs.length ? `${costs.length} cost${costs.length === 1 ? '' : 's'} · ${money(gotIn)} in, ${money(owed)} owed` : 'Nothing — you are not charging for anything',
+    chasing: !reminders.on ? 'Off — you are chasing them yourself'
+      : reminders.next ? `${reminders.cadence} — next on ${day(reminders.next.date)}`
+      : group.wantedBy ? 'Every reminder has been sent' : 'Set a date and Roam will chase',
+    invite: settingUp ? 'Nobody asked in yet' : `${summary.joined} joined of ${group.expectedCount ?? '—'}`,
+  };
+
+  // First run: one step at a time, each saying what it is for.
+  if (!group.setupDone) {
+    return (
+      <View style={{ gap: spacing.md }}>
+        {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+        <Wizard
+          content={content}
+          summaries={summaries}
+          onDone={() => run(() => api.updateGroup(group.id, { setupDone: true }))}
+        />
+      </View>
+    );
+  }
+
+  const blocks = (
+    <View style={{ gap: spacing.md }}>
+      {STEPS.map((s, n) => (
+        <Block
+          key={s.key}
+          n={n + 1}
+          title={s.title}
+          blurb={s.blurb}
+          summary={summaries[s.key]}
+          open={block === n + 1}
+          onToggle={() => setBlock(block === n + 1 ? null : n + 1)}
+        >
+          {content[s.key]}
+        </Block>
+      ))}
     </View>
   );
 
@@ -312,37 +364,133 @@ function costLine(i: GroupItem) {
   return `${money(i.totalPence)} to get back · no more than ${money(m.ceilingPence)} each · ${m.shares} on it${m.minimum ? `, needs ${m.minimum}` : ''}`;
 }
 
-/** Before there is a group: the dashed row at the bottom of a trip. */
+
+/**
+ * The first run: one step at a time, with what the step is for at the top of
+ * it, and a way past anything that does not apply. Nothing here is compulsory —
+ * every step can be skipped and changed later from the same six blocks.
+ */
+function Wizard({ content, summaries, onDone }: {
+  content: Record<StepKey, React.ReactNode>; summaries: Record<StepKey, string>; onDone: () => void;
+}) {
+  const [at, setAt] = useState(0);
+  const step = STEPS[at];
+  const last = at === STEPS.length - 1;
+  return (
+    <Card>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Text style={type.tiny}>STEP {at + 1} OF {STEPS.length}</Text>
+        <Text style={type.tiny}>{summaries[step.key]}</Text>
+      </Row>
+      <View style={styles.progress}>
+        {STEPS.map((s, i) => <View key={s.key} style={[styles.progressBar, i <= at && { backgroundColor: colors.accent }]} />)}
+      </View>
+      <Text style={type.h2}>{step.title}</Text>
+      <Text style={type.small}>{step.blurb}</Text>
+      <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>{content[step.key]}</View>
+      <Row style={{ marginTop: spacing.md }}>
+        {at > 0 ? <Button label="Back" icon="back" kind="ghost" onPress={() => setAt(at - 1)} /> : null}
+        <View style={{ flex: 1 }} />
+        {!last ? <Button label="Skip" kind="ghost" onPress={() => setAt(at + 1)} /> : null}
+        <Button label={last ? "That's my group set up" : 'Next'} icon={last ? 'check' : 'forward'} onPress={() => (last ? onDone() : setAt(at + 1))} />
+      </Row>
+    </Card>
+  );
+}
+
+/** Step 1: what the group is called, and roughly how big it is. */
+function WhatThisIs({ group: g, onChange }: { group: TripGroup; onChange: (body: any) => void }) {
+  const [name, setName] = useState(g.group.name ?? '');
+  const [expected, setExpected] = useState(g.group.expectedCount == null ? '' : String(g.group.expectedCount));
+  useEffect(() => { setName(g.group.name ?? ''); }, [g.group.name]);
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <Text style={type.tiny}>WHAT TO CALL IT</Text>
+      <TextInput
+        value={name}
+        onChangeText={setName}
+        onBlur={() => name.trim() !== (g.group.name ?? '') && onChange({ name: name.trim() })}
+        placeholder="Cardiff · rugby tour"
+        placeholderTextColor={colors.inkFaint}
+        style={styles.input}
+      />
+      <Text style={type.tiny}>This is what people see when they open your link.</Text>
+      <Text style={type.tiny}>HOW MANY ARE YOU EXPECTING?</Text>
+      <Row>
+        <NumberBox value={expected} onChange={setExpected} placeholder="24" />
+        <Button label="Save" kind="secondary" onPress={() => onChange({ name: name.trim(), expectedCount: numberOrNull(expected) })} />
+      </Row>
+      <Text style={type.tiny}>A target, not a limit — more can join and fewer is fine. It is also the number a cost divided by numbers uses until people actually say yes.</Text>
+    </View>
+  );
+}
+
+/** Step 3: the number below which none of it happens. */
+function Minimum({ group: g, joinedHeads, onChange }: { group: TripGroup; joinedHeads: number; onChange: (body: any) => void }) {
+  const [minimum, setMinimum] = useState(g.group.minimumCount == null ? '' : String(g.group.minimumCount));
+  const [wantedBy, setWantedBy] = useState(g.group.wantedBy ?? '');
+  useEffect(() => { setMinimum(g.group.minimumCount == null ? '' : String(g.group.minimumCount)); }, [g.group.minimumCount]);
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <Row style={{ alignItems: 'flex-start', gap: spacing.lg }}>
+        <View style={{ gap: 4 }}>
+          <Text style={type.tiny}>MINIMUM</Text>
+          <NumberBox value={minimum} onChange={setMinimum} placeholder="—" />
+        </View>
+        <View style={{ gap: 4, flex: 1 }}>
+          <Text style={type.tiny}>JUDGED ON</Text>
+          <TextInput
+            value={wantedBy}
+            onChangeText={setWantedBy}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={colors.inkFaint}
+            style={[styles.input, { width: 160 }]}
+          />
+        </View>
+        <Button label="Save" kind="secondary" style={{ marginTop: 18 }} onPress={() => onChange({ minimumCount: numberOrNull(minimum), wantedBy: wantedBy || null })} />
+      </Row>
+      <Text style={type.small}>
+        {g.group.minimumCount
+          ? `If ${g.group.minimumCount} have not joined by ${day(g.group.wantedBy)}, the trip is cancelled and everybody is told. ${joinedHeads} so far.`
+          : 'Nothing is cancelled: the trip goes ahead with whoever comes.'}
+      </Text>
+      <Text style={type.tiny}>A coach or anything else you are paying for can have a minimum of its own, at the next step. That one only calls off the coach.</Text>
+    </View>
+  );
+}
+
+/** The front door: what a group is, before there is one. */
 function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup) => void }) {
-  const [expected, setExpected] = useState('');
-  const [name, setName] = useState(d.trip.title ?? d.trip.place?.label ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const trip = d.trip.title ?? d.trip.place?.label ?? 'this trip';
   return (
     <Card style={{ borderStyle: 'dashed' }}>
       <Row><Icon name="household" size={18} /><Text style={type.h2}>Is anyone else coming?</Text></Row>
       <Text style={type.small}>
-        Turn this into a group trip and Roam will chase them for you: who is in, who has booked what, and who still owes you money.
-        Everything you have already planned becomes the list they work from.
+        A group trip is {trip} plus everybody coming to it — and Roam doing the chasing. You get a link that opens each person's own
+        list, one screen showing who is in, who has booked and who owes you, and reminders that go out without you asking.
       </Text>
-      <Text style={type.tiny}>WHAT TO CALL IT</Text>
-      <TextInput value={name} onChangeText={setName} placeholder="The group" placeholderTextColor={colors.inkFaint} style={styles.input} />
-      <Text style={type.tiny}>HOW MANY ARE YOU EXPECTING?</Text>
-      <Row>
-        <NumberBox value={expected} onChange={setExpected} placeholder="24" />
-        <Text style={[type.tiny, { flex: 1 }]}>A target, not a limit. More can join; fewer is fine.</Text>
-      </Row>
+      <View style={{ gap: 6, marginTop: 2 }}>
+        <Text style={type.tiny}>SETTING IT UP ASKS YOU SIX THINGS</Text>
+        {STEPS.map((s, i) => (
+          <Row key={s.key} style={{ alignItems: 'flex-start' }}>
+            <View style={styles.blockNumber}><Text style={styles.blockNumberText}>{i + 1}</Text></View>
+            <Text style={[type.small, { flex: 1 }]}>{bullet(s.key, trip)}</Text>
+          </Row>
+        ))}
+      </View>
+      <Text style={type.tiny}>Three minutes, and every answer can be changed afterwards. You can skip any of them.</Text>
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       <Button
-        label={busy ? 'Making the group…' : 'Make this a group trip'}
-        icon="add"
+        label={busy ? 'Making the group…' : "I'm ready — set my group up"}
+        icon="forward"
         onPress={async () => {
           if (busy) return;
           setBusy(true); setError(null);
           try {
             onCreated(await api.createTripGroup(d.trip.id, {
-              name: name.trim() || undefined,
-              expectedCount: expected ? Number(expected) : null,
+              name: d.trip.title ?? d.trip.place?.label ?? undefined,
               organiserMemberId: getViewer(d.attendees),
             }));
           } catch (e: any) { setError(e.message); } finally { setBusy(false); }
@@ -350,6 +498,18 @@ function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup)
       />
     </Card>
   );
+}
+
+/** What each step means, said in the plainest words, on the front door. */
+function bullet(key: StepKey, trip: string) {
+  switch (key) {
+    case 'what': return `What this is — a name for it, and roughly how many are coming to ${trip}.`;
+    case 'wanted': return 'What everyone must do, and what is only being asked about — not everybody has to do every activity.';
+    case 'minimum': return 'The fewest people it works with, if there is one. Below it the trip is called off and everybody is told.';
+    case 'costs': return 'Anything you are paying for that others should chip in on — a coach, tickets, a kitty. A coach can be priced by how many say yes.';
+    case 'chasing': return 'How often Roam chases whoever still has something outstanding, so you do not have to.';
+    case 'invite': return 'How to ask people in: a code to hold up, a link, a WhatsApp group, or names you already know.';
+  }
 }
 
 /** Block 1's one addition: something to do that is not already on the trip. */
@@ -385,10 +545,6 @@ function Invite({ group: g, settingUp, onChange, onAdd }: {
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [copied, setCopied] = useState(false);
-  const [expected, setExpected] = useState(g.group.expectedCount == null ? '' : String(g.group.expectedCount));
-  const [minimum, setMinimum] = useState(g.group.minimumCount == null ? '' : String(g.group.minimumCount));
-  useEffect(() => { setExpected(g.group.expectedCount == null ? '' : String(g.group.expectedCount)); }, [g.group.expectedCount]);
-  useEffect(() => { setMinimum(g.group.minimumCount == null ? '' : String(g.group.minimumCount)); }, [g.group.minimumCount]);
 
   const link = useMemo(() => {
     const base = Platform.OS === 'web' && typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : 'https://roam.app/';
@@ -424,28 +580,6 @@ function Invite({ group: g, settingUp, onChange, onAdd }: {
         <Chip label={g.group.closed ? 'Closed to new people' : 'Open'} icon={g.group.closed ? 'locked' : 'check'} selected={!g.group.closed} onPress={() => onChange({ closed: !g.group.closed })} />
         <Chip label="New link" icon="refresh" onPress={() => onChange({ newLink: true })} />
       </Wrap>
-
-      <Row style={{ alignItems: 'flex-start', gap: spacing.lg }}>
-        <View style={{ gap: 4 }}>
-          <Text style={type.tiny}>EXPECTING</Text>
-          <NumberBox value={expected} onChange={setExpected} placeholder="24" />
-        </View>
-        <View style={{ gap: 4 }}>
-          <Text style={type.tiny}>MINIMUM</Text>
-          <NumberBox value={minimum} onChange={setMinimum} placeholder="—" />
-        </View>
-        <Button
-          label="Save"
-          kind="secondary"
-          style={{ marginTop: 18 }}
-          onPress={() => onChange({ expectedCount: numberOrNull(expected), minimumCount: numberOrNull(minimum) })}
-        />
-      </Row>
-      <Text style={type.tiny}>
-        {g.group.minimumCount
-          ? `If ${g.group.minimumCount} have not joined by ${day(g.group.wantedBy)}, the trip is cancelled and everybody is told.`
-          : 'Leave the minimum empty and the trip goes ahead with whoever comes.'}
-      </Text>
 
       <View style={{ gap: spacing.sm }}>
         <Text style={type.tiny}>ADD THE ONES YOU KNOW</Text>
@@ -850,6 +984,8 @@ const styles = StyleSheet.create({
   },
   numberInput: { flex: 1, textAlign: 'center', fontFamily: fonts.body, fontSize: 17, fontWeight: '700', color: colors.ink, minWidth: 40 },
   wantedRow: { gap: 6, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
+  progress: { flexDirection: 'row', gap: 3 },
+  progressBar: { flex: 1, height: 3, borderRadius: 2, backgroundColor: colors.line },
   colLeft: { flex: 1, minWidth: 0 },
   colRight: { width: 380 },
   input: {

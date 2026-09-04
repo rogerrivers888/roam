@@ -242,7 +242,7 @@ export async function groupPayload(groupId) {
     group: {
       id: group.id, tripId: group.trip_id, name: group.name, expectedCount: group.expected_count,
       minimumCount: group.minimum_count, wantedBy: ymd(group.wanted_by), inviteToken: group.invite_token, closed: Boolean(group.closed_at),
-      remindersOn: group.reminders_on, cadence: group.reminder_cadence,
+      remindersOn: group.reminders_on, cadence: group.reminder_cadence, setupDone: group.setup_done,
       cancelledAt: group.cancelled_at, cancelledNote: group.cancelled_note,
     },
     trip: {
@@ -377,6 +377,7 @@ router.patch('/groups/:id', async (req, res, next) => {
     if (b.remindersOn !== undefined) put('reminders_on', Boolean(b.remindersOn));
     if (b.cadence !== undefined) { if (!CADENCES[b.cadence]) return res.status(400).json({ error: 'bad_cadence' }); put('reminder_cadence', b.cadence); }
     if (b.closed !== undefined) put('closed_at', b.closed ? new Date() : null);
+    if (b.setupDone !== undefined) put('setup_done', Boolean(b.setupDone));
     if (b.newLink) put('invite_token', token());
     if (!sets.length) return res.json(await groupPayload(group.id));
     await query(`update trip_groups set ${sets.join(', ')}, updated_at = now() where id = $1`, params);
