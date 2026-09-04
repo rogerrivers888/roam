@@ -14,7 +14,7 @@ import { TakePicker, TakeRow, takeFromScore } from './TakePicker';
 const today = () => new Date().toISOString().slice(0, 10);
 const uuid = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
-export function VenueRow({ venue, onPress, action }: { venue: Venue; onPress?: () => void; action?: React.ReactNode }) {
+export function VenueRow({ venue, onPress, action, stack }: { venue: Venue; onPress?: () => void; action?: React.ReactNode; /** Put the buttons under the text: a narrow screen has no room beside it. */ stack?: boolean }) {
   const h = venue.household;
   return (
     <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined}>
@@ -30,7 +30,7 @@ export function VenueRow({ venue, onPress, action }: { venue: Venue; onPress?: (
             </Text>
             <Text style={type.tiny}>via {(venue.contributingSources?.length ? venue.contributingSources : [venue.source]).join(' + ')}</Text>
           </View>
-          {action}
+          {stack ? null : action}
         </Row>
         <Wrap>
           {h?.visits ? <Chip label={`Been ${h.visits}×${h.lastOn ? ` · last ${h.lastOn}` : ''}`} tone="accent" /> : null}
@@ -41,6 +41,7 @@ export function VenueRow({ venue, onPress, action }: { venue: Venue; onPress?: (
           {(venue.dietaryOptions ?? []).map((d) => <Chip key={d} label={d} />)}
           {venue.goodForChildren ? <Chip label="Good for children" /> : null}
         </Wrap>
+        {stack ? action : null}
       </Card>
     </Pressable>
   );

@@ -666,7 +666,7 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded }: {
           createVia={async (body) => { await api.createVisit({ venueRef: rating.venueRef, venueLabel: rating.name, category: rating.category, lat: rating.lat, lng: rating.lng, visitedOn: body.visitedOn, note: body.note, attendeeIds: body.attendeeIds, takes: body.takes, venue: body.venue, ...ctx }); }} />
       ) : null}
       {res?.slice(0, 40).map((v) => (
-        <VenueRow key={v.venueRef} venue={v} action={
+        <VenueRow key={v.venueRef} venue={v} stack={!wide} action={
           <Row>
             <Button label="Been" kind="secondary" onPress={() => setRating(v)} />
             <Button label="To try" kind="ghost" onPress={async () => { await api.savePlace(v.venueRef, 'saved', { label: v.name, venue: v, category: v.category, lat: v.lat, lng: v.lng, ...ctx }); setMsg(`Saved ${v.name} to try.`); await onAdded(); }} />
