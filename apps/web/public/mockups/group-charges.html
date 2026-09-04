@@ -469,7 +469,7 @@ table.cmp td b{font-weight:800}
 </svg>
 
 <h1>A cost, from adding it to closing it</h1>
-<p class="lede">The last page showed a coach being <b>edited</b> and never <b>added</b> — and adding it is the harder half, because when you set it up you do not know what it costs. The owner's shape (4 Sep 2026): <i>“you're expecting 24 people, but you need a minimum of 12. The maximum the coach will cost is £30, the minimum £15, and the cost varies depending on the number of people that sign up.”</i> Then a deadline: <i>“however many people are in, at that point we need to send out the bill for the coach because that needs to be booked.”</i></p>
+<p class="lede">The last page showed a coach being <b>edited</b> and never <b>added</b> — and adding it is the harder half, because when you set it up you do not know what it costs. The owner's shape (4 Sep 2026): the organiser says <b>what he has to get back</b> (£360 for the coach), <b>the fewest people it works with</b> (12) and <b>how many he is expecting</b> (24) — and Roam does the rest, saying as he types that nobody will pay more than £30 and it will probably come out at £15. Then a deadline: <i>“however many people are in, at that point we need to send out the bill for the coach because that needs to be booked.”</i></p>
 <p class="lede" style="margin-top:-12px">That is a cost with a <b>life</b>, not a number in a field: <b>open</b> while people join and nobody pays, <b>closed</b> on a date when the headcount fixes the price and the bill goes out, and <b>cancelled</b> if it never reached twelve. This page draws it end to end — adding it from nothing, the two ways of typing the same prices, the moment it closes, and what everybody reads at each stage.</p>
 
 <section><h2>1 · Adding a cost, from nothing</h2>
@@ -524,19 +524,32 @@ table.cmp td b{font-weight:800}
 <div class="screen">
 <div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Back</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">What does it cost?</div><p class="sub">Adding a cost · 2 of 3</p></div>
 <div class="body scroll">
-<div class="tiles">
-<div class="tile2"><svg class="ic l"><use href="#i-pound-sterling"/></svg><b>The same for everyone</b>A price each that does not move</div>
-<div class="tile2 on"><svg class="ic l"><use href="#i-users"/></svg><b>It depends how many come</b>Cheaper the more of us there are</div>
+<div class="grp"><div class="lab">How is it priced?</div><div class="seg3"><div>The same for everyone</div><div class="on">It depends how many come</div></div></div>
+<div class="grp"><div class="lab">What you need to get back</div><div class="field focus"><svg class="ic"><use href="#i-pound-sterling"/></svg>360.00</div><div class="tiny">What the coach company is charging you, in full.</div></div>
+<div class="grp">
+<div class="lab">It needs at least</div>
+<div class="row" style="gap:10px;align-items:center">
+<div class="field" style="width:96px;justify-content:center;font-weight:800">12</div>
+<div style="flex:1"><div class="big" style="font-size:20px">£30.00 each</div><span class="tiny">the most anybody would pay</span></div>
 </div>
-<div class="grp"><div class="lab">The most anybody would pay</div><div class="field focus"><svg class="ic"><use href="#i-pound-sterling"/></svg>30.00</div><div class="tiny">At the fewest people you would still run it with.</div></div>
-<div class="grp"><div class="lab">The least</div><div class="field"><svg class="ic"><use href="#i-pound-sterling"/></svg>15.00</div><div class="tiny">At the number you are expecting.</div></div>
-<div class="row" style="gap:8px">
-<div class="grp" style="flex:1"><div class="lab">It needs at least</div><div class="field" style="justify-content:center;font-weight:800">12</div></div>
-<div class="grp" style="flex:1"><div class="lab">Expecting</div><div class="field" style="justify-content:center;font-weight:800">24</div></div>
+</div>
+<div class="grp">
+<div class="lab">You are expecting</div>
+<div class="row" style="gap:10px;align-items:center">
+<div class="field" style="width:96px;justify-content:center;font-weight:800">24</div>
+<div style="flex:1"><div class="big" style="font-size:20px">£15.00 each</div><span class="tiny">what it will probably come out at</span></div>
+</div>
 </div>
 <div class="slab">
-<div class="row" style="justify-content:space-between"><b style="font-size:13px">So the coach costs you</b><span class="big" style="font-size:18px">£360</span></div>
-<span class="tiny">£30 × 12 and £15 × 24 are the same total. Roam works that out and checks it against what the coach company quoted you.</span>
+<span class="tiny">HOW IT MOVES</span>
+<div class="ladder">
+<div class="rung"><span>12 people</span><span>£30.00 each</span></div>
+<div class="rung on"><span>24 · what you expect</span><span>£15.00 each</span></div>
+<div class="rung"><span>30</span><span>£12.00 each</span></div>
+</div>
+</div>
+<div class="item" style="border-style:dashed">
+<div class="t"><svg class="ic"><use href="#i-info"/></svg><div class="nm" style="font-size:13px">What if fewer than 12 join?<div class="tiny" style="font-weight:600">The coach does not go ahead, everybody is told, and nothing has been taken from anyone.</div></div><svg class="ic"><use href="#i-chevron-right"/></svg></div>
 </div>
 <div class="btn">Next — when it settles<svg class="ic" style="color:var(--primaryFg)"><use href="#i-arrow-right"/></svg></div>
 </div>
@@ -580,7 +593,7 @@ table.cmp td b{font-weight:800}
 <div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>The group</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">Anything to charge for?</div><p class="sub">Two costs · £360 and £832 out of your pocket</p></div>
 <div class="body scroll">
 <div class="item">
-<div class="t"><svg class="ic"><use href="#i-bus"/></svg><div class="nm">The coach<div class="tiny" style="font-weight:600">£15 – £30 each · needs 12 · closes Fri 16 Oct</div></div><svg class="ic"><use href="#i-pencil"/></svg></div>
+<div class="t"><svg class="ic"><use href="#i-bus"/></svg><div class="nm">The coach<div class="tiny" style="font-weight:600">£360 · no more than £30 each · needs 12 · closes Fri 16 Oct</div></div><svg class="ic"><use href="#i-pencil"/></svg></div>
 <div class="dial">
 <div class="bar2"><i style="width:33%"></i><span><span>8 in so far</span><span>£30.00 each</span></span></div>
 </div>
@@ -607,8 +620,8 @@ table.cmp td b{font-weight:800}
 <div class="notes" style="width:300px">
 <h4>What the third screen is really asking</h4>
 <ul>
-<li><b>Nobody knows what a coach costs per head</b> when they set a group up — they know the quote, the minimum they would run it with, and roughly how many are coming.</li>
-<li>So the app asks for those, and does the division. It never asks “how much do you want to charge?”, which is the question with no answer in September.</li>
+<li><b>Nobody knows what a coach costs per head</b> when they set a group up — they know the quote, the fewest people it works with, and roughly how many are coming.</li>
+<li>So it asks for exactly those three and does the division, showing the answer beside each number as it is typed. It never asks “how much do you want to charge?”, which is the question with no answer in September.</li>
 </ul>
 <h4>The three states of a cost</h4>
 <ul>
@@ -620,40 +633,45 @@ table.cmp td b{font-weight:800}
 </div>
 </section>
 
-<section><h2>2 · Two ways to type the same thing</h2>
-<p class="sub">Organisers hold this figure in one of two ways: the quote they were given, or the price they have promised people. Either can be typed and Roam fills the other in — they are the same three numbers.</p>
+<section><h2>2 · Three numbers, and the story they tell</h2>
+<p class="sub">The organiser types <b>what he has to get back</b>, <b>the fewest people it works with</b> and <b>how many he expects</b>. Everything else is arithmetic, and it is shown as he types rather than asked for: the number beside the minimum is the most anybody will ever pay, and the number beside the expected is what it will probably come out at.</p>
 <div class="pair">
-<div><b>What he types</b>
+<div><b>He types three things</b>
 <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px">
-<div class="money2" style="border:0;padding:2px 0"><span>The most anybody pays</span><b>£30</b></div>
-<div class="money2" style="border:0;padding:2px 0"><span>The least</span><b>£15</b></div>
+<div class="money2" style="border:0;padding:2px 0"><span>The coach costs</span><b>£360</b></div>
 <div class="money2" style="border:0;padding:2px 0"><span>Fewest it runs with</span><b>12</b></div>
 <div class="money2" style="border:0;padding:2px 0"><span>Expecting</span><b>24</b></div>
 </div>
 </div>
-<div><b>What Roam works out</b>
+<div><b>Roam says it back</b>
 <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px">
-<div class="money2" style="border:0;padding:2px 0"><span>The coach costs</span><b>£360</b></div>
-<div class="money2" style="border:0;padding:2px 0"><span>At 16 people</span><b>£22.50 each</b></div>
-<div class="money2" style="border:0;padding:2px 0"><span>At 20</span><b>£18.00 each</b></div>
+<div class="money2" style="border:0;padding:2px 0"><span>Nobody pays more than</span><b>£30</b></div>
+<div class="money2" style="border:0;padding:2px 0"><span>Probably about</span><b>£15</b></div>
+<div class="money2" style="border:0;padding:2px 0"><span>At 16, at 20</span><b>£22.50, £18</b></div>
 <div class="money2" style="border:0;padding:2px 0"><span>Below 12</span><b>it does not run</b></div>
 </div>
 </div>
 </div>
-<p class="sub" style="margin-top:12px;max-width:900px">And the other way round: type <b>£360</b> and <b>12 minimum</b>, and Roam says “that is £30 each at worst, £15 each if all 24 come”. The one thing it will not do is let the two disagree — if the coach company quoted £420, the most anybody pays is £35, and the screen says so rather than quietly leaving him £60 short.</p>
+<p class="sub" style="margin-top:12px;max-width:960px">There is no third figure to type and no cap to keep in step with anything. <b>The ceiling is the minimum</b>: the only way a share could go above £30 is if fewer than twelve came, and then it does not happen at all. That is the whole promise, and it is one sentence — <i>“it will not cost you more than £30, and probably about £15”</i>.</p>
 <div class="row" style="margin-top:14px">
 <div class="notes" style="width:340px">
-<h4>Rounding, honestly</h4>
+<h4>And no floor either</h4>
 <ul>
-<li>Shares are rounded <b>up</b> to the penny, so the pot is always covered. At 17 people £360 is £21.18 each — £360.06 collected, six pence to the organiser.</li>
-<li>Never rounded down, because then the organiser is short and it is his own app that did it to him.</li>
+<li>If thirty come it is £12 each and everybody pays £12. The total is what it is; extra people make it cheaper for everyone and there is never a surplus to argue about.</li>
+<li>That removes a question the last draft had to ask — who keeps the difference — because there is no difference to keep.</li>
 </ul>
 </div>
 <div class="notes" style="width:340px">
-<h4>Why a floor as well as a cap</h4>
+<h4>Rounding, honestly</h4>
 <ul>
-<li>The cap is a promise: <b>“it will not cost you more than £30”</b>. That is what gets people to say yes in September.</li>
-<li>The floor is what happens when more come than expected — at 30 people the £360 would be £12 each. Roam holds the price at £15 and the difference is the organiser's, or it keeps dividing. <b>A call to make</b>; holding at the floor is the simpler promise and the fairer one to whoever booked the coach.</li>
+<li>Shares are rounded <b>up</b> to the penny so the £360 is always covered. At 17 people that is £21.18 each — six pence over, which stays with the organiser.</li>
+<li>Never down, because then his own app has left him short.</li>
+</ul>
+</div>
+<div class="notes" style="width:340px">
+<h4>The one it will not let him do</h4>
+<ul>
+<li>Type a total the numbers cannot carry. If the quote is £420 and the minimum is 12, the most anybody pays is £35 — the screen says so as he types rather than letting him promise £30 and find out in October.</li>
 </ul>
 </div>
 </div>
@@ -725,12 +743,12 @@ table.cmp td b{font-weight:800}
 <li><b>Refundable until it closes</b> is the default, and it needs no refunds at all — nothing has been taken.</li>
 <li><b>Not refundable after</b>, because that is the day the organiser's money goes. Dropping out afterwards still owes.</li>
 <li><b>Late joiners pay the settled price</b>, up to the capacity that was booked. The surplus is the organiser's — he is the one carrying the risk.</li>
-<li><b>Raising the price above the cap is a new offer</b>, and everyone has to say yes to it again.</li>
+<li><b>Raising the ceiling is a new offer</b> — changing the total or the minimum after people are in means asking them again.</li>
 </ul>
 <h4>Two things it must never do</h4>
 <ul>
 <li>Take money while the price can still change.</li>
-<li>Charge somebody more than the most they were told they would pay, without asking them.</li>
+<li>Charge somebody more than the ceiling they were told, without asking them.</li>
 </ul>
 </div>
 </div>
@@ -749,9 +767,9 @@ table.cmp td b{font-weight:800}
 <div class="body scroll">
 <div class="mintbox"><svg class="ic"><use href="#i-message-square"/></svg><div><b>Roger says:</b> “Coach both ways from the club, Friday morning and back Sunday night.”</div></div>
 <div class="slab">
-<div class="row" style="justify-content:space-between;align-items:flex-end"><div><span class="tiny">IT WILL COST YOU BETWEEN</span><div class="big">£15 – £30</div><span class="tiny">a seat · £30 – £60 for the two of you</span></div></div>
+<div class="row" style="justify-content:space-between;align-items:flex-end"><div><span class="tiny">IT WILL NOT COST YOU MORE THAN</span><div class="big">£30</div><span class="tiny">a seat, and probably about £15. You have two.</span></div></div>
 <div class="dial"><div class="bar2"><i style="width:50%"></i><span><span>12 in so far</span><span>£30.00 each today</span></span></div></div>
-<span class="tiny">The more people come, the less it is. It cannot cost you more than £30 a seat.</span>
+<span class="tiny">Every extra person makes it cheaper for everybody. £360 for the coach, divided by whoever is on it.</span>
 </div>
 <div class="item"><div class="t"><svg class="ic"><use href="#i-calendar"/></svg><div class="nm" style="font-size:13px">Settled Friday 16 October<div class="tiny" style="font-weight:600">Whoever is in that day is who it is divided by. You will be told the real figure that morning.</div></div></div></div>
 <div class="item"><div class="t"><svg class="ic"><use href="#i-shield-check"/></svg><div class="nm" style="font-size:13px">It needs 12 people<div class="tiny" style="font-weight:600">If fewer come the coach is off and you pay nothing. You can change your mind until the 16th.</div></div></div></div>
@@ -777,7 +795,7 @@ table.cmp td b{font-weight:800}
 <div class="money2"><span>A seat</span><b>£22.50</b></div>
 <div class="money2"><span>You and Leo</span><b>£45.00</b></div>
 </div>
-<div class="mintbox"><svg class="ic"><use href="#i-check"/></svg><div>You were told it would be between £15 and £30 a seat. It came out at <b>£22.50</b>.</div></div>
+<div class="mintbox"><svg class="ic"><use href="#i-check"/></svg><div>You were told it would not be more than £30 a seat. It came out at <b>£22.50</b>.</div></div>
 <div class="item"><div class="t"><svg class="ic"><use href="#i-clock"/></svg><div class="nm" style="font-size:13px">Roger needs it by Tuesday 20 October<div class="tiny" style="font-weight:600">He books the coach on Wednesday.</div></div></div></div>
 <div class="warnbox"><svg class="ic"><use href="#i-triangle-alert"/></svg><div>This one is not refundable now — the coach is booked on the strength of it. If you cannot come, the seat is yours to pass on.</div></div>
 <div class="btn sec"><svg class="ic"><use href="#i-check"/></svg>I've sent Roger £45.00</div>
@@ -815,8 +833,8 @@ table.cmp td b{font-weight:800}
 <tr><th style="width:250px">What happens</th><th style="width:330px">What Roam does</th><th>Why</th></tr>
 <tr><td><b>Somebody drops out after it closed</b></td><td>They still owe it. Roam tells them the seat is theirs to pass to somebody else, and tells the organiser.</td><td>The coach was booked for that number and the money has gone. This is exactly what “not refundable after the 16th” meant, said once at the start and again on the bill.</td></tr>
 <tr><td><b>Somebody wants in after it closed</b></td><td>They pay the settled price, up to the seats that were booked. Above that, they cannot.</td><td>The organiser's setting, and the reason the setting exists: it depends on the coach he booked.</td></tr>
-<tr><td><b>More people join than expected</b></td><td>The price stops at the floor — £15 — and the surplus is the organiser's.</td><td>He carried the risk of the empty seats; the alternative is dividing to 40p each and a promise that reads as fake. <b>A call to make</b>: the other answer is to keep dividing and hand the difference back.</td></tr>
-<tr><td><b>The quote comes back higher</b></td><td>He raises the cap. Everyone already in is asked again, and anyone who says no is out owing nothing.</td><td>“It will not cost you more than £30” is the only reason people said yes in September.</td></tr>
+<tr><td><b>More people join than expected</b></td><td>It keeps getting cheaper. At 30 it is £12 each, and everybody pays £12.</td><td>The total is fixed, so there is never a surplus to argue about — the only number that was ever promised is the ceiling, and more people only ever move away from it.</td></tr>
+<tr><td><b>The quote comes back higher</b></td><td>He changes the total to £420, which moves the ceiling to £35. Everyone already in is asked again, and anyone who says no is out owing nothing.</td><td>“It will not cost you more than £30” is the only reason people said yes in September, so raising it is a new offer rather than an edit.</td></tr>
 <tr><td><b>He misses the closing day</b></td><td>Roam closes it for him at the price of that morning and says so. The first time, it asks first.</td><td>A deadline nobody enforces is not a deadline, and the reminders have been counting down to it for four weeks.</td></tr>
 <tr><td><b>Somebody never pays</b></td><td>It sits on their row as owed, in the reminders, and in the group total. Roam does not chase money it never held.</td><td>Roam is not the merchant. It can be a complete record and a nuisance on his behalf; it cannot be a debt collector.</td></tr>
 <tr><td><b>Two costs, one deadline</b></td><td>Each cost closes on its own date. The coach can close three weeks out and a kitty on the morning.</td><td>They are different commitments to different suppliers.</td></tr>
@@ -832,7 +850,7 @@ table.cmp td b{font-weight:800}
 <tr><td><b>A way of pricing</b></td><td><code>fixed</code> — the same each · <code>varies</code> — a total divided by heads · (later: <code>bands</code>)</td></tr>
 <tr><td><b>Per head or per party</b></td><td>Whether Leo is a share</td></tr>
 <tr><td><b>Everyone, or opt-in</b></td><td>Half the club drives; only the yeses are divided by and billed</td></tr>
-<tr><td><b>A total, a cap and a floor</b></td><td>Any two of them give the third. The cap is the promise; the floor is where dividing stops</td></tr>
+<tr><td><b>A total, a minimum and an expected number</b></td><td>The three the organiser types. The ceiling (total ÷ minimum) and the likely price (total ÷ expected) are worked out, never entered</td></tr>
 <tr><td><b>A minimum, and a capacity</b></td><td>Below the minimum nothing runs; above the capacity nobody else can join</td></tr>
 <tr><td><b>A closing date</b></td><td>When the headcount and the price stop moving and the bill goes out</td></tr>
 <tr><td><b>A state</b></td><td><code>open</code> → <code>closed</code> (with a settled price and a due date) → <code>settled</code>, or <code>cancelled</code></td></tr>
@@ -841,7 +859,7 @@ table.cmp td b{font-weight:800}
 <h4>What that costs to build</h4>
 <ul>
 <li><b>The three screens for adding one</b> and the cost list: half a day on top of what exists.</li>
-<li><b>The arithmetic and the states</b>: the division, the cap and floor, the minimum, the closing job and the bill. A day.</li>
+<li><b>The arithmetic and the states</b>: the division, the ceiling that falls out of the minimum, the closing job and the bill. A day.</li>
 <li><b>Nothing new is needed to take money</b> — the bill is a line that says what is owed and by when, and the organiser ticks it off, exactly as now.</li>
 <li>The closing job runs on the same loop that already writes the reminders.</li>
 </ul>
@@ -858,12 +876,12 @@ table.cmp td b{font-weight:800}
 <tr><th style="width:250px">Question</th><th style="width:320px">What I would do</th><th>Why</th></tr>
 <tr><td><b>Does anybody pay before it closes?</b></td><td><b>No.</b> While the price can move there is nothing true to charge.</td><td>It also means "refundable until it closes" needs no refunds at all — nothing has been taken. That is the single biggest simplification available.</td></tr>
 <tr><td><b>Can people join after it closes?</b></td><td><b>Yes, up to the capacity that was booked, at the settled price.</b> The organiser sets the capacity when he adds the cost, and can turn it off.</td><td>The owner's open question. It is the coach's own seat count, and the organiser is the only one who knows it — so it is a field, not a rule.</td></tr>
-<tr><td><b>Who keeps the surplus when more come than expected?</b></td><td><b>The organiser</b>, with the price held at the floor he promised.</td><td>He carried the risk of the empty seats. The alternative — keep dividing, hand the difference back — is defensible and is a one-line change; it just needs saying which.</td></tr>
-<tr><td><b>Can the price go above the cap?</b></td><td><b>Only by asking everybody again.</b></td><td>The cap is the promise that got the yes. Quietly exceeding it is the one thing that would make an organiser look bad in front of their own club.</td></tr>
+<tr><td><b>Can the price go above the ceiling?</b></td><td><b>Only by asking everybody again.</b></td><td>“No more than £30” is the promise that got the yes. Quietly exceeding it is the one thing that would make an organiser look bad in front of their own club.</td></tr>
+<tr><td><b>What is called off when the minimum is missed?</b></td><td><b>The cost</b> — the coach does not run and the weekend still does. One line in the explainer makes the whole trip depend on it instead, for a group where the coach <i>is</i> the trip.</td><td>Most costs are a part of a trip, not the reason for it. But a minibus to a match is sometimes the whole thing, and the organiser is the only one who knows which this is.</td></tr>
 <tr><td><b>Does Roam close it automatically?</b></td><td><b>It asks the first time and does it by itself after that</b>, with the organiser able to move the date or call it off from the same screen.</td><td>A deadline nobody enforces is a suggestion; a deadline enforced without warning is a shock.</td></tr>
 <tr><td><b>Opt-in costs — in v1?</b></td><td><b>Yes.</b> "Only those who want it" is what makes a coach work when half the group drives.</td><td>It costs one boolean and it is the difference between the feature being used and not.</td></tr>
 </table>
-<p class="sub" style="margin-top:14px;max-width:1000px"><b>The one-paragraph version:</b> a cost is added in three screens — what it is and who pays a share, how the price works, and when it closes. A varying price is typed as <b>the most anybody pays</b>, <b>the least</b>, <b>the fewest it runs with</b> and <b>how many you expect</b>, from which Roam works out the total and the price at every headcount in between. Nobody pays while it can still move: everyone sees a range with a ceiling and the number it needs. On the closing day the headcount fixes the price, the bill goes out with its own arithmetic on it, and that is the day it stops being refundable — because that is the day the organiser's money leaves. If it never reached the minimum it is called off that morning and nothing was ever taken.</p>
+<p class="sub" style="margin-top:14px;max-width:1000px"><b>The one-paragraph version:</b> a cost is added in three screens — what it is and who pays a share, how the price works, and when it closes. A varying price is three numbers: <b>what you have to get back</b>, <b>the fewest people it works with</b> and <b>how many you expect</b>. Beside the first of those Roam shows the ceiling (£360 ÷ 12 = £30, the most anybody will ever pay) and beside the second the likely price (£360 ÷ 24 = £15), so the story tells itself as it is typed. Nobody pays while it can still move: everyone sees a range with a ceiling and the number it needs. On the closing day the headcount fixes the price, the bill goes out with its own arithmetic on it, and that is the day it stops being refundable — because that is the day the organiser's money leaves. If it never reached the minimum it is called off that morning and nothing was ever taken.</p>
 </section>
 
 <p class="lede" style="margin-top:32px;border-top:1px solid #E5EFEA;padding-top:16px">Follows <a href="./group-setup-options.html">Setting a group up — the four questions, three ways</a>, and answers what that page left out: creating a cost rather than editing one. Numbers throughout are the owner's own (4 Sep 2026): expecting 24, a minimum of 12, £30 at most and £15 at least. Drawn against the September 2026 style guide in both palettes.</p>
