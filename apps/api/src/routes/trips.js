@@ -404,8 +404,17 @@ router.get('/:id/shortlist/search', async (req, res, next) => {
       { refresh: req.query.refresh === '1' },
     ), deadline]);
     if (fetched) await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search', units]);
-    const results = venues.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, distanceKm: Number(kmBetween(center, v).toFixed(2)) }))
-      .filter((v) => v.distanceKm <= radiusKm).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 120);
+    const byDistance = (a, b) => a.distanceKm - b.distanceKm;
+    const inRadius = venues.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, distanceKm: Number(kmBetween(center, v).toFixed(2)) }))
+      .filter((v) => v.distanceKm <= radiusKm).sort(byDistance);
+    // Places and listings are capped separately. One cap over both, taken
+    // nearest first, empties What's on in any city dense enough to fill it with
+    // pubs before the first event: central London returns 400 places inside
+    // three kilometres, and every one of them is nearer than a theatre.
+    const results = [
+      ...inRadius.filter((v) => v.category !== 'event').slice(0, 120),
+      ...inRadius.filter((v) => v.category === 'event').slice(0, 80),
+    ].sort(byDistance);
     res.json({ near: center, radiusKm, results: withFlags(results), degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started });
   } catch (err) { next(err); }
 });
