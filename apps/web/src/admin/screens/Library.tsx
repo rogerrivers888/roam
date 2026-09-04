@@ -177,9 +177,10 @@ function RunProgress({ run, canManage, onChange }: { run: HarvestRun; canManage:
                      onPress={async () => { await api.libraryCancel(run.id).catch(() => null); onChange(); }} />
            ) : undefined}>
       <Wrap>
-        {Object.entries({ regions: 'regions', published: 'published', stored: 'pictures', refused: 'refused on licence' })
+        {Object.entries({ regions: 'regions', published: 'published', stored: 'pictures', refused: 'refused on licence', failed: 'regions failed' })
           .map(([k, label]) => (
-            <Pill key={k} label={`${count(Number(c[k] ?? 0))} ${label}`} tone={k === 'refused' && Number(c[k]) ? 'warn' : 'plain'} />
+            <Pill key={k} label={`${count(Number(c[k] ?? 0))} ${label}`}
+                  tone={Number(c[k]) && (k === 'refused' ? 'warn' : k === 'failed' ? 'crit' : 'plain') || 'plain'} />
           ))}
         {c.bytes ? <Pill label={size(c.bytes)} /> : null}
       </Wrap>

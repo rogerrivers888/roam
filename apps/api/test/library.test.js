@@ -29,12 +29,15 @@ const { ATTRACTION_ROOTS } = await import('../src/sources/wikimedia.js');
 // the ranking
 // ---------------------------------------------------------------------------
 
-/** Roughly Windsor Castle: read by everyone, no published visitor figure. */
-const windsor = { pageviewsYear: 613_221, sitelinks: 85, hasImage: true, heritage: 'Grade I listed building', website: 'https://…', directType: true, hasOperator: false };
-/** Roughly Legoland Windsor: fewer readers, 2.4m visitors through the gate. */
-const legoland = { pageviewsYear: 46_657, sitelinks: 12, hasImage: true, heritage: null, website: 'https://…', directType: true, visitorsPerYear: 2_420_000 };
-/** Roughly Tittenhurst Park: a notable private house you cannot go into. */
-const tittenhurst = { pageviewsYear: 63_028, sitelinks: 5, hasImage: true, heritage: null, website: null, directType: false, hasOperator: false };
+// Berkshire, as Wikidata actually describes it. `peakViews` is the county's
+// best-read place, which is what every score here is relative to.
+const PEAK = 613_221;
+/** Windsor Castle: read by everyone, no published visitor figure. */
+const windsor = { pageviewsYear: 613_221, sitelinks: 85, hasImage: true, heritage: 'Grade I listed building', website: 'https://…', hasOperator: false, peakViews: PEAK };
+/** Legoland Windsor: fewer readers, 2.4m visitors through the gate. */
+const legoland = { pageviewsYear: 46_657, sitelinks: 12, hasImage: true, heritage: null, website: 'https://…', visitorsPerYear: 2_420_000, peakViews: PEAK };
+/** Tittenhurst Park: a notable private house you cannot go into. */
+const tittenhurst = { pageviewsYear: 63_028, sitelinks: 5, hasImage: true, heritage: null, website: null, hasOperator: false, peakViews: PEAK };
 
 test('somewhere you can go beats somewhere you merely read about', () => {
   // This is the whole reason the `open` and `visitors` parts exist. Before they
@@ -65,8 +68,30 @@ test('the score shows its working', () => {
   assert.equal(parts.pageviewsYear, 613_221, 'and the raw figures with it');
 });
 
+test('the county’s best-known place comes first, however many castles it has', () => {
+  // Kent, and the bug this replaced: on an absolute log scale Canterbury
+  // Cathedral's 221,000 readers scored 0.89 against Dover Castle's 77,000 at
+  // 0.81, and the cathedral came fifteenth behind eleven castles.
+  const peakViews = 221_392;
+  const canterbury = scoreOf({ pageviewsYear: 221_392, sitelinks: 65, hasImage: true, heritage: 'Grade I listed building', website: 'https://…', hasOperator: false, peakViews });
+  const dover = scoreOf({ pageviewsYear: 77_466, sitelinks: 36, hasImage: true, heritage: 'Grade I listed building', website: 'https://…', hasOperator: true, peakViews });
+  assert.ok(canterbury.score > dover.score,
+    `Canterbury Cathedral (${canterbury.score}) must outrank Dover Castle (${dover.score})`);
+});
+
+test('a score is relative to its own region, not to the country', () => {
+  // The same place, in a county where it is the best thing and in one where it
+  // is not. Rutland's best is Rutland's first, and that is the right answer for
+  // a screen that shows one county at a time.
+  const place = { pageviewsYear: 20_000, sitelinks: 10, hasImage: true, heritage: null, website: 'https://…' };
+  const inRutland = scoreOf({ ...place, peakViews: 20_000 });
+  const inLondon = scoreOf({ ...place, peakViews: 5_000_000 });
+  assert.ok(inRutland.score > inLondon.score);
+  assert.equal(inRutland.parts.views, 1, 'the best-read place in a region scores full marks for readership');
+});
+
 test('every part is bounded, so no single signal can run away with it', () => {
-  const absurd = scoreOf({ pageviewsYear: 9e12, sitelinks: 9999, hasImage: true, heritage: 'x', website: 'x', directType: true, hasOperator: true, visitorsPerYear: 9e9 });
+  const absurd = scoreOf({ pageviewsYear: 9e12, sitelinks: 9999, hasImage: true, heritage: 'x', website: 'x', hasOperator: true, visitorsPerYear: 9e9, peakViews: 1000 });
   assert.ok(absurd.score <= 1.0001, `a score cannot exceed one (got ${absurd.score})`);
   const nothing = scoreOf({ pageviewsYear: 0, sitelinks: 0, hasImage: false, heritage: null });
   assert.ok(nothing.score >= 0);

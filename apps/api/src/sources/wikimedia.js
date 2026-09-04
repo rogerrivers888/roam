@@ -66,18 +66,46 @@ function paced(fn) {
   return run;
 }
 
+/**
+ * Which failures are worth trying again.
+ *
+ * A 404 means the article does not exist and asking a second time will not
+ * change that. A 502 means one of Wikimedia's front ends had a bad moment, and
+ * it very often will. Over a run that touches 107 regions across several hours
+ * the difference is not academic: the first full harvest died on a single 502
+ * from the query service four minutes in.
+ */
+const worthRetrying = (err) =>
+  err.status === 429 || err.status === 408 || (err.status >= 500 && err.status <= 599) ||
+  err.name === 'TimeoutError' || err.name === 'AbortError' || err.code === 'ETIMEDOUT' ||
+  /fetch failed|network|socket|ECONNRESET|EAI_AGAIN/i.test(err.message ?? '');
+
+const RETRIES = 4;
+
 async function getJson(url, { timeout = API_TIMEOUT, accept = 'application/json' } = {}) {
-  return paced(async () => {
-    const res = await fetch(url, {
-      headers: { 'user-agent': UA, accept },
-      signal: AbortSignal.timeout(timeout),
-    });
-    if (!res.ok) {
-      const why = (await res.text().catch(() => '')).slice(0, 200);
-      throw Object.assign(new Error(`${new URL(url).hostname} ${res.status}: ${why}`), { status: res.status });
+  let last;
+  for (let attempt = 0; attempt <= RETRIES; attempt += 1) {
+    try {
+      return await paced(async () => {
+        const res = await fetch(url, {
+          headers: { 'user-agent': UA, accept },
+          signal: AbortSignal.timeout(timeout),
+        });
+        if (!res.ok) {
+          const why = (await res.text().catch(() => '')).slice(0, 200);
+          throw Object.assign(new Error(`${new URL(url).hostname} ${res.status}: ${why}`), { status: res.status });
+        }
+        return res.json();
+      });
+    } catch (err) {
+      last = err;
+      if (attempt === RETRIES || !worthRetrying(err)) throw err;
+      // Backing off rather than hammering: if the far end is struggling, the
+      // polite thing and the effective thing are the same thing. 1s, 2s, 4s, 8s.
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
     }
-    return res.json();
-  });
+  }
+  throw last;
 }
 
 // ---------------------------------------------------------------------------
@@ -456,18 +484,37 @@ export async function fileDetails(titles, { widths = [20, 500, 960] } = {}) {
   return out;
 }
 
-/** Fetch the bytes of one thumbnail. Returns null rather than throwing on a 404. */
+/**
+ * Fetch the bytes of one thumbnail.
+ *
+ * Returns null rather than throwing when the picture is simply not there: one
+ * missing file is a picture we do not have, not a reason to stop harvesting a
+ * county. A server that is struggling is retried; a 404 is not.
+ */
 export async function fetchImage(url) {
-  return paced(async () => {
-    const res = await fetch(url, {
-      headers: { 'user-agent': UA, referer: 'https://commons.wikimedia.org/' },
-      signal: AbortSignal.timeout(API_TIMEOUT),
-    });
-    if (!res.ok) return null;
-    const type = res.headers.get('content-type') || '';
-    // A Wikimedia error page comes back as HTML with a 200 in some caches;
-    // storing that as a JPEG is how a library fills up with 2KB of markup.
-    if (!type.startsWith('image/')) return null;
-    return { mime: type.split(';')[0], body: Buffer.from(await res.arrayBuffer()) };
-  });
+  for (let attempt = 0; attempt <= 2; attempt += 1) {
+    try {
+      return await paced(async () => {
+        const res = await fetch(url, {
+          headers: { 'user-agent': UA, referer: 'https://commons.wikimedia.org/' },
+          signal: AbortSignal.timeout(API_TIMEOUT),
+        });
+        if (!res.ok) {
+          if (res.status >= 500 || res.status === 429) {
+            throw Object.assign(new Error(`upload ${res.status}`), { status: res.status });
+          }
+          return null;
+        }
+        const type = res.headers.get('content-type') || '';
+        // A Wikimedia error page comes back as HTML with a 200 in some caches;
+        // storing that as a JPEG is how a library fills up with 2KB of markup.
+        if (!type.startsWith('image/')) return null;
+        return { mime: type.split(';')[0], body: Buffer.from(await res.arrayBuffer()) };
+      });
+    } catch (err) {
+      if (attempt === 2 || !worthRetrying(err)) return null;
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+    }
+  }
+  return null;
 }

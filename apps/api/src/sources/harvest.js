@@ -84,20 +84,33 @@ export async function refreshKinds({ onLine } = {}) {
 // ---------------------------------------------------------------------------
 
 /**
- * How interesting is this place, on a scale of nought to one.
+ * How interesting is this place, on a scale of nought to one, *within its own
+ * region*.
+ *
+ * Region-relative, and that is the correction that made the lists right. On an
+ * absolute log scale a place with 221,000 readers a year and one with 77,000
+ * scored 0.89 and 0.81 — a threefold difference in how many people care,
+ * flattened to three points of a hundred, which is how Canterbury Cathedral
+ * came fifteenth in Kent behind eleven castles. Measured against the best-read
+ * place in the same county the gap survives, and the county's own best thing
+ * comes first, which is the only ordering anybody would accept.
+ *
+ * The square root keeps the tail alive: a place with a fifth of the readers of
+ * the county's landmark still scores 0.45 rather than 0.2, so the ranking is
+ * about which of these is the day out rather than a straight popularity
+ * ladder.
  *
  * Six parts, and the reason each is here:
  *
- *  - **views** (0.40) — English Wikipedia readers over twelve months. The only
- *    part that measures whether anybody wants to go, as opposed to whether
- *    anybody wrote it down.
- *  - **open to visitors** (0.20) — is this a place people go, or a notable
- *    building? A direct attraction type, an operator, an official website. This
- *    part exists because without it the first run put Tittenhurst Park (a
- *    private house that was once John Lennon's) above Legoland Windsor, which
- *    had 2.4 million visitors last year. Wikipedia is an encyclopedia; it is
- *    interested in things for reasons that are not "you can spend Saturday
- *    there", and this is the correction for that.
+ *  - **views** (0.45) — English Wikipedia readers over twelve months, against
+ *    the best-read place in this region. The only part that measures whether
+ *    anybody wants to go, as opposed to whether anybody wrote it down.
+ *  - **open to visitors** (0.15) — an official website, and somebody named as
+ *    running it. This part exists because without it the first run put
+ *    Tittenhurst Park (a private house that was once John Lennon's) above
+ *    Legoland Windsor, which had 2.4 million visitors last year. Wikipedia is
+ *    an encyclopedia; it is interested in things for reasons that are not "you
+ *    could spend Saturday there".
  *  - **visitors** (0.15) — a published visitor count, where Wikidata has one.
  *    Nobody publishes a figure for somewhere you cannot go in.
  *  - **notability** (0.15) — Wikidata sitelinks, which separate the nationally
@@ -106,31 +119,42 @@ export async function refreshKinds({ onLine } = {}) {
  *  - **illustrated** (0.05) — there is a photograph at all, which correlates
  *    with somebody having bothered to go, and matters on a screen of cards.
  *
- * The parts are kept on the row. "Why is this fourth" is the first question
- * anybody asks of a ranked list, and a score with no working is not an answer.
+ * Because the scale is per region, a score is a ranking within one county and
+ * not a claim that Rutland's best is worth as much as London's. The parts are
+ * kept on the row: "why is this fourth" is the first question anybody asks of a
+ * ranked list, and a score with no working is not an answer.
  */
-export function scoreOf({ pageviewsYear, sitelinks, hasImage, heritage, visitorsPerYear, hasOperator, website, directType }) {
-  const views = pageviewsYear == null
-    // No pageview data at all — a very new or very obscure article. Estimated
-    // from notability rather than scored as zero, which would bury it for good,
-    // and marked as estimated so the back office can see which rows are guesses.
-    ? { value: Math.min(1, Math.log10((sitelinks || 0) * 500 + 1) / 6), estimated: true }
-    : { value: Math.min(1, Math.log10(pageviewsYear + 1) / 6), estimated: false };
+export function scoreOf({ pageviewsYear, sitelinks, hasImage, heritage, visitorsPerYear, hasOperator, website, peakViews }) {
+  // An article with no pageview data at all — very new, or moved last week — is
+  // estimated from notability rather than scored as "nobody looked", which
+  // would bury it for a year. Marked as estimated so the back office can see
+  // which rows are guesses.
+  const estimated = pageviewsYear == null;
+  const views = estimated ? (sitelinks || 0) * 500 : pageviewsYear;
+  const peak = Math.max(peakViews || 0, views, 1);
+  const readership = Math.sqrt(Math.min(1, views / peak));
+
   const notability = Math.min(1, Math.log10((sitelinks || 0) + 1) / 2);
   const visitors = visitorsPerYear ? Math.min(1, Math.log10(visitorsPerYear + 1) / 6.5) : 0;
-  const open = (directType ? 0.5 : 0) + (hasOperator ? 0.3 : 0) + (website ? 0.2 : 0);
+  // Deliberately not "is this Wikidata type one of our roots". Canterbury
+  // Cathedral's only type is `Q56242250`, a subclass three steps down, and that
+  // test scored the best-known building in Kent as though it were somebody's
+  // barn. What actually distinguishes a place people go to is that somebody
+  // publishes a page for it and somebody is named as running it.
+  const open = (website ? 0.5 : 0) + (hasOperator ? 0.5 : 0);
   const illustrated = hasImage ? 1 : 0;
   const designated = heritage ? 1 : 0;
-  const score = 0.40 * views.value + 0.20 * open + 0.15 * visitors + 0.15 * notability
+
+  const score = 0.45 * readership + 0.15 * open + 0.15 * visitors + 0.15 * notability
               + 0.05 * designated + 0.05 * illustrated;
   return {
     score: Number(score.toFixed(6)),
     parts: {
-      views: Number(views.value.toFixed(4)), viewsEstimated: views.estimated,
+      views: Number(readership.toFixed(4)), viewsEstimated: estimated,
       open: Number(open.toFixed(2)), visitors: Number(visitors.toFixed(4)),
       notability: Number(notability.toFixed(4)), illustrated, designated,
       pageviewsYear: pageviewsYear ?? null, visitorsPerYear: visitorsPerYear ?? null,
-      sitelinks: sitelinks ?? 0, directType: Boolean(directType), hasOperator: Boolean(hasOperator),
+      peakViews: peak, sitelinks: sitelinks ?? 0, hasOperator: Boolean(hasOperator),
     },
   };
 }
@@ -183,21 +207,23 @@ export async function harvestRegion(slug, { onLine, cancelled, pageviewLimit } =
     admitted.sort((a, b) => b.sitelinks - a.sitelinks);
     const askAbout = pageviewLimit ?? Math.max(60, region.target_count * 4);
 
-    const rows = [];
+    // Two passes, because the score is relative to the best-read place in this
+    // region and that is not known until every candidate has been asked about.
+    const viewsOf = new Map();
     for (const [i, c] of admitted.entries()) {
       if (cancelled?.()) throw Object.assign(new Error('cancelled'), { cancelled: true });
-      let views = null;
-      if (i < askAbout && c.wikipediaTitle) {
-        views = await wm.pageviewsYear(c.wikipediaTitle);
-        counts.pageviews += 1;
-      }
+      if (i >= askAbout || !c.wikipediaTitle) continue;
+      viewsOf.set(c.wikidataId, await wm.pageviewsYear(c.wikipediaTitle));
+      counts.pageviews += 1;
+    }
+    const peakViews = Math.max(0, ...[...viewsOf.values()].filter((v) => v != null));
+
+    const rows = [];
+    for (const c of admitted) {
+      const views = viewsOf.get(c.wikidataId) ?? null;
       const { score, parts } = scoreOf({
         pageviewsYear: views, sitelinks: c.sitelinks, hasImage: Boolean(c.imageFile), heritage: c.heritage,
-        visitorsPerYear: c.visitorsPerYear, hasOperator: c.hasOperator, website: c.website,
-        // "Directly one of the fifteen things we decided count" — a castle, a
-        // museum, an amusement park — as opposed to something four subclasses
-        // down that happens to inherit from one.
-        directType: c.kinds.some((q) => q in wm.ATTRACTION_ROOTS),
+        visitorsPerYear: c.visitorsPerYear, hasOperator: c.hasOperator, website: c.website, peakViews,
       });
       rows.push({
         wikidataId: c.wikidataId, name: c.name, slug: slugify(c.name),
@@ -411,7 +437,7 @@ export async function runHarvest({ slugs, withImages = true, refreshTypes = fals
   const check = () => stop;
   const line = async (text) => { onLine?.(text); await lib.noteRun(run.id, { line: text }); };
 
-  const totals = { regions: 0, candidates: 0, admitted: 0, published: 0, stored: 0, refused: 0, bytes: 0 };
+  const totals = { regions: 0, candidates: 0, admitted: 0, published: 0, stored: 0, refused: 0, bytes: 0, failed: 0 };
   try {
     if (refreshTypes) {
       await lib.noteRun(run.id, { stage: 'types' });
@@ -419,14 +445,27 @@ export async function runHarvest({ slugs, withImages = true, refreshTypes = fals
     }
     for (const slug of slugs) {
       if (await cancelled()) { stop = true; break; }
-      await lib.noteRun(run.id, { stage: `listing ${slug}` });
-      const { counts, leads } = await harvestRegion(slug, { onLine: line, cancelled: check });
-      add(totals, { regions: 1, candidates: counts.candidates, admitted: counts.admitted, published: counts.published });
-      if (withImages) {
-        if (await cancelled()) { stop = true; break; }
-        await lib.noteRun(run.id, { stage: `pictures for ${slug}` });
-        const shots = await harvestImages(slug, { onLine: line, cancelled: check, leads });
-        add(totals, { stored: shots.stored, refused: shots.refused, bytes: shots.bytes });
+      // A region that fails is a region that failed, not a run that failed.
+      // Over 107 of them and several hours, something will go wrong somewhere —
+      // Wikidata will have a bad minute, an article will be moved mid-fetch —
+      // and abandoning ninety finished counties because the ninety-first threw
+      // is the wrong answer. The region is marked failed by `harvestRegion`,
+      // the reason is written to the log, and the run carries on. "Retry
+      // failures" on the Coverage screen is what picks them up.
+      try {
+        await lib.noteRun(run.id, { stage: `listing ${slug}` });
+        const { counts, leads } = await harvestRegion(slug, { onLine: line, cancelled: check });
+        add(totals, { regions: 1, candidates: counts.candidates, admitted: counts.admitted, published: counts.published });
+        if (withImages) {
+          if (await cancelled()) { stop = true; break; }
+          await lib.noteRun(run.id, { stage: `pictures for ${slug}` });
+          const shots = await harvestImages(slug, { onLine: line, cancelled: check, leads });
+          add(totals, { stored: shots.stored, refused: shots.refused, bytes: shots.bytes });
+        }
+      } catch (err) {
+        if (err.cancelled) { stop = true; break; }
+        add(totals, { failed: 1 });
+        await line(`${slug} failed: ${err.message}`);
       }
       await lib.noteRun(run.id, { counts: totals });
     }
