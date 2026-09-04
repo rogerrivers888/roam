@@ -315,6 +315,7 @@ async function parseMenuText({ text, venueLabel, householdId, sessionId }) {
   let note = null;
   for (const [i, part] of parts.entries()) {
     let parsed;
+    console.log(`menu.read: part ${i + 1}/${parts.length} (${part.length} chars) → ${MODEL}`);
     try {
       parsed = await parseStructured({
         system: PARSE_SYSTEM,
@@ -333,9 +334,11 @@ async function parseMenuText({ text, venueLabel, householdId, sessionId }) {
       });
     } catch (err) {
       // One unreadable stretch must not lose the rest of the menu.
+      console.log(`menu.read: part ${i + 1} failed — ${err.message}`);
       failed.push(`part ${i + 1}: ${err.message}`);
       continue;
     }
+    console.log(`menu.read: part ${i + 1} gave ${(parsed.sections || []).reduce((n, x) => n + (x.items?.length || 0), 0)} items`);
     currency = currency || parsed.currency;
     note = note || parsed.note;
     for (const section of parsed.sections || []) {
