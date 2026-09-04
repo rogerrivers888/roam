@@ -460,57 +460,85 @@ function Minimum({ group: g, joinedHeads, onChange }: { group: TripGroup; joined
 }
 
 /** The front door: what a group is, before there is one. */
+/**
+ * The Group tab before there is a group: a page about what the feature is,
+ * with nothing to fill in (owner, 4 Sep 2026: "a proper page, big, big, big
+ * letters, with some design features to make it nice… like an advert for the
+ * group section"). Big display type on the one mint field, six benefits in the
+ * organiser's language, and one button. No names, no numbers, no form — every
+ * question comes afterwards, in the wizard.
+ */
 function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup) => void }) {
+  const { width } = useViewport();
+  const wide = width >= 720;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const trip = d.trip.title ?? d.trip.place?.label ?? 'this trip';
+
+  const start = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      onCreated(await api.createTripGroup(d.trip.id, {
+        name: d.trip.title ?? d.trip.place?.label ?? undefined,
+        organiserMemberId: getViewer(d.attendees),
+      }));
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
+
   return (
-    <Card style={{ borderStyle: 'dashed' }}>
-      <Row><Icon name="household" size={18} /><Text style={type.h2}>Is anyone else coming?</Text></Row>
-      <Text style={type.small}>
-        A group trip is {trip} plus everybody coming to it — and Roam doing the chasing. You get a link that opens each person's own
-        list, one screen showing who is in, who has booked and who owes you, and reminders that go out without you asking.
-      </Text>
-      <View style={{ gap: 6, marginTop: 2 }}>
-        <Text style={type.tiny}>SETTING IT UP ASKS YOU SIX THINGS</Text>
-        {STEPS.map((s, i) => (
-          <Row key={s.key} style={{ alignItems: 'flex-start' }}>
-            <View style={styles.blockNumber}><Text style={styles.blockNumberText}>{i + 1}</Text></View>
-            <Text style={[type.small, { flex: 1 }]}>{bullet(s.key, trip)}</Text>
-          </Row>
+    <View style={{ gap: spacing.md }}>
+      <View style={styles.hero}>
+        {/* The splash: a crowd, drawn as the people it is about. */}
+        <View style={styles.crowd}>
+          {['P', 'T', 'D', 'A', 'N'].map((initial, i) => (
+            <View key={initial} style={[styles.crowdFace, i > 0 && { marginLeft: -10 }]}>
+              <Text style={styles.crowdInitial}>{initial}</Text>
+            </View>
+          ))}
+          <View style={[styles.crowdFace, styles.crowdMore, { marginLeft: -10 }]}><Text style={[styles.crowdInitial, { color: colors.primaryFg }]}>+19</Text></View>
+        </View>
+        <Text style={styles.eyebrow}>GROUP TRIPS</Text>
+        <Text style={[styles.hugeText, wide && { fontSize: 46, lineHeight: 48 }]}>Twenty-four people.{'\n'}One weekend.{'\n'}No spreadsheet.</Text>
+        <Text style={styles.heroSub}>
+          The rooms, the coach, the money and the chasing — held in one place, so you stop being the group's admin.
+        </Text>
+        <Wrap>
+          <View style={styles.heroChip}><Text style={styles.heroChipText}>Three minutes to set up</Text></View>
+          <View style={styles.heroChip}><Text style={styles.heroChipText}>No accounts for anybody</Text></View>
+          <View style={styles.heroChip}><Text style={styles.heroChipText}>One link</Text></View>
+        </Wrap>
+      </View>
+
+      <View style={wide ? styles.sellGrid : { gap: spacing.md }}>
+        {SELL.map((f) => (
+          <View key={f.title} style={[styles.sell, wide && styles.sellHalf]}>
+            <View style={styles.sellIcon}><Icon name={f.icon} size={20} /></View>
+            <View style={{ flex: 1, gap: 3 }}>
+              <Text style={styles.sellTitle}>{f.title}</Text>
+              <Text style={type.small}>{f.line}</Text>
+            </View>
+          </View>
         ))}
       </View>
-      <Text style={type.tiny}>Three minutes, and every answer can be changed afterwards. You can skip any of them.</Text>
+
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-      <Button
-        label={busy ? 'Making the group…' : "I'm ready — set my group up"}
-        icon="forward"
-        onPress={async () => {
-          if (busy) return;
-          setBusy(true); setError(null);
-          try {
-            onCreated(await api.createTripGroup(d.trip.id, {
-              name: d.trip.title ?? d.trip.place?.label ?? undefined,
-              organiserMemberId: getViewer(d.attendees),
-            }));
-          } catch (e: any) { setError(e.message); } finally { setBusy(false); }
-        }}
-      />
-    </Card>
+      <Button label={busy ? 'Setting it up…' : 'Start a group trip'} icon="forward" onPress={start} />
+      <Text style={[type.tiny, { textAlign: 'center' }]}>
+        Six questions, every one of them skippable, and every answer changeable afterwards.
+      </Text>
+    </View>
   );
 }
 
-/** What each step means, said in the plainest words, on the front door. */
-function bullet(key: StepKey, trip: string) {
-  switch (key) {
-    case 'what': return `What this is — a name for it, and roughly how many are coming to ${trip}.`;
-    case 'wanted': return 'What everyone must do, and what is only being asked about — not everybody has to do every activity.';
-    case 'minimum': return 'The fewest people it works with, if there is one. Below it the trip is called off and everybody is told.';
-    case 'costs': return 'Anything you are paying for that others should chip in on — a coach, tickets, a kitty. A coach can be priced by how many say yes.';
-    case 'chasing': return 'How often Roam chases whoever still has something outstanding, so you do not have to.';
-    case 'invite': return 'How to ask people in: a code to hold up, a link, a WhatsApp group, or names you already know.';
-  }
-}
+/** What a group actually gives the person carrying it. */
+const SELL: { icon: IconName; title: string; line: string }[] = [
+  { icon: 'shortlist', title: 'One link and they are in', line: 'Hold up a code or paste a link. No account, no password, nothing to download — they see the trip and say they are coming.' },
+  { icon: 'list', title: 'Everyone gets their own list', line: 'The room to book, the tour, the money owed. They see theirs and nobody else\u2019s; you see all of it on one screen.' },
+  { icon: 'hours', title: 'The chasing sends itself', line: 'Roam writes to whoever still has something outstanding, on a schedule, in your name. You never ask the same person twice.' },
+  { icon: 'money', title: 'A cost that falls as people join', line: 'A £360 coach is £30 each at twelve and £15 at twenty-four — and everybody can watch it get cheaper as more say yes.' },
+  { icon: 'booked', title: 'Nobody pays into thin air', line: 'Nothing is owed until the day it settles. Then the bill goes out with its own arithmetic on it, and a date.' },
+  { icon: 'household', title: 'A minimum that means something', line: 'Not enough people by the closing day? It is called off, everybody is told that morning, and nothing was ever taken.' },
+];
 
 /** Block 1's one addition: something to do that is not already on the trip. */
 function AddWanted({ onAdd }: { onAdd: (body: GroupItemInput) => void }) {
@@ -984,6 +1012,31 @@ const styles = StyleSheet.create({
   },
   numberInput: { flex: 1, textAlign: 'center', fontFamily: fonts.body, fontSize: 17, fontWeight: '700', color: colors.ink, minWidth: 40 },
   wantedRow: { gap: 6, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
+  hero: {
+    // The one mint field in light; in dark the header ground is the page ground,
+    // so a rule gives the panel its edge back.
+    backgroundColor: colors.headerBg, borderRadius: radius.lg, padding: spacing.xl, gap: spacing.md, overflow: 'hidden',
+    borderWidth: 1, borderColor: colors.line,
+  },
+  crowd: { flexDirection: 'row', alignItems: 'center' },
+  crowdFace: {
+    width: 38, height: 38, borderRadius: 19, backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.headerBg,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  crowdMore: { backgroundColor: colors.primary },
+  crowdInitial: { fontFamily: fonts.body, fontSize: 12, fontWeight: '800', color: colors.ink },
+  eyebrow: { fontFamily: fonts.body, fontSize: 11, fontWeight: '800', letterSpacing: 1.4, color: colors.headerSub },
+  hugeText: { fontFamily: fonts.heading, fontSize: 34, lineHeight: 36, fontWeight: '800', letterSpacing: -1, color: colors.ink },
+  heroSub: { fontFamily: fonts.body, fontSize: 15, lineHeight: 21, color: colors.headerSub, maxWidth: 520 },
+  heroChip: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.headerSub,
+  },
+  heroChipText: { fontFamily: fonts.body, fontSize: 12, fontWeight: '700', color: colors.headerSub },
+  sellGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  sell: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start', padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
+  sellHalf: { width: '48%', flexGrow: 1 },
+  sellIcon: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
+  sellTitle: { fontFamily: fonts.heading, fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
   progress: { flexDirection: 'row', gap: 3 },
   progressBar: { flex: 1, height: 3, borderRadius: 2, backgroundColor: colors.line },
   colLeft: { flex: 1, minWidth: 0 },
