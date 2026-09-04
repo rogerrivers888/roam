@@ -37,7 +37,7 @@
 
 import { parseStructured } from '../claude.js';
 import { searchWeb } from '../claude.js';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 const UA = 'RoamBot/1.0 (+https://web-production-afce9.up.railway.app; household menu read)';
 const FETCH_TIMEOUT_MS = 15_000;
