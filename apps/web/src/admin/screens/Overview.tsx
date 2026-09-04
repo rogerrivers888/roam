@@ -87,6 +87,13 @@ export function Overview({ onOpenPerson }: { onOpenPerson?: (id: string) => void
               sub={`${data.totals.invited} invited, not in yet`}
               tone={data.totals.invited > 0 ? 'warn' : 'plain'}
             />
+            {/* Roam has no App Store listing — it is an installable web app — so
+                this is the honest version of that figure rather than a borrowed one. */}
+            <Tile
+              label="Installed"
+              value={count(data.installs?.households_standalone ?? 0)}
+              sub={`${plural(data.installs?.added_ever ?? 0, 'add')} to a home screen`}
+            />
           </TileRow>
 
           {data.money ? (

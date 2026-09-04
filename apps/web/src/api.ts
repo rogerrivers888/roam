@@ -1174,6 +1174,8 @@ export type AdminOverview = {
   daily: DailyRow[];
   screens: ScreenRow[];
   feed: FeedRow[];
+  /** Roam is an installable web app, not a store listing: added, and opened from a home screen. */
+  installs: { added_ever: number; added_window: number; households_standalone: number; opens_window: number };
   money: MoneyBlock | null;
   withheld: string[];
 };

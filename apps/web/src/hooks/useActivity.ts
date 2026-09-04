@@ -71,6 +71,37 @@ export function useActivity(screen: string, { enabled = true }: { enabled?: bool
     return () => clearInterval(timer);
   }, [enabled]);
 
+  /**
+   * Installed, and running as an installed app.
+   *
+   * Roam is an installable web app (public/manifest.json), which is as close as
+   * it has to a store listing — so "installs" is the App Store figure that can
+   * honestly be reported. Two signals, and both are one event each:
+   *
+   *   * `appinstalled` — the browser confirming somebody added it, once;
+   *   * `display-mode: standalone` — this session running from the home screen
+   *     rather than a browser tab, which is the number that says whether an
+   *     install actually gets used.
+   *
+   * There is no store, no download count and no crash reporting, and the back
+   * office does not pretend otherwise.
+   */
+  useEffect(() => {
+    if (!enabled || Platform.OS !== 'web' || typeof window === 'undefined') return undefined;
+    const standalone = window.matchMedia?.('(display-mode: standalone)')?.matches
+      || (navigator as any)?.standalone === true;
+    if (standalone) {
+      queue.current.push({ kind: 'install', screen: 'standalone', at: new Date().toISOString() });
+      void flush.current();
+    }
+    const installed = () => {
+      queue.current.push({ kind: 'install', screen: 'added', at: new Date().toISOString() });
+      void flush.current();
+    };
+    window.addEventListener('appinstalled', installed);
+    return () => window.removeEventListener('appinstalled', installed);
+  }, [enabled]);
+
   // On the way out.
   useEffect(() => {
     if (!enabled || Platform.OS !== 'web' || typeof window === 'undefined') return undefined;

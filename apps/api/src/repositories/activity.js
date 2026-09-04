@@ -215,6 +215,27 @@ export async function estateDaily({ days = 30 } = {}) {
   return rows;
 }
 
+/**
+ * How Roam is reached: added to a home screen, and opened from one.
+ *
+ * Roam has no App Store listing — it is an installable web app — so this is the
+ * honest version of the figure a store would give. `added` counts the browser
+ * confirming an install; `standalone` counts sessions opened from the home
+ * screen, which is the number that says whether an install is actually used.
+ */
+export async function installCounts({ days = 30 } = {}) {
+  const { rows } = await query(
+    `select
+       count(*) filter (where screen = 'added')::int                                    as added_ever,
+       count(*) filter (where screen = 'added' and at >= now() - ($1 || ' days')::interval)::int as added_window,
+       count(distinct household_id) filter (where screen = 'standalone')::int           as households_standalone,
+       count(*) filter (where screen = 'standalone' and at >= now() - ($1 || ' days')::interval)::int as opens_window
+       from activity_events where kind = 'install'`,
+    [String(days)],
+  );
+  return rows[0];
+}
+
 /** Active households over three windows, and the stickiness ratio between two of them. */
 export async function activeCounts() {
   const { rows } = await query(

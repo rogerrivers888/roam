@@ -45,12 +45,13 @@ const actor = (req) => ({
 router.get('/overview', async (req, res, next) => {
   try {
     const window = days(req, 30);
-    const [totals, active, daily, screens, feed] = await Promise.all([
+    const [totals, active, daily, screens, feed, installs] = await Promise.all([
       insights.estateTotals(),
       activity.activeCounts(),
       activity.estateDaily({ days: window }),
       activity.estateScreens({ days: window }),
       activity.estateFeed({ limit: 12 }),
+      activity.installCounts({ days: window }),
     ]);
 
     const money = can(req, 'view_financials')
@@ -84,6 +85,9 @@ router.get('/overview', async (req, res, next) => {
       daily,
       screens,
       feed,
+      // Roam has no store listing; it is an installable web app, so this is the
+      // honest version of an install figure rather than a borrowed one.
+      installs,
       money,
       withheld: money ? [] : ['view_financials'],
     });
