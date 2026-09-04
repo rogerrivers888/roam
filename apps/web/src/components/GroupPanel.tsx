@@ -1,33 +1,78 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, GroupItem, GroupItemKind, GroupParticipant, TripDetail, TripGroup } from '../api';
+import { api, GroupItem, GroupItemInput, GroupItemKind, GroupParticipant, TripDetail, TripGroup } from '../api';
 import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Meter, Row, Segmented, StatusLine, Wrap } from './ui';
 import { Icon, IconName } from './Icon';
+import { QrCode } from './QrCode';
 import { useViewport } from '../hooks/useViewport';
 import { getViewer } from '../viewer';
 
 /**
- * The group, from the organiser's side (owner, 4 Sep 2026, on the mock-ups).
+ * The group, from the organiser's side.
  *
- * The screen is the work, not the roster: what is still outstanding comes
- * first, the people are underneath it, and the same tree lays out as two
- * columns once there is room. Two of the owner's rules live here:
+ * Setting one up is four numbered questions in the owner's order (4 Sep 2026):
+ * what everyone must do, how people get in, how often Roam chases, and what you
+ * are charging for. They read as a wizard the first time — numbered, the one
+ * you are on is the one that is open — and are a settings page ever after,
+ * because the second visit is always "the coach quote came back higher".
  *
- *   * Roam chases, the organiser does not. The reminder card says when the next
- *     run goes, who it will go to, and how many have gone; sending by hand is
- *     one button inside it rather than the way the screen works.
- *   * An item is either wanted from everybody or asked about. A required item
- *     is outstanding until it is done; an optional one is waiting for a yes or
- *     a no, and its number is a headcount for booking a table.
+ * Chasing appears above them only once somebody has joined: an empty group is
+ * not behind on anything.
  */
 
 const WIDE = 1000;
-const money = (p?: number | null) => (p == null ? '' : `£${(p / 100).toFixed(p % 100 === 0 ? 0 : 2)}`);
+const money = (p?: number | null) => (p == null ? '—' : `£${(p / 100).toFixed(p % 100 === 0 ? 0 : 2)}`);
 const day = (iso?: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) : '');
 const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '');
 const daysUntil = (iso?: string | null) => (iso ? Math.round((new Date(`${iso.slice(0, 10)}T12:00:00`).getTime() - Date.now()) / 86400000) : null);
 const ICON: Record<GroupItemKind, IconName> = { stay: 'hotel', activity: 'ticket', fee: 'money' };
+const pence = (text: string) => (text.trim() === '' ? null : Math.round(Number(text.replace(/[^0-9.]/g, '')) * 100));
+const numberOrNull = (text: string) => (text.trim() === '' ? null : Math.max(0, Math.round(Number(text.replace(/[^0-9]/g, '')))));
+
+/** A number is typed, never nudged (owner, 4 Sep 2026). */
+function NumberBox({ value, onChange, placeholder, width = 88, prefix }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; width?: number; prefix?: string;
+}) {
+  return (
+    <View style={[styles.numberBox, { width }]}>
+      {prefix ? <Text style={[type.small, { color: colors.inkMuted }]}>{prefix}</Text> : null}
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor={colors.inkFaint}
+        keyboardType="number-pad"
+        returnKeyType="done"
+        selectTextOnFocus
+        style={styles.numberInput}
+      />
+    </View>
+  );
+}
+
+/** One of the four numbered questions: open, or folded to a line. */
+function Block({ n, title, summary, open, onToggle, children }: {
+  n: number; title: string; summary: string; open: boolean; onToggle: () => void; children?: React.ReactNode;
+}) {
+  return (
+    <Card style={{ gap: open ? spacing.sm : 0 }}>
+      <Pressable onPress={onToggle} accessibilityRole="button">
+        <Row style={{ alignItems: 'flex-start' }}>
+          <View style={[styles.blockNumber, open && { backgroundColor: colors.primary }]}>
+            <Text style={[styles.blockNumberText, open && { color: colors.primaryFg }]}>{n}</Text>
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={type.h3}>{title}</Text>
+            <Text style={type.small}>{summary}</Text>
+          </View>
+          <Icon name={open ? 'collapse' : 'expand'} size={16} />
+        </Row>
+      </Pressable>
+      {open ? children : null}
+    </Card>
+  );
+}
 
 export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => Promise<void> }) {
   const { width } = useViewport();
@@ -37,6 +82,7 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openPerson, setOpenPerson] = useState<string | null>(null);
+  const [block, setBlock] = useState<number | null>(1);
 
   const load = useCallback(async () => {
     try {
@@ -60,31 +106,42 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
   const notJoined = active.filter((p) => !p.joinedAt);
   const left = participants.filter((p) => p.withdrawnAt);
   const days = daysUntil(group.wantedBy);
-  // Nobody has been asked anything yet, so there is nothing to chase and the
-  // screen says what it is for instead (owner, 4 Sep 2026: "the first thing it
-  // says is still 'To Chase' when I haven't chased anyone, because no one's
-  // even part of the group"). The household's own row does not count as joining.
   const settingUp = !active.some((p) => p.joinedAt && !p.memberId);
+  const wanted = items.filter((i) => i.kind !== 'fee' || !i.pricing);
+  const costs = items.filter((i) => Boolean(i.pricing));
+  const toGo = items.filter((i) => i.required && i.outstanding > 0);
+  const owed = costs.reduce((n, i) => n + (i.money?.duePence ?? 0), 0);
+  const gotIn = costs.reduce((n, i) => n + (i.money?.paidPence ?? 0), 0);
 
-  const outstanding = (
+  const setItem = (id: string, body: Partial<GroupItemInput>) => run(() => api.updateGroupItem(group.id, id, body));
+
+  // --- what is still outstanding, once there is somebody to chase ------------
+  const chase = (
     <View style={{ gap: spacing.md }}>
       <Card>
         <Row style={{ justifyContent: 'space-between' }}>
-          <Text style={type.h2}>{settingUp ? 'What everyone must do' : 'Still to chase'}</Text>
-          <Text style={type.small}>{settingUp ? `${group.expectedCount ?? '—'} expected` : `${summary.joined} of ${group.expectedCount ?? '—'} joined`}</Text>
+          <Text style={type.h2}>Still to chase</Text>
+          <Text style={type.small}>{summary.joined} of {group.expectedCount ?? '—'} joined</Text>
         </Row>
         <Text style={type.small}>
-          {settingUp
-            ? 'Nobody has been asked in yet. Say what you want from everyone and what you are only asking about, then send them the link.'
-            : group.wantedBy
-              ? days != null && days >= 0 ? `Everything wanted by ${day(group.wantedBy)} — ${days} day${days === 1 ? '' : 's'} to go` : `Wanted by ${day(group.wantedBy)}`
-              : 'No date set, so nobody is being chased yet.'}
-          {!settingUp && summary.heads ? ` · ${summary.heads} head${summary.heads === 1 ? '' : 's'}` : ''}
+          {group.wantedBy
+            ? days != null && days >= 0 ? `Everything wanted by ${day(group.wantedBy)} — ${days} day${days === 1 ? '' : 's'} to go` : `Wanted by ${day(group.wantedBy)}`
+            : 'No date set, so nobody is being chased yet.'}
+          {summary.heads ? ` · ${summary.heads} head${summary.heads === 1 ? '' : 's'}` : ''}
+          {group.minimumCount ? ` · needs ${group.minimumCount}` : ''}
         </Text>
-        {settingUp ? null : <Meter used={summary.complete} limit={Math.max(1, summary.joined)} label={`${summary.complete} of ${summary.joined} have done everything`} />}
+        <Meter used={summary.complete} limit={Math.max(1, summary.joined)} label={`${summary.complete} of ${summary.joined} have done everything`} />
+        {group.minimumCount && summary.heads < group.minimumCount ? (
+          <View style={styles.warnBox}>
+            <Icon name="allergen" size={15} color={colors.overrun} />
+            <Text style={[type.small, { flex: 1 }]}>
+              {group.minimumCount - summary.heads} more needed by {day(group.wantedBy)} or the trip is cancelled.
+            </Text>
+          </View>
+        ) : null}
       </Card>
 
-      {notJoined.length && !settingUp ? (
+      {notJoined.length ? (
         <Card>
           <Row style={{ justifyContent: 'space-between' }}>
             <Row><Icon name="person" size={16} /><Text style={type.h3}>{notJoined.length} {notJoined.length === 1 ? 'person has' : 'people have'} not joined</Text></Row>
@@ -94,11 +151,22 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
         </Card>
       ) : null}
 
-      {items.map((i) => (
-        <ItemCard key={i.id} item={i} joined={summary.joined} settingUp={settingUp} onEdit={(body) => run(() => api.updateGroupItem(group.id, i.id, body))} onRemove={() => run(() => api.removeGroupItem(group.id, i.id))} busy={busy} />
+      {toGo.map((i) => (
+        <Card key={i.id}>
+          <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <Row style={{ flex: 1, alignItems: 'flex-start' }}>
+              <View style={{ paddingTop: 2 }}><Icon name={ICON[i.kind]} size={16} /></View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={type.h3}>{i.label}</Text>
+                <Text style={type.small}>{itemLine(i)}</Text>
+              </View>
+            </Row>
+            <Text style={[type.small, { fontWeight: '700', color: colors.overrun }]}>{i.outstanding}</Text>
+          </Row>
+          <Meter used={i.done} limit={Math.max(1, summary.joined)} />
+          {i.outstandingNames.length ? <Text style={type.tiny}>Waiting on: {i.outstandingNames.join(', ')}</Text> : null}
+        </Card>
       ))}
-
-      <AddItem onAdd={(body) => run(() => api.addGroupItem(group.id, body))} busy={busy} />
 
       {warnings.length ? (
         <Card style={{ borderColor: colors.overrun }}>
@@ -113,57 +181,135 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
     </View>
   );
 
-  const chasing = <Chasing group={g} busy={busy} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onSendNow={() => run(() => api.chaseGroup(group.id))} />;
-  const invite = <Invite group={g} busy={busy} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onAdd={(body) => run(() => api.addGroupParticipant(group.id, body))} />;
+  // --- the four questions ---------------------------------------------------
+  const wantedSummary = `${wanted.filter((i) => i.required).length} wanted from everyone, ${wanted.filter((i) => !i.required).length} asked about`;
+  const inviteSummary = group.expectedCount
+    ? `${group.expectedCount} expected${group.minimumCount ? `, ${group.minimumCount} needed` : ''}${settingUp ? ' · nobody asked in yet' : ` · ${summary.joined} joined`}`
+    : 'A code, a link, a WhatsApp group, or names';
+  const chaseSummary = !reminders.on ? 'Off — you are chasing them yourself'
+    : reminders.next ? `${reminders.cadence} — next on ${day(reminders.next.date)}`
+    : group.wantedBy ? 'Every reminder has been sent' : 'Set a date and Roam will chase';
+  const costSummary = costs.length
+    ? `${costs.length} cost${costs.length === 1 ? '' : 's'} · ${money(gotIn)} in, ${money(owed)} owed`
+    : 'The coach, the tickets, a kitty';
 
-  const roster = (
+  const blocks = (
     <View style={{ gap: spacing.md }}>
-      {/* Setting up: the link comes before the chasing, because there is nobody to chase. */}
-      {settingUp ? invite : chasing}
-      {settingUp ? chasing : invite}
-      <Card>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <Text style={type.h2}>{settingUp ? 'Who you have added' : 'Everyone'}</Text>
-          <Text style={type.small}>{active.length} · {summary.heads} heads</Text>
-        </Row>
-        {settingUp ? <Text style={type.small}>Nobody has joined yet. A name added here means their join lands on that row rather than making a second one.</Text> : null}
-        {active.map((p) => (
-          <PersonRow
-            key={p.id}
-            p={p}
-            items={items}
-            open={openPerson === p.id}
+      <Block n={1} title="What must everyone do?" summary={wantedSummary} open={block === 1} onToggle={() => setBlock(block === 1 ? null : 1)}>
+        {wanted.map((i) => (
+          <View key={i.id} style={styles.wantedRow}>
+            <Row style={{ alignItems: 'flex-start' }}>
+              <View style={{ paddingTop: 2 }}><Icon name={ICON[i.kind]} size={15} /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={type.small}>{i.label}</Text>
+                {i.detail ? <Text style={type.tiny}>{i.detail}</Text> : null}
+              </View>
+            </Row>
+            <Wrap>
+              <Chip label="Everyone" icon="check" selected={i.required} onPress={() => setItem(i.id, { required: true })} />
+              <Chip label="Just asking" icon="info" selected={!i.required} onPress={() => setItem(i.id, { required: false })} />
+              <Chip label="Not in it" icon="close" onPress={() => run(() => api.removeGroupItem(group.id, i.id))} />
+            </Wrap>
+          </View>
+        ))}
+        <AddWanted onAdd={(body) => run(() => api.addGroupItem(group.id, body))} />
+      </Block>
+
+      <Block n={2} title="Ask them in" summary={inviteSummary} open={block === 2} onToggle={() => setBlock(block === 2 ? null : 2)}>
+        <Invite group={g} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onAdd={(body) => run(() => api.addGroupParticipant(group.id, body))} />
+      </Block>
+
+      <Block n={3} title="How often Roam chases" summary={chaseSummary} open={block === 3} onToggle={() => setBlock(block === 3 ? null : 3)}>
+        <Chasing group={g} busy={busy} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onSendNow={() => run(() => api.chaseGroup(group.id))} />
+      </Block>
+
+      <Block n={4} title="Anything to charge for?" summary={costSummary} open={block === 4} onToggle={() => setBlock(block === 4 ? null : 4)}>
+        {costs.map((i) => (
+          <CostCard
+            key={i.id}
+            item={i}
+            group={g}
             busy={busy}
-            onOpen={() => setOpenPerson(openPerson === p.id ? null : p.id)}
-            onMark={(itemId, body) => run(() => api.markGroupItem(group.id, p.id, itemId, body))}
-            onChange={(body) => run(() => api.updateGroupParticipant(group.id, p.id, body))}
-            onRemind={() => run(() => api.chaseGroup(group.id, { participantIds: [p.id] }))}
+            onEdit={(body) => setItem(i.id, body)}
+            onClose={(body) => run(() => api.closeGroupItem(group.id, i.id, body))}
+            onRemove={() => run(() => api.removeGroupItem(group.id, i.id))}
           />
         ))}
-        {left.length ? (
-          <View style={{ gap: 4, marginTop: spacing.sm }}>
-            <Text style={type.tiny}>DROPPED OUT</Text>
-            {left.map((p) => (
-              <Row key={p.id} style={{ justifyContent: 'space-between' }}>
-                <Text style={type.small}>{p.name} · left {when(p.withdrawnAt)}</Text>
-                <Chip label="Back in" onPress={() => run(() => api.updateGroupParticipant(group.id, p.id, { withdrawn: false }))} />
-              </Row>
-            ))}
-          </View>
-        ) : null}
-      </Card>
+        <AddCost group={g} onAdd={(body) => run(() => api.addGroupItem(group.id, body))} />
+      </Block>
     </View>
   );
+
+  const roster = (
+    <Card>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Text style={type.h2}>{settingUp ? 'Who you have added' : 'Everyone'}</Text>
+        <Text style={type.small}>{active.length} · {summary.heads} heads</Text>
+      </Row>
+      {settingUp ? <Text style={type.small}>Nobody has joined yet. A name added here means their join lands on that row rather than making a second one.</Text> : null}
+      {active.map((p) => (
+        <PersonRow
+          key={p.id}
+          p={p}
+          items={items}
+          open={openPerson === p.id}
+          busy={busy}
+          onOpen={() => setOpenPerson(openPerson === p.id ? null : p.id)}
+          onMark={(itemId, body) => run(() => api.markGroupItem(group.id, p.id, itemId, body))}
+          onChange={(body) => run(() => api.updateGroupParticipant(group.id, p.id, body))}
+          onRemind={() => run(() => api.chaseGroup(group.id, { participantIds: [p.id] }))}
+        />
+      ))}
+      {left.length ? (
+        <View style={{ gap: 4, marginTop: spacing.sm }}>
+          <Text style={type.tiny}>DROPPED OUT</Text>
+          {left.map((p) => (
+            <Row key={p.id} style={{ justifyContent: 'space-between' }}>
+              <Text style={type.small}>{p.name} · left {when(p.withdrawnAt)}</Text>
+              <Chip label="Back in" onPress={() => run(() => api.updateGroupParticipant(group.id, p.id, { withdrawn: false }))} />
+            </Row>
+          ))}
+        </View>
+      ) : null}
+    </Card>
+  );
+
+  // The trip itself can be called off by its own minimum; say so above everything.
+  const cancelled = group.cancelledAt ? (
+    <Card style={{ borderColor: colors.overrun }}>
+      <Row><Icon name="allergen" size={16} color={colors.overrun} /><Text style={type.h2}>This trip was called off</Text></Row>
+      <Text style={type.small}>{group.cancelledNote} Everybody has been told, and nothing was taken from anyone.</Text>
+    </Card>
+  ) : null;
 
   return (
     <View style={{ gap: spacing.md }}>
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+      {cancelled}
       <View style={wide ? styles.columns : undefined}>
-        <View style={wide ? styles.colLeft : undefined}>{outstanding}</View>
-        <View style={wide ? styles.colRight : { marginTop: spacing.md }}>{roster}</View>
+        <View style={wide ? styles.colLeft : undefined}>{settingUp ? blocks : chase}</View>
+        <View style={wide ? styles.colRight : { marginTop: spacing.md }}>{settingUp ? roster : <View style={{ gap: spacing.md }}>{roster}{blocks}</View>}</View>
       </View>
     </View>
   );
+}
+
+/** The one line under an item's name: what is done, or who has said yes. */
+function itemLine(i: GroupItem) {
+  if (i.pricing) return costLine(i);
+  return i.required
+    ? `${i.confirmed} booked${i.declared ? ` · ${i.declared} said so` : ''} · ${i.outstanding} to go`
+    : `${i.coming} coming (${i.heads} head${i.heads === 1 ? '' : 's'}) · ${i.notComing} not · ${i.outstanding} haven't said`;
+}
+
+/** A cost, in one line: what it is worth knowing before opening it. */
+function costLine(i: GroupItem) {
+  const m = i.money;
+  if (!m) return '';
+  if (i.state === 'cancelled') return `Called off — ${i.cancelledNote ?? 'it did not reach its minimum'}`;
+  if (i.state === 'closed') return `${money(i.settledPence)} each × ${i.settledHeads} · ${money(m.paidPence)} in, ${money(m.duePence)} owed · due ${day(i.dueOn)}`;
+  if (i.pricing === 'fixed') return `${money(i.amountPence)} each · ${money(m.paidPence)} in, ${money(m.duePence)} owed`;
+  return `${money(i.totalPence)} to get back · no more than ${money(m.ceilingPence)} each · ${m.shares} on it${m.minimum ? `, needs ${m.minimum}` : ''}`;
 }
 
 /** Before there is a group: the dashed row at the bottom of a trip. */
@@ -183,8 +329,8 @@ function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup)
       <TextInput value={name} onChangeText={setName} placeholder="The group" placeholderTextColor={colors.inkFaint} style={styles.input} />
       <Text style={type.tiny}>HOW MANY ARE YOU EXPECTING?</Text>
       <Row>
-        <TextInput value={expected} onChangeText={setExpected} placeholder="24" placeholderTextColor={colors.inkFaint} keyboardType="number-pad" style={[styles.input, { width: 110 }]} />
-        <Text style={type.tiny}>A target, not a limit. More can join; fewer is fine.</Text>
+        <NumberBox value={expected} onChange={setExpected} placeholder="24" />
+        <Text style={[type.tiny, { flex: 1 }]}>A target, not a limit. More can join; fewer is fine.</Text>
       </Row>
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       <Button
@@ -206,105 +352,350 @@ function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup)
   );
 }
 
-/** One thing wanted from everybody, or asked about. */
-function ItemCard({ item, joined, settingUp, onEdit, onRemove, busy }: {
-  item: GroupItem; joined: number; settingUp: boolean; busy: boolean;
-  onEdit: (body: any) => void; onRemove: () => void;
-}) {
+/** Block 1's one addition: something to do that is not already on the trip. */
+function AddWanted({ onAdd }: { onAdd: (body: GroupItemInput) => void }) {
   const [open, setOpen] = useState(false);
-  const answered = item.required ? item.done : item.coming + item.notComing;
-  return (
-    <Card>
-      <Pressable onPress={() => setOpen(!open)} accessibilityRole="button">
-        <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Row style={{ flex: 1, alignItems: 'flex-start' }}>
-            <View style={{ paddingTop: 2 }}><Icon name={ICON[item.kind]} size={16} /></View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={type.h3}>{item.label}{item.kind === 'fee' && item.amountPence ? ` · ${money(item.amountPence)}` : ''}</Text>
-              <Text style={type.small}>
-                {/* Before anybody has been asked, counts are noise: what the row
-                    needs to say is whether it is wanted or only being asked about. */}
-                {settingUp
-                  ? item.kind === 'fee'
-                    ? `${money(item.amountPence)} from everyone${item.refundUntil ? ` · refundable until ${day(item.refundUntil)}` : ''}`
-                    : item.required ? 'Wanted from everyone' : "Just asking who's coming"
-                  : item.kind === 'fee'
-                    ? `${item.done} paid you · ${item.outstanding} to go`
-                    : item.required
-                      ? `${item.confirmed} booked${item.declared ? ` · ${item.declared} said so` : ''} · ${item.outstanding} to go`
-                      : `${item.coming} coming (${item.heads} head${item.heads === 1 ? '' : 's'}) · ${item.notComing} not · ${item.outstanding} haven't said`}
-              </Text>
-              {item.detail ? <Text style={type.tiny}>{item.detail}</Text> : null}
-            </View>
-          </Row>
-          {settingUp ? <Icon name={open ? 'collapse' : 'expand'} size={16} /> : <Text style={[type.small, { fontWeight: '700', color: item.outstanding && item.required ? colors.overrun : colors.inkMuted }]}>{item.outstanding}</Text>}
-        </Row>
-      </Pressable>
-      {settingUp ? null : <Meter used={answered} limit={Math.max(1, joined)} />}
-      {item.outstandingNames.length && !settingUp ? (
-        <Text style={type.tiny}>{item.required ? 'Waiting on' : 'Not heard from'}: {item.outstandingNames.join(', ')}{item.outstanding > item.outstandingNames.length ? ` and ${item.outstanding - item.outstandingNames.length} more` : ''}</Text>
-      ) : null}
-      {item.kind === 'fee' && !settingUp ? (
-        <Text style={type.small}>{money(item.paidPence)} in · {money(item.duePence)} still owed to you. Tick people off as it reaches you — Roam does not take the money.</Text>
-      ) : null}
-      {item.kind === 'fee' && settingUp ? (
-        <Text style={type.tiny}>Roam does not take the money. You tick people off as it reaches you.</Text>
-      ) : null}
-      {open || settingUp ? (
-        <Wrap>
-          <Chip label="Wanted from everyone" icon="check" selected={item.required} onPress={() => onEdit({ required: true })} />
-          <Chip label="Just asking" icon="info" selected={!item.required} onPress={() => onEdit({ required: false })} />
-          {!busy && open ? <Chip label="Remove" icon="close" onPress={onRemove} /> : null}
-        </Wrap>
-      ) : null}
-    </Card>
-  );
-}
-
-function AddItem({ onAdd, busy }: { onAdd: (body: any) => void; busy: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<GroupItemKind>('activity');
   const [label, setLabel] = useState('');
-  const [detail, setDetail] = useState('');
-  const [amount, setAmount] = useState('');
   const [required, setRequired] = useState(true);
-  if (!open) return <Button label="Ask for something else" icon="add" kind="ghost" onPress={() => setOpen(true)} />;
+  if (!open) return <Button label="Something that isn't on the trip" icon="add" kind="ghost" onPress={() => setOpen(true)} />;
   return (
-    <Card>
-      <Text style={type.h3}>Something else you want from everyone</Text>
-      <Segmented
-        value={kind}
-        options={[{ value: 'activity' as GroupItemKind, label: 'Something to book' }, { value: 'stay' as GroupItemKind, label: 'Somewhere to stay' }, { value: 'fee' as GroupItemKind, label: 'Money to you' }]}
-        onChange={(k) => { setKind(k); setRequired(k !== 'activity' ? true : required); }}
-      />
-      <TextInput value={label} onChangeText={setLabel} placeholder={kind === 'fee' ? 'What the money is for' : 'What they need to book'} placeholderTextColor={colors.inkFaint} style={styles.input} />
-      <TextInput value={detail} onChangeText={setDetail} placeholder="In your own words — this is what they read" placeholderTextColor={colors.inkFaint} style={styles.input} />
-      {kind === 'fee' ? <TextInput value={amount} onChangeText={setAmount} placeholder="45.00" placeholderTextColor={colors.inkFaint} keyboardType="decimal-pad" style={[styles.input, { width: 140 }]} /> : null}
+    <View style={{ gap: spacing.sm }}>
+      <TextInput value={label} onChangeText={setLabel} placeholder="What they need to book or bring" placeholderTextColor={colors.inkFaint} style={styles.input} autoFocus />
       <Wrap>
-        <Chip label="Wanted from everyone" selected={required} onPress={() => setRequired(true)} />
-        <Chip label="Just asking who's in" selected={!required} onPress={() => setRequired(false)} />
+        <Chip label="Everyone" icon="check" selected={required} onPress={() => setRequired(true)} />
+        <Chip label="Just asking" icon="info" selected={!required} onPress={() => setRequired(false)} />
       </Wrap>
       <Row>
-        <Button
-          label="Add it"
-          onPress={() => {
-            if (!label.trim() || busy) return;
-            onAdd({ kind, label: label.trim(), detail: detail.trim() || undefined, required, amountPence: kind === 'fee' ? Math.round(Number(amount || 0) * 100) : undefined });
-            setOpen(false); setLabel(''); setDetail(''); setAmount('');
-          }}
-        />
+        <Button label="Add it" onPress={() => { if (!label.trim()) return; onAdd({ kind: 'activity', label: label.trim(), required }); setLabel(''); setOpen(false); }} />
         <Button label="Not now" kind="ghost" onPress={() => setOpen(false)} />
       </Row>
-    </Card>
+    </View>
   );
 }
 
 /**
- * The chasing card: what Roam is doing on the organiser's behalf, and when.
- * The point of it is that they do not have to do anything (owner, 4 Sep 2026),
- * so it leads with the next run and the count, and hides sending by hand
- * behind the settings.
+ * Block 2. The code comes first, because the fastest way to get twenty-four
+ * people into a group is to hold up a phone in a clubhouse. Then the link, then
+ * a WhatsApp group — which needs no integration at all, it is a wa.me link —
+ * then the names the organiser already knows.
  */
+function Invite({ group: g, settingUp, onChange, onAdd }: {
+  group: TripGroup; settingUp: boolean; onChange: (body: any) => void; onAdd: (body: any) => void;
+}) {
+  const [name, setName] = useState('');
+  const [contact, setContact] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [expected, setExpected] = useState(g.group.expectedCount == null ? '' : String(g.group.expectedCount));
+  const [minimum, setMinimum] = useState(g.group.minimumCount == null ? '' : String(g.group.minimumCount));
+  useEffect(() => { setExpected(g.group.expectedCount == null ? '' : String(g.group.expectedCount)); }, [g.group.expectedCount]);
+  useEffect(() => { setMinimum(g.group.minimumCount == null ? '' : String(g.group.minimumCount)); }, [g.group.minimumCount]);
+
+  const link = useMemo(() => {
+    const base = Platform.OS === 'web' && typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : 'https://roam.app/';
+    return `${base}?join=${g.group.inviteToken}`;
+  }, [g.group.inviteToken]);
+  const message = `${g.group.name ?? 'A trip'} — say you're coming and see what's needed: ${link}`;
+
+  return (
+    <View style={{ gap: spacing.md }}>
+      <Row style={{ alignItems: 'flex-start' }}>
+        <QrCode value={link} size={132} />
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={type.h3}>Point a phone at this</Text>
+          <Text style={type.tiny}>It opens their list — what you want from them, and nothing about anybody else. No account, no password.</Text>
+          <Text style={type.tiny} selectable numberOfLines={2}>{link}</Text>
+        </View>
+      </Row>
+      <Wrap>
+        <Chip
+          label={copied ? 'Copied' : 'Copy the link'}
+          icon={copied ? 'check' : 'external'}
+          onPress={async () => {
+            if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+              await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000);
+            }
+          }}
+        />
+        <Chip
+          label="Send to a WhatsApp group"
+          icon="message"
+          onPress={() => { if (Platform.OS === 'web' && typeof window !== 'undefined') window.open(`https://wa.me/?text=${encodeURIComponent(message)}`); }}
+        />
+        <Chip label={g.group.closed ? 'Closed to new people' : 'Open'} icon={g.group.closed ? 'locked' : 'check'} selected={!g.group.closed} onPress={() => onChange({ closed: !g.group.closed })} />
+        <Chip label="New link" icon="refresh" onPress={() => onChange({ newLink: true })} />
+      </Wrap>
+
+      <Row style={{ alignItems: 'flex-start', gap: spacing.lg }}>
+        <View style={{ gap: 4 }}>
+          <Text style={type.tiny}>EXPECTING</Text>
+          <NumberBox value={expected} onChange={setExpected} placeholder="24" />
+        </View>
+        <View style={{ gap: 4 }}>
+          <Text style={type.tiny}>MINIMUM</Text>
+          <NumberBox value={minimum} onChange={setMinimum} placeholder="—" />
+        </View>
+        <Button
+          label="Save"
+          kind="secondary"
+          style={{ marginTop: 18 }}
+          onPress={() => onChange({ expectedCount: numberOrNull(expected), minimumCount: numberOrNull(minimum) })}
+        />
+      </Row>
+      <Text style={type.tiny}>
+        {g.group.minimumCount
+          ? `If ${g.group.minimumCount} have not joined by ${day(g.group.wantedBy)}, the trip is cancelled and everybody is told.`
+          : 'Leave the minimum empty and the trip goes ahead with whoever comes.'}
+      </Text>
+
+      <View style={{ gap: spacing.sm }}>
+        <Text style={type.tiny}>ADD THE ONES YOU KNOW</Text>
+        <TextInput value={name} onChangeText={setName} placeholder="Their name" placeholderTextColor={colors.inkFaint} style={styles.input} />
+        <TextInput value={contact} onChangeText={setContact} placeholder="Mobile or email, so Roam can remind them" placeholderTextColor={colors.inkFaint} style={styles.input} autoCapitalize="none" />
+        <Button label="Add them" kind="secondary" onPress={() => { if (!name.trim()) return; onAdd({ name: name.trim(), contact: contact.trim() || undefined }); setName(''); setContact(''); }} />
+        <Text style={type.tiny}>
+          {settingUp ? 'Nobody has this yet. ' : ''}Anyone holding the link can join, so what they type is all we know about them. A name added first means their join lands on that row.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * A cost, with its life on it: open while people are joining and nobody pays,
+ * closed on the day the headcount fixes the price and the bill goes out, or
+ * cancelled because it never reached its minimum.
+ */
+function CostCard({ item, group: g, busy, onEdit, onClose, onRemove }: {
+  item: GroupItem; group: TripGroup; busy: boolean;
+  onEdit: (body: Partial<GroupItemInput>) => void;
+  onClose: (body: { action: 'close' | 'extend' | 'cancel' | 'reopen'; closesOn?: string; anyway?: boolean }) => void;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const m = item.money;
+  const short = Boolean(m?.minimum && m.shares < m.minimum);
+  const closesIn = daysUntil(m?.closesOn);
+
+  return (
+    <Card style={item.state === 'cancelled' ? { borderStyle: 'dashed' } : undefined}>
+      <Pressable onPress={() => setOpen(!open)} accessibilityRole="button">
+        <Row style={{ alignItems: 'flex-start' }}>
+          <View style={{ paddingTop: 2 }}><Icon name={item.kind === 'fee' ? 'money' : ICON[item.kind]} size={16} /></View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Row>
+              <Text style={[type.h3, { flex: 1 }]}>{item.label}</Text>
+              {item.state === 'closed' ? <Chip label="Settled" icon="check" selected /> : null}
+              {item.state === 'cancelled' ? <Chip label="Off" icon="close" /> : null}
+              {item.applies === 'extra' && item.state === 'open' ? <Chip label="An extra" /> : null}
+            </Row>
+            <Text style={type.small}>{costLine(item)}</Text>
+            {item.detail ? <Text style={type.tiny}>{item.detail}</Text> : null}
+          </View>
+          <Icon name={open ? 'collapse' : 'expand'} size={16} />
+        </Row>
+      </Pressable>
+
+      {item.pricing === 'variable' && item.state === 'open' && m ? (
+        <View style={{ gap: 4 }}>
+          <Meter used={m.shares} limit={Math.max(1, m.minimum ?? m.expected ?? m.shares)} />
+          <Text style={type.tiny}>
+            {m.shares} on it now — {money(m.perSharePence)} each at that number.
+            {m.minimum && short ? ` ${m.minimum - m.shares} more and it runs.` : ''}
+            {m.likelyPence ? ` Probably ${money(m.likelyPence)}.` : ''}
+          </Text>
+          <Text style={type.tiny}>Nobody pays anything until it closes on {day(m.closesOn)}{closesIn != null && closesIn >= 0 ? ` — ${closesIn} day${closesIn === 1 ? '' : 's'}` : ''}.</Text>
+        </View>
+      ) : null}
+
+      {open ? (
+        <View style={{ gap: spacing.sm }}>
+          {item.state === 'open' && item.pricing === 'variable' ? (
+            <>
+              {short ? (
+                <View style={styles.warnBox}>
+                  <Icon name="allergen" size={15} color={colors.overrun} />
+                  <Text style={[type.small, { flex: 1 }]}>
+                    {m?.shares} of the {m?.minimum} it needs. Closing it now would be {money(m?.perSharePence)} each, and you told them no more than {money(m?.ceilingPence)}.
+                  </Text>
+                </View>
+              ) : null}
+              <Wrap>
+                <Chip label="Close it and send the bill" icon="check" selected onPress={() => onClose({ action: 'close' })} />
+                <Chip label="Give it a week" icon="hours" onPress={() => onClose({ action: 'extend', closesOn: plusWeek(m?.closesOn) })} />
+                <Chip label="Call it off" icon="close" onPress={() => onClose({ action: 'cancel' })} />
+              </Wrap>
+              <Text style={type.tiny}>Roam does this by itself on {day(m?.closesOn)}. This is for the week everything changes.</Text>
+            </>
+          ) : null}
+          {item.state === 'closed' ? (
+            <>
+              <Text style={type.small}>
+                {money(item.settledPence)} each × {item.settledHeads} = {money((item.settledPence ?? 0) * (item.settledHeads ?? 0))}, due {day(item.dueOn)}.
+                Everyone on it has been told. It is not refundable now.
+              </Text>
+              <Wrap><Chip label="Open it again" icon="refresh" onPress={() => onClose({ action: 'reopen' })} /></Wrap>
+            </>
+          ) : null}
+          {item.state === 'cancelled' ? <Wrap><Chip label="Put it back" icon="refresh" onPress={() => onClose({ action: 'reopen' })} /></Wrap> : null}
+          <Wrap>
+            <Chip label={item.perHead ? 'A share each head' : 'A share each party'} icon="household" onPress={() => onEdit({ perHead: !item.perHead })} />
+            <Chip label={item.required ? 'Everyone pays it' : 'An extra'} icon={item.required ? 'check' : 'info'} onPress={() => onEdit({ required: !item.required })} />
+            {!busy && item.money?.paidPence === 0 ? <Chip label="Remove" icon="close" onPress={onRemove} /> : null}
+          </Wrap>
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
+const plusWeek = (iso?: string | null) => {
+  const d = iso ? new Date(`${iso.slice(0, 10)}T12:00:00Z`) : new Date();
+  d.setUTCDate(d.getUTCDate() + 7);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * Adding a cost, in the three steps the mock-up settled on: what it is, how the
+ * price works, and when it closes. A varying price is three numbers — what you
+ * have to get back, how many you expect on it, and the fewest it works with —
+ * and the share at each is shown as they are typed.
+ */
+function AddCost({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupItemInput) => void }) {
+  const [step, setStep] = useState(0);
+  const [label, setLabel] = useState('');
+  const [detail, setDetail] = useState('');
+  const [everyone, setEveryone] = useState(false);
+  const [perHead, setPerHead] = useState(true);
+  const [pricing, setPricing] = useState<'fixed' | 'variable'>('variable');
+  const [amount, setAmount] = useState('');
+  const [total, setTotal] = useState('');
+  const [expected, setExpected] = useState('');
+  const [minimum, setMinimum] = useState('');
+  const [closesOn, setClosesOn] = useState(g.group.wantedBy ?? '');
+  const [lateJoiners, setLateJoiners] = useState<'capacity' | 'no' | 'ask'>('capacity');
+  const [capacity, setCapacity] = useState('');
+  const [refund, setRefund] = useState<'until' | 'always' | 'never'>('until');
+
+  const totalP = pence(total);
+  const exp = numberOrNull(expected) ?? (everyone ? g.group.expectedCount : null);
+  const min = numberOrNull(minimum) ?? (everyone ? g.group.minimumCount : null);
+  const per = (n: number | null) => (totalP && n ? Math.ceil(totalP / n) : null);
+
+  if (step === 0) {
+    return <Button label="Something you are paying for" icon="add" kind="ghost" onPress={() => setStep(1)} />;
+  }
+
+  return (
+    <Card>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Text style={type.h3}>{step === 1 ? 'What is it?' : step === 2 ? 'What does it cost?' : 'When does it close?'}</Text>
+        <Text style={type.tiny}>{step} of 3</Text>
+      </Row>
+
+      {step === 1 ? (
+        <View style={{ gap: spacing.sm }}>
+          <TextInput value={label} onChangeText={setLabel} placeholder="The coach" placeholderTextColor={colors.inkFaint} style={styles.input} autoFocus />
+          <TextInput value={detail} onChangeText={setDetail} placeholder="What it covers, in your words — they read this" placeholderTextColor={colors.inkFaint} style={styles.input} />
+          <Text style={type.tiny}>WHO PAYS A SHARE?</Text>
+          <Wrap>
+            <Chip label="Every head" icon="household" selected={perHead} onPress={() => setPerHead(true)} />
+            <Chip label="Every party" icon="person" selected={!perHead} onPress={() => setPerHead(false)} />
+          </Wrap>
+          <Text style={type.tiny}>EVERYONE, OR AN EXTRA?</Text>
+          <Wrap>
+            <Chip label="Everyone on the trip" selected={everyone} onPress={() => setEveryone(true)} />
+            <Chip label="An extra — only those who want it" selected={!everyone} onPress={() => setEveryone(false)} />
+          </Wrap>
+          <Text style={type.tiny}>An extra is a yes-or-no: only the yeses are counted, divided by and billed. A coach, a band, a boat, a private room.</Text>
+          <Row><Button label="Next" icon="forward" onPress={() => label.trim() && setStep(2)} /><Button label="Not now" kind="ghost" onPress={() => setStep(0)} /></Row>
+        </View>
+      ) : null}
+
+      {step === 2 ? (
+        <View style={{ gap: spacing.sm }}>
+          <Segmented
+            value={pricing}
+            options={[{ value: 'fixed' as const, label: 'Same for everyone' }, { value: 'variable' as const, label: 'Depends on numbers' }]}
+            onChange={setPricing}
+          />
+          {pricing === 'fixed' ? (
+            <>
+              <Text style={type.tiny}>AMOUNT, EACH</Text>
+              <NumberBox value={amount} onChange={setAmount} placeholder="32" prefix="£" width={110} />
+              <Text style={type.tiny}>A price each that does not move: a ticket, an entry fee, a kitty.</Text>
+            </>
+          ) : (
+            <>
+              <Text style={type.tiny}>WHAT YOU NEED TO GET BACK</Text>
+              <NumberBox value={total} onChange={setTotal} placeholder="360" prefix="£" width={120} />
+              <Row style={{ alignItems: 'flex-start', gap: spacing.lg }}>
+                <View style={{ gap: 4 }}>
+                  <Text style={type.tiny}>{everyone ? 'EXPECTING (THE TRIP’S)' : 'EXPECTING ON IT'}</Text>
+                  <NumberBox value={everyone ? String(g.group.expectedCount ?? '') : expected} onChange={setExpected} placeholder="24" />
+                  <Text style={type.h3}>{per(exp) ? `${money(per(exp))} each` : ' '}</Text>
+                  <Text style={type.tiny}>probably</Text>
+                </View>
+                <View style={{ gap: 4 }}>
+                  <Text style={type.tiny}>MINIMUM</Text>
+                  <NumberBox value={everyone ? String(g.group.minimumCount ?? '') : minimum} onChange={setMinimum} placeholder="12" />
+                  <Text style={type.h3}>{per(min) ? `${money(per(min))} each` : ' '}</Text>
+                  <Text style={type.tiny}>at worst</Text>
+                </View>
+              </Row>
+              <Text style={type.tiny}>
+                {everyone
+                  ? 'It uses the trip’s own numbers, set in block 2.'
+                  : min
+                    ? `If ${min} have not said yes by the closing day, it does not happen and the trip carries on.`
+                    : 'Without a minimum it runs whatever the numbers, however dear that gets.'}
+              </Text>
+            </>
+          )}
+          <Row><Button label="Next" icon="forward" onPress={() => setStep(3)} /><Button label="Back" kind="ghost" onPress={() => setStep(1)} /></Row>
+        </View>
+      ) : null}
+
+      {step === 3 ? (
+        <View style={{ gap: spacing.sm }}>
+          <Text style={type.tiny}>LAST DAY TO JOIN IT</Text>
+          <TextInput value={closesOn} onChangeText={setClosesOn} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkFaint} style={[styles.input, { width: 170 }]} />
+          <Text style={type.tiny}>On that day the price stops moving, everybody on it gets the bill, and you book it.</Text>
+          <Text style={type.tiny}>AFTER IT CLOSES</Text>
+          <Wrap>
+            <Chip label="Up to capacity" selected={lateJoiners === 'capacity'} onPress={() => setLateJoiners('capacity')} />
+            <Chip label="No, that's it" selected={lateJoiners === 'no'} onPress={() => setLateJoiners('no')} />
+            <Chip label="Ask me" selected={lateJoiners === 'ask'} onPress={() => setLateJoiners('ask')} />
+          </Wrap>
+          {lateJoiners === 'capacity' ? <Row><Text style={type.tiny}>Seats</Text><NumberBox value={capacity} onChange={setCapacity} placeholder="24" width={80} /></Row> : null}
+          <Text style={type.tiny}>MONEY BACK?</Text>
+          <Wrap>
+            <Chip label="Until it closes" selected={refund === 'until'} onPress={() => setRefund('until')} />
+            <Chip label="Always" selected={refund === 'always'} onPress={() => setRefund('always')} />
+            <Chip label="Never" selected={refund === 'never'} onPress={() => setRefund('never')} />
+          </Wrap>
+          <Text style={type.tiny}>Until it closes is the honest one: that is the day you pay for it, and before it nobody has paid you anything.</Text>
+          <Row>
+            <Button
+              label="Add it"
+              icon="check"
+              onPress={() => {
+                onAdd({
+                  kind: 'fee', label: label.trim(), detail: detail.trim() || undefined, required: everyone, perHead,
+                  pricing, amountPence: pricing === 'fixed' ? pence(amount) : null, totalPence: pricing === 'variable' ? totalP : null,
+                  expectedCount: everyone ? null : numberOrNull(expected), minimumCount: everyone ? null : numberOrNull(minimum),
+                  capacity: numberOrNull(capacity), closesOn: closesOn || null, lateJoiners,
+                  refundRule: refund, refundUntil: refund === 'until' ? (closesOn || null) : null,
+                });
+                setStep(0); setLabel(''); setDetail(''); setTotal(''); setAmount(''); setExpected(''); setMinimum(''); setCapacity('');
+              }}
+            />
+            <Button label="Back" kind="ghost" onPress={() => setStep(2)} />
+          </Row>
+        </View>
+      ) : null}
+    </Card>
+  );
+}
 function Chasing({ group: g, busy, settingUp, onChange, onSendNow }: { group: TripGroup; busy: boolean; settingUp: boolean; onChange: (body: any) => void; onSendNow: () => void }) {
   const [open, setOpen] = useState(false);
   const [wantedBy, setWantedBy] = useState(g.group.wantedBy ?? '');
@@ -370,52 +761,6 @@ function Chasing({ group: g, busy, settingUp, onChange, onSendNow }: { group: Tr
               ))}
             </View>
           ) : null}
-        </View>
-      ) : null}
-    </Card>
-  );
-}
-
-function Invite({ group: g, busy, settingUp, onChange, onAdd }: { group: TripGroup; busy: boolean; settingUp: boolean; onChange: (body: any) => void; onAdd: (body: any) => void }) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [contact, setContact] = useState('');
-  const [copied, setCopied] = useState(false);
-  const link = useMemo(() => {
-    const base = Platform.OS === 'web' && typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : 'https://roam.app/';
-    return `${base}?join=${g.group.inviteToken}`;
-  }, [g.group.inviteToken]);
-  return (
-    <Card>
-      <Row style={{ justifyContent: 'space-between' }}>
-        <Row><Icon name="shortlist" size={16} /><Text style={type.h2}>Ask them in</Text></Row>
-        <Chip label={g.group.closed ? 'Closed' : 'Open'} icon={g.group.closed ? 'locked' : 'check'} selected={!g.group.closed} onPress={() => onChange({ closed: !g.group.closed })} />
-      </Row>
-      <Text style={type.tiny} selectable numberOfLines={2}>{link}</Text>
-      <Wrap>
-        <Chip
-          label={copied ? 'Copied' : 'Copy the link'}
-          icon={copied ? 'check' : 'external'}
-          onPress={async () => {
-            if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }
-          }}
-        />
-        <Chip label="New link" icon="refresh" onPress={() => onChange({ newLink: true })} />
-        <Chip label="Add someone by name" icon="add" onPress={() => setOpen(!open)} />
-      </Wrap>
-      <Text style={type.tiny}>
-        {settingUp
-          ? 'Nobody has this yet. Anyone holding it can join, so what they type is all we know about them.'
-          : 'Anyone with the link can join, so what they type is all we know about them. Adding a name first means their join lands on that row.'}
-      </Text>
-      {open ? (
-        <View style={{ gap: spacing.sm }}>
-          <TextInput value={name} onChangeText={setName} placeholder="Their name" placeholderTextColor={colors.inkFaint} style={styles.input} />
-          <TextInput value={contact} onChangeText={setContact} placeholder="Mobile or email, so Roam can remind them" placeholderTextColor={colors.inkFaint} style={styles.input} autoCapitalize="none" />
-          <Button
-            label="Add them"
-            onPress={() => { if (!name.trim() || busy) return; onAdd({ name: name.trim(), contact: contact.trim() || undefined }); setName(''); setContact(''); }}
-          />
         </View>
       ) : null}
     </Card>
@@ -494,6 +839,17 @@ function PersonRow({ p, items, open, busy, onOpen, onMark, onChange, onRemind }:
 
 const styles = StyleSheet.create({
   columns: { flexDirection: 'row', gap: spacing.lg, alignItems: 'flex-start' },
+  blockNumber: {
+    width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: colors.line,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  blockNumberText: { fontFamily: fonts.body, fontSize: 12, fontWeight: '800', color: colors.inkMuted },
+  numberBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm,
+    minHeight: TARGET - 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
+  },
+  numberInput: { flex: 1, textAlign: 'center', fontFamily: fonts.body, fontSize: 17, fontWeight: '700', color: colors.ink, minWidth: 40 },
+  wantedRow: { gap: 6, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
   colLeft: { flex: 1, minWidth: 0 },
   colRight: { width: 380 },
   input: {

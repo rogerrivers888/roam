@@ -389,11 +389,27 @@ export type TripDetail = { trip: Trip; attendees: { id: string; name: string; is
 export type GroupItemKind = 'stay' | 'activity' | 'fee';
 export type GroupStatus = 'booked' | 'declared' | 'paid' | 'in' | 'out';
 export type GroupItemState = { status: GroupStatus; bookingRef: string | null; whereBooked: string | null; startsOn: string | null; endsOn: string | null; amountPence: number | null; note: string | null; markedBy: 'participant' | 'organiser' | 'roam'; on: string };
+export type GroupPricing = 'fixed' | 'variable' | null;
+export type GroupItemState2 = 'open' | 'closed' | 'cancelled';
+/**
+ * The money on an item, worked out by the API and never by a screen: the share
+ * now, the ceiling (what it costs at the minimum — the promise), and what it
+ * will probably come out at. Nothing is owed until `billed`.
+ */
+export type GroupMoney = {
+  shares: number; expected: number | null; minimum: number | null; closesOn: string | null;
+  perSharePence: number | null; ceilingPence: number | null; likelyPence: number | null;
+  billed: boolean; paidPence: number | null; duePence: number | null; collectedPence: number | null;
+};
 export type GroupItem = {
   id: string; kind: GroupItemKind; required: boolean; label: string; detail: string | null; venueRef: string | null; stopId: string | null;
   amountPence: number | null; refundRule: string | null; refundUntil: string | null; position: number;
+  applies: 'everyone' | 'extra'; pricing: GroupPricing; totalPence: number | null; perHead: boolean;
+  expectedCount: number | null; minimumCount: number | null; capacity: number | null;
+  closesOn: string | null; lateJoiners: 'capacity' | 'no' | 'ask'; state: GroupItemState2;
+  settledPence: number | null; settledHeads: number | null; settledAt: string | null; dueOn: string | null; cancelledNote: string | null;
   done: number; declared: number; confirmed: number; coming: number; notComing: number; heads: number;
-  outstanding: number; outstandingNames: string[]; paidPence: number | null; duePence: number | null;
+  outstanding: number; outstandingNames: string[]; money: GroupMoney | null; paidPence: number | null; duePence: number | null;
 };
 export type GroupParticipant = {
   id: string; name: string; contact: string | null; contactKind: 'mobile' | 'email' | null; heads: number; brings: string | null;
@@ -408,8 +424,15 @@ export type GroupReminders = {
   written: number; undelivered: number;
   recent: { id: string; on: string; runOn: string | null; kind: string; status: string; reason: string | null; who: string | null; body: string }[];
 };
+export type GroupItemInput = {
+  kind: GroupItemKind; label: string; detail?: string; required?: boolean; venueRef?: string | null;
+  amountPence?: number | null; refundRule?: string | null; refundUntil?: string | null;
+  pricing?: GroupPricing; totalPence?: number | null; perHead?: boolean;
+  expectedCount?: number | null; minimumCount?: number | null; capacity?: number | null;
+  closesOn?: string | null; lateJoiners?: 'capacity' | 'no' | 'ask';
+};
 export type TripGroup = {
-  group: { id: string; tripId: string; name: string | null; expectedCount: number | null; wantedBy: string | null; inviteToken: string; closed: boolean; remindersOn: boolean; cadence: string };
+  group: { id: string; tripId: string; name: string | null; expectedCount: number | null; minimumCount: number | null; wantedBy: string | null; inviteToken: string; closed: boolean; remindersOn: boolean; cadence: string; cancelledAt: string | null; cancelledNote: string | null };
   trip: { id: string; title: string | null; place: string | null; startDate: string | null; endDate: string | null; base: { label: string; kind: string | null } | null };
   items: GroupItem[]; participants: GroupParticipant[];
   summary: { expected: number | null; joined: number; notJoined: number; withdrawn: number; heads: number; complete: number; missing: number };
@@ -419,9 +442,14 @@ export type TripGroup = {
 };
 /** What the invite link opens: the checklist, and nothing about anybody else. */
 export type JoinView = {
-  group: { name: string | null; wantedBy: string | null; closed: boolean; organiser: string | null; expectedCount: number | null; joined: number; heads: number };
+  group: { name: string | null; wantedBy: string | null; closed: boolean; cancelled: boolean; cancelledNote: string | null; organiser: string | null; expectedCount: number | null; minimumCount: number | null; joined: number; heads: number };
   trip: { title: string | null; place: string | null; startDate: string | null; endDate: string | null; base: { label: string } | null };
-  items: (Omit<GroupItem, 'done' | 'declared' | 'confirmed' | 'coming' | 'notComing' | 'heads' | 'outstanding' | 'outstandingNames' | 'paidPence' | 'duePence'> & { mine: GroupItemState | null })[];
+  items: (Omit<GroupItem, 'done' | 'declared' | 'confirmed' | 'coming' | 'notComing' | 'heads' | 'outstanding' | 'outstandingNames' | 'paidPence' | 'duePence' | 'money'> & {
+    mine: GroupItemState | null;
+    money: (Pick<GroupMoney, 'shares' | 'perSharePence' | 'ceilingPence' | 'likelyPence' | 'minimum' | 'expected' | 'closesOn' | 'billed'> & {
+      heads: number; yoursPence: number | null; ceilingYoursPence: number | null; likelyYoursPence: number | null; dueOn: string | null;
+    }) | null;
+  })[];
   expecting: { id: string; name: string }[];
   you: { id: string; name: string; heads: number; brings: string | null; joinedAt: string | null; outstanding: number } | null;
   participantToken?: string;
@@ -657,10 +685,13 @@ export const api = {
   // group trips
   tripGroup: (tripId: string) => request<TripGroup | { group: null }>(`/api/trips/${tripId}/group`),
   createTripGroup: (tripId: string, body: { name?: string; expectedCount?: number | null; wantedBy?: string | null; cadence?: string; organiserMemberId?: string | null }) => post<TripGroup>(`/api/trips/${tripId}/group`, body),
-  updateGroup: (id: string, body: Partial<{ name: string; expectedCount: number | null; wantedBy: string | null; remindersOn: boolean; cadence: string; closed: boolean; newLink: boolean }>) => patch<TripGroup>(`/api/groups/${id}`, body),
+  updateGroup: (id: string, body: Partial<{ name: string; expectedCount: number | null; minimumCount: number | null; wantedBy: string | null; remindersOn: boolean; cadence: string; closed: boolean; newLink: boolean }>) => patch<TripGroup>(`/api/groups/${id}`, body),
   deleteGroup: (id: string) => del<{ deleted: boolean }>(`/api/groups/${id}`),
-  addGroupItem: (id: string, body: { kind: GroupItemKind; label: string; detail?: string; required?: boolean; amountPence?: number | null; refundRule?: string | null; refundUntil?: string | null; venueRef?: string | null }) => post<TripGroup>(`/api/groups/${id}/items`, body),
-  updateGroupItem: (id: string, itemId: string, body: Partial<{ label: string; detail: string; required: boolean; amountPence: number | null; refundRule: string | null; refundUntil: string | null; position: number }>) => patch<TripGroup>(`/api/groups/${id}/items/${itemId}`, body),
+  addGroupItem: (id: string, body: GroupItemInput) => post<TripGroup>(`/api/groups/${id}/items`, body),
+  updateGroupItem: (id: string, itemId: string, body: Partial<GroupItemInput & { position: number; state: GroupItemState2 }>) => patch<TripGroup>(`/api/groups/${id}/items/${itemId}`, body),
+  /** The closing day, by hand: close it and bill, give it longer, call it off, or undo. */
+  closeGroupItem: (id: string, itemId: string, body: { action: 'close' | 'extend' | 'cancel' | 'reopen'; closesOn?: string; note?: string; anyway?: boolean }) =>
+    post<TripGroup>(`/api/groups/${id}/items/${itemId}/close`, body),
   removeGroupItem: (id: string, itemId: string) => del<TripGroup>(`/api/groups/${id}/items/${itemId}`),
   addGroupParticipant: (id: string, body: { name: string; contact?: string; contactKind?: string; heads?: number; brings?: string; note?: string }) => post<TripGroup>(`/api/groups/${id}/participants`, body),
   updateGroupParticipant: (id: string, pid: string, body: Partial<{ name: string; contact: string; contactKind: string; heads: number; brings: string; note: string; withdrawn: boolean; withdrawnNote: string }>) => patch<TripGroup>(`/api/groups/${id}/participants/${pid}`, body),

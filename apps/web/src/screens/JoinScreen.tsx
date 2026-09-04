@@ -131,6 +131,13 @@ export function JoinScreen({ token }: { token: string }) {
         />
       ) : null}
 
+      {v.group.cancelled ? (
+        <Card style={{ borderColor: colors.overrun }}>
+          <Row><Icon name="allergen" size={16} color={colors.overrun} /><Text style={type.h2}>This trip is off</Text></Row>
+          <Text style={type.small}>{v.group.cancelledNote} Nothing has been taken from you and there is nothing to pay.</Text>
+          <Text style={type.tiny}>Anything you booked yourself — a room, a ticket — is yours to cancel with them, on their terms.</Text>
+        </Card>
+      ) : null}
       {v.group.closed ? <StatusLine tone="warn">This group is not taking any more people. Ask {v.group.organiser ?? 'the organiser'} if you think that is wrong.</StatusLine> : null}
       <Text style={type.tiny}>
         No account, no password. Roam keeps your name and the one way to reach you that you gave, for this trip.
@@ -161,7 +168,11 @@ function ItemCard({ item, organiser, joined, trip, onAsk, onSet }: {
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={type.h3}>{item.label}{item.kind === 'fee' && item.amountPence ? ` · ${money(item.amountPence)}` : ''}</Text>
           {item.detail ? <Text style={type.small}>{item.detail}</Text> : null}
-          {!item.required ? <Text style={type.tiny}>OPTIONAL — {organiser ?? 'they'} just need{organiser ? 's' : ''} to know if you are coming</Text> : null}
+          {!item.required ? (
+            <Text style={type.tiny}>
+              {item.money ? 'OPTIONAL — only if you want it' : `OPTIONAL — ${organiser ?? 'they'} just need${organiser ? 's' : ''} to know if you are coming`}
+            </Text>
+          ) : null}
           {item.kind === 'fee' && item.refundRule === 'until' && item.refundUntil ? (
             <Text style={type.tiny}>Refundable until {day(item.refundUntil)}. Pay {organiser ?? 'the organiser'} directly — Roam does not take the money.</Text>
           ) : null}
@@ -176,9 +187,9 @@ function ItemCard({ item, organiser, joined, trip, onAsk, onSet }: {
         </View>
       </Row>
 
-      {item.kind === 'fee' ? (
-        <Text style={type.tiny}>{s?.status === 'paid' ? `${organiser ?? 'The organiser'} has ticked this off.` : `${organiser ?? 'The organiser'} ticks this off when it reaches them.`}</Text>
-      ) : item.required ? (
+      {item.money ? <Money item={item} organiser={organiser} joined={joined} onAsk={onAsk} onSet={onSet} /> : null}
+
+      {item.kind === 'fee' ? null : item.required ? (
         declaring ? (
           <View style={{ gap: spacing.sm }}>
             <Text style={type.tiny}>WHERE DID YOU BOOK?</Text>
@@ -207,13 +218,90 @@ function ItemCard({ item, organiser, joined, trip, onAsk, onSet }: {
               : <Chip label="I've booked it" icon="check" onPress={tap(() => setDeclaring(true))} />}
           </Wrap>
         )
-      ) : (
+      ) : item.money ? null : (
         <Wrap>
           <Chip label="I'm in" icon="check" selected={s?.status === 'in'} onPress={tap(() => onSet({ status: s?.status === 'in' ? 'clear' : 'in' }))} />
           <Chip label="Not for me" icon="close" selected={s?.status === 'out'} onPress={tap(() => onSet({ status: s?.status === 'out' ? 'clear' : 'out' }))} />
         </Wrap>
       )}
     </Card>
+  );
+}
+
+
+/**
+ * What a cost looks like to the person who will pay it.
+ *
+ * While it can still move there is nothing to pay and the only honest thing to
+ * show is the ceiling — the most it could ever be — with the likely figure
+ * beside it and how many are on it so far. Once it closes, the bill shows its
+ * own arithmetic and quotes the promise back at itself.
+ */
+function Money({ item, organiser, joined, onAsk, onSet }: {
+  item: JoinView['items'][number]; organiser: string | null; joined: boolean;
+  onAsk: () => void; onSet: (body: any) => void;
+}) {
+  const m = item.money!;
+  const mine = item.mine;
+  const them = organiser ?? 'The organiser';
+  const tap = (fn: () => void) => () => (joined ? fn() : onAsk());
+  const short = Boolean(m.minimum && m.heads < m.minimum);
+
+  if (item.state === 'cancelled') {
+    return (
+      <View style={{ gap: 4 }}>
+        <Text style={[type.small, { fontWeight: '700' }]}>This is off — {item.cancelledNote ?? 'not enough people wanted it'}.</Text>
+        <Text style={type.tiny}>Nothing has been taken from you and there is nothing to pay.</Text>
+      </View>
+    );
+  }
+
+  if (item.state === 'closed') {
+    return (
+      <View style={{ gap: 4 }}>
+        <Text style={type.h3}>{money(m.yoursPence)}</Text>
+        <Text style={type.small}>
+          {money(item.totalPence)} ÷ {item.settledHeads} {item.perHead ? 'seats' : 'parties'} = {money(item.settledPence)} each
+          {m.shares > 1 ? ` × ${m.shares} = ${money(m.yoursPence)}` : ''}.
+        </Text>
+        {m.ceilingPence ? <Text style={type.tiny}>You were told no more than {money(m.ceilingYoursPence)}. It came out at {money(m.yoursPence)}.</Text> : null}
+        <Text style={type.tiny}>{them} needs it by {day(m.dueOn)}. It is not refundable now — the booking is made on the strength of it.</Text>
+        <Text style={type.tiny}>{mine?.status === 'paid' ? `${them} has ticked this off.` : `Pay ${them} however you normally do; they tick it off here.`}</Text>
+      </View>
+    );
+  }
+
+  if (item.pricing === 'fixed') {
+    return (
+      <View style={{ gap: 4 }}>
+        <Text style={type.h3}>{money(m.yoursPence ?? item.amountPence)}</Text>
+        <Text style={type.tiny}>{mine?.status === 'paid' ? `${them} has ticked this off.` : `${them} ticks this off when it reaches them.`}</Text>
+      </View>
+    );
+  }
+
+  // Varying, and still open: a ceiling, a likely figure, and nothing to pay.
+  return (
+    <View style={{ gap: 4 }}>
+      <Text style={type.tiny}>IT WILL NOT COST YOU MORE THAN</Text>
+      <Text style={type.title}>{money(m.ceilingYoursPence)}</Text>
+      <Text style={type.small}>
+        {item.perHead && m.shares > 1 ? `for your ${m.shares} · ` : ''}probably about {money(m.likelyYoursPence)} — {money(item.totalPence)} split between whoever wants it.
+      </Text>
+      <Text style={type.small}>{m.heads} on it so far{m.perSharePence ? `, which is ${money(m.perSharePence)} each today` : ''}.</Text>
+      {m.minimum ? (
+        <Text style={type.tiny}>
+          It needs {m.minimum}{short ? ` — ${m.minimum - m.heads} more` : ''} by {day(m.closesOn)}. If fewer want it, it does not happen and you pay nothing.
+        </Text>
+      ) : null}
+      <Text style={type.tiny}>Settled on {day(m.closesOn)}, and nothing to pay until then.</Text>
+      {item.required ? null : (
+        <Wrap>
+          <Chip label="I'm in" icon="check" selected={mine?.status === 'in'} onPress={tap(() => onSet({ status: mine?.status === 'in' ? 'clear' : 'in' }))} />
+          <Chip label="Not for me" icon="close" selected={mine?.status === 'out'} onPress={tap(() => onSet({ status: mine?.status === 'out' ? 'clear' : 'out' }))} />
+        </Wrap>
+      )}
+    </View>
   );
 }
 

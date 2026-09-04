@@ -37,6 +37,7 @@ const PARTICIPANT_STATUSES = ['booked', 'declared', 'in', 'out'];
 const ALL_STATUSES = [...PARTICIPANT_STATUSES, 'paid'];
 const token = (n = 9) => crypto.randomBytes(n).toString('base64url');
 const ymd = (d) => (d ? String(d).slice(0, 10) : null);
+const num = (v) => (v == null || v === '' ? null : Math.max(0, Math.round(Number(v))));
 /** "Priya Shah" → "Priya S." */
 const shortName = (name) => {
   const parts = String(name).trim().split(/\s+/);
@@ -63,7 +64,65 @@ async function loadTrip(tripId) {
 const publicItem = (i) => ({
   id: i.id, kind: i.kind, required: i.required, label: i.label, detail: i.detail, venueRef: i.venue_ref,
   stopId: i.stop_id, amountPence: i.amount_pence, refundRule: i.refund_rule, refundUntil: ymd(i.refund_until), position: i.position,
+  // What kind of thing it is: wanted from everybody, or an extra people opt into.
+  applies: i.required ? 'everyone' : 'extra',
+  pricing: i.pricing, totalPence: i.total_pence, perHead: i.per_head,
+  expectedCount: i.expected_count, minimumCount: i.minimum_count, capacity: i.capacity,
+  closesOn: ymd(i.closes_on), lateJoiners: i.late_joiners, state: i.state,
+  settledPence: i.settled_pence, settledHeads: i.settled_heads, settledAt: i.settled_at, dueOn: ymd(i.due_on),
+  cancelledNote: i.cancelled_note,
 });
+
+/**
+ * Is this item still wanted from this person?
+ *
+ * A cost that varies is nobody's debt until the day it closes — the price can
+ * still move, so there is nothing true to ask for. Once it has closed, the
+ * people on it owe the settled share. An extra nobody opted into is never
+ * outstanding, and a cancelled item is never outstanding again.
+ */
+function stillWanted(item, state) {
+  if (item.state === 'cancelled') return false;
+  if (item.pricing === 'variable' && item.state !== 'closed') return false;
+  if (item.required) return !isDone(state);
+  return state?.status === 'in' && (item.pricing === 'fixed' || item.state === 'closed');
+}
+
+/** How many shares an item is divided by right now. */
+function countHeads(item, joined, stateFor) {
+  return joined.reduce((n, p) => {
+    const st = stateFor.get(`${item.id}:${p.id}`);
+    const counts = item.per_head ? p.heads : 1;
+    if (item.required) return n + counts;                       // everybody on the trip
+    return n + (st?.status === 'in' || st?.status === 'paid' ? counts : 0); // only the yeses
+  }, 0);
+}
+
+/** A share is rounded up to the penny, so the amount to recover is always covered. */
+const share = (totalPence, shares) => (shares > 0 && totalPence > 0 ? Math.ceil(totalPence / shares) : null);
+
+/**
+ * The money on one item, worked out rather than stored (Group charges, 4 Sep
+ * 2026). An item for everyone divides by the trip's own numbers; an extra
+ * divides by the people who said yes to it. The ceiling is the total over the
+ * minimum — the most anybody can ever be asked for — and it is a promise, so it
+ * is worked out the same way everywhere it is shown.
+ */
+export function costOf(item, group, headsNow) {
+  const expected = item.expected_count ?? (item.required ? group.expected_count : null);
+  const minimum = item.minimum_count ?? (item.required ? group.minimum_count : null);
+  const closesOn = ymd(item.closes_on) ?? ymd(group.wanted_by);
+  if (item.pricing !== 'variable') {
+    return { expected, minimum, closesOn, perSharePence: item.amount_pence ?? null, ceilingPence: item.amount_pence ?? null, likelyPence: item.amount_pence ?? null, shares: headsNow };
+  }
+  const shares = item.state === 'closed' ? (item.settled_heads ?? headsNow) : headsNow;
+  return {
+    expected, minimum, closesOn, shares,
+    perSharePence: item.state === 'closed' ? item.settled_pence : share(item.total_pence, shares),
+    ceilingPence: share(item.total_pence, minimum),
+    likelyPence: share(item.total_pence, expected),
+  };
+}
 
 const publicState = (s) => (s ? {
   status: s.status, bookingRef: s.booking_ref, whereBooked: s.where_booked, startsOn: ymd(s.starts_on), endsOn: ymd(s.ends_on),
@@ -110,7 +169,7 @@ export async function groupPayload(groupId) {
       if (s) own[i.id] = publicState(s);
     }
     const outstanding = items
-      .filter((i) => i.required && p.joined_at && !p.withdrawn_at && !isDone(stateFor.get(`${i.id}:${p.id}`)))
+      .filter((i) => p.joined_at && !p.withdrawn_at && stillWanted(i, stateFor.get(`${i.id}:${p.id}`)))
       .map((i) => ({ id: i.id, label: i.label, kind: i.kind }));
     const sent = (remindersByPerson.get(p.id) ?? []).filter((r) => r.status === 'sent' || r.status === 'no_channel');
     return {
@@ -130,17 +189,30 @@ export async function groupPayload(groupId) {
     const coming = forItem.filter((s) => s?.status === 'in').length;
     const notComing = forItem.filter((s) => s?.status === 'out').length;
     const missing = joined.filter((p) => (i.required ? !isDone(stateFor.get(`${i.id}:${p.id}`)) : !isAnswered(stateFor.get(`${i.id}:${p.id}`))));
-    const heads = joined.reduce((n, p) => {
-      const s = stateFor.get(`${i.id}:${p.id}`);
-      return n + (i.required ? (isDone(s) ? p.heads : 0) : (s?.status === 'in' ? p.heads : 0));
-    }, 0);
+    // Who the money is divided by: everybody on the trip, or the people who
+    // said yes to the extra. A share is a head unless the organiser said party.
+    const counts = (p) => (i.per_head ? p.heads : 1);
+    const heads = countHeads(i, joined, stateFor);
+    const cost = costOf(i, group, heads);
+    const paidHeads = joined.reduce((n, p) => n + (stateFor.get(`${i.id}:${p.id}`)?.status === 'paid' ? counts(p) : 0), 0);
+    const owingHeads = Math.max(0, heads - paidHeads);
+    const money = i.pricing ? {
+      ...cost,
+      // Nobody owes anything on a varying cost until the day it closes.
+      billed: i.pricing === 'fixed' || i.state === 'closed',
+      paidPence: cost.perSharePence != null ? paidHeads * cost.perSharePence : null,
+      duePence: cost.perSharePence != null ? owingHeads * cost.perSharePence : null,
+      collectedPence: i.total_pence && heads ? Math.min(i.total_pence, paidHeads * (cost.perSharePence ?? 0)) : null,
+    } : null;
     return {
       ...publicItem(i),
       done, declared, confirmed: done - declared, coming, notComing, heads,
       outstanding: missing.length,
       outstandingNames: missing.slice(0, 8).map((p) => p.name),
-      paidPence: i.kind === 'fee' ? forItem.filter((s) => s?.status === 'paid').length * (i.amount_pence ?? 0) : null,
-      duePence: i.kind === 'fee' ? missing.length * (i.amount_pence ?? 0) : null,
+      money,
+      // Kept for the screens written before costs had a life.
+      paidPence: money?.paidPence ?? null,
+      duePence: money?.duePence ?? null,
     };
   });
 
@@ -169,8 +241,9 @@ export async function groupPayload(groupId) {
   return {
     group: {
       id: group.id, tripId: group.trip_id, name: group.name, expectedCount: group.expected_count,
-      wantedBy: ymd(group.wanted_by), inviteToken: group.invite_token, closed: Boolean(group.closed_at),
+      minimumCount: group.minimum_count, wantedBy: ymd(group.wanted_by), inviteToken: group.invite_token, closed: Boolean(group.closed_at),
       remindersOn: group.reminders_on, cadence: group.reminder_cadence,
+      cancelledAt: group.cancelled_at, cancelledNote: group.cancelled_note,
     },
     trip: {
       id: trip.id, title: trip.title, place: trip.place_label, startDate: ymd(trip.start_date), endDate: ymd(trip.end_date),
@@ -298,6 +371,8 @@ router.patch('/groups/:id', async (req, res, next) => {
     const put = (col, val) => { params.push(val); sets.push(`${col} = $${params.length}`); };
     if (b.name !== undefined) put('name', String(b.name).trim() || null);
     if (b.expectedCount !== undefined) put('expected_count', b.expectedCount == null ? null : Math.max(0, Number(b.expectedCount)));
+    // The trip's own minimum means one thing: below it, the trip is cancelled.
+    if (b.minimumCount !== undefined) put('minimum_count', b.minimumCount == null || b.minimumCount === '' ? null : Math.max(0, Number(b.minimumCount)));
     if (b.wantedBy !== undefined) put('wanted_by', ymd(b.wantedBy));
     if (b.remindersOn !== undefined) put('reminders_on', Boolean(b.remindersOn));
     if (b.cadence !== undefined) { if (!CADENCES[b.cadence]) return res.status(400).json({ error: 'bad_cadence' }); put('reminder_cadence', b.cadence); }
@@ -328,14 +403,20 @@ router.post('/groups/:id/items', async (req, res, next) => {
     const b = req.body || {};
     const kind = ITEM_KINDS.includes(b.kind) ? b.kind : 'activity';
     if (!b.label?.trim()) return res.status(400).json({ error: 'label_required', message: 'Say what you are asking people to do.' });
-    if (kind === 'fee' && !(Number(b.amountPence) > 0)) return res.status(400).json({ error: 'amount_required', message: 'An amount of nothing is not a thing to ask for.' });
+    if (kind === 'fee' && b.pricing !== 'variable' && !(Number(b.amountPence) > 0)) return res.status(400).json({ error: 'amount_required', message: 'An amount of nothing is not a thing to ask for.' });
+    if (b.pricing === 'variable' && !(Number(b.totalPence) > 0)) return res.status(400).json({ error: 'total_required', message: 'Say what you have to get back in total.' });
     const { rows: last } = await query('select coalesce(max(position), -1) + 1 as n from group_items where group_id = $1', [group.id]);
+    const pricing = b.pricing === 'variable' ? 'variable' : (b.amountPence != null || kind === 'fee' ? 'fixed' : null);
     await query(
-      `insert into group_items (group_id, kind, required, label, detail, venue_ref, stop_id, amount_pence, refund_rule, refund_until, position)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      `insert into group_items (group_id, kind, required, label, detail, venue_ref, stop_id, amount_pence, refund_rule, refund_until, position,
+                                pricing, total_pence, per_head, expected_count, minimum_count, capacity, closes_on, late_joiners)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
       [group.id, kind, b.required !== false, b.label.trim(), b.detail?.trim() || null, b.venueRef ?? null, b.stopId ?? null,
-       kind === 'fee' ? Math.round(Number(b.amountPence)) : (b.amountPence == null ? null : Math.round(Number(b.amountPence))),
-       b.refundRule ?? null, ymd(b.refundUntil), last[0].n],
+       b.amountPence == null ? null : Math.round(Number(b.amountPence)),
+       b.refundRule ?? null, ymd(b.refundUntil), last[0].n,
+       pricing, b.totalPence == null ? null : Math.round(Number(b.totalPence)), b.perHead !== false,
+       num(b.expectedCount), num(b.minimumCount), num(b.capacity), ymd(b.closesOn),
+       ['capacity', 'no', 'ask'].includes(b.lateJoiners) ? b.lateJoiners : 'capacity'],
     );
     res.status(201).json(await groupPayload(group.id));
   } catch (err) { next(err); }
@@ -354,11 +435,46 @@ router.patch('/groups/:id/items/:itemId', async (req, res, next) => {
     if (b.refundRule !== undefined) put('refund_rule', b.refundRule || null);
     if (b.refundUntil !== undefined) put('refund_until', ymd(b.refundUntil));
     if (b.position !== undefined) put('position', Number(b.position));
+    if (b.pricing !== undefined) put('pricing', b.pricing || null);
+    if (b.totalPence !== undefined) put('total_pence', b.totalPence == null ? null : Math.round(Number(b.totalPence)));
+    if (b.perHead !== undefined) put('per_head', Boolean(b.perHead));
+    if (b.expectedCount !== undefined) put('expected_count', num(b.expectedCount));
+    if (b.minimumCount !== undefined) put('minimum_count', num(b.minimumCount));
+    if (b.capacity !== undefined) put('capacity', num(b.capacity));
+    if (b.closesOn !== undefined) put('closes_on', ymd(b.closesOn));
+    if (b.lateJoiners !== undefined && ['capacity', 'no', 'ask'].includes(b.lateJoiners)) put('late_joiners', b.lateJoiners);
+    if (b.state !== undefined && ['open', 'closed', 'cancelled'].includes(b.state)) put('state', b.state);
     if (!sets.length) return res.json(await groupPayload(group.id));
+    const { rows: before } = await query('select * from group_items where id = $1 and group_id = $2', [req.params.itemId, group.id]);
     await query(`update group_items set ${sets.join(', ')} where id = $1 and group_id = $2`, params);
+    const { rows: after } = await query('select * from group_items where id = $1 and group_id = $2', [req.params.itemId, group.id]);
+    await reofferIfDearer(group, before[0], after[0]);
     res.json(await groupPayload(group.id));
   } catch (err) { next(err); }
 });
+
+/**
+ * “It will not cost you more than £30” is the reason anybody said yes, so if the
+ * ceiling goes up — a dearer quote, a lower minimum — everyone who said yes to
+ * it is asked again. Their yes is cleared and they are told the new figure;
+ * saying nothing now means they are not on it.
+ */
+async function reofferIfDearer(group, before, after) {
+  if (!before || !after || after.pricing !== 'variable') return;
+  const was = costOf(before, group, 0).ceilingPence;
+  const now = costOf(after, group, 0).ceilingPence;
+  if (!now || (was && now <= was)) return;
+  const { rows: onIt } = await query(
+    `select p.* from group_item_states s join group_participants p on p.id = s.participant_id
+      where s.item_id = $1 and s.status = 'in' and p.withdrawn_at is null`,
+    [after.id],
+  );
+  if (!onIt.length) return;
+  await query(`delete from group_item_states where item_id = $1 and status = 'in'`, [after.id]);
+  for (const p of onIt) {
+    await tellOne(group, p, `${after.label} could now cost up to £${(now / 100).toFixed(2)} each, not £${((was ?? 0) / 100).toFixed(2)}. Say again whether you want it.`, 'reoffer', after.id);
+  }
+}
 
 /** Removing something people have already done is blocked, and says how many (Epic 2, AC4). */
 router.delete('/groups/:id/items/:itemId', async (req, res, next) => {
@@ -449,6 +565,67 @@ router.post('/groups/:id/participants/:pid/items/:itemId', async (req, res, next
   } catch (err) { next(err); }
 });
 
+/**
+ * The closing day, by hand: close it and send the bill, give it another week,
+ * or call it off. Roam does this by itself on the day (runDueClosings) — this
+ * is the organiser being asked first, which is what the first time should be.
+ */
+router.post('/groups/:id/items/:itemId/close', async (req, res, next) => {
+  try {
+    const group = await loadGroup(req.params.id);
+    const { rows } = await query('select * from group_items where id = $1 and group_id = $2', [req.params.itemId, group.id]);
+    const item = rows[0];
+    if (!item) return res.status(404).json({ error: 'item_not_found' });
+    const action = req.body?.action;
+
+    if (action === 'extend') {
+      const until = ymd(req.body?.closesOn);
+      if (!until) return res.status(400).json({ error: 'date_required', message: 'Say the new date.' });
+      await query('update group_items set closes_on = $2, state = $3 where id = $1', [item.id, until, 'open']);
+      return res.json(await groupPayload(group.id));
+    }
+    if (action === 'cancel') {
+      await query('update group_items set state = $2, cancelled_note = $3 where id = $1', [item.id, 'cancelled', req.body?.note?.trim() || 'Called off by the organiser.']);
+      return res.json(await groupPayload(group.id));
+    }
+    if (action === 'reopen') {
+      await query('update group_items set state = $2, settled_pence = null, settled_heads = null, settled_at = null, due_on = null, cancelled_note = null where id = $1', [item.id, 'open']);
+      return res.json(await groupPayload(group.id));
+    }
+    // Close it: whoever is on it now is who it is divided by, and that is the price.
+    const [{ rows: people }, { rows: states }] = await Promise.all([
+      query('select * from group_participants where group_id = $1 and withdrawn_at is null and joined_at is not null', [group.id]),
+      query('select s.* from group_item_states s join group_items i on i.id = s.item_id where i.group_id = $1', [group.id]),
+    ]);
+    const stateFor = new Map(states.map((st) => [`${st.item_id}:${st.participant_id}`, st]));
+    const onIt = people.filter((p) => (item.required ? true : ['in', 'paid'].includes(stateFor.get(`${item.id}:${p.id}`)?.status)));
+    const shares = onIt.reduce((n, p) => n + (item.per_head ? p.heads : 1), 0);
+    const cost = costOf(item, group, shares);
+    if (cost.minimum && shares < cost.minimum && !req.body?.anyway) {
+      return res.status(409).json({ error: 'below_minimum', message: `${shares} of the ${cost.minimum} it needs. Call it off, give it longer, or run it anyway.`, shares, minimum: cost.minimum, perSharePence: cost.perSharePence });
+    }
+    // The ceiling is a promise, and it is not the organiser's to quietly break:
+    // a higher share is a new offer, which means changing the numbers so that
+    // everybody on it is asked again (PATCH clears their yes and tells them).
+    if (cost.ceilingPence && cost.perSharePence > cost.ceilingPence) {
+      return res.status(409).json({
+        error: 'over_ceiling', shares, perSharePence: cost.perSharePence, ceilingPence: cost.ceilingPence,
+        message: `That is £${(cost.perSharePence / 100).toFixed(2)} each and you told them no more than £${(cost.ceilingPence / 100).toFixed(2)}. Change what it needs to get back or the minimum, and everyone on it will be asked again.`,
+      });
+    }
+    const closesOn = ymd(item.closes_on) ?? ymd(group.wanted_by) ?? new Date().toISOString().slice(0, 10);
+    const due = new Date(`${closesOn}T12:00:00Z`);
+    due.setUTCDate(due.getUTCDate() + 4);
+    await query('update group_items set state = $2, settled_heads = $3, settled_pence = $4, settled_at = now(), due_on = $5 where id = $1',
+      [item.id, 'closed', shares, cost.perSharePence, ymd(due.toISOString())]);
+    for (const p of onIt) {
+      const owed = (cost.perSharePence ?? 0) * (item.per_head ? p.heads : 1);
+      await tellOne(group, p, `${item.label} is settled: £${(owed / 100).toFixed(2)} — ${shares} of us, by ${inWords(ymd(due.toISOString()))}.`, 'bill', item.id);
+    }
+    res.json(await groupPayload(group.id));
+  } catch (err) { next(err); }
+});
+
 // --- chasing ---------------------------------------------------------------
 
 /**
@@ -534,8 +711,90 @@ export async function runDueReminders(now = new Date()) {
   return runs;
 }
 
+/**
+ * The closing day, which is the whole design of a varying cost.
+ *
+ * On the day a cost closes, the headcount stops moving and so does the price:
+ * whoever is on it owes the settled share, due four days later, and that is
+ * also the day it stops being refundable, because that is the day the
+ * organiser's own money leaves. Under its minimum it is cancelled instead and
+ * nobody is charged anything, because nobody was ever charged anything.
+ *
+ * The trip's own minimum works the same way one level up: below it on the
+ * group's date, the whole trip is called off and everybody is told.
+ */
+export async function runDueClosings(now = new Date()) {
+  const today = now.toISOString().slice(0, 10);
+  const { rows: groups } = await query('select * from trip_groups where cancelled_at is null');
+  let closed = 0;
+  for (const group of groups) {
+    const [{ rows: people }, { rows: items }, { rows: states }] = await Promise.all([
+      query('select * from group_participants where group_id = $1 and withdrawn_at is null', [group.id]),
+      query('select * from group_items where group_id = $1', [group.id]),
+      query('select s.* from group_item_states s join group_items i on i.id = s.item_id where i.group_id = $1', [group.id]),
+    ]);
+    const joined = people.filter((p) => p.joined_at);
+    const stateFor = new Map(states.map((st) => [`${st.item_id}:${st.participant_id}`, st]));
+
+    // The trip's own minimum, judged on the group's date.
+    const heads = joined.reduce((n, p) => n + p.heads, 0);
+    if (group.minimum_count && ymd(group.wanted_by) && ymd(group.wanted_by) <= today && heads < group.minimum_count) {
+      const note = `${heads} of the ${group.minimum_count} needed by ${inWords(group.wanted_by)}.`;
+      await query('update trip_groups set cancelled_at = now(), cancelled_note = $2 where id = $1', [group.id, note]);
+      await query('update group_items set state = $2, cancelled_note = $3 where group_id = $1 and state = $4', [group.id, 'cancelled', 'The trip was called off.', 'open']);
+      await tellEveryone(group, joined, `${group.name ?? 'The trip'} is off — ${note} Nothing has been taken from you.`, 'cancelled');
+      closed += 1;
+      continue;
+    }
+
+    for (const item of items) {
+      if (item.state !== 'open' || item.pricing !== 'variable') continue;
+      const closesOn = ymd(item.closes_on) ?? ymd(group.wanted_by);
+      if (!closesOn || closesOn > today) continue;
+      const onIt = joined.filter((p) => (item.required ? true : ['in', 'paid'].includes(stateFor.get(`${item.id}:${p.id}`)?.status)));
+      const shares = onIt.reduce((n, p) => n + (item.per_head ? p.heads : 1), 0);
+      const cost = costOf(item, group, shares);
+
+      if (cost.minimum && shares < cost.minimum) {
+        const note = `${shares} of the ${cost.minimum} it needed.`;
+        await query('update group_items set state = $2, cancelled_note = $3 where id = $1', [item.id, 'cancelled', note]);
+        await tellEveryone(group, onIt, `${item.label} is off — ${note} Nothing to pay.`, 'cancelled', item.id);
+      } else {
+        const due = new Date(`${closesOn}T12:00:00Z`);
+        due.setUTCDate(due.getUTCDate() + 4);
+        await query(
+          'update group_items set state = $2, settled_heads = $3, settled_pence = $4, settled_at = now(), due_on = $5 where id = $1',
+          [item.id, 'closed', shares, cost.perSharePence, ymd(due.toISOString())],
+        );
+        for (const p of onIt) {
+          const owed = (cost.perSharePence ?? 0) * (item.per_head ? p.heads : 1);
+          await tellOne(group, p, `${item.label} is settled: £${(owed / 100).toFixed(2)} — ${shares} of us, by ${inWords(ymd(due.toISOString()))}.`, 'bill', item.id);
+        }
+      }
+      closed += 1;
+    }
+  }
+  return closed;
+}
+
+/** One line to everybody who is affected, kept whether or not it can be sent. */
+async function tellEveryone(group, people, body, kind, itemId = null) {
+  for (const p of people) await tellOne(group, p, body, kind, itemId);
+}
+
+async function tellOne(group, participant, body, kind, itemId = null) {
+  const outcome = await sendReminder({ to: participant.contact, contactKind: participant.contact_kind, body, group: group.name, participant: participant.name });
+  await query(
+    `insert into group_reminders (group_id, participant_id, item_id, kind, status, reason, channel, body, sent_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [group.id, participant.id, itemId, kind, outcome.status === 'failed' ? 'no_channel' : outcome.status, outcome.detail, outcome.channel, body, outcome.status === 'sent' ? new Date() : null],
+  );
+}
+
 export function startReminderLoop({ everyMinutes = 15 } = {}) {
-  const tick = () => runDueReminders().catch((err) => console.error('[groups] reminder run failed:', err.message));
+  const tick = () => runDueClosings()
+    .then(() => runDueReminders())
+    .catch((err) => console.error('[groups] group run failed:', err.message));
   setTimeout(tick, 20_000).unref?.();
   const timer = setInterval(tick, everyMinutes * 60_000);
   timer.unref?.();
@@ -567,21 +826,45 @@ async function joinPayload(group, participantToken) {
   const active = people.filter((p) => !p.withdrawn_at);
   const me = participantToken ? active.find((p) => p.token === participantToken) : null;
   const organiser = people.find((p) => p.member_id);
-  let states = [];
-  if (me) ({ rows: states } = await query('select * from group_item_states where participant_id = $1', [me.id]));
-  const mine = new Map(states.map((s) => [s.item_id, s]));
+  // Every state, but only ever counted — a participant is told how many are on
+  // a coach, never who they are.
+  const { rows: allStates } = await query('select s.* from group_item_states s join group_items i on i.id = s.item_id where i.group_id = $1', [group.id]);
+  const byItem = new Map(allStates.map((st) => [`${st.item_id}:${st.participant_id}`, st]));
+  const mine = new Map(allStates.filter((st) => me && st.participant_id === me.id).map((st) => [st.item_id, st]));
 
   return {
     group: {
       name: group.name, wantedBy: ymd(group.wanted_by), closed: Boolean(group.closed_at),
-      organiser: organiser?.name ?? null, expectedCount: group.expected_count,
+      cancelled: Boolean(group.cancelled_at), cancelledNote: group.cancelled_note,
+      organiser: organiser?.name ?? null, expectedCount: group.expected_count, minimumCount: group.minimum_count,
       joined: active.filter((p) => p.joined_at).length, heads: active.filter((p) => p.joined_at).reduce((n, p) => n + p.heads, 0),
     },
     trip: {
       title: trip.title, place: trip.place_label, startDate: ymd(trip.start_date), endDate: ymd(trip.end_date),
       base: trip.base_label && trip.base_kind !== 'home' ? { label: trip.base_label } : null,
     },
-    items: items.map((i) => ({ ...publicItem(i), mine: publicState(mine.get(i.id)) })),
+    items: items.map((i) => {
+      const st = mine.get(i.id);
+      const heads = countHeads(i, active.filter((p) => p.joined_at), byItem);
+      const cost = i.pricing ? costOf(i, group, heads) : null;
+      const shares = me ? (i.per_head ? me.heads : 1) : 1;
+      return {
+        ...publicItem(i),
+        mine: publicState(st),
+        // What it would cost them: the share now, the most it could ever be,
+        // and what it will probably come out at. Nothing is owed until it closes.
+        money: cost ? {
+          heads, shares,
+          perSharePence: cost.perSharePence, ceilingPence: cost.ceilingPence, likelyPence: cost.likelyPence,
+          yoursPence: cost.perSharePence == null ? null : cost.perSharePence * shares,
+          ceilingYoursPence: cost.ceilingPence == null ? null : cost.ceilingPence * shares,
+          likelyYoursPence: cost.likelyPence == null ? null : cost.likelyPence * shares,
+          minimum: cost.minimum, expected: cost.expected, closesOn: cost.closesOn,
+          billed: i.pricing === 'fixed' || i.state === 'closed',
+          dueOn: ymd(i.due_on),
+        } : null,
+      };
+    }),
     // Only so a join can be offered as "are you Priya S.?" rather than a form.
     // Anyone can be holding this link, so the surname is not theirs to read:
     // enough to recognise yourself, not enough to learn who else was asked.
