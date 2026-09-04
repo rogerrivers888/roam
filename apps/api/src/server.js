@@ -11,6 +11,7 @@ import planRoutes from './routes/plan.js';
 import tasteRoutes from './routes/tastes.js';
 import conceptRoutes from './routes/concepts.js';
 import prototypeRoutes from './routes/prototypes.js';
+import groupRoutes, { startReminderLoop } from './routes/groups.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 import { atlas as atlasRoutes } from './routes/atlas.js';
 import { menu as menuRoutes, orders as orderRoutes } from './routes/menus.js';
@@ -56,6 +57,9 @@ app.use('/api/atlas', atlasRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/offline', offlineRoutes);
+// Group trips: the organiser's door (/api/trips/:id/group, /api/groups/…) and
+// the invite link's (/api/join/:token), which shows a checklist and no roster.
+app.use('/api', groupRoutes);
 
 /** Licensed review text must not be crawlable (Tripadvisor review implementation policy); the API is not a website. */
 app.get('/robots.txt', (_req, res) => res.type('text/plain').send('User-agent: *\nDisallow: /\n'));
@@ -143,6 +147,9 @@ await loadSourceSettings();
 // claimed but that has not been looked at yet, and the sweep that discards any
 // fact whose licence has run out (sources/own.js).
 startOwnLoop();
+// Roam chases the group, the organiser does not (owner, 4 Sep 2026): any run
+// whose morning has passed is written once, whether or not anyone is looking.
+startReminderLoop();
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`roam-api listening on 0.0.0.0:${port}`);
 });

@@ -12,6 +12,7 @@ import { TripsScreen, TripPrefill } from './src/screens/TripsScreen';
 import { HouseholdScreen } from './src/screens/HouseholdScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { PrototypesScreen } from './src/screens/PrototypesScreen';
+import { JoinScreen } from './src/screens/JoinScreen';
 import { Wordmark } from './src/components/Wordmark';
 import { useViewport, ViewportProvider } from './src/hooks/useViewport';
 import { useOffline } from './src/hooks/useOffline';
@@ -41,16 +42,28 @@ const BEZEL = 10;
 const readViewMode = (): ViewMode =>
   Platform.OS === 'web' && typeof localStorage !== 'undefined' && localStorage.getItem(VIEW_KEY) === 'mobile' ? 'mobile' : 'web';
 
+/**
+ * An invite link (?join=<token>) is somebody else's door into one trip: the
+ * checklist a group organiser asked them for, and none of the household's app.
+ * It is read once, before anything else, so a participant never lands in Plan.
+ */
+const joinToken = () => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('join');
+};
+
 export default function App() {
   const window = useWindowDimensions();
   const [mode, setMode] = useState<ViewMode>(readViewMode);
+  const join = useMemo(joinToken, []);
   const choose = (m: ViewMode) => {
     setMode(m);
     if (Platform.OS === 'web' && typeof localStorage !== 'undefined') localStorage.setItem(VIEW_KEY, m);
   };
 
   // A narrow window is a phone already: no toggle, no frame.
-  if (window.width < DESKTOP) return <Shell />;
+  const app = join ? <JoinScreen token={join} /> : <Shell />;
+  if (window.width < DESKTOP) return app;
 
   const frameHeight = Math.min(PHONE.height, window.height - TOOLBAR - spacing.xl * 2 - BEZEL * 2);
   // Where the phone's screen lands in the real window: the stage centres it below the toolbar.
@@ -86,7 +99,7 @@ export default function App() {
         <View style={mobile ? styles.bezel : styles.fill}>
           <View style={mobile ? [styles.screen, { width: PHONE.width, height: frameHeight }] : styles.fill}>
             <ViewportProvider value={viewport}>
-              <Shell />
+              {app}
             </ViewportProvider>
           </View>
         </View>
@@ -103,12 +116,18 @@ function Shell() {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return { tab: null as Tab | null, trip: null as string | null };
     const q = new URLSearchParams(window.location.search);
     const t = q.get('tab');
-    return { tab: TABS.some((x) => x.key === t) || t === 'prototypes' ? (t as Tab) : null, trip: q.get('trip') };
+    const section = q.get('section');
+    return {
+      tab: TABS.some((x) => x.key === t) || t === 'prototypes' ? (t as Tab) : null,
+      trip: q.get('trip'),
+      // ?section= opens the trip on one of its own tabs, so a group has an address too.
+      section: ['find', 'shortlist', 'day', 'group'].includes(section ?? '') ? (section as TripPrefill['section']) : undefined,
+    };
   }, []);
   const [tab, setTab] = useState<Tab>(fromUrl.tab ?? 'plan');
   const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking');
   const [household, setHousehold] = useState<HouseholdResponse | null>(null);
-  const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(fromUrl.trip ? { openTripId: fromUrl.trip } : null);
+  const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(fromUrl.trip ? { openTripId: fromUrl.trip, section: fromUrl.section } : null);
   // Wherever you are has an address (owner, 4 Sep 2026: "we need a unique URL
   // structure, so wherever I am, there is a unique URL"). The tab, and the trip
   // when one is open, are written to the address bar as they change, so the

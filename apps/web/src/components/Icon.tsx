@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import {
   Archive, ArrowLeft, ArrowRight, Baby, Ban, BedDouble, Beer, Bookmark, BookmarkCheck, Calendar, Camera, Car, CarTaxiFront, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck,
   Clock, CloudOff, Coffee, Compass, Database, Download, ExternalLink, Footprints, GripVertical, Heart, House, Info, Landmark, List, Lock, Map, MapPin, Mic, Minus, Monitor, Navigation, Pencil, Phone, Pin, Plus, Route, Search, Settings, Smartphone,
-  Moon, RefreshCw, Sparkles, Square, Star, StarHalf, Sun, Ticket, TrainFront, TriangleAlert, User, Users, Utensils, Wine, X,
+  Moon, PoundSterling, RefreshCw, Sparkles, Square, Star, StarHalf, Sun, Ticket, TrainFront, TriangleAlert, User, Users, Utensils, Wine, X,
 } from 'lucide-react-native';
 import { colors, spacing, type } from '../theme';
 
@@ -31,7 +31,7 @@ const ICONS = {
   address: MapPin, hours: Clock, children: Baby, phone: Phone, camera: Camera, calendar: Calendar, ticket: Ticket,
   // the journey: ways of getting about, booking states, list and map, order
   walking: Footprints, driving: Car, transit: TrainFront, taxi: CarTaxiFront, directions: Navigation, home: House,
-  booked: CircleCheck, full: Ban, locked: Lock, grip: GripVertical, list: List, map: Map, info: Info, search: Search, edit: Pencil,
+  booked: CircleCheck, full: Ban, locked: Lock, money: PoundSterling, grip: GripVertical, list: List, map: Map, info: Info, search: Search, edit: Pencil,
   // categories
   restaurant: Utensils, cafe: Coffee, pub: Beer, bar: Wine, attraction: Landmark, event: Ticket, hotel: BedDouble, place: MapPin,
 } as const;

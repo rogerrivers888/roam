@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
+import { GroupPanel } from '../components/GroupPanel';
 import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, TripDay, TripDetail, TripSummary, Venue, DayStop } from '../api';
 import { colors, memberColors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap, clock, minutes } from '../components/ui';
@@ -27,7 +28,7 @@ const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLoca
 const fmtRange = (a?: string | null, b?: string | null) => (a && b ? (a === b ? fmtDate(a) : `${fmtDate(a)} – ${fmtDate(b)}`) : '');
 const SLOT_LABEL = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' } as const;
 
-export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string; section?: 'find' | 'shortlist' | 'day'; findRadiusKm?: number; findPrices?: string[] };
+export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string; section?: 'find' | 'shortlist' | 'day' | 'group'; findRadiusKm?: number; findPrices?: string[] };
 /** How a trip opened from elsewhere should start: which tab, how far Find looks. */
 type OpenWith = { section?: Section; findRadiusKm?: number; findPrices?: string[] };
 
@@ -288,7 +289,7 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
 // Trip page
 // ---------------------------------------------------------------------------
 
-type Section = 'find' | 'shortlist' | 'day' | 'stay' | 'data';
+type Section = 'find' | 'shortlist' | 'day' | 'stay' | 'group' | 'data';
 
 /** Two taps to delete a trip: its days, stops and shortlist go with it; visits and ratings stay (they lose the link). */
 function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<void> }) {
@@ -348,6 +349,8 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
   const sections: { value: Section; label: string }[] = [
     { value: 'find', label: 'Find' }, { value: 'shortlist', label: `Shortlist (${shortlist.length})` }, { value: 'day', label: isTrip ? `Days (${days.length})` : 'The day' },
     ...(isTrip ? [{ value: 'stay' as Section, label: 'Stay' }] : []),
+    // Who else is coming, and what is still wanted from them (owner, 4 Sep 2026).
+    { value: 'group' as Section, label: 'Group' },
     // What every source returned for a day, and where the plan lost it (owner,
     // 4 Sep 2026: "I'd like to be able to see the data for each one of these
     // APIs, to see how rich it is"). Admin only: it re-runs the retrieval.
@@ -396,6 +399,7 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
         </View>
       ) : null}
       {section === 'stay' && isTrip ? <StayPanel d={d} onChanged={load} onFindNear={() => setSection('find')} /> : null}
+      {section === 'group' ? <GroupPanel d={d} onChanged={load} /> : null}
       {section === 'data' ? <SourceDataPanel d={d} /> : null}
     </>
   );
