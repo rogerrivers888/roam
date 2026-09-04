@@ -808,12 +808,12 @@ function AddPlace({ household, kind, centre, radiusKm, ctx, wide, onAdded, onOpe
     if (text.length < 2) { setSuggestions([]); return; }
     typing.current = setTimeout(async () => {
       try {
-        const r = await api.suggestPlaces({ q: text, near: centre ? `${centre.lat},${centre.lng}` : undefined, radiusKm: Math.max(radiusKm, 15), session: session.current });
+        const r = await api.suggestPlaces({ q: text, near: centre ? `${centre.lat},${centre.lng}` : undefined, radiusKm: Math.max(radiusKm, 15), session: session.current, kind });
         setSuggestions(r.suggestions.slice(0, 8));
       } catch { /* the Search button still works */ }
     }, 250);
     return () => { if (typing.current) clearTimeout(typing.current); };
-  }, [q, centre?.lat, centre?.lng]);
+  }, [q, centre?.lat, centre?.lng, kind]);
 
   /**
    * A chosen prediction opens in the drawer — the first thing to know is that

@@ -353,20 +353,28 @@ places.get('/suggest', async (req, res, next) => {
       meter, only,
     });
 
-    // A prediction is a place you could walk into, or it is a town, a road or a
-    // postcode. Typing "Sunningdale" came back with the town, a car park and two
-    // golf clubs, and the bistro of that name was never among the five the
-    // provider returns (owner, 4 Sep 2026). So: ask again for places only, but
-    // only when the first answer was mostly map, and merge — no extra call when
-    // the household typed something that already found what it meant.
+    // The provider returns five predictions, ranked by how well known a place
+    // is. Typing "Sunningdale" spent all five on the town, its station car park,
+    // its park and two golf clubs; Sunningdale Bistro Bar, which is what he
+    // meant, never got a slot (owner, 4 Sep 2026). The kinds are not
+    // interchangeable, so when none of the five is the kind being looked for,
+    // ask again for that kind alone and put those first.
+    const FOOD = ['restaurant', 'cafe', 'bar', 'bakery', 'meal_takeaway'];
+    const THINGS = ['tourist_attraction', 'museum', 'park', 'art_gallery', 'performing_arts_theater'];
+    const kind = ['do', 'eat'].includes(String(req.query.kind)) ? String(req.query.kind) : 'all';
+    const isKind = (p, set) => (p.types || []).some((t) => set.includes(t));
     const GEO = new Set(['locality', 'postal_town', 'route', 'street_address', 'premise', 'sublocality', 'postal_code', 'administrative_area_level_1', 'administrative_area_level_2', 'country', 'geocode', 'neighborhood', 'intersection', 'plus_code']);
     const isPlace = (p) => (p.types || []).some((t) => !GEO.has(t));
+
     let suggestions = await ask(null);
-    if (suggestions.filter(isPlace).length < 3) {
+    // Everything: food is what a household looks for most, so that is the one
+    // worth a second question when the first found none.
+    const wanted = kind === 'do' ? THINGS : FOOD;
+    if (suggestions.filter((p) => isKind(p, wanted)).length < 2) {
       try {
-        const places = await ask(['establishment']);
+        const more = await ask(wanted);
         const seen = new Set(suggestions.map((p) => p.placeId));
-        suggestions = [...suggestions, ...places.filter((p) => !seen.has(p.placeId))];
+        suggestions = [...more.filter((p) => !seen.has(p.placeId)), ...suggestions];
       } catch { /* the provider may not take that filter; the first answer stands */ }
     }
     // Somewhere you can walk into comes before the map it sits on.
