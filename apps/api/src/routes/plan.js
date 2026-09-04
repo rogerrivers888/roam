@@ -738,13 +738,18 @@ async function retrieveCorridor({ household, trip, dayTrip, attendees, sessionId
     } catch { /* the estimate stands */ }
   }
   const direct = journey.minutes;
+  // The estimate runs 50% long on a motorway; the measured times do not. Mixing
+  // the two would read as an hour's detour for a place beside the road, so a
+  // pair that could not be measured is compared against the estimated journey.
+  const directEstimated = estimateTravelMinutes(origin, destination, mode);
   const withCost = near.map((v, i) => {
-    const there = measured && toThem?.[i] ? toThem[i].minutes : estimateTravelMinutes(origin, v, mode);
-    const on = measured && fromThem?.[i] ? fromThem[i].minutes : estimateTravelMinutes(v, destination, mode);
+    const bothMeasured = Boolean(measured && toThem?.[i] && fromThem?.[i]);
+    const there = bothMeasured ? toThem[i].minutes : estimateTravelMinutes(origin, v, mode);
+    const on = bothMeasured ? fromThem[i].minutes : estimateTravelMinutes(v, destination, mode);
     return {
       ...v,
-      detourMinutes: Math.max(0, Math.round(there + on - direct)),
-      detourEstimated: !measured || !toThem?.[i] || !fromThem?.[i],
+      detourMinutes: Math.max(0, Math.round(there + on - (bothMeasured ? direct : directEstimated))),
+      detourEstimated: !bothMeasured,
       // How far into the journey it sits — not how far it is from home, which
       // is not a cost here and must not be scored like one.
       alongFraction: there + on > 0 ? Math.min(0.95, Math.max(0.05, there / (there + on))) : 0.5,
@@ -752,7 +757,11 @@ async function retrieveCorridor({ household, trip, dayTrip, attendees, sessionId
   });
 
   const learned = await loadLearnedPreferences(household.id);
-  const { candidates } = applyConstraints({ venues: withCost, attendees, learned });
+  // The first and last few minutes are not a journey: somewhere five minutes
+  // from home is local, and somewhere on the edge of the destination is already
+  // in the pool for the day itself.
+  const alongTheWay = withCost.filter((v) => v.alongFraction > 0.12 && v.alongFraction < 0.9);
+  const { candidates } = applyConstraints({ venues: alongTheWay.length ? alongTheWay : withCost, attendees, learned });
   const legs = corridorStops({
     candidates,
     mode,
@@ -780,6 +789,45 @@ async function retrieveCorridor({ household, trip, dayTrip, attendees, sessionId
     limitMinutes: legs.limitMinutes, degraded, sourcesQueried,
     windowStart: dayTrip.depart_at, windowEnd: dayTrip.return_at,
   };
+}
+
+/**
+ * Getting there, and what is on the way: the real driving (or transit) time
+ * where the routing source is on, and the corridor search that time's own
+ * polyline makes possible. Never rejects — a day out still stands when the
+ * road cannot be looked at.
+ */
+async function journeyWithStops({ household, trip, dayTrip, attendees, sessionId, sources = null, includeChains = false }) {
+  const journey = {
+    from: trip.origin_label, to: trip.base_label, mode: trip.travel_mode, estimated: true,
+    minutes: estimateTravelMinutes({ lat: trip.origin_lat, lng: trip.origin_lng }, { lat: trip.base_lat, lng: trip.base_lng }, trip.travel_mode),
+  };
+  const awayFromHome = trip.origin_lat !== trip.base_lat || trip.origin_lng !== trip.base_lng;
+  let polyline = null;
+  if (routingEnabled() && awayFromHome) {
+    try {
+      const meter = {};
+      const r = await routeBetween({ from: { lat: trip.origin_lat, lng: trip.origin_lng }, to: { lat: trip.base_lat, lng: trip.base_lng }, mode: trip.travel_mode, departAt: new Date(new Date(dayTrip.depart_at).getTime() - 3 * 3600_000).toISOString(), meter });
+      if (r) { Object.assign(journey, { minutes: r.minutes, estimated: false, meters: r.meters }); polyline = r.encodedPolyline ?? null; }
+      await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, sessionId, 'google-routes', 'plan.journey', meter]);
+    } catch { /* the estimate stands */ }
+  }
+  // Everything between home and the destination is invisible to a search around
+  // the destination (Requirements §1). Once the journey is long enough to be a
+  // journey, the road itself is searched as well.
+  if (!awayFromHome || journey.minutes < CORRIDOR_MIN_JOURNEY_MINUTES) return { journey, route: null };
+  try {
+    return { journey, route: await retrieveCorridor({ household, trip, dayTrip, attendees, sessionId, journey, polyline, sources, includeChains }) };
+  } catch (err) {
+    return {
+      journey,
+      route: {
+        error: String(err?.message || err), from: trip.origin_label, to: trip.base_label, mode: trip.travel_mode,
+        minutes: journey.minutes, estimated: journey.estimated !== false, limitMinutes: MAX_DETOUR_MINUTES[trip.travel_mode] ?? 15,
+        stops: [], picked: [], windowStart: dayTrip.depart_at, windowEnd: dayTrip.return_at,
+      },
+    };
+  }
 }
 
 /**
@@ -1598,6 +1646,13 @@ async function executePlan({ household, members, session, state, res }) {
     // Plan the day where it happens: the pool is what's around the base, and
     // the journey there is reported separately rather than eating the window.
     const dayTrip = dayAsTrip(trip, trip.day);
+    // The road and the destination are looked at together: the journey and what
+    // is worth stopping for on it are their own retrieval, and waiting for one
+    // after the other would make every plan slower to arrive.
+    const roadside = journeyWithStops({
+      household, trip, dayTrip, attendees, sessionId: session.id,
+      sources: pickedSources, includeChains: merged.avoid_chains === false,
+    });
     const pool = await retrievePool({ household, trip: dayTrip, attendees, intent: merged, sessionId: session.id });
 
     if (merged.anchor && anchorPlace) {
@@ -1634,35 +1689,9 @@ async function executePlan({ household, members, session, state, res }) {
     state.dayId = trip.day.id;
     state.date = trip.day.date;
     state.anchor = merged.anchor && anchorPlace ? { ...merged.anchor, place: anchorPlace } : null;
-    state.journey = { from: trip.origin_label, to: trip.base_label, minutes: estimateTravelMinutes({ lat: trip.origin_lat, lng: trip.origin_lng }, { lat: trip.base_lat, lng: trip.base_lng }, trip.travel_mode), mode: trip.travel_mode, estimated: true };
-    let polyline = null;
-    const awayFromHome = trip.origin_lat !== trip.base_lat || trip.origin_lng !== trip.base_lng;
-    if (routingEnabled() && awayFromHome) {
-      try {
-        const meter = {};
-        const r = await routeBetween({ from: { lat: trip.origin_lat, lng: trip.origin_lng }, to: { lat: trip.base_lat, lng: trip.base_lng }, mode: trip.travel_mode, departAt: new Date(new Date(dayTrip.depart_at).getTime() - 3 * 3600_000).toISOString(), meter });
-        if (r) { state.journey = { ...state.journey, minutes: r.minutes, estimated: false, meters: r.meters }; polyline = r.encodedPolyline ?? null; }
-        await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, session.id, 'google-routes', 'plan.journey', meter]);
-      } catch { /* estimate stands */ }
-    }
-    // Everything between home and the destination is invisible to a search
-    // around the destination (Requirements §1). Once the journey is long enough
-    // to be a journey, the road itself is searched as well.
-    state.route = null;
-    if (awayFromHome && state.journey.minutes >= CORRIDOR_MIN_JOURNEY_MINUTES) {
-      try {
-        state.route = await retrieveCorridor({
-          household, trip, dayTrip, attendees, sessionId: session.id, journey: state.journey, polyline,
-          sources: pickedSources, includeChains: merged.avoid_chains === false,
-        });
-      } catch (err) {
-        state.route = {
-          error: String(err?.message || err), from: trip.origin_label, to: trip.base_label, mode: trip.travel_mode,
-          minutes: state.journey.minutes, estimated: state.journey.estimated !== false, limitMinutes: MAX_DETOUR_MINUTES[trip.travel_mode] ?? 15,
-          stops: [], picked: [], windowStart: dayTrip.depart_at, windowEnd: dayTrip.return_at,
-        };
-      }
-    }
+    const { journey, route } = await roadside;
+    state.journey = journey;
+    state.route = route;
     state.pool = pool.candidates;
     state.excludedByAllergen = pool.excluded.map((e) => ({ name: e.name, reasons: e.exclusionReasons }));
     // Must-haves come from the time left once a fixed commitment is placed:

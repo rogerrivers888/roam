@@ -50,7 +50,9 @@ export async function routeMatrixMinutes({ origins, destinations, mode = 'drivin
     };
     const rows = await post('/distanceMatrix/v2:computeRouteMatrix', body, 'originIndex,destinationIndex,duration,distanceMeters,condition');
     for (const r of rows) {
-      if (r.condition === 'ROUTE_EXISTS') out[r.originIndex ?? 0][i + r.destinationIndex] = { minutes: secondsToMinutes(r.duration), meters: r.distanceMeters ?? null };
+      // A zero index is left out of the JSON, so both must be read as optional:
+      // reading destinationIndex as undefined silently dropped every first column.
+      if (r.condition === 'ROUTE_EXISTS') out[r.originIndex ?? 0][i + (r.destinationIndex ?? 0)] = { minutes: secondsToMinutes(r.duration), meters: r.distanceMeters ?? null };
     }
   }
   return out;
