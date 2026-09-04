@@ -70,6 +70,8 @@ export type Household = {
   maxTravelMinutes: number;
   defaultIntensity: 'relaxed' | 'balanced' | 'packed';
   home: Place | null;
+  /** How far "close to home" reaches, in miles (Settings › Home). */
+  homeRadiusMiles?: number;
   pace: Pace;
   timezone?: string;
 };
@@ -225,10 +227,12 @@ export type Journey = {
 export type DirectionStep = { text: string; minutes: number; meters: number | null; travelMode: string; transit: { line: string | null; agency: string | null; vehicle: string | null; color: string | null; textColor: string | null; headsign: string | null; stopCount: number | null; from: string | null; to: string | null; departs: string | null; arrives: string | null } | null };
 export type Directions = { mode: LegMode; minutes: number; meters: number | null; encodedPolyline: string | null; steps: DirectionStep[]; estimated: boolean; source: string };
 export type AtlasCity = { name: string; places: number; been: number; special: number; trips: number; lastSeen: string | null; lat: number | null; lng: number | null; created: boolean };
+/** Everything within the household's radius of the front door: a standing view, not a city. */
+export type AtlasHome = { label: string | null; lat: number; lng: number; radiusMiles: number; places: number; been: number; special: number };
 export type AtlasCountry = { code: string; name: string; places: number; been: number; cities: AtlasCity[] };
 export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number;
   /** Each person's latest score out of 5 here. */ scores: { memberId: string; member: string; score: number; on: string }[];
-  /** Where it is at a glance: postcode district and the nearest station with its lines; null until looked up. */ postcode: string | null; station: string | null; stationLines: string[]; stationKind: string | null; whereChecked: string | null };
+  /** Where it is at a glance: postcode district and the nearest station with its lines; null until looked up. */ postcode: string | null; station: string | null; stationLines: string[]; stationKind: string | null; stationDistanceM: number | null; whereChecked: string | null };
 
 export type Trip = {
   kind?: TripKind; place?: { label: string } | null; startDate?: string | null; endDate?: string | null; dayStart?: string; dayEnd?: string;
@@ -311,7 +315,7 @@ export type TastePlace = {
   fits: TasteFit[]; attribution: string | null; menu: MenuRead | null;
 };
 export type Taste = { key: string; label: string; title: string; loved: TasteWho[]; notFor: { memberId: string; name: string; value: string }[]; named: boolean };
-export type TasteTable = Taste & { because?: string; searched?: string; radiusKm?: number; travelNote?: string | null; places: TastePlace[]; excluded?: { name: string; reasons: string[] }[]; found?: number; error?: string };
+export type TasteTable = Taste & { because?: string; searched?: string; radiusKm?: number; travelNote?: string | null; nearest?: { name: string; travelMinutes: number; estimated: boolean } | null; places: TastePlace[]; excluded?: { name: string; reasons: string[] }[]; found?: number; error?: string };
 export type TastesResponse = { sessionId: string; running: boolean; tastes: Taste[]; tables: TasteTable[]; note: string | null; error: string | null; capMinutes?: number | null; capFromWords?: boolean };
 export type AroundThing = IdeaThing & { why: { memberId: string; name: string; favourite: boolean; label: string; text: string }[] };
 
@@ -388,7 +392,7 @@ export const api = {
 
   // household
   household: () => request<HouseholdResponse>('/api/household'),
-  updateHousehold: (body: Partial<Pick<Household, 'name' | 'defaultVisitMinutes' | 'maxTravelMinutes' | 'defaultIntensity'>> & { home?: Place; homeText?: string; pace?: { food?: Partial<PaceKind>; activity?: Partial<PaceKind> }; timezone?: string }) =>
+  updateHousehold: (body: Partial<Pick<Household, 'name' | 'defaultVisitMinutes' | 'maxTravelMinutes' | 'defaultIntensity'>> & { home?: Place; homeText?: string; homeRadiusMiles?: number; pace?: { food?: Partial<PaceKind>; activity?: Partial<PaceKind> }; timezone?: string }) =>
     patch<{ household: Household }>('/api/household', body),
   addMember: (body: { name: string; relationship?: string | null; birthYear?: number | null; birthDate?: string | null; avatarUrl?: string | null }) => post<{ member: any }>('/api/household/members', body),
   updateMember: (id: string, body: { name?: string; relationship?: string | null; birthYear?: number | null; birthDate?: string | null; avatarUrl?: string | null; typicalVisitMinutes?: number; maxTravelMinutes?: number }) =>
@@ -442,8 +446,8 @@ export const api = {
   trips: (p: { country?: string; when?: 'upcoming' | 'past'; q?: string; kind?: TripKind } = {}) =>
     request<{ trips: TripSummary[]; countries: { code: string; name: string; trips: number }[] }>(`/api/trips${qs(p)}`),
   // atlas
-  atlas: () => request<{ countries: AtlasCountry[]; unplaced: number }>('/api/atlas'),
-  atlasPlaces: (p: { country?: string; city?: string; kind?: string; status?: string; q?: string } = {}) => request<{ places: AtlasPlace[]; wherePending?: number }>(`/api/atlas/places${qs(p)}`),
+  atlas: () => request<{ countries: AtlasCountry[]; unplaced: number; home: AtlasHome | null }>('/api/atlas'),
+  atlasPlaces: (p: { country?: string; city?: string; kind?: string; status?: string; q?: string; nearHome?: boolean } = {}) => request<{ places: AtlasPlace[]; wherePending?: number }>(`/api/atlas/places${qs(p)}`),
   // trips v2
   createMultiDayTrip: (body: { title?: string; notes?: string; place?: Place; placeText?: string; startDate: string; endDate: string; base?: Place; baseText?: string; baseKind?: string; checkIn?: string; checkOut?: string; hasCar?: boolean; travelMode?: Trip['travelMode']; intensity?: Trip['intensity']; dayStart?: string; dayEnd?: string; attendingMemberIds?: string[]; seedFromAtlas?: boolean }) =>
     post<TripDetail>('/api/trips', { kind: 'trip', ...body }),

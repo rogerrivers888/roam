@@ -134,7 +134,7 @@ async function buildTable({ household, attending, attendees, session, taste, hom
   // elements, so "within an hour" is the road and not a straight line.
   // Only the places that will be shown get a real road time: Routes bills per
   // element against a daily quota (owner, 4 Sep 2026).
-  const finalists = scored.slice(0, PLACES_PER_TABLE);
+  const finalists = scored.slice(0, PLACES_PER_TABLE + 1);
   const paused = routingPaused('matrix');
   let travelNote = !routingEnabled() ? 'Google Routes is not switched on here, so the drive is worked out from the distance.'
     : paused ? `Google Routes has no quota left today, so these are worked out from the distance — a road is longer than a straight line. It comes back at ${new Date(paused.until).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', timeZone: 'Europe/London' })}.`
@@ -164,8 +164,14 @@ async function buildTable({ household, attending, attendees, session, taste, hom
     }
   }
 
-  const places = finalists
-    .filter((v) => v.travelMinutes <= capMinutes)
+  const within = finalists.filter((v) => v.travelMinutes <= capMinutes);
+  // When the road puts the best of them outside the cap, say which one and by
+  // how much rather than showing an empty table: the estimate that got it onto
+  // the list is optimistic, and the real drive is the honest answer.
+  const nearest = !within.length && finalists.length
+    ? { name: finalists[0].name, travelMinutes: finalists[0].travelMinutes, estimated: finalists[0].travelEstimated !== false }
+    : null;
+  const places = within
     .slice(0, PLACES_PER_TABLE)
     .map((v) => ({
       venueRef: `${v.source}:${v.sourcePlaceId}`,
@@ -209,6 +215,7 @@ async function buildTable({ household, attending, attendees, session, taste, hom
     radiusKm: Number(radiusKm.toFixed(1)),
     travelNote,
     places,
+    nearest,
     excluded: excluded.slice(0, 5).map((v) => ({ name: v.name, reasons: v.exclusionReasons })),
     found: venues.length,
   };

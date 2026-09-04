@@ -219,7 +219,13 @@ function TableCard({ table, sessionId, attendingIds, onOpenTrip }: {
       </View>
       {table.error ? <StatusLine tone="warn">{table.error}</StatusLine> : null}
       {table.travelNote ? <Text style={type.tiny}>{table.travelNote}</Text> : null}
-      {!table.error && !table.places.length ? <Text style={type.small}>Nothing within reach came back for {table.label.toLowerCase()} — try a wider travel cap.</Text> : null}
+      {!table.error && !table.places.length ? (
+        <Text style={type.small}>
+          {table.nearest
+            ? `The best ${table.label.toLowerCase()} Roam found is ${table.nearest.name}, ${minutes(table.nearest.travelMinutes)} away by road — further than you said. Widen the travel cap and it comes back.`
+            : `Nothing within reach came back for ${table.label.toLowerCase()} — try a wider travel cap.`}
+        </Text>
+      ) : null}
       {table.places.map((p) => (
         <Place key={p.venueRef} table={table} place={p} open={open === p.venueRef} onToggle={() => setOpen(open === p.venueRef ? null : p.venueRef)}
           sessionId={sessionId} attendingIds={attendingIds} onOpenTrip={onOpenTrip} />
