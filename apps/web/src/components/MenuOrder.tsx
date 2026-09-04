@@ -358,8 +358,12 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
               {menu ? (
                 <View style={styles.bar}>
                   <View style={{ flex: 1 }}>
-                    <Text style={type.body}>{chosen.length ? `${chosen.length} ${chosen.length === 1 ? 'thing' : 'things'} · ${money(total)}` : 'Nothing chosen yet'}</Text>
-                    <Text style={type.tiny}>{chosen.length ? 'Tap to check it over' : 'Tap a face on a dish'}</Text>
+                    <Text style={type.body}>
+                      {chosen.length ? `${chosen.length} ${chosen.length === 1 ? 'thing' : 'things'}${total ? ` · ${money(total)}` : ''}` : 'Nothing chosen yet'}
+                    </Text>
+                    <Text style={type.tiny}>
+                      {!chosen.length ? 'Tap a face on a dish' : total ? 'Tap to check it over' : 'Priced by the set menu — tap to check it over'}
+                    </Text>
                   </View>
                   <Button label="The order" icon="forward" onPress={toTheOrder} disabled={!chosen.length || busy} />
                 </View>
@@ -389,9 +393,13 @@ export function MenuOrder({ venueRef, venueLabel, website, onClose }: {
                     )) : <Text style={type.tiny}>Nothing yet</Text>}
                   </View>
                 ))}
-                <Row style={styles.totalRow}>
-                  <Text style={type.h3}>Total</Text><Text style={type.h3}>{money(order.total)}</Text>
-                </Row>
+                {order.total ? (
+                  <Row style={styles.totalRow}>
+                    <Text style={type.h3}>Total</Text><Text style={type.h3}>{money(order.total)}</Text>
+                  </Row>
+                ) : (
+                  <Text style={type.tiny}>These courses are priced by the set menu, not one by one, so there is no total to show.</Text>
+                )}
                 {allergenLines.length ? (
                   <View style={styles.warn}>
                     <Icon name="allergen" size={14} color={colors.allergen} />
