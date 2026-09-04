@@ -21,7 +21,7 @@ import { defaultSourceKeys, sourceHasKey, sourceOff } from '../sources/index.js'
 import { applyConstraints } from '../domain/ranking.js';
 import { estimateTravelMinutes, kmBetween } from '../domain/travel.js';
 import { routingEnabled, travelMatrixMinutes } from '../sources/routing.js';
-import { foodTastes, likedConcepts, whyForUs, dishEvidence, driveRadiusKm, firstName } from '../domain/tastes.js';
+import { foodTastes, likedConcepts, whyForUs, dishEvidence, driveRadiusKm, firstName, capFromText, foodLeads } from '../domain/tastes.js';
 import { checkMenu, menuCheckEnabled, menuCheckUsage } from '../sources/menu.js';
 import { createTripFromIntent, seedShortlistFromIdea, thingsAround, THINGS_RADIUS_KM } from './plan.js';
 import { addShortlistItem } from './trips.js';
@@ -259,6 +259,7 @@ const publicRun = (run, sessionId) => ({
   note: run.note ?? null,
   error: run.error ?? null,
   capMinutes: run.input?.maxTravelMinutes ?? null,
+  capFromWords: Boolean(run.input?.capFromWords),
 });
 
 /**
@@ -274,20 +275,23 @@ router.post('/tastes', async (req, res, next) => {
     const { brief = '', moods = [], maxTravelMinutes = null, budget = 'any', attendingMemberIds } = req.body || {};
     const attending = Array.isArray(attendingMemberIds) && attendingMemberIds.length ? members.filter((m) => attendingMemberIds.includes(m.id)) : members;
     const attendees = toAttendees(attending);
-    const input = { brief: String(brief || '').trim() || null, moods, maxTravelMinutes: maxTravelMinutes ?? null, budget };
+    // A cap said in words wins over the chip: "no more than an hour away" is
+    // a statement, not a preference left on a default.
+    const said = capFromText(brief);
+    const input = { brief: String(brief || '').trim() || null, moods, maxTravelMinutes: said ?? maxTravelMinutes ?? null, capFromWords: said != null, budget };
     const { rows } = await query('insert into plan_sessions (household_id, state) values ($1, $2) returning *', [household.id, JSON.stringify({ kind: 'tastes', input, running: true })]);
     const session = rows[0];
     const all = foodTastes(attendees, { brief: input.brief || '' });
     const tastes = all.slice(0, MAX_TABLES);
     // Tables cost a search each, so they are built when food is the point of
     // the day: the Food-focused mood, or a food named in what they said.
-    const foodFirst = (moods || []).some((m) => /food/i.test(String(m))) || all.some((t) => t.named);
+    const foodFirst = (moods || []).some((m) => /food/i.test(String(m))) || all.some((t) => t.named) || foodLeads(input.brief);
     if (!foodFirst || !tastes.length) {
       const note = !tastes.length && foodFirst ? 'Nobody coming has a food on their list yet — add likes in Household and this fills itself.' : null;
       putRun(session.id, { running: false, tastes: [], tables: [], input, error: null, note });
       return res.json({ ...publicRun(getRun(session.id), session.id), running: false });
     }
-    res.json({ sessionId: session.id, running: true, tastes: tastes.map((t) => ({ key: t.key, label: t.label, title: `Best ${t.label.toLowerCase()}`, loved: t.loved, notFor: t.notFor, named: t.named })), tables: [], note: null, error: null });
+    res.json({ sessionId: session.id, running: true, tastes: tastes.map((t) => ({ key: t.key, label: t.label, title: `Best ${t.label.toLowerCase()}`, loved: t.loved, notFor: t.notFor, named: t.named })), tables: [], note: null, error: null, capMinutes: input.maxTravelMinutes, capFromWords: input.capFromWords });
     runTables({ household, attending, attendees, session, input }).catch(() => { /* recorded on the run */ });
   } catch (err) {
     next(err);

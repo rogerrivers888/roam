@@ -77,6 +77,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
   const [tablesRunning, setTablesRunning] = useState(false);
   const [tastesNote, setTastesNote] = useState<string | null>(null);
   const [tastesError, setTastesError] = useState<string | null>(null);
+  const [tastesCap, setTastesCap] = useState<{ minutes: number | null; said: boolean }>({ minutes: null, said: false });
   const run = useRef(0);
   const tasteRun = useRef(0);
 
@@ -92,6 +93,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
       const started = await api.tastes({ brief: query, moods: [...moods], maxTravelMinutes: cap, budget, attendingMemberIds: attendingIds });
       if (tasteRun.current !== id) return;
       setTasteSession(started.sessionId); setTastes(started.tastes); setTables(started.tables); setTastesNote(started.note);
+      setTastesCap({ minutes: started.capMinutes ?? cap, said: Boolean(started.capFromWords) });
       if (!started.running) { setTablesRunning(false); return; }
       for (;;) {
         await wait(2000);
@@ -221,7 +223,8 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
 
       <TasteTables
         sessionId={tasteSession} tastes={tastes} tables={tables} running={tablesRunning}
-        note={tastesNote} error={tastesError} attendingIds={attendingIds} onOpenTrip={onOpenTrip}
+        note={tastesNote} error={tastesError} capMinutes={tastesCap.minutes} capFromWords={tastesCap.said}
+        attendingIds={attendingIds} onOpenTrip={onOpenTrip}
       />
 
       {busy ? <Row><ActivityIndicator color={colors.accent} /><Text style={type.small}>Looking through your atlas and what's around…</Text></Row> : null}

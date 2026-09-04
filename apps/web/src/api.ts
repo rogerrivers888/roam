@@ -312,7 +312,7 @@ export type TastePlace = {
 };
 export type Taste = { key: string; label: string; title: string; loved: TasteWho[]; notFor: { memberId: string; name: string; value: string }[]; named: boolean };
 export type TasteTable = Taste & { because?: string; searched?: string; radiusKm?: number; travelNote?: string | null; places: TastePlace[]; excluded?: { name: string; reasons: string[] }[]; found?: number; error?: string };
-export type TastesResponse = { sessionId: string; running: boolean; tastes: Taste[]; tables: TasteTable[]; note: string | null; error: string | null; capMinutes?: number | null };
+export type TastesResponse = { sessionId: string; running: boolean; tastes: Taste[]; tables: TasteTable[]; note: string | null; error: string | null; capMinutes?: number | null; capFromWords?: boolean };
 export type AroundThing = IdeaThing & { why: { memberId: string; name: string; favourite: boolean; label: string; text: string }[] };
 
 export type Idea = { id: string; title: string; why: string; placeText: string; place: Place | null; travelMinutes: number | null; overnight: boolean; do: string[]; eat: string[] };

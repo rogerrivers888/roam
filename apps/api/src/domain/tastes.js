@@ -168,3 +168,36 @@ export function driveRadiusKm(minutes) {
   if (motorway > 15) return motorway;
   return Math.max(0.5, (minutes / 60) * 28 / 1.25);
 }
+
+/**
+ * A travel cap said in words. Inspire me's chips set one, but a household that
+ * speaks — "a food-focused day, no more than an hour away" — has said it, and
+ * what they said wins over what the chip was left on.
+ *
+ * It only counts as a cap when the words are about the journey: "within an
+ * hour", "an hour away", "an hour from home". "Three hours there" is how long
+ * they want at the other end and must not shrink the map.
+ */
+const NUMBER = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, 'half an': 0.5, 'a half': 0.5 };
+const AMOUNT = '(?:(\\d+(?:\\.\\d+)?)|a|an|one|two|three|four|half an)\\s*(hours?|hrs?|minutes?|mins?)';
+const CAP_PATTERNS = [
+  new RegExp(`(?:within|under|less than|no more than|at most|up to|max(?:imum)?(?: of)?)\\s+${AMOUNT}`),
+  new RegExp(`${AMOUNT}\\s+(?:away|from home|from the house|drive|by car|travel|door to door)`),
+  new RegExp(`(?:drive|travel|journey|get there)\\s+(?:of|in|under|within)?\\s*${AMOUNT}`),
+];
+export function capFromText(text) {
+  const t = norm(text);
+  if (!t) return null;
+  for (const pattern of CAP_PATTERNS) {
+    const m = t.match(pattern);
+    if (!m) continue;
+    const n = m[1] != null ? Number(m[1]) : NUMBER[m[0].match(/\b(half an|a half|an|a|one|two|three|four)\b/)?.[1]] ?? null;
+    if (n == null || !Number.isFinite(n) || n <= 0) continue;
+    const minutes = /^h/.test(m[2]) ? Math.round(n * 60) : Math.round(n);
+    if (minutes >= 10 && minutes <= 8 * 60) return minutes;
+  }
+  return null;
+}
+
+/** Does what they said make food the point of the day? */
+export const foodLeads = (text) => /\bfood\b|\bfoodie\b|\beat(ing|s)?\b|\brestaurants?\b|\bdinner\b|\blunch\b|\bbreakfast\b|\bbrunch\b|\bmeal\b/i.test(String(text || ''));

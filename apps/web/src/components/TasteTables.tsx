@@ -228,9 +228,10 @@ function TableCard({ table, sessionId, attendingIds, onOpenTrip }: {
   );
 }
 
-export function TasteTables({ sessionId, tastes, tables, running, note, error, attendingIds, onOpenTrip }: {
+export function TasteTables({ sessionId, tastes, tables, running, note, error, capMinutes, capFromWords, attendingIds, onOpenTrip }: {
   sessionId: string | null; tastes: Taste[]; tables: TasteTable[]; running: boolean;
-  note: string | null; error: string | null; attendingIds: string[] | null;
+  note: string | null; error: string | null; capMinutes?: number | null; capFromWords?: boolean;
+  attendingIds: string[] | null;
   onOpenTrip?: (tripId: string, opts?: OpenTripOptions) => void;
 }) {
   if (!sessionId || (!tastes.length && !tables.length && !error)) return null;
@@ -241,6 +242,10 @@ export function TasteTables({ sessionId, tastes, tables, running, note, error, a
         <Card style={{ gap: 6 }}>
           <Text style={[type.tiny, { fontWeight: '700', color: colors.ink }]}>BECAUSE YOU LOVE</Text>
           <Wrap>{tastes.map((t) => <Chip key={t.key} label={`${t.label} · ${t.loved.map((w) => w.name).join(', ') || 'you asked for it'}`} icon={t.named ? 'search' : 'restaurant'} />)}</Wrap>
+          <Text style={type.tiny}>
+            {capMinutes ? `Within ${minutes(capMinutes)} of home${capFromWords ? ', as you said' : ''}. ` : ''}
+            The best places for each, and whether everyone coming is catered for.
+          </Text>
           {note ? <Text style={type.tiny}>{note}</Text> : null}
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
         </Card>
