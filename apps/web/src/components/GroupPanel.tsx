@@ -60,24 +60,31 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
   const notJoined = active.filter((p) => !p.joinedAt);
   const left = participants.filter((p) => p.withdrawnAt);
   const days = daysUntil(group.wantedBy);
+  // Nobody has been asked anything yet, so there is nothing to chase and the
+  // screen says what it is for instead (owner, 4 Sep 2026: "the first thing it
+  // says is still 'To Chase' when I haven't chased anyone, because no one's
+  // even part of the group"). The household's own row does not count as joining.
+  const settingUp = !active.some((p) => p.joinedAt && !p.memberId);
 
   const outstanding = (
     <View style={{ gap: spacing.md }}>
       <Card>
         <Row style={{ justifyContent: 'space-between' }}>
-          <Text style={type.h2}>Still to chase</Text>
-          <Text style={type.small}>{summary.joined} of {group.expectedCount ?? '—'} joined</Text>
+          <Text style={type.h2}>{settingUp ? 'What everyone must do' : 'Still to chase'}</Text>
+          <Text style={type.small}>{settingUp ? `${group.expectedCount ?? '—'} expected` : `${summary.joined} of ${group.expectedCount ?? '—'} joined`}</Text>
         </Row>
         <Text style={type.small}>
-          {group.wantedBy
-            ? days != null && days >= 0 ? `Everything wanted by ${day(group.wantedBy)} — ${days} day${days === 1 ? '' : 's'} to go` : `Wanted by ${day(group.wantedBy)}`
-            : 'No date set, so nobody is being chased yet.'}
-          {summary.heads ? ` · ${summary.heads} head${summary.heads === 1 ? '' : 's'}` : ''}
+          {settingUp
+            ? 'Nobody has been asked in yet. Say what you want from everyone and what you are only asking about, then send them the link.'
+            : group.wantedBy
+              ? days != null && days >= 0 ? `Everything wanted by ${day(group.wantedBy)} — ${days} day${days === 1 ? '' : 's'} to go` : `Wanted by ${day(group.wantedBy)}`
+              : 'No date set, so nobody is being chased yet.'}
+          {!settingUp && summary.heads ? ` · ${summary.heads} head${summary.heads === 1 ? '' : 's'}` : ''}
         </Text>
-        <Meter used={summary.complete} limit={Math.max(1, summary.joined)} label={`${summary.complete} of ${summary.joined} have done everything`} />
+        {settingUp ? null : <Meter used={summary.complete} limit={Math.max(1, summary.joined)} label={`${summary.complete} of ${summary.joined} have done everything`} />}
       </Card>
 
-      {notJoined.length ? (
+      {notJoined.length && !settingUp ? (
         <Card>
           <Row style={{ justifyContent: 'space-between' }}>
             <Row><Icon name="person" size={16} /><Text style={type.h3}>{notJoined.length} {notJoined.length === 1 ? 'person has' : 'people have'} not joined</Text></Row>
@@ -88,7 +95,7 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
       ) : null}
 
       {items.map((i) => (
-        <ItemCard key={i.id} item={i} joined={summary.joined} onEdit={(body) => run(() => api.updateGroupItem(group.id, i.id, body))} onRemove={() => run(() => api.removeGroupItem(group.id, i.id))} busy={busy} />
+        <ItemCard key={i.id} item={i} joined={summary.joined} settingUp={settingUp} onEdit={(body) => run(() => api.updateGroupItem(group.id, i.id, body))} onRemove={() => run(() => api.removeGroupItem(group.id, i.id))} busy={busy} />
       ))}
 
       <AddItem onAdd={(body) => run(() => api.addGroupItem(group.id, body))} busy={busy} />
@@ -106,15 +113,20 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
     </View>
   );
 
+  const chasing = <Chasing group={g} busy={busy} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onSendNow={() => run(() => api.chaseGroup(group.id))} />;
+  const invite = <Invite group={g} busy={busy} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onAdd={(body) => run(() => api.addGroupParticipant(group.id, body))} />;
+
   const roster = (
     <View style={{ gap: spacing.md }}>
-      <Chasing group={g} busy={busy} onChange={(body) => run(() => api.updateGroup(group.id, body))} onSendNow={() => run(() => api.chaseGroup(group.id))} />
-      <Invite group={g} busy={busy} onChange={(body) => run(() => api.updateGroup(group.id, body))} onAdd={(body) => run(() => api.addGroupParticipant(group.id, body))} />
+      {/* Setting up: the link comes before the chasing, because there is nobody to chase. */}
+      {settingUp ? invite : chasing}
+      {settingUp ? chasing : invite}
       <Card>
         <Row style={{ justifyContent: 'space-between' }}>
-          <Text style={type.h2}>Everyone</Text>
+          <Text style={type.h2}>{settingUp ? 'Who you have added' : 'Everyone'}</Text>
           <Text style={type.small}>{active.length} · {summary.heads} heads</Text>
         </Row>
+        {settingUp ? <Text style={type.small}>Nobody has joined yet. A name added here means their join lands on that row rather than making a second one.</Text> : null}
         {active.map((p) => (
           <PersonRow
             key={p.id}
@@ -195,8 +207,8 @@ function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup)
 }
 
 /** One thing wanted from everybody, or asked about. */
-function ItemCard({ item, joined, onEdit, onRemove, busy }: {
-  item: GroupItem; joined: number; busy: boolean;
+function ItemCard({ item, joined, settingUp, onEdit, onRemove, busy }: {
+  item: GroupItem; joined: number; settingUp: boolean; busy: boolean;
   onEdit: (body: any) => void; onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -210,29 +222,39 @@ function ItemCard({ item, joined, onEdit, onRemove, busy }: {
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={type.h3}>{item.label}{item.kind === 'fee' && item.amountPence ? ` · ${money(item.amountPence)}` : ''}</Text>
               <Text style={type.small}>
-                {item.kind === 'fee'
-                  ? `${item.done} paid you · ${item.outstanding} to go`
-                  : item.required
-                    ? `${item.confirmed} booked${item.declared ? ` · ${item.declared} said so` : ''} · ${item.outstanding} to go`
-                    : `${item.coming} coming (${item.heads} head${item.heads === 1 ? '' : 's'}) · ${item.notComing} not · ${item.outstanding} haven't said`}
+                {/* Before anybody has been asked, counts are noise: what the row
+                    needs to say is whether it is wanted or only being asked about. */}
+                {settingUp
+                  ? item.kind === 'fee'
+                    ? `${money(item.amountPence)} from everyone${item.refundUntil ? ` · refundable until ${day(item.refundUntil)}` : ''}`
+                    : item.required ? 'Wanted from everyone' : "Just asking who's coming"
+                  : item.kind === 'fee'
+                    ? `${item.done} paid you · ${item.outstanding} to go`
+                    : item.required
+                      ? `${item.confirmed} booked${item.declared ? ` · ${item.declared} said so` : ''} · ${item.outstanding} to go`
+                      : `${item.coming} coming (${item.heads} head${item.heads === 1 ? '' : 's'}) · ${item.notComing} not · ${item.outstanding} haven't said`}
               </Text>
               {item.detail ? <Text style={type.tiny}>{item.detail}</Text> : null}
             </View>
           </Row>
-          <Text style={[type.small, { fontWeight: '700', color: item.outstanding && item.required ? colors.overrun : colors.inkMuted }]}>{item.outstanding}</Text>
+          {settingUp ? <Icon name={open ? 'collapse' : 'expand'} size={16} /> : <Text style={[type.small, { fontWeight: '700', color: item.outstanding && item.required ? colors.overrun : colors.inkMuted }]}>{item.outstanding}</Text>}
         </Row>
       </Pressable>
-      <Meter used={answered} limit={Math.max(1, joined)} />
-      {item.outstandingNames.length ? (
+      {settingUp ? null : <Meter used={answered} limit={Math.max(1, joined)} />}
+      {item.outstandingNames.length && !settingUp ? (
         <Text style={type.tiny}>{item.required ? 'Waiting on' : 'Not heard from'}: {item.outstandingNames.join(', ')}{item.outstanding > item.outstandingNames.length ? ` and ${item.outstanding - item.outstandingNames.length} more` : ''}</Text>
       ) : null}
-      {item.kind === 'fee' ? (
+      {item.kind === 'fee' && !settingUp ? (
         <Text style={type.small}>{money(item.paidPence)} in · {money(item.duePence)} still owed to you. Tick people off as it reaches you — Roam does not take the money.</Text>
       ) : null}
-      {open ? (
+      {item.kind === 'fee' && settingUp ? (
+        <Text style={type.tiny}>Roam does not take the money. You tick people off as it reaches you.</Text>
+      ) : null}
+      {open || settingUp ? (
         <Wrap>
-          <Chip label={item.required ? 'Wanted from everyone' : 'Just asking'} icon={item.required ? 'check' : 'info'} selected onPress={() => onEdit({ required: !item.required })} />
-          {!busy ? <Chip label="Remove" icon="close" onPress={onRemove} /> : null}
+          <Chip label="Wanted from everyone" icon="check" selected={item.required} onPress={() => onEdit({ required: true })} />
+          <Chip label="Just asking" icon="info" selected={!item.required} onPress={() => onEdit({ required: false })} />
+          {!busy && open ? <Chip label="Remove" icon="close" onPress={onRemove} /> : null}
         </Wrap>
       ) : null}
     </Card>
@@ -283,7 +305,7 @@ function AddItem({ onAdd, busy }: { onAdd: (body: any) => void; busy: boolean })
  * so it leads with the next run and the count, and hides sending by hand
  * behind the settings.
  */
-function Chasing({ group: g, busy, onChange, onSendNow }: { group: TripGroup; busy: boolean; onChange: (body: any) => void; onSendNow: () => void }) {
+function Chasing({ group: g, busy, settingUp, onChange, onSendNow }: { group: TripGroup; busy: boolean; settingUp: boolean; onChange: (body: any) => void; onSendNow: () => void }) {
   const [open, setOpen] = useState(false);
   const [wantedBy, setWantedBy] = useState(g.group.wantedBy ?? '');
   const r = g.reminders;
@@ -291,13 +313,16 @@ function Chasing({ group: g, busy, onChange, onSendNow }: { group: TripGroup; bu
   return (
     <Card>
       <Row style={{ justifyContent: 'space-between' }}>
-        <Row><Icon name="hours" size={16} /><Text style={type.h2}>Roam is chasing</Text></Row>
+        <Row><Icon name="hours" size={16} /><Text style={type.h2}>{settingUp ? 'Roam will do the chasing' : 'Roam is chasing'}</Text></Row>
         <Chip label={r.on ? 'On' : 'Off'} icon={r.on ? 'check' : 'close'} selected={r.on} onPress={() => onChange({ remindersOn: !r.on })} />
       </Row>
       {r.on ? (
         <Text style={type.small}>
           {r.next
-            ? `Next reminder ${day(r.next.date)}${nextIn != null && nextIn >= 0 ? nextIn === 0 ? ', today' : ` — in ${nextIn} day${nextIn === 1 ? '' : 's'}` : ''}, to ${r.next.recipients} ${r.next.recipients === 1 ? 'person' : 'people'} with something outstanding.`
+            ? `Next reminder ${day(r.next.date)}${nextIn != null && nextIn >= 0 ? nextIn === 0 ? ', today' : ` — in ${nextIn} day${nextIn === 1 ? '' : 's'}` : ''}` +
+              (r.next.recipients
+                ? `, to ${r.next.recipients} ${r.next.recipients === 1 ? 'person' : 'people'} with something outstanding.`
+                : settingUp ? ', to anyone who has joined by then and still has something to do.' : ' — nobody has anything outstanding, so it may go to no one.')
             : g.group.wantedBy ? 'Every reminder for this group has been sent.' : 'Set a date everything is wanted by and Roam will start chasing.'}
         </Text>
       ) : (
@@ -351,7 +376,7 @@ function Chasing({ group: g, busy, onChange, onSendNow }: { group: TripGroup; bu
   );
 }
 
-function Invite({ group: g, busy, onChange, onAdd }: { group: TripGroup; busy: boolean; onChange: (body: any) => void; onAdd: (body: any) => void }) {
+function Invite({ group: g, busy, settingUp, onChange, onAdd }: { group: TripGroup; busy: boolean; settingUp: boolean; onChange: (body: any) => void; onAdd: (body: any) => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
@@ -378,7 +403,11 @@ function Invite({ group: g, busy, onChange, onAdd }: { group: TripGroup; busy: b
         <Chip label="New link" icon="refresh" onPress={() => onChange({ newLink: true })} />
         <Chip label="Add someone by name" icon="add" onPress={() => setOpen(!open)} />
       </Wrap>
-      <Text style={type.tiny}>Anyone with the link can join, so what they type is all we know about them. Adding a name first means their join lands on that row.</Text>
+      <Text style={type.tiny}>
+        {settingUp
+          ? 'Nobody has this yet. Anyone holding it can join, so what they type is all we know about them.'
+          : 'Anyone with the link can join, so what they type is all we know about them. Adding a name first means their join lands on that row.'}
+      </Text>
       {open ? (
         <View style={{ gap: spacing.sm }}>
           <TextInput value={name} onChangeText={setName} placeholder="Their name" placeholderTextColor={colors.inkFaint} style={styles.input} />

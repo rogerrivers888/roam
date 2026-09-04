@@ -161,7 +161,9 @@ export async function groupPayload(groupId) {
 
   const runsDone = new Set(reminders.filter((r) => r.run_on).map((r) => ymd(r.run_on)));
   const next = nextRun(group, tz);
-  const nextRecipients = next ? active.filter((p) => !p.joined_at || byId.get(p.id)?.outstanding.length).length : 0;
+  // Who the next run would actually write to: the household's own people are
+  // never chased by their own app, and neither is anybody with nothing to do.
+  const nextRecipients = next ? active.filter((p) => !p.member_id && (!p.joined_at || byId.get(p.id)?.outstanding.length)).length : 0;
   const sentRows = reminders.filter((r) => r.participant_id && (r.status === 'sent' || r.status === 'no_channel'));
 
   return {
