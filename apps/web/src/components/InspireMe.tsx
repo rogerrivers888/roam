@@ -7,7 +7,51 @@ import { Icon } from './Icon';
 import { TasteTables } from './TasteTables';
 import type { OpenTripOptions } from '../screens/PlanScreen';
 
-const MOODS = ['Easygoing', 'Intensive', 'Fun', 'Relaxing', 'Food-focused', 'Activity-focused', 'Educational', 'Outdoors', 'Somewhere new'];
+/**
+ * In the mood for, as a trail rather than a list (owner, 4 Sep 2026: "can this
+ * not be a bit more like a sort of breadcrumb trail? If I select fun, it could
+ * be outdoor / indoor / don't care, intense or not intense… intense and
+ * relaxing shouldn't be in the same list because I could select both of them,
+ * which would be confusing").
+ *
+ * Three questions, one answer each, so the day cannot contradict itself: what
+ * it is about, whether it is outside, and how hard it goes. Every question has
+ * "Don't mind", and Inspire me works at any point in the trail — it is a trail,
+ * not a form to complete. The labels the model is told are the old mood words,
+ * so nothing behind this screen has to change.
+ */
+type StepKey = 'about' | 'where' | 'pace';
+const STEPS: { key: StepKey; question: string; options: { label: string; mood: string | null }[] }[] = [
+  {
+    key: 'about',
+    question: "What's the day about?",
+    options: [
+      { label: 'Fun', mood: 'Fun' },
+      { label: 'Food', mood: 'Food-focused' },
+      { label: 'Culture', mood: 'Educational' },
+      { label: 'Somewhere new', mood: 'Somewhere new' },
+      { label: "Don't mind", mood: null },
+    ],
+  },
+  {
+    key: 'where',
+    question: 'Indoors or out?',
+    options: [
+      { label: 'Outdoors', mood: 'Outdoors' },
+      { label: 'Indoors', mood: 'Indoors' },
+      { label: "Don't mind", mood: null },
+    ],
+  },
+  {
+    key: 'pace',
+    question: 'How full-on?',
+    options: [
+      { label: 'Full-on', mood: 'Intensive' },
+      { label: 'Gentle', mood: 'Relaxing' },
+      { label: "Don't mind", mood: null },
+    ],
+  },
+];
 const CAPS: { label: string; value: number | null }[] = [{ label: '1 h', value: 60 }, { label: '2 h', value: 120 }, { label: '3 h', value: 180 }, { label: 'Anywhere', value: null }];
 /** Find looks the same distance around the place as the ideas did, so the trip opens on what was already fetched. */
 const THINGS_RADIUS_KM = 5;
@@ -50,17 +94,30 @@ type Things = { status: 'loading' | 'ready' | 'error'; items: IdeaThing[] };
  * a day out in Trips — the Find tab already filled, what Roam named on the
  * shortlist — and "Plan this" hands the idea to the rows instead.
  */
-export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTrip, listening, transcript, supported, onSpeak, onStop }: {
+export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The family', onPlan, onOpenTrip, listening, transcript, supported, onSpeak, onStop }: {
   query: string; setQuery: (q: string) => void;
   attendingIds: string[] | null;
+  /** The ticks, shown when the one-line row is opened. */
   who: React.ReactNode;
+  /** Who is coming, in a few words, for that line. */
+  whoLabel?: string;
   onPlan: (utterance: string) => void;
   onOpenTrip?: (tripId: string, opts?: OpenTripOptions) => void;
   listening: boolean; transcript: string; supported: boolean; onSpeak: () => void; onStop: () => void;
 }) {
-  const [moods, setMoods] = useState<Set<string>>(new Set());
-  const [cap, setCap] = useState<number | null>(120);
+  // One answer per question, and which question is open. Nothing is answered to
+  // begin with, so the first question is the only thing on screen.
+  const [picks, setPicks] = useState<Partial<Record<StepKey, string>>>({});
+  const [editing, setEditing] = useState<StepKey | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // The defaults are the answer most days want, on one line, so they need no
+  // attention (owner, 4 Sep 2026): an hour from home, any budget, everyone.
+  const [cap, setCap] = useState<number | null>(60);
   const [budget, setBudget] = useState<IdeaBudget>('any');
+  const moods = useMemo(
+    () => STEPS.map((step) => step.options.find((o) => o.label === picks[step.key])?.mood).filter((m): m is string => Boolean(m)),
+    [picks],
+  );
   const [ideas, setIdeas] = useState<Idea[] | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [reply, setReply] = useState<string | null>(null);
@@ -181,6 +238,13 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
     onPlan(parts.join(' '));
   };
 
+  // The questions already answered, and the one to ask next — or the one a
+  // tapped crumb has reopened.
+  const answered = STEPS.filter((step) => picks[step.key]);
+  const nextUnanswered = STEPS.find((step) => !picks[step.key]) ?? null;
+  const openStep = editing ? STEPS.find((step) => step.key === editing) ?? null : nextUnanswered;
+  const budgetLabel = budget === 'any' ? 'any budget' : (BUDGETS.find((b) => b.value === budget)?.label ?? 'any budget').toLowerCase();
+
   const summaries = useMemo(() => Object.fromEntries(Object.entries(things).map(([id, t]) => [id, t.status === 'ready' ? summarise(t.items) : ''])), [things]);
 
   return (
@@ -191,7 +255,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
           onChangeText={setQuery}
           multiline
           editable={!listening}
-          placeholder="Somewhere fun within two hours, with climbing…"
+          placeholder="Somewhere fun within an hour, with climbing…"
           placeholderTextColor={colors.inkFaint}
           style={[styles.box, listening && styles.boxLive]}
           accessibilityLabel="What are you in the mood for"
@@ -204,20 +268,62 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
           ) : <View />}
           {!listening ? <Button label={busy ? 'Thinking…' : 'Inspire me'} icon="plan" onPress={inspire} disabled={busy} /> : null}
         </Row>
-        <View style={{ gap: 6 }}>
-          <Text style={type.tiny}>In the mood for</Text>
-          <Wrap>{MOODS.map((m) => <Chip key={m} label={m} selected={moods.has(m)} icon={moods.has(m) ? 'check' : undefined} onPress={() => setMoods((s) => { const n = new Set(s); if (n.has(m)) n.delete(m); else n.add(m); return n; })} />)}</Wrap>
+        {/* In the mood for: the answers so far as a trail, then the next question. */}
+        <View style={{ gap: 8 }}>
+          <Text style={type.tiny}>IN THE MOOD FOR</Text>
+          {answered.length ? (
+            <Row style={{ flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              {answered.map((step, i) => (
+                <React.Fragment key={step.key}>
+                  {i ? <Icon name="more" size={12} color={colors.inkFaint} /> : null}
+                  <Chip label={picks[step.key]!} selected={editing !== step.key} icon="check" onPress={() => setEditing(editing === step.key ? null : step.key)} />
+                </React.Fragment>
+              ))}
+              {answered.length ? <Chip label="Start again" icon="close" onPress={() => { setPicks({}); setEditing(null); }} /> : null}
+            </Row>
+          ) : null}
+          {openStep ? (
+            <View style={{ gap: 6 }}>
+              <Text style={type.small}>{openStep.question}</Text>
+              <Wrap>
+                {openStep.options.map((o) => (
+                  <Chip
+                    key={o.label}
+                    label={o.label}
+                    selected={picks[openStep.key] === o.label}
+                    onPress={() => { setPicks((p) => ({ ...p, [openStep.key]: o.label })); setEditing(null); }}
+                  />
+                ))}
+              </Wrap>
+            </View>
+          ) : null}
         </View>
-        <Row style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-          <Text style={type.tiny}>Up to</Text>
-          {CAPS.map((c) => <Chip key={c.label} label={c.label} selected={cap === c.value} onPress={() => setCap(c.value)} />)}
-          <Text style={type.tiny}>from home</Text>
-        </Row>
-        <Row style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-          <Text style={type.tiny}>Budget</Text>
-          {BUDGETS.map((b) => <Chip key={b.value} label={b.label} selected={budget === b.value} icon={budget === b.value && b.value !== 'any' ? 'check' : undefined} onPress={() => setBudget(b.value)} />)}
-        </Row>
-        {who}
+
+        {/* Everything else on one line, because most days want the same answer. */}
+        <View style={styles.settings}>
+          <Pressable onPress={() => setSettingsOpen((o) => !o)} style={styles.settingsRow} accessibilityRole="button" accessibilityState={{ expanded: settingsOpen }} accessibilityLabel={`${whoLabel}, within ${cap ? minutes(cap) : 'any distance'}, ${budgetLabel}. Tap to change`}>
+            <Text style={[type.small, { flex: 1 }]} numberOfLines={1}>
+              <Text style={{ fontWeight: '600', color: colors.ink }}>{whoLabel}</Text>
+              {cap ? ` · within ${minutes(cap)}` : ' · anywhere'}
+              {` · ${budgetLabel}`}
+            </Text>
+            <Icon name={settingsOpen ? 'expand' : 'more'} size={14} color={colors.inkMuted} />
+          </Pressable>
+          {settingsOpen ? (
+            <View style={{ gap: spacing.sm, paddingTop: spacing.sm }}>
+              {who}
+              <Row style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                <Text style={type.tiny}>Up to</Text>
+                {CAPS.map((c) => <Chip key={c.label} label={c.label} selected={cap === c.value} onPress={() => setCap(c.value)} />)}
+                <Text style={type.tiny}>from home</Text>
+              </Row>
+              <Row style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                <Text style={type.tiny}>Budget</Text>
+                {BUDGETS.map((b) => <Chip key={b.value} label={b.label} selected={budget === b.value} icon={budget === b.value && b.value !== 'any' ? 'check' : undefined} onPress={() => setBudget(b.value)} />)}
+              </Row>
+            </View>
+          ) : null}
+        </View>
         {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       </Card>
 
@@ -232,7 +338,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, onPlan, onOpenTr
       {ideas ? (
         <Card>
           {reply ? <Text style={type.small}>{reply}</Text> : null}
-          {ideas.length === 0 ? <Text style={type.small}>Nothing came to mind for that — try fewer moods or a wider cap.</Text> : null}
+          {ideas.length === 0 ? <Text style={type.small}>Nothing came to mind for that — try \u2018Don\u2019t mind\u2019 on one of the questions, or a wider distance.</Text> : null}
           {ideas.map((idea) => {
             const t = things[idea.id];
             const done = opened[idea.id];
@@ -270,4 +376,6 @@ const styles = StyleSheet.create({
   stop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET, paddingHorizontal: spacing.lg, borderRadius: radius.pill, backgroundColor: colors.overrun },
   stopText: { color: colors.bg, fontWeight: '700', fontSize: 15 },
   idea: { paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line, flexDirection: 'row', gap: spacing.sm },
+  settings: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: spacing.sm },
+  settingsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
 });

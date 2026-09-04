@@ -323,6 +323,10 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
       })}
     </Row>
   );
+  // Who is coming, in the few words Inspire me puts on its one settings line.
+  const whoLabel = !attendingIds || attendingIds.size === members.length
+    ? 'The family'
+    : members.filter((m) => attendingIds.has(m.id)).map((m) => firstName(m.name)).join(', ') || 'The family';
   const lastSaid = [...turns].reverse().find((t) => t.role === 'user')?.text ?? null;
   const fromRow = rows.find((r) => r.key === 'from');
   const whoInRows = rows.find((r) => r.key === 'who');
@@ -369,7 +373,8 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
         <InspireMe
           query={inspireQuery} setQuery={setInspireQuery}
           attendingIds={attendingIds ? [...attendingIds] : null}
-          who={whoRow}
+          who={members.length > 1 ? <View style={{ gap: 4 }}><Text style={type.tiny}>Who's coming</Text>{whoTicks}</View> : null}
+          whoLabel={whoLabel}
           onPlan={(utterance) => { setMode('tell'); send(utterance); }}
           onOpenTrip={onOpenTrip}
           listening={speech.listening} transcript={speech.transcript} supported={speech.supported}
