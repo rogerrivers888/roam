@@ -21,7 +21,7 @@ import { query, withTransaction } from '../db.js';
 import { currentHousehold, loadMembers } from './household.js';
 import { recallVenue } from '../sources/index.js';
 import { findMenuUrl } from '../sources/menuLink.js';
-import { readMenu, chromePath } from '../sources/menuRead.js';
+import { readMenu, chromePath, renderProbe } from '../sources/menuRead.js';
 import { resolveConcept, matchConcepts, conceptByKey } from '../domain/concepts.js';
 import { upsertHouseholdPlace } from './atlas.js';
 
@@ -119,9 +119,12 @@ menu.get('/', async (req, res, next) => {
 });
 
 /** GET /api/menu/openers — which of the four ways of opening a menu this machine can use. */
-menu.get('/openers', async (_req, res, next) => {
+menu.get('/openers', async (req, res, next) => {
   try {
     const browser = await chromePath();
+    // ?probe=1 actually drives the browser once, because "the binary is there"
+    // and "it runs in this container" are different questions.
+    const probe = req.query.probe ? await renderProbe() : null;
     res.json({
       html: true,
       pdf: true,
@@ -129,6 +132,7 @@ menu.get('/openers', async (_req, res, next) => {
       browser: browser ? browser.split('/').slice(-1)[0] : null,
       claude: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
       staleAfterDays: STALE_DAYS,
+      probe,
     });
   } catch (err) { next(err); }
 });

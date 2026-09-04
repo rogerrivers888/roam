@@ -193,21 +193,53 @@ export async function renderText(url) {
     browser = await puppeteer.launch({
       executablePath,
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--hide-scrollbars'],
+      // A container is not a laptop: no sandbox, no shared-memory device worth
+      // the name, one process, and a heap small enough that a heavy page cannot
+      // take the API down with it.
+      args: [
+        '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
+        '--no-zygote', '--single-process', '--hide-scrollbars', '--mute-audio',
+        '--disable-extensions', '--disable-background-networking', '--disable-sync',
+        '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
+        '--blink-settings=imagesEnabled=false', '--js-flags=--max-old-space-size=320',
+      ],
+      protocolTimeout: RENDER_TIMEOUT_MS + 10_000,
     });
     const page = await browser.newPage();
     await page.setUserAgent(UA);
-    await page.setViewport({ width: 1200, height: 2400 });
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: RENDER_TIMEOUT_MS });
-    // Menus lazily draw section by section; give the last fetch a moment.
-    await new Promise((r) => setTimeout(r, 1200));
-    const text = await page.evaluate(() => document.body?.innerText || '');
+    await page.setViewport({ width: 1100, height: 1800 });
+    // A menu is words. Everything else is weight we would pay for in memory.
+    await page.setRequestInterception(true);
+    page.on('request', (r) => {
+      const type = r.resourceType();
+      if (type === 'image' || type === 'media' || type === 'font' || type === 'stylesheet') r.abort().catch(() => {});
+      else r.continue().catch(() => {});
+    });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: RENDER_TIMEOUT_MS });
+    // The shell arrives first and the menu a moment later: wait for words rather
+    // than for the network, which on a menu app never really goes quiet.
+    let text = '';
+    const deadline = Date.now() + RENDER_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      text = await page.evaluate(() => document.body?.innerText || '');
+      if (text.length >= THIN_TEXT) break;
+      await new Promise((r) => setTimeout(r, 700));
+    }
     return { text: text.replace(/\n{3,}/g, '\n\n').trim(), why: null };
   } catch (err) {
     return { text: '', why: `render failed: ${err.message}` };
   } finally {
-    await browser?.close().catch(() => {});
+    try { await browser?.close(); } catch { /* it may already be gone */ }
   }
+}
+
+/** Can this machine actually drive its browser? A one-page check for the openers endpoint. */
+export async function renderProbe() {
+  const executablePath = await chromePath();
+  if (!executablePath) return { ok: false, why: 'no browser on this machine' };
+  const started = Date.now();
+  const { text, why } = await renderText('data:text/html,<h1>Roam can render</h1>' + 'x'.repeat(THIN_TEXT));
+  return { ok: !why && text.length > 0, why, ms: Date.now() - started, executablePath };
 }
 
 /* ----------------------------------------------------------- the last resort */
