@@ -33,6 +33,23 @@ export const orders = Router();
 // set and 30 days is the standing suggestion until he moves it).
 export const STALE_DAYS = Number(process.env.ROAM_MENU_STALE_DAYS || 30);
 
+const SYMBOLS = { GBP: '£', '£': '£', EUR: '€', '€': '€', USD: '$', $: '$' };
+/**
+ * A price as a menu would print it. Sites often draw the number alone and let
+ * the page's currency do the rest ("17.5"), so the symbol is put back and the
+ * pennies are made to look like pennies — "£17.50", and "£7.50 / £9.50" for a
+ * wine sold three ways.
+ */
+const priceLabel = (raw, currency) => {
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+  if (/[£€$]/.test(text)) return text;
+  const symbol = SYMBOLS[String(currency ?? '').toUpperCase()] ?? SYMBOLS[String(currency ?? '')] ?? '£';
+  return text.replace(/\d+(?:[.,]\d{1,2})?/g, (n) => {
+    const v = Number(n.replace(',', '.'));
+    return `${symbol}${Number.isInteger(v) ? v : v.toFixed(2)}`;
+  });
+};
 const money = (text) => {
   const m = String(text ?? '').match(/(\d+(?:[.,]\d{1,2})?)/);
   return m ? Number(m[1].replace(',', '.')) : null;
@@ -49,7 +66,7 @@ async function menuPayload(menuId) {
     if (!section) sections.push((section = { title: i.section, note: i.section_note, items: [] }));
     section.items.push({
       id: i.id, name: i.name, description: i.description, price: i.price == null ? null : Number(i.price),
-      priceText: i.price_text, kcal: i.kcal, allergens: i.allergens, vegetarian: i.vegetarian,
+      priceText: priceLabel(i.price_text, m.currency), kcal: i.kcal, allergens: i.allergens, vegetarian: i.vegetarian,
     });
   }
   const ageDays = Math.floor((Date.now() - new Date(m.fetched_at).getTime()) / 86_400_000);
