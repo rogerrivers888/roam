@@ -1321,6 +1321,56 @@ router.post('/start', async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// Every run has a number the household can read out (owner, 4 Sep 2026: "maybe
+// even my particular activity should have a unique number associated with it,
+// so I can give you that, and you can look at the specific request to see
+// what's going wrong"). It is the head of the session's own id, so nothing has
+// to be stored to make it, and GET /api/plan/runs/:ref says what that run did.
+// ---------------------------------------------------------------------------
+export const runRef = (sessionId) => String(sessionId).replace(/-/g, '').slice(0, 8).toUpperCase();
+
+router.get('/runs/:ref', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const ref = String(req.params.ref || '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+    if (ref.length < 6) return res.status(400).json({ error: 'ref_too_short', message: 'A run number is eight characters, e.g. 322FCB98.' });
+    const { rows } = await query(
+      `select id, trip_id, created_at, updated_at, state from plan_sessions
+        where household_id = $1 and replace(id::text, '-', '') like $2 || '%'
+        order by created_at desc limit 1`,
+      [household.id, ref],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'run_not_found', message: `No run here begins ${ref.toUpperCase()}. Runs are kept for twelve hours.` });
+    const run = rows[0];
+    const st = run.state || {};
+    const { rows: calls } = await query(
+      `select provider, purpose, units, estimated_cost_usd, created_at from provider_calls
+        where session_id = $1 order by created_at`,
+      [run.id],
+    );
+    const started = st.runStartedAt ? new Date(st.runStartedAt) : new Date(run.created_at);
+    res.json({
+      ref: runRef(run.id),
+      sessionId: run.id,
+      kind: st.kind ?? 'plan',
+      asked: st.input ?? st.intent ?? null,
+      startedAt: started.toISOString(),
+      lastTouchedAt: run.updated_at,
+      seconds: Math.max(0, Math.round((new Date(run.updated_at).getTime() - started.getTime()) / 1000)),
+      stage: st.stage ?? (st.running ? 'running' : 'done'),
+      running: Boolean(st.running),
+      error: st.error ?? null,
+      answered: Array.isArray(st.ideas) ? st.ideas.map((i) => ({ title: i.title, pinned: Boolean(i.place) })) : null,
+      tripId: run.trip_id,
+      // What it went out and asked for, in order, so a slow run can be read.
+      calls: calls.map((c) => ({ provider: c.provider, purpose: c.purpose, units: c.units, costUsd: c.estimated_cost_usd, at: c.created_at, afterSeconds: Math.max(0, Math.round((new Date(c.created_at).getTime() - started.getTime()) / 1000)) })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Inspire me: a loose brief, a mood or two and a travel cap become ideas that
 // say why; an idea opens as a list of things to do and see there.
 // ---------------------------------------------------------------------------
@@ -1340,7 +1390,9 @@ const Ideas = z.object({
 
 const INSPIRE_SYSTEM = `You suggest days out — or a night away only if the brief asks — for one family, starting from their home.
 
-You are given the household (people, likes, dislikes, allergens), their atlas (places they have saved, loved, listed or visited, with notes), today's date, a brief in their words, the moods they picked, a travel cap in minutes by car, and who is coming. Give three to five real, specific places in their own country within the cap. Match the moods. Prefer places from the atlas they loved or listed, and say so. Never suggest anything a coming member dislikes or cannot eat. Each idea's "why" names the person or the fact it rests on. Each idea has named things to do and, where food matters, meals. The reply is spoken aloud: one plain sentence, no lists.`;
+You are given the household (people, likes, dislikes, allergens), their atlas (places they have saved, loved, listed or visited, with notes), today's date, a brief in their words, the moods they picked, a travel cap in minutes by car, and who is coming. Give three to five real, specific places in their own country within the cap. Match the moods. Prefer places from the atlas they loved or listed, and say so. Never suggest anything a coming member dislikes or cannot eat. Each idea's "why" names the person or the fact it rests on. Each idea has named things to do and, where food matters, meals. The reply is spoken aloud: one plain sentence, no lists.
+
+The brief and the moods are both optional. When neither is given, that is not a reason to return nothing — it is the ordinary way in. Suggest the days out this family would most enjoy from home, leaning on their atlas, the ages of the people coming and what is within the cap. Never return an empty list.`;
 
 // How much the day should cost, in the model's ear. "free" also opens the trip's
 // Find tab on the places that are free to enter.
@@ -1368,14 +1420,32 @@ router.post('/inspire', async (req, res, next) => {
     const state = { transcript: [], kind: 'inspire', input, running: true, runStartedAt: new Date().toISOString(), ideas: null, reply: null, error: null };
     const { rows: srows } = await query('insert into plan_sessions (household_id, state) values ($1, $2) returning *', [household.id, JSON.stringify(state)]);
     const session = srows[0];
-    res.json({ sessionId: session.id, running: true });
+    res.json({ sessionId: session.id, ref: runRef(session.id), running: true, stage: 'thinking' });
     runInspire({ household, attending, session, state }).catch(() => { /* recorded on the session */ });
   } catch (err) {
     next(err);
   }
 });
 
+// Inspire me is a list of days out, not a piece of reasoning, so it runs on the
+// quicker model with thinking off (owner, 4 Sep 2026: "I've been waiting more
+// than a minute and a half… we need to find ways to speed this up, even if it's
+// just rendering some stuff and then rendering other stuff in the background").
+const INSPIRE_MODEL = process.env.ROAM_INSPIRE_MODEL || 'claude-sonnet-5';
+// A model call that has not answered by now is not going to: the run says so
+// rather than leaving a spinner turning.
+const INSPIRE_DEADLINE_MS = Number(process.env.ROAM_INSPIRE_DEADLINE_MS || 75_000);
+
+const deadline = (promise, ms, message) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+]);
+
 async function runInspire({ household, attending, session, state }) {
+  // Each stage is written to the session as it starts, so the screen can say
+  // what is happening instead of spinning, and the ideas themselves are saved
+  // before they are pinned to the map — titles first, pins as they land.
+  const publish = async (patch) => { Object.assign(state, patch); await saveSession(session.id, state, null); };
   try {
     const { rows: atlas } = await query(
       `select hp.label, hp.kind, hp.category, hp.locality, hp.note,
@@ -1384,27 +1454,62 @@ async function runInspire({ household, attending, session, state }) {
       [household.id],
     );
     const { input } = state;
-    const out = await parseStructured({
+    await publish({ stage: 'thinking' });
+    const ask = () => parseStructured({
       system: INSPIRE_SYSTEM,
       messages: [{ role: 'user', content: JSON.stringify({ ...householdContext(household, attending), atlas, brief: input.brief, moods: input.moods, maxTravelMinutes: input.maxTravelMinutes, budget: BUDGETS[input.budget], attending: attending.map((m) => m.name) }) }],
       schema: Ideas,
       householdId: household.id,
       sessionId: session.id,
       purpose: 'plan.inspire',
+      model: INSPIRE_MODEL,
+      thinking: 'off',
     });
-    const home = household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null;
-    const ideas = [];
-    for (const [i, idea] of out.ideas.entries()) {
-      let place = null;
-      try {
-        const [hit] = await geocode(idea.place_text, { limit: 1, near: home });
-        if (hit) place = { label: hit.label, lat: hit.lat, lng: hit.lng, locality: hit.locality ?? null, countryCode: hit.countryCode ?? null };
-      } catch { /* the idea stands without a pin */ }
-      const travelMinutes = place && home ? estimateTravelMinutes(home, place, 'driving') : (idea.travel_minutes ?? null);
-      ideas.push({ id: `idea-${i}`, title: idea.title, why: idea.why, placeText: idea.place_text, place, travelMinutes, overnight: idea.overnight, do: idea.do, eat: idea.eat });
+    let out = await deadline(ask(), INSPIRE_DEADLINE_MS, 'Roam took too long thinking of places — try Inspire me again.');
+    // Nothing said and no mood picked is the commonest way in, and it was
+    // coming back with an empty list. Asked once more, plainly, before giving up.
+    if (!out.ideas?.length) {
+      await publish({ stage: 'thinking-again' });
+      out = await deadline(
+        parseStructured({
+          system: INSPIRE_SYSTEM,
+          messages: [{ role: 'user', content: `${JSON.stringify({ ...householdContext(household, attending), atlas, brief: input.brief, moods: input.moods, maxTravelMinutes: input.maxTravelMinutes, budget: BUDGETS[input.budget], attending: attending.map((m) => m.name) })}\n\nThey have not said what they want and picked no mood. That is not a reason to return nothing: give five good days out from home for this family, the kind they would be pleased to be reminded of.` }],
+          schema: Ideas,
+          householdId: household.id,
+          sessionId: session.id,
+          purpose: 'plan.inspire.retry',
+          model: INSPIRE_MODEL,
+          thinking: 'off',
+        }),
+        INSPIRE_DEADLINE_MS,
+        'Roam took too long thinking of places — try Inspire me again.',
+      );
     }
-    Object.assign(state, { ideas, reply: out.reply, running: false });
-    await saveSession(session.id, state, null);
+
+    const home = household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null;
+    // On screen at once, unpinned: the titles and the reasons are the answer,
+    // the map pin only decides whether "Things to do and see" can open.
+    const ideas = out.ideas.map((idea, i) => ({
+      id: `idea-${i}`, title: idea.title, why: idea.why, placeText: idea.place_text, place: null,
+      travelMinutes: idea.travel_minutes ?? null, overnight: idea.overnight, do: idea.do, eat: idea.eat, placing: true,
+    }));
+    await publish({ ideas, reply: out.reply, stage: 'placing', placed: 0 });
+
+    // The map answers about one name a second, so each pin is published as it
+    // lands rather than the whole list waiting for the slowest.
+    for (const idea of ideas) {
+      try {
+        const [hit] = await geocode(idea.placeText, { limit: 1, near: home });
+        if (hit) {
+          idea.place = { label: hit.label, lat: hit.lat, lng: hit.lng, locality: hit.locality ?? null, countryCode: hit.countryCode ?? null };
+          if (home) idea.travelMinutes = estimateTravelMinutes(home, idea.place, 'driving');
+        }
+      } catch { /* the idea stands without a pin */ }
+      idea.placing = false;
+      await publish({ ideas, placed: ideas.filter((x) => !x.placing).length });
+    }
+    await publish({ running: false, stage: 'ready' });
+
     // What there is at each idea is gathered now, in the background and in
     // order, so opening one is a read rather than a search (owner, 3 Sep 2026).
     for (const idea of ideas) {
@@ -1412,7 +1517,7 @@ async function runInspire({ household, attending, session, state }) {
       try { await thingsAround({ household, session, place: idea.place }); } catch { /* the tap will try again */ }
     }
   } catch (err) {
-    Object.assign(state, { running: false, error: err?.message || String(err) });
+    Object.assign(state, { running: false, stage: 'error', error: err?.message || String(err) });
     await saveSession(session.id, state, null);
   }
 }
@@ -1424,7 +1529,14 @@ router.get('/inspire/:sessionId', async (req, res, next) => {
     const s = session.state || {};
     if (s.kind !== 'inspire') return res.status(404).json({ error: 'session_not_found' });
     const stale = s.running && s.runStartedAt && Date.now() - new Date(s.runStartedAt).getTime() > 3 * 60_000;
-    res.json({ sessionId: session.id, running: Boolean(s.running) && !stale, ideas: s.ideas ?? null, reply: s.reply ?? null, budget: s.input?.budget ?? 'any', error: stale ? 'That run was interrupted — try Inspire me again.' : s.error ?? null });
+    res.json({
+      sessionId: session.id, ref: runRef(session.id),
+      running: Boolean(s.running) && !stale,
+      ideas: s.ideas ?? null, reply: s.reply ?? null, budget: s.input?.budget ?? 'any',
+      stage: stale ? 'error' : s.stage ?? null, placed: s.placed ?? 0,
+      startedAt: s.runStartedAt ?? null,
+      error: stale ? 'That run was interrupted — try Inspire me again.' : s.error ?? null,
+    });
   } catch (err) {
     next(err);
   }

@@ -416,7 +416,9 @@ export type TasteTable = Taste & { because?: string; searched?: string; radiusKm
 export type TastesResponse = { sessionId: string; running: boolean; tastes: Taste[]; tables: TasteTable[]; note: string | null; error: string | null; capMinutes?: number | null; capFromWords?: boolean };
 export type AroundThing = IdeaThing & { why: { memberId: string; name: string; favourite: boolean; label: string; text: string }[] };
 
-export type Idea = { id: string; title: string; why: string; placeText: string; place: Place | null; travelMinutes: number | null; overnight: boolean; do: string[]; eat: string[] };
+/** How far along a run of Inspire me is, for the line that says what is happening. */
+export type InspireStage = 'thinking' | 'thinking-again' | 'placing' | 'ready' | 'error';
+export type Idea = { id: string; title: string; why: string; placeText: string; place: Place | null; travelMinutes: number | null; overnight: boolean; do: string[]; eat: string[]; placing?: boolean };
 export type IdeaThing = { venueRef: string; name: string; category: string; kind: 'do' | 'eat' | 'see'; experiences: string[]; rating: number | null; ratingCount: number | null; priceLevel: number | null; distanceKm: number | null; lat: number | null; lng: number | null; reasons: string[] };
 
 export type PlanAction =
@@ -604,8 +606,10 @@ export const api = {
   planGo: (sessionId: string) => post<PlanResponse>('/api/plan/go', { sessionId }),
   planPreview: (utterance: string, sessionId?: string | null) => post<{ sessionId: string; rows: PlanRow[] }>('/api/plan/preview', { utterance, sessionId: sessionId ?? undefined }),
   /** Inspire me runs in the background: the answer is the session; poll inspireStatus until running is false. */
-  inspire: (body: { query: string; moods: string[]; maxTravelMinutes: number | null; budget?: IdeaBudget; attendingMemberIds?: string[] | null }) => post<{ sessionId: string; running: boolean }>('/api/plan/inspire', body),
-  inspireStatus: (sessionId: string) => request<{ sessionId: string; running: boolean; ideas: Idea[] | null; reply: string | null; budget: IdeaBudget; error: string | null }>(`/api/plan/inspire/${sessionId}`),
+  inspire: (body: { query: string; moods: string[]; maxTravelMinutes: number | null; budget?: IdeaBudget; attendingMemberIds?: string[] | null }) => post<{ sessionId: string; ref: string; running: boolean; stage: InspireStage }>('/api/plan/inspire', body),
+  inspireStatus: (sessionId: string) => request<{ sessionId: string; ref: string; running: boolean; ideas: Idea[] | null; reply: string | null; budget: IdeaBudget; stage: InspireStage | null; placed: number; startedAt: string | null; error: string | null }>(`/api/plan/inspire/${sessionId}`),
+  /** What one run did, by the number shown on screen: what was asked, how long, and every call it made. */
+  planRun: (ref: string) => request<{ ref: string; sessionId: string; kind: string; asked: any; startedAt: string; seconds: number; stage: string; running: boolean; error: string | null; answered: { title: string; pinned: boolean }[] | null; calls: { provider: string; purpose: string; units: any; costUsd: number | null; at: string; afterSeconds: number }[] }>(`/api/plan/runs/${ref}`),
   inspireThings: (q: { lat: number; lng: number; label: string; locality?: string }) => request<{ items: IdeaThing[]; cached?: boolean; tookMs?: number }>(`/api/plan/inspire/things${qs(q)}`),
   /** Things to do and see: the idea becomes a day out in Trips, what Roam named already shortlisted. */
   inspireTrip: (body: { sessionId: string; ideaId: string; attendingMemberIds?: string[] | null }) => post<{ tripId: string; title: string; date: string; seeded: string[]; reply: string; existing: boolean }>('/api/plan/inspire/trip', body),

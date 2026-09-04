@@ -109,6 +109,32 @@ function Shell() {
   const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking');
   const [household, setHousehold] = useState<HouseholdResponse | null>(null);
   const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(fromUrl.trip ? { openTripId: fromUrl.trip } : null);
+  // Wherever you are has an address (owner, 4 Sep 2026: "we need a unique URL
+  // structure, so wherever I am, there is a unique URL"). The tab, and the trip
+  // when one is open, are written to the address bar as they change, so the
+  // page can be reloaded, bookmarked or sent to somebody and come back to the
+  // same place — and the browser's own back button walks the tabs.
+  const openTripId = tripPrefill?.openTripId ?? null;
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const q = new URLSearchParams(window.location.search);
+    q.set('tab', tab);
+    if (openTripId) q.set('trip', openTripId); else q.delete('trip');
+    const next = `${window.location.pathname}?${q.toString()}`;
+    if (next !== `${window.location.pathname}${window.location.search}`) window.history.pushState({ tab, trip: openTripId }, '', next);
+  }, [tab, openTripId]);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const onPop = () => {
+      const q = new URLSearchParams(window.location.search);
+      const t = q.get('tab');
+      if (TABS.some((x) => x.key === t) || t === 'prototypes') setTab(t as Tab);
+      const trip = q.get('trip');
+      if (trip) setTripPrefill({ openTripId: trip });
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
   const offline = useOffline();
   // Showing the saved copy: the browser says there is no connection, the app has
   // already had to fall back to the device, or the API cannot be reached at all

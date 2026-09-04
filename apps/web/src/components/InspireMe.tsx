@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, IdeaBudget, Idea, IdeaThing, Taste, TasteTable } from '../api';
+import { api, IdeaBudget, Idea, IdeaThing, InspireStage, Taste, TasteTable } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, StatusLine, Wrap, minutes } from './ui';
 import { Icon } from './Icon';
@@ -122,6 +122,12 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [reply, setReply] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // What the run is doing and how long it has been doing it, so a slow answer
+  // is a progress line rather than a spinner (owner, 4 Sep 2026).
+  const [stage, setStage] = useState<InspireStage | null>(null);
+  const [runRef, setRunRef] = useState<string | null>(null);
+  const [placed, setPlaced] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [things, setThings] = useState<Record<string, Things>>({});
   const [opening, setOpening] = useState<string | null>(null);
@@ -137,6 +143,9 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   const [tastesCap, setTastesCap] = useState<{ minutes: number | null; said: boolean }>({ minutes: null, said: false });
   const run = useRef(0);
   const tasteRun = useRef(0);
+  // The poll's own counter: the look-around effect below bumps `run` as soon
+  // as ideas land, which would otherwise stop the polling that fetched them.
+  const inspireRun = useRef(0);
 
   /**
    * The tables: one search per food the people coming love, polled until the
@@ -171,30 +180,52 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   // so a slow model call or a restart mid-way never ends in "Failed to fetch".
   // The tables are started first and land long before it.
   const inspire = async () => {
-    setBusy(true); setError(null);
+    const id = ++inspireRun.current;
+    setBusy(true); setError(null); setIdeas(null); setStage('thinking'); setPlaced(0); setElapsed(0); setRunRef(null); setThings({}); setOpened({});
     findTables();
+    const startedAt = Date.now();
+    const ticking = setInterval(() => setElapsed(Math.round((Date.now() - startedAt) / 1000)), 1000);
     try {
-      let started: { sessionId: string } | null = null;
+      let started: Awaited<ReturnType<typeof api.inspire>> | null = null;
       for (let attempt = 0; attempt < 4 && !started; attempt += 1) {
         try { started = await api.inspire({ query, moods: [...moods], maxTravelMinutes: cap, budget, attendingMemberIds: attendingIds }); }
         catch (e: any) { if (attempt === 3 || !/fetch|network/i.test(String(e?.message))) throw e; await wait(5000); }
       }
-      const startedAt = Date.now();
+      if (inspireRun.current !== id) return;
+      setRunRef(started!.ref); setSessionId(started!.sessionId);
       for (;;) {
-        await wait(2500);
+        await wait(2000);
+        if (inspireRun.current !== id) return;
         let s: Awaited<ReturnType<typeof api.inspireStatus>> | null = null;
         try { s = await api.inspireStatus(started!.sessionId); } catch { /* a dropped poll is harmless; the next one asks again */ }
-        if (!s) { if (Date.now() - startedAt > 4 * 60_000) throw new Error('Roam has not answered for four minutes — try Inspire me again in a moment.'); continue; }
-        if (s.error) throw new Error(s.error);
-        if (!s.running && s.ideas) { setIdeas(s.ideas); setReply(s.reply); setSessionId(s.sessionId); setThings({}); setOpened({}); break; }
+        if (!s) {
+          if (Date.now() - startedAt > 100_000) throw new Error(`Roam has not answered for over a minute and a half. Try Inspire me again — quote run ${started!.ref} if it keeps happening.`);
+          continue;
+        }
+        // Whatever it has so far goes on screen now: the titles arrive before
+        // the pins do, and the pins arrive one at a time.
+        if (s.ideas) { setIdeas(s.ideas); setReply(s.reply); }
+        setStage(s.stage); setPlaced(s.placed ?? 0);
+        if (s.error) throw new Error(`${s.error} (run ${started!.ref})`);
+        if (!s.running) break;
       }
-    } catch (e: any) { setError(e?.message || String(e)); } finally { setBusy(false); }
+    } catch (e: any) {
+      if (inspireRun.current === id) setError(e?.message || String(e));
+    } finally {
+      clearInterval(ticking);
+      if (inspireRun.current === id) { setBusy(false); setStage(null); }
+    }
   };
+
+  /** Stop waiting. The run carries on server-side; its number still finds it. */
+  const stopWaiting = () => { inspireRun.current += 1; setBusy(false); setStage(null); };
 
   // Look around every idea as soon as they land, one after another, so a tap
   // on any of them is a read: the API keeps what it found for hours.
   useEffect(() => {
-    if (!ideas) return;
+    // Not while the run is still going: the ideas arrive again with each pin,
+    // and this loop would start over every time.
+    if (!ideas || busy) return;
     const id = ++run.current;
     (async () => {
       for (const idea of ideas) {
@@ -208,7 +239,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
         }
       }
     })();
-  }, [ideas]);
+  }, [ideas, busy]);
 
   // The trip opens on Find at the look-around's radius; a free day starts on the places that are free to enter.
   const openOpts = (): OpenTripOptions => ({ section: 'find', findRadiusKm: THINGS_RADIUS_KM, findPrices: budget === 'free' ? ['Free to enter'] : undefined });
@@ -333,7 +364,19 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
         attendingIds={attendingIds} onOpenTrip={onOpenTrip}
       />
 
-      {busy ? <Row><ActivityIndicator color={colors.accent} /><Text style={type.small}>Looking through your atlas and what's around…</Text></Row> : null}
+      {busy ? (
+        <Row style={{ alignItems: 'center', gap: spacing.sm }}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={[type.small, { flex: 1 }]}>
+            {stage === 'placing' ? `Putting them on the map${ideas?.length ? ` (${placed} of ${ideas.length})` : ''}…`
+              : stage === 'thinking-again' ? 'Nothing came back first time — asking again…'
+              : 'Thinking of days out for you…'}
+            {elapsed > 3 ? ` · ${elapsed}s` : ''}
+          </Text>
+          <Chip label="Stop waiting" icon="stop" onPress={stopWaiting} />
+        </Row>
+      ) : null}
+      {busy && elapsed > 25 && runRef ? <Text style={type.tiny}>Taking longer than it should. This is run {runRef} — quote that number and Roam can say exactly where it got stuck.</Text> : null}
 
       {ideas ? (
         <Card>
@@ -349,7 +392,8 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
                   <Text style={type.h3}>{idea.title}</Text>
                   <Text style={type.small}>{idea.travelMinutes != null ? `${minutes(idea.travelMinutes)} by car · ` : ''}{idea.why}</Text>
                   {idea.do.length || idea.eat.length ? <Text style={type.tiny}>{[...idea.do, ...idea.eat].slice(0, 4).join(' · ')}</Text> : null}
-                  {!idea.place ? <Text style={type.tiny}>Roam couldn't pin this one on the map, so there is no list to browse — Plan this still works from the idea itself.</Text>
+                  {idea.placing ? <Row style={{ gap: 6 }}><ActivityIndicator size="small" color={colors.accent} /><Text style={type.tiny}>Finding {idea.placeText.split(',')[0]} on the map…</Text></Row>
+                    : !idea.place ? <Text style={type.tiny}>Roam couldn't pin this one on the map, so there is no list to browse — Plan this still works from the idea itself.</Text>
                     : t?.status === 'ready' ? <Text style={type.tiny}>{t.items.length ? `What's there: ${summaries[idea.id]}` : 'Nothing found around it yet — the sources may be off.'}</Text>
                     : t?.status === 'error' ? <Text style={type.tiny}>Couldn't look around it just now; Things to do and see will try again.</Text>
                     : <Row style={{ gap: 6 }}><ActivityIndicator size="small" color={colors.accent} /><Text style={type.tiny}>Looking around {idea.placeText.split(',')[0]}…</Text></Row>}
@@ -362,6 +406,7 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
               </View>
             );
           })}
+          {runRef ? <Text style={type.tiny}>Run {runRef}</Text> : null}
           <Text style={type.tiny}>Ideas come from your atlas first, then the sources. Things to do and see opens the day in Trips with everything around it to browse; Plan this fills the rows instead. Nothing is booked.</Text>
         </Card>
       ) : null}
