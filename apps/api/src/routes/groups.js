@@ -640,6 +640,12 @@ async function writeReminders(group, { runOn = null, only = null, itemId = null 
   const organiser = payload.participants.find((p) => p.memberId)?.name ?? household.name ?? 'The organiser';
   const written = [];
   const now = Date.now();
+  // The one thing a group can fix together: a cost that has not reached the
+  // number it needs. The shortest-handed open cost goes in every reminder.
+  const short = payload.items
+    .filter((i) => i.state === 'open' && i.money?.minimum && i.money.shares < i.money.minimum)
+    .map((i) => ({ label: i.label, more: i.money.minimum - i.money.shares }))
+    .sort((a, b) => a.more - b.more)[0] ?? null;
 
   for (const p of payload.participants) {
     if (p.withdrawnAt) continue;
@@ -653,7 +659,7 @@ async function writeReminders(group, { runOn = null, only = null, itemId = null 
     // Nobody is written to twice inside the quiet window, however the runs fall.
     if (p.lastRemindedAt && now - new Date(p.lastRemindedAt).getTime() < QUIET_HOURS * 3600_000) continue;
 
-    const body = reminderBody({ organiser, groupName: payload.group.name, participant: p, outstanding, wantedBy: payload.group.wantedBy, joined });
+    const body = reminderBody({ organiser, groupName: payload.group.name, participant: p, outstanding, wantedBy: payload.group.wantedBy, joined, short });
     const outcome = await sendReminder({ to: p.contact, contactKind: p.contactKind, body, group: payload.group.name, participant: p.name });
     const { rows } = await query(
       `insert into group_reminders (group_id, participant_id, item_id, run_on, kind, status, reason, channel, body, sent_at)

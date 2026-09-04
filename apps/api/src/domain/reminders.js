@@ -64,7 +64,7 @@ export function nextRun(group, tz = DEFAULT_TZ, now = new Date()) {
  * can be shown the exact words before they go out, and the same words are kept
  * on the row afterwards.
  */
-export function reminderBody({ organiser, groupName, participant, outstanding, wantedBy, joined }) {
+export function reminderBody({ organiser, groupName, participant, outstanding, wantedBy, joined, short }) {
   const by = wantedBy ? ` by ${new Date(`${String(wantedBy).slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}` : '';
   const who = participant?.name ? `${participant.name.split(' ')[0]} — ` : '';
   if (!joined) return `${who}${organiser} has asked you to ${groupName}. Open the link they sent to say you are coming and see what is needed${by}.`;
@@ -73,5 +73,8 @@ export function reminderBody({ organiser, groupName, participant, outstanding, w
   const names = outstanding.slice(0, 2).map((o) => o.label);
   const rest = outstanding.length - names.length;
   const list = names.join(' and ') + (rest > 0 ? ` and ${rest} more thing${rest === 1 ? '' : 's'}` : '');
-  return `${who}${organiser} still needs ${list || 'a couple of things'} from you for ${groupName}${by}. Your list is in Roam.`;
+  // A cost that is short of its minimum is the one thing worth adding: it is
+  // the only line in a reminder anybody can do something about together.
+  const nudge = short ? ` ${short.more} more and ${short.label} runs.` : '';
+  return `${who}${organiser} still needs ${list || 'a couple of things'} from you for ${groupName}${by}.${nudge} Your list is in Roam.`;
 }
