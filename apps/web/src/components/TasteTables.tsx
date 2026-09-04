@@ -188,7 +188,7 @@ function Place({ table, place, open, onToggle, sessionId, attendingIds, onOpenTr
               ))}
               <Text style={type.tiny}>{around.count} places within 5 km of the table.</Text>
             </View>
-          ) : around.status === 'error' ? <Text style={type.tiny}>Couldn't look around it just now.</Text> : null}
+          ) : null}
 
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
           <Wrap>
