@@ -79,7 +79,16 @@ function extractJson(text) {
 
 const VERDICTS = new Set(['yes', 'no', 'unknown']);
 const verdict = (v) => (VERDICTS.has(String(v)) ? String(v) : 'unknown');
-const line = (s, max = 160) => (s == null ? null : String(s).replace(/\s+/g, ' ').trim().slice(0, max) || null);
+// Kept short, but cut at a word and finished with an ellipsis rather than
+// stopping mid-word ("hidden carrot cannot be rul").
+const line = (s, max = 220) => {
+  if (s == null) return null;
+  const t = String(s).replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), max - 20)).trim()}…`;
+};
 
 /**
  * What one venue's menu says for the people coming.
@@ -128,13 +137,13 @@ export async function checkMenu({ householdId, sessionId = null, venue, dish = n
       people: (Array.isArray(raw.people) ? raw.people : []).slice(0, 6).map((p) => ({
         person: line(p.person, 40), need: line(p.need, 40), verdict: verdict(p.verdict),
         examples: (Array.isArray(p.examples) ? p.examples : []).slice(0, 3).map((e) => line(e, 60)).filter(Boolean),
-        note: line(p.note),
+        note: line(p.note, 260),
       })).filter((p) => p.person),
       allergens: (Array.isArray(raw.allergens) ? raw.allergens : []).slice(0, 6).map((a) => ({
         person: line(a.person, 40), allergen: line(a.allergen, 40), verdict: verdict(a.verdict), note: line(a.note),
       })).filter((a) => a.person),
       kidsMenu: raw.kids_menu === true ? true : raw.kids_menu === false ? false : null,
-      summary: line(raw.summary, 240),
+      summary: line(raw.summary, 360),
       whyNot: line(raw.why_not, 200),
       readAt: new Date().toISOString(),
       attribution: MENU_ATTRIBUTION,
