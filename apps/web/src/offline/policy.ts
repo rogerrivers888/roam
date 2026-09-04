@@ -64,6 +64,12 @@ export function storable(fullPath: string, body: any): any | null {
     return { ...body, places: (body.places ?? []).map(cleanPlaceRow) };
   }
 
+  // The map a search is drawn on: a country's coast from Natural Earth and
+  // administrative boundaries from OpenStreetMap, both open data and neither of
+  // them about a venue. Keeping it means the sketch draws at once the second
+  // time, and draws at all on a phone with no signal.
+  if (p === '/api/atlas/sketch') return body;
+
   // --- trips: the household's plan, with the same strip on the shortlist --
   if (p === '/api/trips') return body;
   if (isTripDetail(p)) {

@@ -169,3 +169,43 @@ export async function reverseGeocode(lat, lng, { zoom = 10 } = {}) {
   if (!row || row.error) return null;
   return shape(row);
 }
+
+/**
+ * The named area a point sits in, with its real outline: the London borough,
+ * the arrondissement, the comune. Nominatim simplifies the boundary for us
+ * (`polygon_threshold`), so a borough arrives as fifty points rather than fifty
+ * thousand — small enough to draw on a phone while a search runs, and open data
+ * we may keep for good rather than rent.
+ *
+ * Zoom 10 is the level that answers with an area. Ask any deeper and a
+ * neighbourhood comes back as the point somebody tagged it with, which has no
+ * shape to draw.
+ */
+export async function areaOutline(lat, lng, { zoom = 10, threshold = 0.0006 } = {}) {
+  const params = new URLSearchParams({
+    lat: String(lat), lon: String(lng), format: 'jsonv2', addressdetails: '1', zoom: String(zoom),
+    polygon_geojson: '1', polygon_threshold: String(threshold), 'accept-language': 'en',
+  });
+  const row = await politeFetch(`${BASE}/reverse?${params}`);
+  if (!row || row.error) return null;
+  const g = row.geojson;
+  const rings = g?.type === 'Polygon' ? [g.coordinates[0]]
+    : g?.type === 'MultiPolygon' ? g.coordinates.map((p) => p[0])
+    : [];
+  if (!rings.length) return null;
+  return { osmRef: `${row.osm_type}/${row.osm_id}`, name: areaName(row), rings, attribution: GEOCODE_ATTRIBUTION };
+}
+
+/**
+ * What people call the area, not what the council calls itself: "Islington",
+ * not "London Borough of Islington". The City of London is left alone — that is
+ * its name, not a title.
+ */
+export function areaName(row) {
+  const raw = row.name || String(row.display_name || '').split(',')[0] || '';
+  return raw
+    .replace(/^(Royal |London |Metropolitan )?Borough of /i, '')
+    .replace(/^City and County of /i, '')
+    .replace(/^Municipality of /i, '')
+    .trim() || raw;
+}

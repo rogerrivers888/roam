@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
-import { api, AtlasPlace, BrowseItem, HouseholdResponse, TripDetail, Venue } from '../api';
+import { api, AtlasPlace, BrowseItem, HouseholdResponse, SketchEvent, TripDetail, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Chip, Row, StatusLine, Wrap, minutes as fmtMinutes } from './ui';
 import { Icon } from './Icon';
 import { VenuePhoto } from './VenuePhoto';
 import { VenueDrawer } from './VenueDrawer';
 import { SourcePicker } from './SourcePicker';
+import { SearchSketch } from './SearchSketch';
 
 /**
  * Find (owner, 3 Sep 2026; mock-up /mockups/find-options.html, Option 1, to the
@@ -108,15 +109,29 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
   const [sheet, setSheet] = useState<null | 'kind' | 'budget' | 'distance' | 'sources'>(null);
   const [open, setOpen] = useState<BrowseItem | null>(null);
   const [shown, setShown] = useState(20);
+  // What the running search has said about itself, and whether the map drawn
+  // over the wait is still on screen. Both are of this search only: they start
+  // empty every time and are never kept.
+  const [events, setEvents] = useState<SketchEvent[]>([]);
+  const [sketching, setSketching] = useState(false);
   const baseLabel = (trip.base?.label ?? trip.destination?.label ?? trip.origin.label).split(',')[0];
+  // The point the API searches from (routes/trips.js: the base, else the origin).
+  const centreOf = trip.base?.lat != null ? trip.base : trip.origin;
+  const searchCentre = centreOf?.lat != null && centreOf?.lng != null ? { lat: centreOf.lat, lng: centreOf.lng } : null;
 
   const run = useCallback(async (next: Partial<FindState> = {}, refresh = false) => {
     let params: FindState = find;
     setFind((cur) => { params = { ...cur, ...next, loading: true, error: null }; return params; });
+    setEvents([]);
+    setSketching(true);
     try {
-      const r = await api.shortlistSearch(trip.id, { q: params.q || undefined, radiusKm: params.radiusKm, sources: params.sources ? params.sources.join(',') : undefined, refresh: refresh ? '1' : undefined });
+      const r = await api.shortlistSearchStream(
+        trip.id,
+        { q: params.q || undefined, radiusKm: params.radiusKm, sources: params.sources ? params.sources.join(',') : undefined, refresh: refresh ? '1' : undefined },
+        (e) => setEvents((cur) => [...cur, e]),
+      );
       setFind((cur) => ({ ...cur, res: r.results, fetchedAt: r.fetchedAt ?? new Date().toISOString(), cached: Boolean(r.cached), queried: r.sourcesQueried ?? [], degraded: r.degradedSources ?? [], loading: false }));
-    } catch (e: any) { setFind((cur) => ({ ...cur, loading: false, error: e.message })); }
+    } catch (e: any) { setFind((cur) => ({ ...cur, loading: false, error: e.message })); setSketching(false); }
   }, [trip.id, find, setFind]);
 
   // First visit fetches; every visit after shows what is already there. A free day starts on the free budget.
@@ -337,7 +352,21 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
       )) : null}
 
       {find.error ? <StatusLine tone="warn">{find.error}. <Text onPress={() => run({}, true)} style={{ color: colors.accent, fontWeight: '700' }}>Try again</Text></StatusLine> : null}
-      {find.loading && !find.res ? <Text style={type.small}>Looking around {baseLabel}…</Text> : null}
+      {/* The wait is a map of the search (owner, 4 Sep 2026). The first search
+          of a visit gets the notes beside it; a refresh with a list already on
+          screen gets the strip, so nothing anyone was reading moves. */}
+      {sketching && searchCentre ? (
+        <SearchSketch
+          variant={find.res ? 'strip' : 'notes'}
+          centre={searchCentre}
+          radiusKm={find.radiusKm}
+          countryCode={trip.countryCode ?? null}
+          placeLabel={baseLabel}
+          events={events}
+          done={!find.loading}
+          onSettled={() => setSketching(false)}
+        />
+      ) : null}
       {find.res && !find.loading && !list.length ? <Text style={type.small}>{inCat.length ? 'Nothing matches those picks.' : find.cat === 'events' ? 'No listings here for that day.' : `Nothing within ${find.radiusKm} km.`}</Text> : null}
 
       <View>

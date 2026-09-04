@@ -366,60 +366,103 @@ const kindOfCategory = (c) => (['restaurant', 'cafe', 'pub', 'bar'].includes(c) 
 // Find tab must not hit the sources again, and a place already looked around
 // from the Plan screen's Inspire me opens here at once (sources/cache.js).
 
+/**
+ * The work behind both search routes: the plain one, which answers once, and
+ * the streaming one, which says what is happening while it happens. `onProgress`
+ * is handed each source as it answers (sources/index.js) and is never allowed to
+ * affect the result.
+ */
+async function runShortlistSearch(req, { onProgress = null } = {}) {
+  const started = Date.now();
+  const household = await currentHousehold();
+  const trip = await loadTrip(req.params.id);
+  let center = { lat: trip.base_lat ?? trip.origin_lat, lng: trip.base_lng ?? trip.origin_lng, label: trip.base_label ?? trip.origin_label };
+  if (req.query.near) {
+    const m = /^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/.exec(String(req.query.near));
+    if (m) center = { lat: Number(m[1]), lng: Number(m[3]), label: 'chosen point' };
+    else { const [hit] = await geocode(String(req.query.near), { limit: 1, near: center }); if (hit) center = hit; }
+  }
+  const radiusKm = Math.min(25, Number(req.query.radiusKm) || 3);
+  const categories = req.query.categories ? String(req.query.categories).split(',').filter(Boolean) : [];
+  // The search form's picker wins; otherwise the trip's saved sources; otherwise the default set.
+  // Find asks the event listings too (owner, 4 Sep 2026): "What's on is different from Things to
+  // do — Things to do are always there, What's on is for local events". A place search is not a
+  // substitute for one, so the listings run here and What's on fills. The local scout is left out
+  // of the default set — it can run past the proxy's ninety-second cut-off and costs money for
+  // every place and day — but it runs when it is picked by name in Find's source filter.
+  const asked = req.query.sources != null ? optInFrom(req.query.sources) : (Array.isArray(trip.sources) ? trip.sources : []);
+  const sources = asked.length ? asked : enabledSources().filter((src) => src.key !== 'scout').map((src) => src.key);
+  const q = String(req.query.q || '').trim();
+  const { rows: existing } = await query('select venue_ref from trip_shortlist where trip_id = $1', [trip.id]);
+  const have = new Set(existing.map((r) => r.venue_ref));
+  const withFlags = (list) => list.map((v) => ({ ...v, onShortlist: have.has(v.venueRef) }));
+  // A clear answer before the proxy's own cut-off: better "took too long" than a blank failure.
+  const deadline = new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('The sources took too long to answer. Try again, or fetch from fewer sources.'), { status: 504, code: 'sources_timeout' })), 75_000));
+  // What's on covers the whole time away: on a night away that is every day of
+  // the trip, on a day out it is that day. The scout needs the place in words
+  // and who is asking, or it stays quiet rather than searching anonymously.
+  const { venues, degraded, sourcesQueried, units, cached, fetchedAt, fetched } = await Promise.race([searchCached(
+    {
+      center, radiusKm, categories, query: q, sources, locality: trip.locality ?? null,
+      includeEvents: true, outingStart: trip.depart_at, outingEnd: trip.return_at,
+      placeLabel: trip.base_label ?? trip.origin_label, timezone: trip.timezone ?? null,
+      householdId: household.id,
+    },
+    { refresh: req.query.refresh === '1', onProgress },
+  ), deadline]);
+  if (fetched) await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search', units]);
+  const byDistance = (a, b) => a.distanceKm - b.distanceKm;
+  const inRadius = venues.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, distanceKm: Number(kmBetween(center, v).toFixed(2)) }))
+    .filter((v) => v.distanceKm <= radiusKm).sort(byDistance);
+  // Places and listings are capped separately. One cap over both, taken
+  // nearest first, empties What's on in any city dense enough to fill it with
+  // pubs before the first event: central London returns 400 places inside
+  // three kilometres, and every one of them is nearer than a theatre.
+  const results = [
+    ...inRadius.filter((v) => v.category !== 'event').slice(0, 120),
+    ...inRadius.filter((v) => v.category === 'event').slice(0, 80),
+  ].sort(byDistance);
+  return { near: center, radiusKm, results: withFlags(results), degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started };
+}
+
 /** GET /api/trips/:id/shortlist/search?q=&categories=food|things&radiusKm=&near=lat,lng&refresh=1 — near the base by default. */
 router.get('/:id/shortlist/search', async (req, res, next) => {
+  try { res.json(await runShortlistSearch(req)); } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/trips/:id/shortlist/search/stream — the same search, said out loud.
+ *
+ * The screen draws a map while this runs (SearchSketch), and the only way for
+ * that map to be honest is for it to be told what has actually happened: which
+ * sources were asked, which have answered and with how many, and where those
+ * places are. Anything else is a progress bar making things up.
+ *
+ * Server-sent events, one line at a time, ending with the same payload the
+ * plain route returns. Coordinates are sent, names are not: until the pool is
+ * ranked there is nothing to show, and a provider's names are rented.
+ */
+router.get('/:id/shortlist/search/stream', async (req, res) => {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache, no-transform',
+    connection: 'keep-alive',
+    // Railway's proxy buffers by default, which would hold every event back
+    // until the search finished and defeat the whole point.
+    'x-accel-buffering': 'no',
+  });
+  const send = (type, data) => { if (!res.writableEnded) res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`); };
+  const beat = setInterval(() => send('waiting', { at: Date.now() }), 15_000);
   try {
-    const started = Date.now();
-    const household = await currentHousehold();
-    const trip = await loadTrip(req.params.id);
-    let center = { lat: trip.base_lat ?? trip.origin_lat, lng: trip.base_lng ?? trip.origin_lng, label: trip.base_label ?? trip.origin_label };
-    if (req.query.near) {
-      const m = /^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/.exec(String(req.query.near));
-      if (m) center = { lat: Number(m[1]), lng: Number(m[3]), label: 'chosen point' };
-      else { const [hit] = await geocode(String(req.query.near), { limit: 1, near: center }); if (hit) center = hit; }
-    }
-    const radiusKm = Math.min(25, Number(req.query.radiusKm) || 3);
-    const categories = req.query.categories ? String(req.query.categories).split(',').filter(Boolean) : [];
-    // The search form's picker wins; otherwise the trip's saved sources; otherwise the default set.
-    // Find asks the event listings too (owner, 4 Sep 2026): "What's on is different from Things to
-    // do — Things to do are always there, What's on is for local events". A place search is not a
-    // substitute for one, so the listings run here and What's on fills. The local scout is left out
-    // of the default set — it can run past the proxy's ninety-second cut-off and costs money for
-    // every place and day — but it runs when it is picked by name in Find's source filter.
-    const asked = req.query.sources != null ? optInFrom(req.query.sources) : (Array.isArray(trip.sources) ? trip.sources : []);
-    const sources = asked.length ? asked : enabledSources().filter((src) => src.key !== 'scout').map((src) => src.key);
-    const q = String(req.query.q || '').trim();
-    const { rows: existing } = await query('select venue_ref from trip_shortlist where trip_id = $1', [trip.id]);
-    const have = new Set(existing.map((r) => r.venue_ref));
-    const withFlags = (list) => list.map((v) => ({ ...v, onShortlist: have.has(v.venueRef) }));
-    // A clear answer before the proxy's own cut-off: better "took too long" than a blank failure.
-    const deadline = new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('The sources took too long to answer. Try again, or fetch from fewer sources.'), { status: 504, code: 'sources_timeout' })), 75_000));
-    // What's on covers the whole time away: on a night away that is every day of
-    // the trip, on a day out it is that day. The scout needs the place in words
-    // and who is asking, or it stays quiet rather than searching anonymously.
-    const { venues, degraded, sourcesQueried, units, cached, fetchedAt, fetched } = await Promise.race([searchCached(
-      {
-        center, radiusKm, categories, query: q, sources, locality: trip.locality ?? null,
-        includeEvents: true, outingStart: trip.depart_at, outingEnd: trip.return_at,
-        placeLabel: trip.base_label ?? trip.origin_label, timezone: trip.timezone ?? null,
-        householdId: household.id,
-      },
-      { refresh: req.query.refresh === '1' },
-    ), deadline]);
-    if (fetched) await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'trip.shortlist.search', units]);
-    const byDistance = (a, b) => a.distanceKm - b.distanceKm;
-    const inRadius = venues.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, distanceKm: Number(kmBetween(center, v).toFixed(2)) }))
-      .filter((v) => v.distanceKm <= radiusKm).sort(byDistance);
-    // Places and listings are capped separately. One cap over both, taken
-    // nearest first, empties What's on in any city dense enough to fill it with
-    // pubs before the first event: central London returns 400 places inside
-    // three kilometres, and every one of them is nearer than a theatre.
-    const results = [
-      ...inRadius.filter((v) => v.category !== 'event').slice(0, 120),
-      ...inRadius.filter((v) => v.category === 'event').slice(0, 80),
-    ].sort(byDistance);
-    res.json({ near: center, radiusKm, results: withFlags(results), degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started });
-  } catch (err) { next(err); }
+    const payload = await runShortlistSearch(req, { onProgress: (e) => send(e.type, e) });
+    send('done', payload);
+  } catch (err) {
+    // Not 'failed': that is one source giving up, and this is the whole search.
+    send('fault', { error: String(err?.message || err), status: err?.status ?? 500 });
+  } finally {
+    clearInterval(beat);
+    res.end();
+  }
 });
 
 /**

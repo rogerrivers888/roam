@@ -15,6 +15,7 @@ import { predicthqSource } from './predicthq.js';
 import { datathistleSource } from './datathistle.js';
 import { localScoutSource } from './localscout.js';
 import { detectChain } from '../domain/chains.js';
+import { kmBetween } from '../domain/travel.js';
 import { query } from '../db.js';
 
 // Licensed sources register here and switch on when their key exists;
@@ -257,12 +258,29 @@ function withDeadline(source, work) {
 }
 
 /** Fan out across every enabled source; one failing source must not block a search (Epic 2 C7). */
-export async function searchAllSources(params) {
+export async function searchAllSources(params, { onProgress = null } = {}) {
   const only = optInFrom(params.sources);
   const sources = enabledSources({ only });
   // What each provider billed for during this search (see meter.js).
   const meter = params.meter && typeof params.meter === 'object' ? params.meter : {};
-  const settled = await Promise.allSettled(sources.map((s) => withDeadline(s, s.search({ ...params, meter, sources: sources.map((x) => x.key) }))));
+  // Someone may be watching this happen (the sketch drawn while a search runs,
+  // apps/web/src/components/SearchSketch.tsx). A source is reported the moment
+  // it answers, so what the screen says is what has really come back — never a
+  // timer pretending to be progress. Reporting must never break the search.
+  const say = (event) => { try { onProgress?.(event); } catch { /* a watcher is not the search */ } };
+  // Only what the search would keep is counted. A source hands back everything
+  // it has in its own idea of "near", and saying "18 places" before the radius
+  // throws seventeen of them away is a lie with a number in it.
+  const near = (v) => v.lat != null && v.lng != null
+    && (!params.center || !params.radiusKm || kmBetween(params.center, v) <= params.radiusKm);
+  say({ type: 'asking', sources: sources.map((s) => ({ key: s.key, label: s.label })) });
+  const settled = await Promise.allSettled(sources.map((s) => withDeadline(s, s.search({ ...params, meter, sources: sources.map((x) => x.key) }))
+    .then((found) => {
+      const kept = found.filter(near);
+      say({ type: 'answered', source: s.key, label: s.label, count: kept.length, points: kept.slice(0, 60).map((v) => [Number(v.lat.toFixed(5)), Number(v.lng.toFixed(5))]) });
+      return found;
+    })
+    .catch((err) => { say({ type: 'failed', source: s.key, label: s.label, error: String(err?.message || err) }); throw err; })));
 
   const raw = [];
   const degraded = [];

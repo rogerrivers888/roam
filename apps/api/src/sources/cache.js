@@ -39,12 +39,15 @@ export function searchKept(params) {
  * actually asked the sources — that caller logs the provider call; a hit or a
  * joined search logs nothing. `refresh` asks the sources again regardless.
  */
-export async function searchCached(params, { refresh = false } = {}) {
+export async function searchCached(params, { refresh = false, onProgress = null } = {}) {
   const key = searchKey(params);
   const hit = kept.get(key);
-  if (fresh(hit) && !refresh) return { ...hit.result, cached: true, fetchedAt: new Date(hit.at).toISOString(), fetched: false };
-  if (inFlight.has(key) && !refresh) return { ...(await inFlight.get(key)), cached: true, fetchedAt: new Date().toISOString(), fetched: false };
-  const run = searchAllSources(params)
+  // A watcher is told when nothing was asked at all, so a search answered from
+  // what is already held says so rather than miming a fetch that never ran.
+  const cachedSay = (result) => { try { onProgress?.({ type: 'cached', count: result.venues.length }); } catch { /* not the search */ } };
+  if (fresh(hit) && !refresh) { cachedSay(hit.result); return { ...hit.result, cached: true, fetchedAt: new Date(hit.at).toISOString(), fetched: false }; }
+  if (inFlight.has(key) && !refresh) { const r = await inFlight.get(key); cachedSay(r); return { ...r, cached: true, fetchedAt: new Date().toISOString(), fetched: false }; }
+  const run = searchAllSources(params, { onProgress })
     .then((result) => {
       kept.delete(key);
       kept.set(key, { at: Date.now(), result });

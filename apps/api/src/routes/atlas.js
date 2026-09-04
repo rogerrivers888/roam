@@ -2,6 +2,7 @@
 //
 //   GET /api/atlas                      countries and cities with counts
 //   GET /api/atlas/places?country=&city=  places there: been / saved / special, with what everyone thought
+//   GET /api/atlas/sketch?lat=&lng=      the map a search is drawn on while it runs
 //
 // Every visit, save, special or shortlist entry lands here (upsertHouseholdPlace),
 // so going back somewhere makes the list longer, and a trip to that city starts
@@ -14,6 +15,7 @@ import { recallVenue } from '../sources/index.js';
 import { currentHousehold } from './household.js';
 import { fillWhere } from '../sources/where.js';
 import { fillTaxonomy, needsTaxonomy, taxonomyKept } from '../sources/taxonomy.js';
+import { countryOutline, sketchFor, SKETCH_ATTRIBUTION } from '../sources/sketch.js';
 
 export const atlas = Router();
 
@@ -278,5 +280,36 @@ atlas.delete('/cities', async (req, res, next) => {
     const { countryCode, locality } = req.body || {};
     await query('delete from atlas_cities where household_id = $1 and country_code = $2 and locality = $3', [household.id, countryCode, locality]);
     res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/atlas/sketch?lat=&lng=&radiusKm=&country=GB
+ *
+ * The map a search is drawn on while it runs (owner, 4 Sep 2026; mock-up
+ * /mockups/waiting-options.html): the country's coast, the named areas around
+ * the point, and the ground the search covers. All of it open data and all of
+ * it kept — see sources/sketch.js.
+ *
+ * It answers from what is stored, so it never holds a search up. The first
+ * search in a new town gets the country and the one area the centre sits in;
+ * the neighbours are filled in behind it and are there the next time.
+ */
+atlas.get('/sketch', async (req, res, next) => {
+  try {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ error: 'point_required', message: 'lat and lng are required' });
+    }
+    const radiusKm = Math.min(50, Math.max(0.5, Number(req.query.radiusKm) || 3));
+    let code = req.query.country ? String(req.query.country) : null;
+    if (!code) code = (await localityFor(lat, lng))?.countryCode ?? null;
+    const { place, areas, complete } = await sketchFor({ lat, lng, radiusKm });
+    res.json({
+      centre: { lat, lng }, radiusKm, place, areas, complete,
+      country: countryOutline(code),
+      attribution: SKETCH_ATTRIBUTION,
+    });
   } catch (err) { next(err); }
 });
