@@ -1594,6 +1594,7 @@ function bestNameMatch(venues, label, center) {
   const best = hits.sort((a, b) => (b.ratingCount ?? 0) - (a.ratingCount ?? 0))[0];
   return {
     venueRef: `${best.source}:${best.sourcePlaceId}`, name: best.name, category: best.category,
+    experiences: best.experiences ?? [],
     rating: best.rating ?? null, ratingCount: best.ratingCount ?? null, priceLevel: best.priceLevel ?? null,
     photos: (best.photos ?? []).slice(0, 1), distanceKm: Number(kmBetween(center, best).toFixed(1)),
     summary: best.summary ?? null, attribution: best.attributionText ?? best.attribution ?? null,

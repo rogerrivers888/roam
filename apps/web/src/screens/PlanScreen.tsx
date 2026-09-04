@@ -61,7 +61,7 @@ const EMPTY_CONTROLS: Controls = { when: { mode: 'day', start: null, end: null, 
 // remembered here so coming back shows the same conversation and options.
 let remembered: { sessionId: string; turns: Turn[]; viewing: string | null } | null = null;
 
-export type OpenTripOptions = { section?: 'find' | 'shortlist' | 'day'; findRadiusKm?: number; findPrices?: string[] };
+export type OpenTripOptions = { section?: 'find' | 'shortlist' | 'day'; findRadiusKm?: number; findPrices?: string[]; findCat?: 'things' | 'food' | 'events' };
 export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResponse | null; onOpenTrip?: (tripId: string, opts?: OpenTripOptions) => void }) {
   const { width } = useViewport();
   const cardWidth = Math.min(width, 760) - spacing.lg * 2;

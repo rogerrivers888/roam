@@ -92,10 +92,12 @@ const KIND_GROUPS: { label: string; keys: string[] }[] = [
 
 type Scored = { v: FindResult; score: number; reasons: { icon: 'keep' | 'check' | 'children' | 'plan'; text: string }[]; cat: FindCat; kinds: string[] };
 
-export function BrowseNear({ d, household, onChanged, find, setFind, initialPrices, onShortlist }: {
+export function BrowseNear({ d, household, onChanged, find, setFind, initialPrices, initialCat, onShortlist }: {
   d: TripDetail; household?: HouseholdResponse | null; onChanged: () => Promise<void>; find: FindState; setFind: (f: FindState | ((cur: FindState) => FindState)) => void;
   /** Price chips to start with ("Free to enter" when the day was asked for on a free budget). */
   initialPrices?: string[];
+  /** Which tile to open on: a day already spent at one place wants somewhere to eat, not more to do. */
+  initialCat?: FindCat;
   onShortlist?: () => void;
 }) {
   const { trip, shortlist } = d;
@@ -137,6 +139,7 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
   // First visit fetches; every visit after shows what is already there. A free day starts on the free budget.
   useEffect(() => {
     if (initialPrices?.some((p) => /free/i.test(p))) setFind((cur) => (cur.budget === 'any' ? { ...cur, budget: 'free' } : cur));
+    if (initialCat) setFind((cur) => ({ ...cur, cat: initialCat }));
     if (!find.res && !find.loading && !find.error) run();
   }, []);
   useEffect(() => {

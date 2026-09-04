@@ -19,7 +19,7 @@ import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
 import { CategoryIcon, Icon } from '../components/Icon';
 import { ShortlistJourney, TripJourneyDay } from '../components/Journey';
-import { BrowseNear, FindState, emptyFind } from '../components/BrowseNear';
+import { BrowseNear, FindCat, FindState, emptyFind } from '../components/BrowseNear';
 import { getSpeakPref } from './SettingsScreen';
 import { SourceDataPanel } from '../components/SourceData';
 import { isAdmin } from '../admin';
@@ -30,9 +30,9 @@ const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLoca
 const fmtRange = (a?: string | null, b?: string | null) => (a && b ? (a === b ? fmtDate(a) : `${fmtDate(a)} – ${fmtDate(b)}`) : '');
 const SLOT_LABEL = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' } as const;
 
-export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string; section?: 'find' | 'shortlist' | 'day' | 'group'; findRadiusKm?: number; findPrices?: string[] };
+export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string; section?: 'find' | 'shortlist' | 'day' | 'group'; findRadiusKm?: number; findPrices?: string[]; findCat?: FindCat };
 /** How a trip opened from elsewhere should start: which tab, how far Find looks. */
-type OpenWith = { section?: Section; findRadiusKm?: number; findPrices?: string[] };
+type OpenWith = { section?: Section; findRadiusKm?: number; findPrices?: string[]; findCat?: FindCat };
 
 // ---------------------------------------------------------------------------
 // List
@@ -62,7 +62,7 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
   useEffect(() => { rememberScreen<TripsMemory>('trips', { openId, fold }); }, [openId, fold]);
 
   useEffect(() => {
-    if (prefill?.openTripId) { setOpenWith({ section: prefill.section, findRadiusKm: prefill.findRadiusKm, findPrices: prefill.findPrices }); setOpenId(prefill.openTripId); setCreating(false); onPrefillConsumed?.(); }
+    if (prefill?.openTripId) { setOpenWith({ section: prefill.section, findRadiusKm: prefill.findRadiusKm, findPrices: prefill.findPrices, findCat: prefill.findCat }); setOpenId(prefill.openTripId); setCreating(false); onPrefillConsumed?.(); }
     else if (prefill) setCreating(true);
   }, [prefill]);
 
@@ -422,7 +422,7 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
     <>
       {section === 'find' ? (
         <View style={{ gap: spacing.md }}>
-          <BrowseNear d={d} household={household} onChanged={load} find={find} setFind={setFind} initialPrices={openWith?.findPrices} onShortlist={() => setSection('shortlist')} />
+          <BrowseNear d={d} household={household} onChanged={load} find={find} setFind={setFind} initialPrices={openWith?.findPrices} initialCat={openWith?.findCat} onShortlist={() => setSection('shortlist')} />
           {household && day ? (
             <View style={{ gap: spacing.sm }}>
               <Button label={planning ? 'Hide the planner' : 'Plan it for me'} icon="plan" kind="ghost" onPress={() => setPlanning((v) => !v)} />

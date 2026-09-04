@@ -499,7 +499,7 @@ export type InspireStage = 'thinking' | 'thinking-again' | 'placing' | 'ready' |
 export type Idea = { id: string; title: string; why: string; placeText: string; place: Place | null; travelMinutes: number | null; distanceKm?: number | null; overnight: boolean; do: string[]; eat: string[]; placing?: boolean };
 export type IdeaThing = { venueRef: string; name: string; category: string; kind: 'do' | 'eat' | 'see'; experiences: string[]; rating: number | null; ratingCount: number | null; priceLevel: number | null; photos?: VenuePhotoRef[]; distanceKm: number | null; lat: number | null; lng: number | null; reasons: string[] };
 /** The place an idea is about, as its source holds it: the picture, the stars, how far. */
-export type IdeaHeadline = { venueRef: string; name: string; category: string; rating: number | null; ratingCount: number | null; priceLevel: number | null; photos: VenuePhotoRef[]; distanceKm: number | null; summary: string | null; attribution: string | null };
+export type IdeaHeadline = { venueRef: string; name: string; category: string; experiences?: string[]; rating: number | null; ratingCount: number | null; priceLevel: number | null; photos: VenuePhotoRef[]; distanceKm: number | null; summary: string | null; attribution: string | null };
 
 export type PlanAction =
   | { type: 'like' | 'unlike' | 'dislike' | 'restore'; stopId: string }

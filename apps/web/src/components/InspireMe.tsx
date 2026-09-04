@@ -8,7 +8,7 @@ import { VenuePhoto } from './VenuePhoto';
 import { TasteTables } from './TasteTables';
 import { VenueDrawer } from './VenueDrawer';
 import type { OpenTripOptions } from '../screens/PlanScreen';
-import { howLongAgo, recallScreen, rememberScreen } from '../screenState';
+import { recallScreen, rememberScreen } from '../screenState';
 
 /**
  * In the mood for, as a trail rather than a list (owner, 4 Sep 2026: "can this
@@ -444,19 +444,32 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
     })();
   }, [ideas, busy]);
 
+  // A day at a theme park, a zoo or an aquarium is the whole day: what is
+  // wanted around it is somewhere to eat, not more to do (owner, 4 Sep 2026:
+  // "it's probably likely that I'm not going to want to just go to other
+  // places… What I might want to do is have something on the way or the way
+  // back to eat").
+  const ALL_DAY = ['theme-park', 'zoo', 'aquarium', 'water-park'];
+  const takesTheDay = (head: IdeaHeadline | null) => (head?.experiences ?? []).some((e) => ALL_DAY.includes(e));
+
   // The trip opens on Find at the look-around's radius; a free day starts on the places that are free to enter.
-  const openOpts = (): OpenTripOptions => ({ section: 'find', findRadiusKm: THINGS_RADIUS_KM, findPrices: budget === 'free' ? ['Free to enter'] : undefined });
+  const openOpts = (head: IdeaHeadline | null = null): OpenTripOptions => ({
+    section: 'find', findRadiusKm: THINGS_RADIUS_KM,
+    findPrices: budget === 'free' ? ['Free to enter'] : undefined,
+    findCat: takesTheDay(head) ? 'food' : undefined,
+  });
 
   // The idea becomes a day out in Trips; a second tap opens the same day.
   const openTrip = async (idea: Idea) => {
     if (!sessionId || opening) return;
+    const head = things[idea.id]?.headline ?? null;
     const already = opened[idea.id];
-    if (already) { onOpenTrip?.(already.tripId, openOpts()); return; }
+    if (already) { onOpenTrip?.(already.tripId, openOpts(head)); return; }
     setOpening(idea.id); setError(null);
     try {
       const r = await api.inspireTrip({ sessionId, ideaId: idea.id, attendingMemberIds: attendingIds });
       setOpened((s) => ({ ...s, [idea.id]: { tripId: r.tripId, title: r.title, seeded: r.seeded } }));
-      onOpenTrip?.(r.tripId, openOpts());
+      onOpenTrip?.(r.tripId, openOpts(head));
     } catch (e: any) { setError(e?.message || String(e)); } finally { setOpening(null); }
   };
 
@@ -479,26 +492,40 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   const openStep = editing ? STEPS.find((step) => step.key === editing) ?? null : nextUnanswered;
   const formOpen = formChoice ?? !(ideas && ideas.length);
   const budgetLabel = budget === 'any' ? 'any budget' : (BUDGETS.find((b) => b.value === budget)?.label ?? 'any budget').toLowerCase();
-  // Everything you chose, in one line, for the row that replaces the form.
-  const selectionLine = [
-    ...answered.map((step) => picks[step.key]!),
-    whoLabel,
-    cap ? `within ${minutes(cap)}` : 'anywhere',
-    budgetLabel,
-  ].join(' · ');
+  // "Don't mind" is not a choice worth reading back (owner, 4 Sep 2026: "it
+  // says 'fun, don't mind, don't mind', which obviously makes no sense"), so
+  // the line names only what was actually asked for.
+  const chosen = answered.map((step) => picks[step.key]!).filter((label) => !/don't mind/i.test(label));
+  const moodLine = chosen.length ? chosen.join(' · ') : 'Anything';
+  const farLine = `${cap ? `Within ${minutes(cap)} of home` : 'Anywhere'} · ${budgetLabel}`;
 
   return (
     <>
       <Card style={{ gap: spacing.sm }}>
-        {/* What you chose, on one line, once there is something to look at. */}
+        {/* Three lines, three things to change, each opening on its own
+            (owner, 4 Sep 2026: "each 1 of those 3 rows should be a single line
+            that you can click into"). */}
         {!formOpen ? (
-          <Pressable onPress={() => setFormChoice(true)} style={styles.settingsRow} accessibilityRole="button" accessibilityLabel={`Your selections: ${selectionLine}. Tap to change`}>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={type.tiny}>YOUR SELECTIONS</Text>
-              <Text style={[type.small, { color: colors.ink }]} numberOfLines={2}>{selectionLine}</Text>
-            </View>
-            <Icon name="more" size={16} color={colors.inkMuted} />
-          </Pressable>
+          <View>
+            {([
+              ['In the mood for', moodLine, 'mood'],
+              ["Who's coming", whoLabel, 'who'],
+              ['How far and how much', farLine, 'far'],
+            ] as const).map(([label, value, key], i) => (
+              <Pressable
+                key={key}
+                // The form opens on the part that was tapped, not at the top.
+                onPress={() => { setFormChoice(true); if (key === 'mood') setEditing(STEPS[0].key); else setSettingsOpen(true); }}
+                style={[styles.settingsRow, i ? styles.rowRule : null]}
+                accessibilityRole="button"
+                accessibilityLabel={`${label}: ${value}. Tap to change`}
+              >
+                <Text style={[type.tiny, { width: 108 }]}>{label.toUpperCase()}</Text>
+                <Text style={[type.small, { flex: 1, color: colors.ink }]} numberOfLines={1}>{value}</Text>
+                <Icon name="more" size={14} color={colors.inkMuted} />
+              </Pressable>
+            ))}
+          </View>
         ) : (
           <>
         <TextInput
@@ -609,12 +636,8 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
           {/* These are the ideas from earlier today, not new ones: say so, and
               make asking again a tap rather than a guess (owner, 4 Sep 2026). */}
           {foundAt && !busy ? (
-            <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <View style={{ flex: 1 }} />
-              <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                <Chip label="Show me 5 more" icon="add" onPress={showMore} />
-                <Text style={type.tiny}>Found {howLongAgo(Date.now() - new Date(foundAt).getTime())}</Text>
-              </View>
+            <Row style={{ justifyContent: 'flex-end' }}>
+              <Chip label="Show me 5 more" icon="add" onPress={showMore} />
             </Row>
           ) : null}
           {ideas.length === 0 ? <Text style={type.small}>Nothing came to mind for that — try \u2018Don\u2019t mind\u2019 on one of the questions, or a wider distance.</Text> : null}
@@ -653,8 +676,13 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
                   {ref ? <Icon name="more" size={16} color={colors.inkMuted} /> : null}
                 </Pressable>
                 <Row style={{ flexWrap: 'wrap', paddingLeft: 84 + spacing.md }}>
-                  {idea.place ? <Chip label={isOpening ? 'Setting up the day…' : done ? 'Open in Trips' : 'Plan the day'} icon={done ? 'trips' : 'more'} tone="accent" onPress={() => openTrip(idea)} /> : null}
-                  <Chip label="Plan this" onPress={() => planIdea(idea)} />
+                  {/* One call to action (owner, 4 Sep 2026: "It should just be
+                      1 call to action: 'Plan the day', not 2"). */}
+                  <Chip
+                    label={isOpening ? 'Setting up the day…' : done ? 'Open in Trips' : 'Plan the day'}
+                    icon={done ? 'trips' : 'plan'} tone="accent"
+                    onPress={() => (idea.place ? openTrip(idea) : planIdea(idea))}
+                  />
                 </Row>
                 {done ? <Text style={[type.tiny, { paddingLeft: 84 + spacing.md }]} numberOfLines={1}>In Trips as {done.title}.</Text> : null}
               </View>
@@ -677,5 +705,6 @@ const styles = StyleSheet.create({
   idea: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
   tile: { width: 84, height: 84, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   settings: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: spacing.sm },
-  settingsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
+  settingsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 38 },
+  rowRule: { borderTopWidth: 1, borderTopColor: colors.line },
 });
