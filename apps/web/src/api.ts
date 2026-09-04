@@ -302,6 +302,9 @@ export type SpendResponse = {
   generatedAt: string;
 };
 
+/** A mock-up is 'new' until the owner rules on it. */
+export type PrototypeStatus = 'new' | 'approved' | 'rejected' | 'archived';
+
 // ---------------------------------------------------------------------------
 // Calls
 // ---------------------------------------------------------------------------
@@ -328,6 +331,11 @@ export const api = {
   spendSeries: (months = 12) => request<SpendSeries>(`/api/household/spend/series${qs({ months })}`),
   spend: (p: { period: SpendPeriod; from?: string; to?: string }) => request<SpendResponse>(`/api/household/spend${qs(p)}`),
   deleteHousehold: (confirmName: string) => del<{ deleted: boolean }>('/api/household', { confirmName }),
+
+  // prototypes (the owner's design review: approved, rejected, archived)
+  prototypeReviews: () => request<{ reviews: Record<string, { status: PrototypeStatus; note: string | null; updatedAt: string | null }> }>('/api/prototypes'),
+  reviewPrototype: (file: string, status: PrototypeStatus, note?: string | null) =>
+    put<{ review: { file: string; status: PrototypeStatus; note: string | null; updatedAt: string | null } }>(`/api/prototypes/${encodeURIComponent(file)}`, { status, note }),
 
   // vocabulary
   browse: () => request<{ food: { title: string; hint: string; items: { key: string; label: string; children: { key: string; label: string }[] }[] }[]; activities: { title: string; hint: string; items: { key: string; label: string; children: { key: string; label: string }[] }[] }[]; diets: { key: string; label: string }[] }>('/api/concepts/browse'),

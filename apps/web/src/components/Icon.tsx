@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import {
-  ArrowLeft, ArrowRight, Baby, Ban, BedDouble, Beer, Bookmark, BookmarkCheck, Calendar, Camera, Car, CarTaxiFront, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck,
+  Archive, ArrowLeft, ArrowRight, Baby, Ban, BedDouble, Beer, Bookmark, BookmarkCheck, Calendar, Camera, Car, CarTaxiFront, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck,
   Clock, Coffee, Compass, ExternalLink, Footprints, GripVertical, Heart, House, Info, Landmark, List, Lock, Map, MapPin, Mic, Minus, Monitor, Navigation, Pencil, Phone, Pin, Plus, Route, Search, Settings, Smartphone,
   Sparkles, Square, Star, StarHalf, Ticket, TrainFront, TriangleAlert, Users, Utensils, Wine, X,
 } from 'lucide-react-native';
@@ -22,7 +22,7 @@ const ICONS = {
   back: ArrowLeft, forward: ArrowRight, external: ExternalLink,
   expand: ChevronDown, collapse: ChevronUp, more: ChevronRight,
   keep: Heart, favourite: Star, halfStar: StarHalf, shortlist: Bookmark, shortlisted: BookmarkCheck, pinned: Pin,
-  allergen: TriangleAlert,
+  allergen: TriangleAlert, archived: Archive,
   // facts about a place
   address: MapPin, hours: Clock, children: Baby, phone: Phone, camera: Camera, calendar: Calendar, ticket: Ticket,
   // the journey: ways of getting about, booking states, list and map, order

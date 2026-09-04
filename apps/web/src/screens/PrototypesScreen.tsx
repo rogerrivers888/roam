@@ -1,8 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { colors, fonts, spacing, type } from '../theme';
+import { api, PrototypeStatus } from '../api';
+import { colors, fonts, radius, spacing, type } from '../theme';
 import { Button, Card, Row, Wrap } from '../components/ui';
 import { Icon, IconName } from '../components/Icon';
+import { useViewport } from '../hooks/useViewport';
 
 // Prototypes are filed under the part of the app they belong to, in menu order,
 // so "Prototypes > Plan" shows only the Plan mock-ups (owner, 4 Sep 2026).
@@ -15,6 +17,15 @@ const SECTIONS: { key: Section; label: string; icon: IconName }[] = [
   { key: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
+// What the owner has decided about a mock-up. 'new' is "not ruled on yet", and
+// it is the tab the screen opens on: the pile still waiting for him.
+const STATUSES: { key: PrototypeStatus; label: string; icon: IconName; verb: string }[] = [
+  { key: 'new', label: 'To review', icon: 'list', verb: 'Back to review' },
+  { key: 'approved', label: 'Approved', icon: 'check', verb: 'Approve' },
+  { key: 'rejected', label: 'Rejected', icon: 'close', verb: 'Reject' },
+  { key: 'archived', label: 'Archived', icon: 'archived', verb: 'Archive' },
+];
+const VERDICTS = STATUSES.filter((s) => s.key !== 'new');
 // The served mock-up pages, newest first within each section. Each is a static page
 // under /mockups (apps/web/public/mockups) so it deploys with the app and opens in its own tab.
 const PROTOTYPES: { file: string; section: Section; title: string; when: string; what: string }[] = [
@@ -34,61 +45,150 @@ const PROTOTYPES: { file: string; section: Section; title: string; when: string;
 ];
 
 const origin = () => (typeof window !== 'undefined' && window.location ? window.location.origin : '');
+const RAIL = 900; // Below this the left menu lies down as a row of pills above the list.
+
+type Review = { status: PrototypeStatus; note: string | null; updatedAt: string | null };
 
 export function PrototypesScreen() {
+  const { width } = useViewport();
+  const wide = width >= RAIL;
   // null is "All": every section, one after another in menu order.
   const [section, setSection] = useState<Section | null>(null);
-  const counts = useMemo(() => {
-    const c = {} as Record<Section, number>;
-    for (const s of SECTIONS) c[s.key] = PROTOTYPES.filter((p) => p.section === s.key).length;
-    return c;
+  const [status, setStatus] = useState<PrototypeStatus>('new');
+  const [reviews, setReviews] = useState<Record<string, Review>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.prototypeReviews().then((r) => setReviews(r.reviews)).catch(() => setProblem('Verdicts are not loading — the API is not answering.'));
   }, []);
+
+  const statusOf = useCallback((file: string): PrototypeStatus => reviews[file]?.status ?? 'new', [reviews]);
+
+  /** Rule on a mock-up. Tapping the verdict it already has puts it back to review. */
+  const rule = async (file: string, next: PrototypeStatus) => {
+    const was = reviews[file];
+    const to = statusOf(file) === next ? 'new' : next;
+    setReviews((r) => ({ ...r, [file]: { status: to, note: was?.note ?? null, updatedAt: new Date().toISOString() } }));
+    setSaving(file);
+    setProblem(null);
+    try {
+      const { review } = await api.reviewPrototype(file, to);
+      setReviews((r) => ({ ...r, [file]: { status: review.status, note: review.note, updatedAt: review.updatedAt } }));
+    } catch {
+      setReviews((r) => { const n = { ...r }; if (was) n[file] = was; else delete n[file]; return n; });
+      setProblem('That verdict did not save — the API is not answering.');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  // Each menu counts what the other menu is showing: the section list counts
+  // within the open status tab, the status tabs count within the open section.
+  const inSection = useMemo(() => PROTOTYPES.filter((p) => !section || p.section === section), [section]);
+  const inStatus = useMemo(() => PROTOTYPES.filter((p) => statusOf(p.file) === status), [statusOf, status]);
   const shown = section ? SECTIONS.filter((s) => s.key === section) : SECTIONS;
+  const total = inSection.filter((p) => statusOf(p.file) === status).length;
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
       <Text style={type.title}>Prototypes</Text>
-      <Text style={type.small}>Static mock-up pages, served with the app, filed under the part of the app they belong to. Each opens in its own tab.</Text>
+      <Text style={type.small}>Static mock-up pages, served with the app, filed under the part of the app they belong to. Each opens in its own tab; your verdict is kept.</Text>
+
+      {/* Along the top: what has been decided. Down the left: which part of the app. */}
       <Wrap>
-        <Tab label={`All (${PROTOTYPES.length})`} selected={section === null} onPress={() => setSection(null)} />
-        {SECTIONS.map((s) => (
-          <Tab key={s.key} label={`${s.label} (${counts[s.key]})`} icon={s.icon} selected={section === s.key} onPress={() => setSection(s.key)} />
+        {STATUSES.map((s) => (
+          <Tab
+            key={s.key}
+            label={`${s.label} (${inSection.filter((p) => statusOf(p.file) === s.key).length})`}
+            icon={s.icon}
+            selected={status === s.key}
+            onPress={() => setStatus(s.key)}
+          />
         ))}
       </Wrap>
-      {shown.map((s) => {
-        const list = PROTOTYPES.filter((p) => p.section === s.key);
-        return (
-          <View key={s.key} style={{ gap: spacing.md }}>
-            <Row style={{ marginTop: spacing.sm }}>
-              <Icon name={s.icon} size={18} color={colors.icon} />
-              <Text style={type.h2}>{s.label}</Text>
-            </Row>
-            {list.length === 0 ? (
-              <Text style={[type.small, { color: colors.inkFaint }]}>No {s.label} prototypes yet.</Text>
-            ) : list.map((p) => (
-              <Card key={p.file}>
-                <Row style={{ alignItems: 'flex-start' }}>
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <Text style={type.h3}>{p.title}</Text>
-                    <Text style={type.tiny}>{p.when} · /mockups/{p.file}</Text>
-                    <Text style={type.small}>{p.what}</Text>
-                  </View>
-                  <Button label="Open" icon="external" kind="secondary" onPress={() => Linking.openURL(`${origin()}/mockups/${p.file}`)} />
+      {problem ? <Text style={[type.small, { color: colors.overrun }]}>{problem}</Text> : null}
+
+      <View style={wide ? styles.split : styles.stack}>
+        <View style={wide ? styles.rail : styles.railFlat}>
+          <Tab label={`All (${inStatus.length})`} selected={section === null} onPress={() => setSection(null)} wide={wide} />
+          {SECTIONS.map((s) => (
+            <Tab
+              key={s.key}
+              label={`${s.label} (${inStatus.filter((p) => p.section === s.key).length})`}
+              icon={s.icon}
+              selected={section === s.key}
+              onPress={() => setSection(s.key)}
+              wide={wide}
+            />
+          ))}
+        </View>
+
+        <View style={styles.list}>
+          {total === 0 ? (
+            <Text style={[type.small, { color: colors.inkFaint }]}>
+              Nothing {STATUSES.find((s) => s.key === status)!.label.toLowerCase()} {section ? `in ${SECTIONS.find((s) => s.key === section)!.label}` : 'yet'}.
+            </Text>
+          ) : null}
+          {shown.map((s) => {
+            const list = PROTOTYPES.filter((p) => p.section === s.key && statusOf(p.file) === status);
+            if (list.length === 0) return null;
+            return (
+              <View key={s.key} style={{ gap: spacing.md }}>
+                <Row style={{ marginTop: spacing.sm }}>
+                  <Icon name={s.icon} size={18} color={colors.icon} />
+                  <Text style={type.h2}>{s.label}</Text>
                 </Row>
-              </Card>
-            ))}
-          </View>
-        );
-      })}
+                {list.map((p) => (
+                  <Card key={p.file}>
+                    <Row style={{ alignItems: 'flex-start' }}>
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <Text style={type.h3}>{p.title}</Text>
+                        <Text style={type.tiny}>{p.when} · /mockups/{p.file}</Text>
+                        <Text style={type.small}>{p.what}</Text>
+                      </View>
+                      <Button label="Open" icon="external" kind="secondary" onPress={() => Linking.openURL(`${origin()}/mockups/${p.file}`)} />
+                    </Row>
+                    <Wrap>
+                      {VERDICTS.map((v) => (
+                        <Tab
+                          key={v.key}
+                          label={statusOf(p.file) === v.key ? v.label : v.verb}
+                          icon={v.icon}
+                          selected={statusOf(p.file) === v.key}
+                          onPress={() => rule(p.file, v.key)}
+                        />
+                      ))}
+                      {saving === p.file ? <Text style={[type.tiny, { alignSelf: 'center' }]}>Saving…</Text> : null}
+                      {statusOf(p.file) !== 'new' && reviews[p.file]?.updatedAt ? (
+                        <Text style={[type.tiny, { alignSelf: 'center' }]}>{when(reviews[p.file].updatedAt!)} · tap again to put it back to review</Text>
+                      ) : null}
+                    </Wrap>
+                  </Card>
+                ))}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+
       <Text style={[type.tiny, { color: colors.inkFaint }]}>Add a page under apps/web/public/mockups, then list it here with the section it belongs to.</Text>
     </ScrollView>
   );
 }
 
-/** A section tab: an ink pill when it is the one you are in, an outline when it is not. */
-function Tab({ label, icon, selected, onPress }: { label: string; icon?: IconName; selected: boolean; onPress: () => void }) {
+/** "4 Sep 2026", the way the rest of the app writes a date. */
+const when = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+/** A menu item: an ink pill when it is the one you are in, an outline when it is not. */
+function Tab({ label, icon, selected, onPress, wide }: { label: string; icon?: IconName; selected: boolean; onPress: () => void; wide?: boolean }) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="tab" accessibilityState={{ selected }} style={[styles.tab, selected && styles.tabOn]}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityState={{ selected }}
+      style={[styles.tab, wide && styles.tabWide, selected && styles.tabOn]}
+    >
       {icon ? <Icon name={icon} size={14} color={selected ? colors.primaryFg : colors.inkMuted} /> : null}
       <Text style={[styles.tabText, selected && { color: colors.primaryFg }]}>{label}</Text>
     </Pressable>
@@ -96,12 +196,18 @@ function Tab({ label, icon, selected, onPress }: { label: string; icon?: IconNam
 }
 
 const styles = StyleSheet.create({
-  page: { padding: spacing.lg, gap: spacing.md, maxWidth: 760, width: '100%', alignSelf: 'center' },
+  page: { padding: spacing.lg, gap: spacing.md, maxWidth: 940, width: '100%', alignSelf: 'center' },
+  split: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.lg },
+  stack: { flexDirection: 'column', gap: spacing.md },
+  rail: { width: 180, gap: 6 },
+  railFlat: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  list: { flex: 1, gap: spacing.md, minWidth: 0 },
   tab: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 12, minHeight: 34,
-    borderRadius: 999, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
+    borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
   },
+  tabWide: { justifyContent: 'flex-start', minHeight: 38, borderRadius: radius.md, borderColor: 'transparent', backgroundColor: 'transparent' },
   tabOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  tabText: { fontFamily: fonts.body, fontSize: 13, fontWeight: '600', color: colors.ink },
+  tabText: { fontFamily: fonts.body, fontSize: 13, fontWeight: '600', color: colors.ink, flexShrink: 1 },
 });
