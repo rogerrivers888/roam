@@ -7,6 +7,7 @@ import { Icon, CategoryIcon, Rating } from './Icon';
 import { VenuePhoto } from './VenuePhoto';
 import { TasteTables } from './TasteTables';
 import type { OpenTripOptions } from '../screens/PlanScreen';
+import { howLongAgo, recallScreen, rememberScreen } from '../screenState';
 
 /**
  * In the mood for, as a trail rather than a list (owner, 4 Sep 2026: "can this
@@ -66,6 +67,24 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Things = { status: 'loading' | 'ready' | 'error'; items: IdeaThing[]; headline?: IdeaHeadline | null };
 
 /**
+ * What is worth remembering when you leave this tab (owner, 4 Sep 2026).
+ *
+ * The brief, the trail and the two session identifiers — and nothing else. The
+ * ideas themselves stay on the server where they already were; coming back
+ * fetches them from the session, which costs nothing and asks no provider.
+ * Keeping only the identifier is what lets the screen say honestly how old the
+ * answer is.
+ */
+type InspireMemory = {
+  picks: Partial<Record<StepKey, string>>;
+  cap: number | null;
+  budget: IdeaBudget;
+  query: string;
+  sessionId: string | null;
+  tasteSession: string | null;
+};
+
+/**
  * Inspire me: a loose brief (typed or spoken), a mood or two, a travel cap →
  * ideas that say why. As the ideas land, Roam looks around each one in the
  * background and says what is there. "Things to do and see" opens the idea as
@@ -85,13 +104,20 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
 }) {
   // One answer per question, and which question is open. Nothing is answered to
   // begin with, so the first question is the only thing on screen.
-  const [picks, setPicks] = useState<Partial<Record<StepKey, string>>>({});
+  // Where this screen was when it was last left. Read once, before the first
+  // render, so a return to the tab does not flash an empty form and then fill it.
+  const held = useRef(recallScreen<InspireMemory>('inspire')).current;
+  const [picks, setPicks] = useState<Partial<Record<StepKey, string>>>(held?.data.picks ?? {});
   const [editing, setEditing] = useState<StepKey | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The defaults are the answer most days want, on one line, so they need no
   // attention (owner, 4 Sep 2026): an hour from home, any budget, everyone.
-  const [cap, setCap] = useState<number | null>(60);
-  const [budget, setBudget] = useState<IdeaBudget>('any');
+  const [cap, setCap] = useState<number | null>(held?.data.cap ?? 60);
+  const [budget, setBudget] = useState<IdeaBudget>(held?.data.budget ?? 'any');
+  // When the ideas on screen were found, so the screen can offer a refresh
+  // rather than pretending they are new.
+  const [foundAt, setFoundAt] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(Boolean(held?.data.sessionId));
   const moods = useMemo(
     () => STEPS.map((step) => step.options.find((o) => o.label === picks[step.key])?.mood).filter((m): m is string => Boolean(m)),
     [picks],
@@ -210,7 +236,10 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
         if (!idea.place || run.current !== id) continue;
         setThings((s) => ({ ...s, [idea.id]: { status: 'loading', items: [] } }));
         try {
-          const r = await api.inspireThings({ lat: idea.place.lat, lng: idea.place.lng, label: idea.place.label, locality: idea.place.locality ?? undefined });
+          // The name to look the place up by is the one the idea used — the map
+          // often answers "London" for the National Gallery, and no picture of
+          // London is a picture of the National Gallery.
+          const r = await api.inspireThings({ lat: idea.place.lat, lng: idea.place.lng, label: idea.placeText.split(',')[0].trim() || idea.place.label, locality: idea.place.locality ?? undefined });
           if (run.current === id) setThings((s) => ({ ...s, [idea.id]: { status: 'ready', items: r.items, headline: r.headline } }));
         } catch {
           if (run.current === id) setThings((s) => ({ ...s, [idea.id]: { status: 'error', items: [] } }));

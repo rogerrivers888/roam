@@ -1543,9 +1543,13 @@ export async function thingsAround({ household, session, place }) {
 function bestNameMatch(venues, label, center) {
   const want = normName(label.split(',')[0]);
   if (want.length < 4) return null;
+  const words = want.split(' ').filter((w) => w.length > 2);
   const hits = venues.filter((v) => {
     const n = normName(v.name);
-    return n === want || n.includes(want) || want.includes(n);
+    if (n === want || n.includes(want) || want.includes(n)) return true;
+    // "Battersea Power Station" is listed by one source as "Battersea Power
+    // Station Shopping Centre": every word of the name is there, in order or not.
+    return words.length > 1 && words.every((w) => n.includes(w));
   });
   if (!hits.length) return null;
   const best = hits.sort((a, b) => (b.ratingCount ?? 0) - (a.ratingCount ?? 0))[0];
@@ -1589,7 +1593,7 @@ router.get('/inspire/things', async (req, res, next) => {
     let headline = label ? bestNameMatch(sorted, label, center) : null;
     if (!headline && label && sourceHasKey('google') && !sourceOff('google')) {
       try {
-        const r = await searchCached({ center, radiusKm: 3, categories: [], query: label, includeEvents: false, sources: ['google'] });
+        const r = await searchCached({ center, radiusKm: 8, categories: [], query: label, includeEvents: false, sources: ['google'] });
         if (r.fetched) await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, null, 'google', 'plan.inspire.headline', r.units]);
         headline = bestNameMatch(r.venues || [], label, center);
       } catch { /* the idea does fine without a picture */ }
