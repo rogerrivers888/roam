@@ -211,6 +211,7 @@ router.post('/', async (req, res, next) => {
            b.dayStart ?? '09:30', b.dayEnd ?? '21:00', travelMode, intensity, household.timezone || 'Europe/London'],
         );
         const created = rows[0];
+        claimBase(household.id, base, b.baseKind ?? (base === home ? 'home' : 'hotel'));
         for (const memberId of await ids(client)) await client.query('insert into trip_attendees (trip_id, member_id) values ($1, $2) on conflict do nothing', [created.id, memberId]);
         await ensureDays(client, created);
         await placeTrip(client, created.id, place ?? base);
@@ -288,6 +289,7 @@ router.patch('/:id', async (req, res, next) => {
     if (b.intensity && !INTENSITY_TARGETS[b.intensity]) return res.status(400).json({ error: 'invalid_intensity' });
     let base = b.base?.lat != null ? b.base : null;
     if (!base && b.baseText) [base] = await geocode(b.baseText, { limit: 1, near: { lat: trip.base_lat ?? trip.origin_lat, lng: trip.base_lng ?? trip.origin_lng }, countryCode: trip.country_code ?? null, within: true, kind: 'lodging' });
+    claimBase(trip.household_id, base, b.baseKind ?? 'hotel');
     await withTransaction(async (client) => {
       const { rows } = await client.query(
         `update trips set
@@ -419,6 +421,28 @@ router.get('/:id/shortlist/search', async (req, res, next) => {
     res.json({ near: center, radiusKm, results: withFlags(results), degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started });
   } catch (err) { next(err); }
 });
+
+/**
+ * Where you are staying is a place too (owner, 4 Sep 2026: "the hotels, the
+ * activities, the restaurants").
+ *
+ * A base is picked through the geocoder rather than a place search, so it is
+ * stored as a label and a point and its identifier was thrown away. Nominatim
+ * is OpenStreetMap, so that identifier is an OSM one and the hotel can be
+ * researched and owned exactly like anywhere else — its address, its phone
+ * number and its check-in hours are then on the phone when the family arrives
+ * in a city with no signal, which is the moment they need them.
+ *
+ * Only somewhere you sleep: home is not researched, and a city centre used as a
+ * stand-in base is not a place at all.
+ */
+function claimBase(householdId, base, baseKind) {
+  if (!base || baseKind === 'home' || base.source !== 'osm' || !base.sourcePlaceId) return;
+  if (/ \(centre\)$/.test(String(base.label ?? ''))) return;
+  claimPlace(householdId, `osm:${base.sourcePlaceId}`, 'stay', {
+    name: base.name ?? base.label, category: 'hotel', lat: base.lat, lng: base.lng, website: base.website ?? null,
+  });
+}
 
 /** One place onto a trip's shortlist (and into the atlas): the POST route and the Plan screen's Inspire me both come through here. */
 export async function addShortlistItem(trip, household, b) {

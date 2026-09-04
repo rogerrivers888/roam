@@ -109,6 +109,11 @@ export async function encyclopediaFor({ name, lat, lng } = {}) {
   return {
     ...page,
     ...facts,
+    // Wikipedia disambiguates in the title — "Roman Baths (Bath)", "Dishoom
+    // (restaurant)" — which is right for an encyclopedia and wrong for the name
+    // of somewhere you are going. The full title still travels, because that is
+    // what the attribution has to credit.
+    displayTitle: page.title.replace(/\s*\([^)]*\)\s*$/, '').trim() || page.title,
     distanceM: best.distanceM,
     confidence: best.confidence,
     // The condition on the text, in the words that have to appear on screen.

@@ -64,13 +64,22 @@ export function nameScore(a, b) {
   if (!x || !y) return 0;
   if (x === y) return 1;
   if (x.startsWith(y) || y.startsWith(x)) return 0.9;
-  const ax = new Set(x.split(' ')), by = new Set(y.split(' '));
-  const shared = [...ax].filter((t) => by.has(t)).length;
-  if (!shared) return 0;
-  // Jaccard, but a single shared word that is the whole of the shorter name
-  // ("Dishoom" vs "Dishoom Covent Garden") counts for more than the ratio says.
-  const jaccard = shared / new Set([...ax, ...by]).size;
-  const containment = shared / Math.min(ax.size, by.size);
+  const ax = [...new Set(x.split(' '))], by = [...new Set(y.split(' '))];
+  const shared = ax.filter((t) => by.includes(t));
+  if (!shared.length) return 0;
+  const jaccard = shared.length / new Set([...ax, ...by]).size;
+
+  // A name wholly contained in a longer one is usually the same place —
+  // "Torreão Poente" inside "Museu de Lisboa - Torreão Poente" — and counts for
+  // more than the ratio says. But only when the overlap is distinctive: the
+  // town's name turns up inside half the businesses in it, and "Bath" inside
+  // "The Gainsborough Bath Spa" once matched the hotel to Wikipedia's article
+  // on the parliamentary constituency. So containment counts only when the
+  // shared words include the longer name's first word, or a word long enough to
+  // be a name rather than a place or a category.
+  const longer = ax.length >= by.length ? ax : by;
+  const distinctive = shared.includes(longer[0]) || shared.some((t) => t.length >= 6);
+  const containment = distinctive ? shared.length / Math.min(ax.length, by.length) : 0;
   return Math.max(jaccard, containment * 0.85);
 }
 

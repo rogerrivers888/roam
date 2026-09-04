@@ -83,6 +83,19 @@ async function putFact(venueRef, field, source, value, confidence = null) {
   );
 }
 
+/**
+ * Forget what a source told us last time, before it is asked again.
+ *
+ * Only called once that source has actually answered. A match that turns out to
+ * have been wrong — Wikipedia's article on the Bath constituency, attached to a
+ * hotel with "Bath" in its name — has to be able to go away, and it cannot if a
+ * re-check only ever writes over the fields it happens to find this time. A
+ * source that could not be reached keeps what it said before, because silence
+ * is not a correction.
+ */
+const forgetSource = (venueRef, sources) =>
+  query('delete from place_facts where venue_ref = $1 and source = any($2)', [venueRef, sources]).catch(() => null);
+
 // Which source wins each field, in order. A mapper who wrote the opening hours
 // into OpenStreetMap and a restaurant who publishes them in their own markup
 // will disagree; the business's own page is right about the business, and the
@@ -222,6 +235,8 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     // got back (Technical Constraints §2).
     try { osm = await matchOsm({ venueRef, name: seed.name, lat: seed.lat, lng: seed.lng }); }
     finally { await logCall(householdId, 'osm-overpass', 'own.match'); }
+    // It answered, so whatever it said last time is superseded by what it says now.
+    await forgetSource(venueRef, ['osm']);
     if (osm) {
       const v = venueFromOsmElement({ type: osm.ref.split('/')[0], id: osm.ref.split('/')[1], lat: osm.lat, lon: osm.lng, tags: osm.tags });
       const t = osm.tags;
@@ -261,6 +276,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   if (seed.website) {
     try {
       const site = await siteFacts({ website: seed.website, name: seed.name, category: seed.category ?? null });
+      await forgetSource(venueRef, ['site']);
       if (site) {
         matched.site = { url: site.sourceUrl ?? seed.website, how: site.how ?? null };
         const put = (field, value) => putFact(venueRef, field, 'site', value, 1);
@@ -295,6 +311,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     // Wikidata is a second service and gets its own line, so the usage table
     // says who was actually asked.
     if (enc?.wikidataId) await logCall(householdId, 'wikidata', 'own.encyclopedia');
+    await forgetSource(venueRef, ['wikipedia', 'wikidata']);
     if (enc) {
       matched.wikipedia = { title: enc.title, url: enc.url, distanceM: enc.distanceM, confidence: enc.confidence };
       await Promise.all([
@@ -303,7 +320,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
         putFact(venueRef, 'wikipedia_url', 'wikipedia', enc.url, enc.confidence),
         putFact(venueRef, 'wikidata_id', 'wikipedia', enc.wikidataId, enc.confidence),
         putFact(venueRef, 'image_url', 'wikipedia', enc.imageUrl, enc.confidence),
-        putFact(venueRef, 'name', 'wikipedia', enc.title, enc.confidence),
+        putFact(venueRef, 'name', 'wikipedia', enc.displayTitle ?? enc.title, enc.confidence),
         putFact(venueRef, 'website', 'wikidata', enc.officialWebsite, enc.confidence),
       ]);
       found += 1;
