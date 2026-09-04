@@ -219,14 +219,18 @@ export async function renderText(url) {
       else r.continue().catch(() => {});
     });
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: RENDER_TIMEOUT_MS });
-    // The shell arrives first and the menu a moment later: wait for words rather
-    // than for the network, which on a menu app never really goes quiet.
+    // The shell arrives first, then the navigation, then the dishes. Waiting for
+    // "enough text" stops too early — the section headings alone clear the bar —
+    // so wait for the text to stop growing instead.
     let text = '';
+    let settled = 0;
     const deadline = Date.now() + RENDER_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      text = await page.evaluate(() => document.body?.innerText || '');
-      if (text.length >= THIN_TEXT) break;
-      await new Promise((r) => setTimeout(r, 700));
+      const next = await page.evaluate(() => document.body?.innerText || '');
+      settled = next.length > 0 && next.length === text.length ? settled + 1 : 0;
+      text = next;
+      if (settled >= 2 && text.length >= THIN_TEXT) break;
+      await new Promise((r) => setTimeout(r, 600));
     }
     return { text: text.replace(/\n{3,}/g, '\n\n').trim(), why: null };
   } catch (err) {
@@ -313,11 +317,12 @@ async function parseMenuText({ text, venueLabel, householdId, sessionId }) {
   const failed = [];
   let currency = null;
   let note = null;
-  for (const [i, part] of parts.entries()) {
-    let parsed;
+  // The parts do not depend on each other, so they are read at once: a long
+  // menu costs the same and takes as long as its slowest part.
+  const results = await Promise.all(parts.map(async (part, i) => {
     console.log(`menu.read: part ${i + 1}/${parts.length} (${part.length} chars) → ${MODEL}`);
     try {
-      parsed = await parseStructured({
+      const parsed = await parseStructured({
         system: PARSE_SYSTEM,
         messages: [{
           role: 'user',
@@ -332,13 +337,18 @@ async function parseMenuText({ text, venueLabel, householdId, sessionId }) {
         model: MODEL,
         maxTokens: MAX_ANSWER_TOKENS,
       });
+      console.log(`menu.read: part ${i + 1} gave ${(parsed.sections || []).reduce((n, x) => n + (x.items?.length || 0), 0)} items`);
+      return parsed;
     } catch (err) {
       // One unreadable stretch must not lose the rest of the menu.
       console.log(`menu.read: part ${i + 1} failed — ${err.message}`);
       failed.push(`part ${i + 1}: ${err.message}`);
-      continue;
+      return null;
     }
-    console.log(`menu.read: part ${i + 1} gave ${(parsed.sections || []).reduce((n, x) => n + (x.items?.length || 0), 0)} items`);
+  }));
+
+  for (const parsed of results) {
+    if (!parsed) continue;
     currency = currency || parsed.currency;
     note = note || parsed.note;
     for (const section of parsed.sections || []) {
