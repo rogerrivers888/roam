@@ -73,8 +73,10 @@ const REFRESH_AFTER_DAYS = 180;
  *   2  asks the place ID what a place is when nothing of ours says; takes the
  *      street address from the point alone; reads a phone number printed
  *      without markup; lets what we already know decide if there is a menu
+ *   3  replaces rather than erases: a source that comes back empty no longer
+ *      throws away what it said last time
  */
-const RESEARCH_VERSION = 2;
+const RESEARCH_VERSION = 3;
 
 const LICENCE = {
   osm: { licence: 'ODbL 1.0', retention: 'indefinite', attribution: OSM_ATTRIBUTION },
@@ -311,12 +313,19 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     // got back (Technical Constraints §2).
     try { osm = await matchOsm({ venueRef, name: seed.name, lat: seed.lat, lng: seed.lng }); }
     finally { await logCall(householdId, 'osm-overpass', 'own.match'); }
-    // It answered, so whatever it said last time is superseded by what it says
-    // now — but only if it was actually asked. A run with no name to search for
-    // returns null without troubling Overpass, and erasing a good match on the
-    // strength of that turned a researched Royal Crescent back into an empty
-    // record (found 4 Sep 2026).
-    if (osm || canAsk) await forgetSource(venueRef, ['osm']);
+    // Replace, do not erase.
+    //
+    // A source's facts are superseded when it comes back with something. They
+    // are not thrown away because it came back with nothing: Overpass under
+    // load answers "no results" rather than refusing, and a batch of thirty-two
+    // re-reads took this household's matched places from ten to four before
+    // anyone noticed (found 4 Sep 2026). An empty answer is not evidence of
+    // absence.
+    //
+    // A match that was wrong still has to be removable, and that is what `force`
+    // is for — the drawer's "Look again", and the six-monthly refresh. Asked
+    // deliberately, we clear first and take whatever comes back.
+    if (osm || force) await forgetSource(venueRef, ['osm']);
     if (osm) {
       const v = venueFromOsmElement({ type: osm.ref.split('/')[0], id: osm.ref.split('/')[1], lat: osm.lat, lon: osm.lng, tags: osm.tags });
       const t = osm.tags;
@@ -359,7 +368,9 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   if (seed.website) {
     try {
       const site = await siteFacts({ website: seed.website, name: seed.name, category: seed.category ?? null, locality: seed.locality ?? null, knownAddress: seed.address ?? null });
-      await forgetSource(venueRef, ['site']);
+      // Replace, do not erase — a site that would not answer this afternoon has
+      // not withdrawn what it said this morning.
+      if (site || force) await forgetSource(venueRef, ['site']);
       if (site) {
         matched.site = { url: site.sourceUrl ?? seed.website, how: site.how ?? null };
         const put = (field, value) => putFact(venueRef, field, 'site', value, 1);
@@ -421,7 +432,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     // Wikidata is a second service and gets its own line, so the usage table
     // says who was actually asked.
     if (enc?.wikidataId) await logCall(householdId, 'wikidata', 'own.encyclopedia');
-    if (canAsk) await forgetSource(venueRef, ['wikipedia', 'wikidata']);
+    if (enc || force) await forgetSource(venueRef, ['wikipedia', 'wikidata']);
     if (enc) {
       matched.wikipedia = { title: enc.title, url: enc.url, distanceM: enc.distanceM, confidence: enc.confidence };
       await Promise.all([
@@ -560,7 +571,7 @@ export async function sweepExpired() {
 }
 
 /** Places claimed but never researched, or due to be tried again. */
-export async function catchUp({ limit = 25 } = {}) {
+export async function catchUp({ limit = 8 } = {}) {
   const { rows } = await query(
     `select venue_ref from place_records
       where enrich_state = 'pending'
@@ -587,7 +598,7 @@ export async function ownedSummary(householdId) {
             count(*) filter (where r.summary is not null)::int as described,
             count(*) filter (where r.enrich_state in ('pending', 'partial'))::int as waiting,
             count(*) filter (where r.enrich_state = 'failed')::int as failed,
-            count(*) filter (where r.research_version < 2)::int as behind,
+            count(*) filter (where r.research_version < 3)::int as behind,
             max(r.updated_at) as last_change
        from (select distinct venue_ref from place_claims where household_id = $1) c
        join place_records r on r.venue_ref = c.venue_ref`,
