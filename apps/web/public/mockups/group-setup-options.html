@@ -1,0 +1,923 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Roam · Setting a group up — the four questions</title><style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Caveat:wght@700&display=swap');
+:root{--ground:#FFFFFF;--ink:#201E1D;--muted:#6B6663;--rule:#E5EFEA;--panel:#EFF8F3;--mint:#B6E3CF;--leaf:#2E8A63;--leafDeep:#2F6A52;--red:#EC3013;
+  --primary:#201E1D;--primaryFg:#FFFFFF;--icon:#2E8A63;--well:transparent;--head:#B6E3CF;--headInk:#201E1D;--headSub:#2F6A52;--tabbar:#FFFFFF;--tile1:#B6E3CF;--tile2:#EFF8F3;--sel:#201E1D;--selFg:#FFFFFF;--handle:#201E1D;--range:#2E8A63;--scrim:rgba(32,30,29,.45)}
+[data-theme="dark"]{--ground:#17171A;--ink:#F3F2F2;--muted:#8F8D93;--rule:#2B2B30;--panel:#1E1E23;--mint:#B6E3CF;--leaf:#B6E3CF;--leafDeep:#8F8D93;--red:#EC3013;
+  --primary:#B6E3CF;--primaryFg:#17171A;--icon:#F3F2F2;--well:#24242A;--head:#17171A;--headInk:#F3F2F2;--headSub:#8F8D93;--tabbar:#101013;--tile1:#2E2E35;--tile2:#3A3A42;--sel:#B6E3CF;--selFg:#17171A;--handle:#F3F2F2;--range:#B6E3CF;--scrim:rgba(0,0,0,.55)}
+*{box-sizing:border-box}
+body{margin:0;background:#E9E6DF;font:15px/1.45 Archivo,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#201E1D;padding:32px}
+h1{font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+.lede{color:#6B6663;max-width:960px;margin:0 0 24px}
+section{margin:0 0 48px}
+h2{font-size:20px;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
+.sub{color:#6B6663;margin:0 0 16px;max-width:960px}
+.row{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+.notes{width:300px;background:#fff;border:1px solid #E5EFEA;border-radius:4px;padding:14px 16px;font-size:13px}
+.notes h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em}.notes ul{margin:0 0 10px;padding-left:18px}.notes li{margin:0 0 4px}
+.cap{font-size:12px;color:#6B6663;text-align:center;margin:8px 0 0;max-width:390px}
+.modelab{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6B6663;margin:0 0 10px}
+a{color:#2E8A63}
+.ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
+.ic.s{width:13px;height:13px}.ic.l{width:20px;height:20px}
+/* phone */
+.phone{width:390px;height:844px;background:var(--ground);color:var(--ink);border-radius:36px;border:8px solid #2A2823;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;font-family:Archivo,sans-serif}
+.status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:700;background:var(--head);color:var(--headInk)}
+.screen{flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.tabbar{height:64px;border-top:1px solid var(--rule);background:var(--tabbar);display:flex;justify-content:space-around;align-items:center;font-size:10px;color:var(--muted)}
+.tabbar div{display:flex;flex-direction:column;align-items:center;gap:3px}.tabbar .on{color:var(--ink);font-weight:700}
+.head{background:var(--head);color:var(--headInk);padding:4px 16px 26px;display:flex;flex-direction:column;gap:6px}
+.head .top{display:flex;justify-content:space-between;align-items:center}
+.head .back{font-size:12px;color:var(--headSub);display:flex;align-items:center;gap:4px;font-weight:600}
+.wordmark{font:700 24px/1 Caveat,cursive;display:inline-flex;align-items:center;gap:3px;color:var(--headInk)}
+.wordmark .pin{display:inline-flex;width:20px;height:24px;margin-left:2px}
+.wordmark .pin svg{display:block;width:20px;height:24px;overflow:visible}
+.head .title{font-size:24px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.head .sub{font-size:12px;color:var(--headSub);margin:0;font-weight:600}
+.tabs{display:flex;gap:6px;padding:0 16px;margin-top:-18px}
+.tabs div{flex:1;text-align:center;padding:10px 6px;border-radius:4px;background:var(--ground);border:1px solid var(--rule);font-weight:700;font-size:13px;color:var(--muted)}
+.tabs .on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.body{flex:1;overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.hdr{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.h3{font-weight:800;font-size:17px;letter-spacing:-.02em}.small{font-size:13px;color:var(--muted)}.tiny{font-size:12px;color:var(--muted)}
+.lab{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.iconbtn{width:38px;height:38px;border-radius:4px;background:var(--ground);border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;color:var(--ink);flex:none}
+[data-theme="dark"] .iconbtn{border-color:#F3F2F2}
+/* category tiles: mint tiles, deep-leaf text; the chosen one is ink */
+.cats{display:flex;gap:8px}
+.cat{flex:1;border-radius:4px;padding:10px 10px 8px;display:flex;flex-direction:column;gap:6px;background:var(--tile2);color:var(--ink)}
+.cat svg{color:var(--icon)}
+.cat .n{font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1}.cat .l{font-size:12px;font-weight:600;color:var(--muted)}
+.cat.sel{background:var(--sel);color:var(--selFg)}.cat.sel .l{color:var(--selFg);opacity:.8}.cat.sel svg{color:var(--selFg)}
+/* control bar: pills, outline in rule, selected ink */
+.bar{display:flex;gap:6px}
+.pill{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 12px;border-radius:999px;background:var(--ground);border:1px solid var(--rule);font-size:12px;font-weight:600;white-space:nowrap;color:var(--ink)}
+.pill svg{color:var(--icon)}
+.pill.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}.pill.on svg{color:var(--selFg)}
+[data-theme="dark"] .pill{background:var(--panel)}
+[data-theme="dark"] .pill.on{background:var(--sel);color:var(--selFg)}
+/* result cards: white on a rule; photo tiles mint / mint tint */
+.cardlist{display:flex;flex-direction:column}
+.pc{display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--rule)}
+.pc:first-child{border-top:0;padding-top:4px}
+.pc .ph{width:92px;height:92px;border-radius:4px;flex:none;background:var(--tile1);position:relative}
+.pc .ph.b{background:var(--tile2)}
+.pc .heart{position:absolute;right:-6px;top:-6px;width:22px;height:22px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;color:#fff;border:2px solid var(--ground)}
+.pc .heart svg{fill:#fff;stroke:#fff;width:11px;height:11px}
+.pc .t{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pc .name{font-weight:800;font-size:15px;letter-spacing:-.01em}
+.pc .meta{font-size:13px;color:var(--muted)}
+.pc .meta svg{color:var(--icon)}
+.why{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;padding:2px 9px;border-radius:999px;border:1px solid var(--rule);font-size:12px;font-weight:600;color:var(--ink);margin-top:2px}
+.why svg{color:var(--icon)}
+[data-theme="dark"] .why{background:var(--panel)}
+.pc .act{display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-end}
+.save{width:36px;height:36px;border-radius:50%;border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;color:var(--ink);background:var(--ground)}
+[data-theme="dark"] .save{border-color:#F3F2F2}
+.save.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+/* sheets */
+.scrim{position:absolute;inset:0;background:var(--scrim);z-index:6}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--rule);padding:12px 16px 18px;z-index:7;display:flex;flex-direction:column;gap:12px;color:var(--ink)}
+.handle{width:40px;height:4px;border-radius:2px;background:var(--rule);margin:0 auto}
+.grp{display:flex;flex-direction:column;gap:6px}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opt{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid var(--rule);background:var(--ground);font-size:13px;font-weight:600;color:var(--ink)}
+[data-theme="dark"] .opt{background:var(--well)}
+.opt.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.btn{display:flex;align-items:center;justify-content:center;gap:6px;height:44px;border-radius:4px;background:var(--primary);color:var(--primaryFg);font-weight:700;font-size:14px}
+.btn.sec{background:transparent;color:var(--ink);border:1px solid var(--ink)}
+[data-theme="dark"] .btn.sec{border-color:#F3F2F2}
+.btn.ghost{background:transparent;color:var(--muted);height:36px}
+.seg3{display:flex;background:var(--ground);border:1px solid var(--rule);border-radius:4px;padding:3px;gap:3px}
+[data-theme="dark"] .seg3{background:var(--well)}
+.seg3 div{flex:1;text-align:center;padding:8px 4px;border-radius:4px;font-size:12px;font-weight:700;color:var(--muted)}
+.seg3 .on{background:var(--sel);color:var(--selFg)}
+/* slider (same as the Plan screen) */
+.range{position:relative;height:56px;margin:6px 8px 0}
+.range .bars{position:absolute;left:0;right:0;bottom:22px;height:30px;display:flex;align-items:flex-end;gap:2px}
+.range .bars i{flex:1;background:var(--rule);border-radius:2px 2px 0 0}
+.range .bars i.in{background:var(--range);opacity:.5}
+.range .track{position:absolute;left:0;right:0;bottom:16px;height:2px;background:var(--rule)}
+.range .fill{position:absolute;bottom:16px;height:2px;background:var(--range)}
+.range .knob{position:absolute;bottom:5px;width:24px;height:24px;border-radius:50%;background:var(--ground);border:2px solid var(--handle);transform:translateX(-50%)}
+.range .lbl{position:absolute;bottom:-4px;font-size:12px;color:var(--muted);transform:translateX(-50%);font-weight:600}
+/* search */
+.searchbar{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px;border-radius:4px;background:var(--ground);border:1px solid var(--ink);outline:2px solid var(--leaf);outline-offset:2px;font-size:15px;color:var(--ink)}
+[data-theme="dark"] .searchbar{border-color:#F3F2F2}
+.searchbar .cur{width:2px;height:18px;background:var(--ink)}
+/* strands */
+.sec{display:flex;justify-content:space-between;align-items:baseline}
+.sec .t{font-size:17px;font-weight:800;letter-spacing:-.02em;display:flex;gap:6px;align-items:center}.sec .t svg{color:var(--icon)}.sec .m{font-size:12px;color:var(--leaf);font-weight:700}
+[data-theme="dark"] .sec .m{color:var(--mint)}
+.caro{display:flex;gap:10px;overflow:hidden}
+.tile{width:150px;flex:none;border-radius:4px;overflow:hidden;border:1px solid var(--rule);background:var(--ground)}
+[data-theme="dark"] .tile{background:var(--panel)}
+.tile .ph{height:84px;background:var(--tile1)}.tile .ph.b{background:var(--tile2)}
+.tile .t{padding:8px 10px;display:flex;flex-direction:column;gap:3px}
+.tile .name{font-weight:800;font-size:13px}.tile .meta{font-size:12px;color:var(--muted)}
+/* map */
+.map{position:relative;background:var(--panel);overflow:hidden}
+[data-theme="dark"] .map{background:#1E1E23}
+.map svg.bg{display:block;width:100%;height:100%}
+.map svg.bg path{stroke:var(--rule)}
+.pin{position:absolute;width:30px;height:30px;border-radius:50% 50% 50% 0;transform:translate(-50%,-100%) rotate(-45deg);transform-origin:bottom left;background:var(--ink);color:var(--ground);display:flex;align-items:center;justify-content:center;border:2px solid var(--ground)}
+.pin span{transform:rotate(45deg);display:flex}
+.pin.home{background:var(--ground);color:var(--ink);border-color:var(--ink)}
+.pin.big{width:40px;height:40px;z-index:2;outline:3px solid var(--leaf);outline-offset:2px}
+.float{position:absolute;left:12px;right:12px;display:flex;gap:6px;z-index:3}
+.carousel{position:absolute;left:0;right:0;bottom:12px;display:flex;gap:10px;padding:0 16px;overflow:hidden;z-index:3}
+.mcard{min-width:250px;background:var(--ground);border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+[data-theme="dark"] .mcard{background:var(--panel)}
+.mcard.sel{border-color:var(--ink)}
+/* desktop */
+.desk{width:1180px;height:760px;background:var(--ground);color:var(--ink);border-radius:8px;border:1px solid #cfc9bd;overflow:hidden;position:relative;display:flex;flex-direction:column;font-family:Archivo,sans-serif}
+.topbar{overflow:hidden;height:56px;background:var(--head);color:var(--headInk);display:flex;align-items:center;gap:22px;padding:0 20px}
+.topbar .nav{display:flex;gap:16px;font-size:13px;color:var(--headSub);font-weight:600}.topbar .nav b{color:var(--headInk)}
+.topbar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.topbar .src{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:7px 12px;border-radius:999px;border:1px solid var(--headInk);color:var(--headInk)}
+.dbody{flex:1;display:flex;gap:18px;padding:18px 20px;overflow:hidden}
+.dleft{width:300px;display:flex;flex-direction:column;gap:12px}
+.dmain{flex:1;display:flex;flex-direction:column;gap:12px;min-width:0}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.gc{border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--ground)}
+[data-theme="dark"] .gc{background:var(--panel)}
+.gc .ph{height:110px;background:var(--tile1)}.gc .ph.b{background:var(--tile2)}
+.gc .t{padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.gc .name{font-weight:800;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+.gc .meta{font-size:12px;color:var(--muted)}
+.panel{background:var(--panel);border-radius:4px;padding:14px;display:flex;flex-direction:column;gap:10px}
+table.cmp{border-collapse:collapse;width:100%;max-width:1100px;background:#fff;border:1px solid #E5EFEA;border-radius:4px;overflow:hidden;font-size:13px}
+table.cmp th,table.cmp td{padding:8px 12px;border-bottom:1px solid #E5EFEA;text-align:left;vertical-align:top}
+table.cmp th{background:#EFF8F3;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+
+/* ---- menu & order ---- */
+.body.scroll{overflow-y:auto;overflow-x:hidden}
+.body.scroll>*{flex:0 0 auto}
+.secbar{position:sticky;top:-14px;z-index:2;background:var(--ground);padding-top:6px}
+.provenance{background:var(--panel);border-radius:4px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.chain{display:flex;flex-direction:column;gap:6px}
+.chain .step{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--muted)}
+.chain .step b{color:var(--ink);font-weight:700}
+.chain .step svg{color:var(--icon);margin-top:2px}
+.secbar{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin:0 -16px;padding-left:16px;padding-right:16px}
+.secbar::-webkit-scrollbar{display:none}
+.mrow{display:flex;flex-direction:column;gap:6px;padding:11px 0;border-top:1px solid var(--rule)}
+.mrow:first-child{border-top:0}
+.mrow .l1{display:flex;gap:10px;align-items:baseline}
+.mrow .nm{font-weight:800;font-size:14px;letter-spacing:-.01em;flex:1;line-height:1.25}
+.mrow .pr{font-weight:700;font-size:13px;white-space:nowrap}
+.mrow .ds{font-size:12px;color:var(--muted);line-height:1.35}
+.mrow.picked{background:var(--panel);margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:4px}
+.flags{display:flex;flex-wrap:wrap;gap:4px}
+.flag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;border:1px solid var(--rule);color:var(--muted);white-space:nowrap}
+.flag svg{width:11px;height:11px}
+.flag.check{border-color:var(--ink);color:var(--ink)}
+[data-theme="dark"] .flag.check{border-color:#F3F2F2;color:#F3F2F2}
+.flag.allergen{border-color:#B3261E;color:#B3261E;background:#FBE9E7}
+[data-theme="dark"] .flag.allergen{background:transparent}
+.flag.veg{border-color:var(--leaf);color:var(--leaf)}
+[data-theme="dark"] .flag.veg{border-color:var(--mint);color:var(--mint)}
+.picks{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.face{width:30px;height:30px;border-radius:50%;border:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--muted);background:var(--ground);cursor:pointer;user-select:none}
+[data-theme="dark"] .face{background:var(--well)}
+.face.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.face.lg{width:44px;height:44px;font-size:15px}
+.tablechip{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:999px;border:1px solid var(--rule);font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;background:var(--ground)}
+[data-theme="dark"] .tablechip{background:var(--well)}
+.tablechip.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.tablechip.on svg{color:var(--selFg)}
+.qty{margin-left:auto;font-size:12px;font-weight:700;color:var(--muted)}
+.bottombar{border-top:1px solid var(--rule);background:var(--ground);padding:10px 16px;display:flex;gap:10px;align-items:center}
+[data-theme="dark"] .bottombar{background:var(--ground)}
+.bottombar .sum{flex:1;display:flex;flex-direction:column}
+.bottombar .sum b{font-size:14px;font-weight:800}
+.bottombar .sum span{font-size:12px;color:var(--muted)}
+.btn.sm{height:38px;padding:0 14px;border-radius:4px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.btn{cursor:pointer}
+.grpttl{display:flex;align-items:center;gap:8px;margin-top:6px}
+.grpttl .nmw{font-weight:800;font-size:15px}
+.orow{display:flex;gap:8px;padding:8px 0;border-top:1px solid var(--rule);font-size:13px}
+.orow .nm{flex:1}
+.orow .mod{font-size:12px;color:var(--muted)}
+.total{display:flex;justify-content:space-between;font-weight:800;font-size:15px;padding-top:10px;border-top:1px solid var(--ink);margin-top:6px}
+[data-theme="dark"] .total{border-color:#F3F2F2}
+.warn{display:flex;gap:8px;align-items:flex-start;border:1px solid #B3261E;background:#FBE9E7;color:#B3261E;border-radius:4px;padding:9px 11px;font-size:12px;font-weight:600}
+[data-theme="dark"] .warn{background:transparent}
+.warn svg{flex:none;margin-top:1px}
+/* show to staff */
+.staff{position:absolute;inset:0;background:var(--ground);color:var(--ink);z-index:9;display:flex;flex-direction:column;padding:16px 18px;gap:10px;overflow-y:auto}
+.staff .who{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:10px}
+.staff .dish{font-size:19px;font-weight:800;letter-spacing:-.02em;line-height:1.25;margin-top:6px}
+.staff .dish span{font-weight:600;font-size:14px;color:var(--muted);display:block}
+.staff .alert{font-size:15px;font-weight:800;color:#B3261E;border:2px solid #B3261E;border-radius:4px;padding:10px 12px;margin-top:4px;line-height:1.3}
+.staff .close{position:absolute;right:12px;top:12px}
+.staff .foot{margin-top:auto;font-size:11px;color:var(--muted);padding-top:12px}
+/* rating */
+.rrow{display:flex;flex-direction:column;gap:7px;padding:11px 0;border-top:1px solid var(--rule)}
+.rrow .top{display:flex;gap:8px;align-items:center}
+.rrow .nm{flex:1;font-size:13px;font-weight:700;line-height:1.25}
+.stars{display:flex;gap:3px;align-items:center}
+.stars svg{width:22px;height:22px;cursor:pointer;color:var(--muted)}
+.stars svg.s{width:15px;height:15px}
+.save.love{border-color:var(--red);color:var(--red)}
+.stars svg.on{color:var(--leaf);fill:var(--leaf)}
+[data-theme="dark"] .stars svg.on{color:var(--mint);fill:var(--mint)}
+.notgreat{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;border:1px solid var(--rule);color:var(--muted);cursor:pointer;background:var(--ground)}
+[data-theme="dark"] .notgreat{background:var(--well)}
+.notgreat.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.notein{width:100%;height:32px;border-radius:4px;border:1px solid var(--rule);background:var(--ground);color:var(--ink);font:600 12px Archivo,sans-serif;padding:0 10px}
+[data-theme="dark"] .notein{background:var(--well)}
+.learn{display:flex;flex-direction:column;gap:8px}
+.lrow{display:flex;gap:8px;align-items:center;font-size:13px;padding:7px 0;border-top:1px solid var(--rule)}
+.lrow .cn{flex:1}
+.lrow .cn b{font-weight:800}
+.lrow .cn span{display:block;font-size:11px;color:var(--muted)}
+/* wide */
+.dcols{flex:1;display:flex;gap:18px;padding:16px 20px;overflow:hidden}
+.dmenu{flex:1;overflow-y:auto;padding-right:6px}
+.dside{width:360px;display:flex;flex-direction:column;gap:10px;overflow-y:auto}
+.dsec{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 0 4px}
+.dgrid{display:grid;grid-template-columns:1fr;gap:0 22px;max-width:620px}
+.cardp{border:1px solid var(--rule);border-radius:4px;padding:14px;display:flex;flex-direction:column;gap:8px;background:var(--ground)}
+[data-theme="dark"] .cardp{background:var(--panel)}
+/* page furniture */
+.spec{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid #E5EFEA;font-size:13px}
+.spec:first-child{border-top:0}
+table.cmp td b{font-weight:800}
+.hint{font-size:12px;color:#6B6663;margin:6px 0 0}
+.pill.mini{height:26px;font-size:11px}
+/* The strand-header rule .sec (space-between, baseline) also matches a secondary
+   button; put the button's own centring back. */
+.btn.sec,.btn.sm.sec{justify-content:center;align-items:center}
+
+/* ---- group trips ---- */
+/* The style guide keeps one warning red for meaning that must still read; the
+   phone palettes above do not carry it, so it is named here for both. */
+:root{--overrun:#C0392B;--overrunSoft:#FBE9E7}
+[data-theme="dark"]{--overrun:#E8776B;--overrunSoft:#3E1F1B}
+.ic.fill{fill:currentColor}
+/* The map pin rule above is absolute; the wordmark's brand pin is not. */
+.wordmark .pin{position:static;transform:none;background:none;border:0;border-radius:0;color:inherit;display:inline-flex;align-items:center}
+.avat{width:30px;height:30px;border-radius:50%;background:var(--tile2);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex:none}
+.avat.org{background:var(--sel);color:var(--selFg)}
+.avat.sm{width:24px;height:24px;font-size:10px}
+.person{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--rule)}
+.person:first-child{border-top:0}
+.person .n{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.person .nm{font-weight:700;font-size:14px;letter-spacing:-.01em;display:flex;align-items:center;gap:5px}
+.person .who{font-size:12px;color:var(--muted)}
+.dots{display:flex;gap:5px;align-items:center;flex:none}
+.dot{width:21px;height:21px;border-radius:50%;border:1.5px solid var(--rule);display:flex;align-items:center;justify-content:center;color:var(--muted);background:var(--ground)}
+.dot svg{width:11px;height:11px}
+.dot.done{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.dot.said{border-color:var(--ink);color:var(--ink);border-style:dashed}
+[data-theme="dark"] .dot.said{border-color:#F3F2F2;color:#F3F2F2}
+.dot.late{border-color:var(--overrun);color:var(--overrun)}
+.prog{height:6px;border-radius:3px;background:var(--rule);overflow:hidden;display:flex}
+.prog i{display:block;background:var(--range)}
+.prog i.late{background:var(--overrun)}
+.stats{display:flex;gap:8px}
+.stat{flex:1;border-radius:4px;background:var(--tile2);padding:9px 10px;display:flex;flex-direction:column;gap:3px}
+.stat .n{font-size:20px;font-weight:800;letter-spacing:-.02em;line-height:1}
+.stat .l{font-size:11px;color:var(--muted);font-weight:600;line-height:1.2}
+.item{border:1px solid var(--rule);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+.item .t{display:flex;gap:8px;align-items:flex-start}
+.item .t>svg{color:var(--icon);margin-top:2px}
+.item .nm{font-weight:800;font-size:14px;letter-spacing:-.01em;flex:1;line-height:1.25}
+.item .st{font-size:12px;font-weight:700;white-space:nowrap}
+.item .st.warn{color:var(--overrun)}
+.linkbox{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:4px;background:var(--tile2);font-size:12px;font-weight:600;word-break:break-all}
+.linkbox svg{color:var(--icon)}
+.money{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;color:var(--muted)}
+.money b{font-size:15px;color:var(--ink)}
+.warnbox{border:1px solid var(--overrun);background:var(--overrunSoft);border-radius:4px;padding:10px 12px;display:flex;gap:8px;font-size:12px;color:var(--ink);line-height:1.35}
+[data-theme="dark"] .warnbox{background:transparent}
+.warnbox svg{color:var(--overrun);flex:none;margin-top:1px}
+.mintbox{background:var(--panel);border-radius:4px;padding:10px 12px;display:flex;gap:8px;font-size:12px;line-height:1.35}
+[data-theme="dark"] .mintbox{background:var(--well)}
+.mintbox svg{color:var(--icon);flex:none;margin-top:1px}
+.hr{height:1px;background:var(--rule)}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;border:1px solid var(--rule);font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap}
+.badge svg{width:11px;height:11px}
+.badge.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.badge.late{border-color:var(--overrun);color:var(--overrun);background:var(--ground)}
+.st.late{color:var(--overrun)}
+.keyline{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#6B6663;margin:12px 0 0}
+.keyline span{display:inline-flex;align-items:center;gap:6px}
+.keyline i{width:16px;height:16px;border-radius:50%;border:1.5px solid #6B6663;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.keyline i.f{background:#201E1D;border-color:#201E1D;color:#fff}
+.keyline i.d{border-style:dashed;border-color:#201E1D}
+.keyline i.l{border-color:#C0392B}
+.opthead{display:flex;align-items:baseline;gap:10px;margin:0 0 10px;flex-wrap:wrap}
+.opthead b{font-size:16px;letter-spacing:-.01em}
+.pickme{display:inline-flex;align-items:center;gap:6px;background:#EFF8F3;border:1px solid #B6E3CF;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;color:#2F6A52}
+.roster{width:100%;border-collapse:collapse;font-size:12px}
+.roster th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--rule);font-weight:700}
+.roster td{padding:7px 8px;border-bottom:1px solid var(--rule);vertical-align:middle}
+.roster td.who{display:flex;align-items:center;gap:8px;font-weight:700}
+.checkbox{width:16px;height:16px;border-radius:3px;border:1.5px solid var(--muted);flex:none;display:inline-flex;align-items:center;justify-content:center}
+.checkbox.on{background:var(--sel);border-color:var(--sel);color:var(--selFg)}
+.checkbox svg{width:11px;height:11px}
+.frames{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.field{border:1px solid var(--ink);border-radius:4px;padding:9px 12px;font-size:14px;display:flex;align-items:center;gap:8px;color:var(--ink)}
+[data-theme="dark"] .field{border-color:#F3F2F2}
+.field .ph{color:var(--muted)}
+.field.focus{outline:2px solid var(--leaf);outline-offset:2px}
+.qr{width:104px;height:104px;border-radius:4px;background:var(--tile2);display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(7,1fr);gap:2px;padding:8px;flex:none}
+.qr i{background:var(--ink);border-radius:1px}
+.qr i.o{background:transparent}
+
+/* ---- group setup ---- */
+.step{border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+.step>.h{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;background:var(--panel)}
+[data-theme="dark"] .step>.h{background:var(--well)}
+.step .num{width:22px;height:22px;border-radius:50%;background:var(--sel);color:var(--selFg);font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none}
+.step .num.done{background:var(--range);color:var(--ground)}
+.step .num.off{background:transparent;border:1.5px solid var(--rule);color:var(--muted)}
+.step .t{flex:1;min-width:0}
+.step .t b{font-size:14px;letter-spacing:-.01em;display:block}
+.step .t span{font-size:12px;color:var(--muted)}
+.step .body{padding:11px 12px;display:flex;flex-direction:column;gap:9px}
+.tri{display:flex;border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+.tri div{flex:1;text-align:center;padding:7px 4px;font-size:11px;font-weight:700;color:var(--muted)}
+.tri .on{background:var(--sel);color:var(--selFg)}
+.qrbox{display:flex;gap:12px;align-items:center}
+.qr2{width:150px;height:150px;flex:none;background:#fff;border-radius:4px;padding:6px}
+.qr2 svg{display:block;width:100%;height:100%}
+.money2{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;padding:5px 0;border-top:1px solid var(--rule)}
+.money2:first-child{border-top:0}
+.money2 b{font-size:14px}
+.big{font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1}
+.slab{background:var(--panel);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+[data-theme="dark"] .slab{background:var(--well)}
+.ladder{display:flex;flex-direction:column;gap:4px}
+.ladder .rung{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 8px;border-radius:4px;border:1px solid var(--rule)}
+.ladder .rung.on{border-color:var(--sel);background:var(--sel);color:var(--selFg)}
+.ladder .rung.off{opacity:.5}
+.tag{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:999px;background:var(--tile1);color:var(--ink);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+[data-theme="dark"] .tag{background:var(--well);color:var(--mint)}
+.stage{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 10px}
+.stage div{flex:1;min-width:150px;border:1px solid #E5EFEA;border-radius:4px;padding:9px 11px;background:#fff;font-size:12px}
+.stage b{display:block;font-size:12px;margin-bottom:3px}
+</style></head><body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+<symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+<symbol id="i-badge-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m16 9-5.5 5.5L8 12"/></symbol>
+<symbol id="i-baby" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5"/><path d="M15 12h.01"/><path d="M19.38 6.813A9 9 0 0 1 20.8 10.2a2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5s-.9 2.5-2 2.5c-.8 0-1.5-.4-1.5-1"/><path d="M9 12h.01"/></symbol>
+<symbol id="i-banknote" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></symbol>
+<symbol id="i-bed-double" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8"/><path d="M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4"/><path d="M12 4v6"/><path d="M2 18h20"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
+<symbol id="i-bell-ring" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></symbol>
+<symbol id="i-building-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h4"/><path d="M10 8h4"/><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2"/><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/></symbol>
+<symbol id="i-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></symbol>
+<symbol id="i-calendar-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="m9 15 2 2 4-4"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/></symbol>
+<symbol id="i-car" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="i-chevron-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></symbol>
+<symbol id="i-circle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
+<symbol id="i-circle-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/></symbol>
+<symbol id="i-circle-dashed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.1 2.182a10 10 0 0 1 3.8 0"/><path d="M13.9 21.818a10 10 0 0 1-3.8 0"/><path d="M17.609 3.721a10 10 0 0 1 2.69 2.7"/><path d="M2.182 13.9a10 10 0 0 1 0-3.8"/><path d="M20.279 17.609a10 10 0 0 1-2.7 2.69"/><path d="M21.818 10.1a10 10 0 0 1 0 3.8"/><path d="M3.721 6.391a10 10 0 0 1 2.7-2.69"/><path d="M6.391 20.279a10 10 0 0 1-2.69-2.7"/></symbol>
+<symbol id="i-circle-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+<symbol id="i-clipboard-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+<symbol id="i-credit-card" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></symbol>
+<symbol id="i-ellipsis" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+<symbol id="i-external-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+<symbol id="i-footprints" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+<symbol id="i-hand-coins" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 17"/><path d="m7 21 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9"/><path d="m2 16 6 6"/><circle cx="16" cy="9" r="2.9"/><circle cx="6" cy="5" r="3"/></symbol>
+<symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/></symbol>
+<symbol id="i-hourglass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></symbol>
+<symbol id="i-house" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="i-landmark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 18v-7"/><path d="M11.119 2.205a2 2 0 0 1 1.762 0l7.84 3.846A.5.5 0 0 1 20.5 7h-17a.5.5 0 0 1-.22-.949z"/><path d="M14 18v-7"/><path d="M18 18v-7"/><path d="M3 22h18"/><path d="M6 18v-7"/></symbol>
+<symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></symbol>
+<symbol id="i-map-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
+<symbol id="i-message-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="i-pound-sterling" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 7c0-5.333-8-5.333-8 0"/><path d="M10 7v14"/><path d="M6 21h12"/><path d="M6 13h10"/></symbol>
+<symbol id="i-qr-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></symbol>
+<symbol id="i-receipt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V7"/><path d="M16 8h-6a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H8"/><path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z"/></symbol>
+<symbol id="i-refresh-cw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+<symbol id="i-route" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+<symbol id="i-send-horizontal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z"/><path d="M6 12h16"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-share-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></symbol>
+<symbol id="i-shield-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-sliders-horizontal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5H3"/><path d="M12 19H3"/><path d="M14 3v4"/><path d="M16 17v4"/><path d="M21 12h-9"/><path d="M21 19h-5"/><path d="M21 5h-7"/><path d="M8 10v4"/><path d="M8 12H3"/></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></symbol>
+<symbol id="i-split" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/><path d="m15 9 6-6"/></symbol>
+<symbol id="i-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/></symbol>
+<symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></symbol>
+<symbol id="i-ticket" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></symbol>
+<symbol id="i-train-front" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.1V7a4 4 0 0 0 8 0V3.1"/><path d="m9 15-1-1"/><path d="m15 15 1-1"/><path d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z"/><path d="m8 19-2 3"/><path d="m16 19 2 3"/></symbol>
+<symbol id="i-trash-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="i-triangle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="i-undo-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+<symbol id="i-user-round" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></symbol>
+<symbol id="i-user-round-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="m16 19 2 2 4-4"/></symbol>
+<symbol id="i-user-round-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></symbol>
+<symbol id="i-user-round-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16.5 16.5 5 5"/><path d="M2 21a8 8 0 0 1 11.531-7.18"/><path d="m21.5 16.5-5 5"/><circle cx="10" cy="8" r="5"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol>
+<symbol id="i-utensils" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></symbol>
+<symbol id="i-wand-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="i-compass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/></symbol>
+<symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-star-fill" viewBox="0 0 24 24"><path d="m12 2.4 2.95 5.98 6.6.96-4.78 4.65 1.13 6.57L12 17.45l-5.9 3.11 1.13-6.57-4.78-4.65 6.6-.96z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+<symbol id="i-heart-fill" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+</svg>
+
+<h1>Setting a group up — the four questions, three ways</h1>
+<p class="lede">The built screen opens on <b>“Still to chase”</b> when there is nobody to chase and nothing has been asked of anyone (owner, 4 Sep 2026). A group starts empty, and what it needs first is not a progress report — it is four answers: <b>what is mandatory and what is optional</b>, <b>how people get in</b>, <b>how often Roam chases</b>, and <b>what you are charging for</b>. This page draws three shapes for asking them, then works through the money properly — per head or per party, a fixed price or a pot split between whoever comes, a minimum for it to happen at all, and what is refundable — because that is the part with no answer in the app at all today.</p>
+<p class="lede" style="margin-top:-12px">Same trip throughout: <b>Cardiff · rugby tour, Fri 13 – Sun 15 November 2026</b>. Roger has hired a coach for £600, holds twenty-six match tickets, and wants a room at the Parkgate and the stadium tour from everybody. Saturday dinner is an optional — he only needs a number for the table.</p>
+
+<section><h2>1 · What is wrong with what is there</h2>
+<p class="sub">Not the layout — the order. The screen that was built is the right screen for week three and the wrong one for minute one.</p>
+<div class="row">
+<table class="cmp" style="max-width:900px">
+<tr><th style="width:230px">The group tab today</th><th>What it says</th><th style="width:300px">What it should be saying</th></tr>
+<tr><td><b>Nothing set up, nobody in it</b></td><td>“Still to chase · 0 of 24 joined”, four outstanding blocks, a roster of one</td><td><b>Four questions, in order.</b> There is nothing to chase: nobody has been asked anything yet</td></tr>
+<tr><td><b>What is mandatory</b></td><td>Guessed from the trip — a meal is optional, everything else is required — and changed by opening a card and tapping a chip inside it</td><td><b>The first question</b>, on one screen, all the rows together, with the guess as a starting point rather than a decision</td></tr>
+<tr><td><b>The invite</b></td><td>A URL in small type, a Copy button, and a QR code that does not exist</td><td><b>The code, big enough to point a phone at</b>, then copy, then a WhatsApp group, then names</td></tr>
+<tr><td><b>Charging</b></td><td>“Ask for something else → Money to you → an amount”. One flat number, per party, no minimum, no refund rule beyond three words</td><td><b>A question of its own</b>: what it is for, how the price is worked out, per head or per party, how many it needs to happen, and what happens to the money if it doesn't</td></tr>
+</table>
+<div class="notes">
+<h4>The four questions, in the owner's order</h4>
+<ul>
+<li><b>1 · What is mandatory, what is optional.</b></li>
+<li><b>2 · The whole invite thing</b> — a code to scan, a link to copy, a WhatsApp group, names.</li>
+<li><b>3 · How often do you want reminders sent.</b></li>
+<li><b>4 · Is there any part you want to charge for</b> — and everything that hangs off that.</li>
+</ul>
+<h4>Wizard or scroll?</h4>
+<ul>
+<li>It is the same four things either way. What differs is what happens the second time, when the coach price changes and he wants to touch one of them.</li>
+<li>Recommendation below: <b>a page that behaves like a wizard on the first run</b> and stays a page afterwards.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section><h2>2 · Three ways to ask the four questions</h2>
+<p class="sub">All three ask the same things in the same order. The difference is what the screen is afterwards, when the coach quote comes back £80 higher and one answer has to change.</p>
+<div class="frames">
+
+<div style="width:390px">
+<div class="opthead"><b>A · A wizard</b><span class="tiny">one question a screen, four screens</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Cardiff · rugby tour</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">What must everyone do?</div><p class="sub">Setting up · 1 of 4</p></div>
+<div class="body scroll">
+<div class="row" style="gap:4px"><i style="flex:1;height:3px;background:var(--sel);border-radius:2px"></i><i style="flex:1;height:3px;background:var(--rule);border-radius:2px"></i><i style="flex:1;height:3px;background:var(--rule);border-radius:2px"></i><i style="flex:1;height:3px;background:var(--rule);border-radius:2px"></i></div>
+<div class="mintbox"><svg class="ic"><use href="#i-info"/></svg><div>These are the things already on your trip. Say which you want from everyone, which you are only asking about, and which are nothing to do with the group.</div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-bed-double"/></svg><div class="nm">A room at the Parkgate<div class="tiny" style="font-weight:600">Fri 13 – Sun 15 Nov</div></div></div><div class="tri"><div class="on">Everyone</div><div>Just asking</div><div>Not in it</div></div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-ticket"/></svg><div class="nm">Principality Stadium tour<div class="tiny" style="font-weight:600">Sat 10:30 · £16 · they hold 30</div></div></div><div class="tri"><div class="on">Everyone</div><div>Just asking</div><div>Not in it</div></div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-utensils"/></svg><div class="nm">The Potted Pig, Sat 19:30<div class="tiny" style="font-weight:600">You have the table — you need a number</div></div></div><div class="tri"><div>Everyone</div><div class="on">Just asking</div><div>Not in it</div></div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-map-pin"/></svg><div class="nm">Cardiff Castle<div class="tiny" style="font-weight:600">On your shortlist, Sunday</div></div></div><div class="tri"><div>Everyone</div><div>Just asking</div><div class="on">Not in it</div></div></div>
+<div class="btn sm sec" style="height:36px;font-size:13px"><svg class="ic s"><use href="#i-plus"/></svg>Something that isn't on the trip</div>
+<div class="btn">Next — asking them in<svg class="ic" style="color:var(--primaryFg)"><use href="#i-arrow-right"/></svg></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">Cannot be got wrong, and every row is on one screen instead of behind four taps.</p>
+</div>
+
+<div style="width:390px">
+<div class="opthead"><b>A · the end of it</b><span class="tiny">screen 4, then the summary</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:44</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Back</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">That's the group set up</div><p class="sub">Nobody has been asked yet — that is the next tap</p></div>
+<div class="body scroll">
+<div class="item"><div class="t"><span class="dot done"><svg class="ic"><use href="#i-check"/></svg></span><div class="nm">2 things wanted from everyone<div class="tiny" style="font-weight:600">A room at the Parkgate · the stadium tour. Saturday dinner is a yes-or-no.</div></div><svg class="ic"><use href="#i-pencil"/></svg></div></div>
+<div class="item"><div class="t"><span class="dot done"><svg class="ic"><use href="#i-check"/></svg></span><div class="nm">24 expected<div class="tiny" style="font-weight:600">6 added by name · a link and a code</div></div><svg class="ic"><use href="#i-pencil"/></svg></div></div>
+<div class="item"><div class="t"><span class="dot done"><svg class="ic"><use href="#i-check"/></svg></span><div class="nm">Roam chases, five times<div class="tiny" style="font-weight:600">From 18 Sep, counting back to Fri 16 Oct</div></div><svg class="ic"><use href="#i-pencil"/></svg></div></div>
+<div class="item"><div class="t"><span class="dot done"><svg class="ic"><use href="#i-check"/></svg></span><div class="nm">£600 coach, split between everyone<div class="tiny" style="font-weight:600">£25 each at 24 · needs 15 by 16 Oct or it is off</div></div><svg class="ic"><use href="#i-pencil"/></svg></div></div>
+<div class="btn"><svg class="ic" style="color:var(--primaryFg)"><use href="#i-share-2"/></svg>Ask them in</div>
+<div class="mintbox"><svg class="ic"><use href="#i-info"/></svg><div>After this, the group screen is the chase screen — and each of these four lines is still here to change, at the bottom.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The wizard's problem is the second visit: to change the coach price he walks four screens or hunts for this summary.</p>
+</div>
+
+<div style="width:390px">
+<div class="opthead"><b>B · One page, four blocks</b><span class="pickme"><svg class="ic s"><use href="#i-check"/></svg>Recommended</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Cardiff · rugby tour</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">The group</div><p class="sub">Four things to settle · nobody asked in yet</p></div>
+<div class="body scroll">
+<div class="step">
+<div class="h"><span class="num">1</span><div class="t"><b>What must everyone do?</b><span>Two wanted from everyone, one yes-or-no</span></div><svg class="ic"><use href="#i-chevron-up"/></svg></div>
+<div class="body">
+<div class="item" style="border:0;padding:0"><div class="t"><svg class="ic"><use href="#i-bed-double"/></svg><div class="nm" style="font-size:13px">A room at the Parkgate</div></div><div class="tri"><div class="on">Everyone</div><div>Just asking</div><div>Not in it</div></div></div>
+<div class="item" style="border:0;padding:0"><div class="t"><svg class="ic"><use href="#i-ticket"/></svg><div class="nm" style="font-size:13px">Principality Stadium tour</div></div><div class="tri"><div class="on">Everyone</div><div>Just asking</div><div>Not in it</div></div></div>
+<div class="item" style="border:0;padding:0"><div class="t"><svg class="ic"><use href="#i-utensils"/></svg><div class="nm" style="font-size:13px">The Potted Pig, Sat 19:30</div></div><div class="tri"><div>Everyone</div><div class="on">Just asking</div><div>Not in it</div></div></div>
+</div>
+</div>
+<div class="step"><div class="h"><span class="num off">2</span><div class="t"><b>Ask them in</b><span>A code, a link, a WhatsApp group, or names</span></div><svg class="ic"><use href="#i-chevron-down"/></svg></div></div>
+<div class="step"><div class="h"><span class="num off">3</span><div class="t"><b>How often Roam chases</b><span>Standard — five times, from 18 Sep</span></div><svg class="ic"><use href="#i-chevron-down"/></svg></div></div>
+<div class="step"><div class="h"><span class="num off">4</span><div class="t"><b>Anything to charge for?</b><span>The coach, the tickets, a kitty</span></div><svg class="ic"><use href="#i-chevron-down"/></svg></div></div>
+<div class="mintbox"><svg class="ic"><use href="#i-users"/></svg><div><b>Nothing to chase yet.</b> When somebody joins, what is still outstanding appears above these four — and they fold down to one line each.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">Reads as a wizard the first time — blocks open in order — and is a settings page for ever after. One screen, one tree.</p>
+</div>
+</div>
+
+<div class="frames" style="margin-top:26px">
+<div style="width:390px">
+<div class="opthead"><b>C · Set it up on the trip itself</b><span class="tiny">no group screen until there is a group</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Trips</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">Cardiff · rugby tour</div><p class="sub">Fri 13 – Sun 15 Nov · a group trip · nobody in yet</p></div>
+<div class="tabs"><div>Journey</div><div class="on">Shortlist</div><div>Find</div></div>
+<div class="body scroll">
+<div class="slab"><div class="row" style="justify-content:space-between"><b style="font-size:13px">Setting up the group</b><span class="badge">2 of 4</span></div><div class="row" style="gap:6px"><span class="badge on"><svg class="ic"><use href="#i-check"/></svg>Wanted</span><span class="badge"><svg class="ic"><use href="#i-qr-code"/></svg>Ask them in</span><span class="badge"><svg class="ic"><use href="#i-bell"/></svg>Chasing</span><span class="badge"><svg class="ic"><use href="#i-pound-sterling"/></svg>Money</span></div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-bed-double"/></svg><div class="nm">The Parkgate Hotel<div class="tiny" style="font-weight:600">Westgate St · 2 nights · the base</div></div><span class="badge on">Everyone</span></div></div>
+<div class="lab">Saturday 14 November</div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-ticket"/></svg><div class="nm">Principality Stadium tour<div class="tiny" style="font-weight:600">10:30 · £16</div></div><span class="badge on">Everyone</span></div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-utensils"/></svg><div class="nm">The Potted Pig<div class="tiny" style="font-weight:600">19:30 · your table for 26</div></div><span class="badge">Just asking</span></div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-map-pin"/></svg><div class="nm">Cardiff Castle<div class="tiny" style="font-weight:600">Sunday · on your shortlist</div></div><span class="badge">Not in it</span></div></div>
+<div class="mintbox"><svg class="ic"><use href="#i-triangle-alert"/></svg><div>The coach money and the chasing have nowhere to sit here: they are not places, so they end up in the strip at the top, which is where a fifth tab begins.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">Fewest new screens, and the mandatory/optional question answers itself on the rows you already have. The other three questions do not fit.</p>
+</div>
+
+<div class="notes" style="width:300px">
+<h4>Why B</h4>
+<ul>
+<li><b>The first run reads as a wizard</b> — the blocks are numbered, they open in order, and the one you are on is the only one open — so nothing is missed on a Tuesday night.</li>
+<li><b>The second visit is a settings page.</b> The coach quote changes: open block 4, change one number, done. No wizard to walk.</li>
+<li><b>One screen, one tree</b> — the chase blocks appear <i>above</i> the four once somebody joins, and the four fold to a line each. Nothing moves to another tab, nothing is lost when the phone frame is toggled.</li>
+<li><b>C's toggles are still right</b>, and belong on the shortlist row as well: a place that is wanted from everybody should say so wherever it appears.</li>
+</ul>
+<h4>What all three fix</h4>
+<ul>
+<li>“Still to chase” never appears until there is somebody to chase.</li>
+<li>Mandatory and optional is a decision, on one screen, not a guess buried in a card.</li>
+</ul>
+</div>
+</div>
+
+<h3 style="font-size:16px;margin:26px 0 6px">Side by side</h3>
+<table class="cmp" style="max-width:1080px">
+<tr><th style="width:250px"></th><th>A · Wizard</th><th>B · One page, four blocks</th><th>C · On the trip</th></tr>
+<tr><td>First run, nothing missed</td><td><b>Perfect</b></td><td><b>Perfect</b> — numbered, opens in order</td><td>Easy to stop after the toggles</td></tr>
+<tr><td>Changing one answer in October</td><td>Four screens, or find the summary</td><td><b>Open a block</b></td><td>Fine for what's wanted; nowhere for the rest</td></tr>
+<tr><td>Where the money question lives</td><td>Screen 4</td><td><b>Block 4</b></td><td>A strip, or a fifth tab</td></tr>
+<tr><td>Where chasing appears later</td><td>A different screen</td><td><b>Above the blocks, same screen</b></td><td>A different screen</td></tr>
+<tr><td>Web at 1000px</td><td>A wizard in a column, mostly empty</td><td><b>Blocks left, chase right</b></td><td>The trip layout it has</td></tr>
+<tr><td>Build cost on what exists</td><td>New flow, new state</td><td><b>A reordering of the panel already built</b></td><td>New strip, plus somewhere for money</td></tr>
+</table>
+</section>
+
+<section><h2>3 · Blocks 2 and 3 — asking them in, and how often Roam chases</h2>
+<p class="sub">The code below is a real one and it works: point a phone at it and it opens the invite link on the deployed site. That is the point of the block — the organiser is standing in a clubhouse on a Thursday night, and the fastest way to get twenty-four people into a group is to hold up a phone.</p>
+<div class="frames">
+
+<div style="width:390px">
+<div class="modelab">Block 2 · Ask them in</div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>The group</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">Ask them in</div><p class="sub">24 expected · nobody has joined yet</p></div>
+<div class="body scroll">
+<div class="qrbox">
+<div class="qr2"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path stroke="currentColor" d="M4 4.5h7m5 0h1m1 0h1m1 0h1m1 0h3m1 0h2m2 0h7M4 5.5h1m5 0h1m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h1m1 0h1m5 0h1M4 6.5h1m1 0h3m1 0h1m1 0h1m2 0h1m2 0h1m1 0h1m1 0h5m1 0h1m1 0h1m1 0h3m1 0h1M4 7.5h1m1 0h3m1 0h1m1 0h3m1 0h3m2 0h3m2 0h1m3 0h1m1 0h3m1 0h1M4 8.5h1m1 0h3m1 0h1m1 0h1m7 0h2m2 0h2m1 0h2m1 0h1m1 0h3m1 0h1M4 9.5h1m5 0h1m1 0h2m1 0h1m2 0h4m2 0h1m5 0h1m5 0h1M4 10.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 11.5h1m5 0h1m1 0h1m1 0h4m1 0h1M4 12.5h1m1 0h5m3 0h2m1 0h2m2 0h2m3 0h2m2 0h5M5 13.5h1m1 0h1m1 0h1m1 0h5m1 0h2m3 0h3m2 0h1m2 0h2m1 0h2m1 0h1M5 14.5h3m1 0h2m2 0h3m2 0h3m1 0h1m1 0h1m5 0h1m1 0h1m1 0h2M6 15.5h1m1 0h2m2 0h1m1 0h1m4 0h1m5 0h1m3 0h1m2 0h3m1 0h1M8 16.5h7m1 0h1m3 0h1m2 0h2m1 0h3m3 0h2M6 17.5h1m1 0h1m4 0h1m1 0h3m1 0h4m1 0h1m2 0h2m1 0h1m3 0h3M4 18.5h1m2 0h1m2 0h1m1 0h5m1 0h3m5 0h1m1 0h3m2 0h3M4 19.5h1m2 0h2m2 0h1m2 0h3m1 0h3m4 0h2m1 0h4m1 0h2M5 20.5h6m1 0h2m1 0h7m1 0h1m2 0h1m1 0h2m1 0h2m3 0h1M6 21.5h2m1 0h1m1 0h1m2 0h1m3 0h1m2 0h4m2 0h5m1 0h4M4 22.5h1m2 0h2m1 0h2m2 0h1m1 0h5m5 0h1m1 0h5m1 0h2M4 23.5h1m6 0h1m1 0h1m1 0h3m1 0h2m1 0h1m1 0h5m1 0h5m1 0h1M4 24.5h1m1 0h1m3 0h1m1 0h1m1 0h1m4 0h1m4 0h1m1 0h1m2 0h1m1 0h3m1 0h2M4 25.5h3m4 0h1m2 0h3m1 0h1m1 0h1m3 0h2m1 0h1m2 0h1m5 0h1M4 26.5h1m2 0h1m1 0h3m1 0h3m3 0h1m2 0h1m1 0h3m1 0h2m2 0h4M4 27.5h1m3 0h1m2 0h1m1 0h2m1 0h1m1 0h1m5 0h2m2 0h3m2 0h2m1 0h1M4 28.5h1m1 0h2m2 0h1m1 0h4m2 0h2m1 0h1m1 0h2m1 0h1m1 0h5m2 0h2M12 29.5h1m1 0h1m2 0h2m1 0h1m1 0h3m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1M4 30.5h7m3 0h1m1 0h2m1 0h2m3 0h2m1 0h2m1 0h1m1 0h1m1 0h1M4 31.5h1m5 0h1m1 0h1m4 0h1m4 0h2m1 0h4m3 0h3M4 32.5h1m1 0h3m1 0h1m1 0h5m2 0h3m2 0h1m1 0h1m1 0h6M4 33.5h1m1 0h3m1 0h1m1 0h3m2 0h4m2 0h1m1 0h1m1 0h3m2 0h2m1 0h2M4 34.5h1m1 0h3m1 0h1m1 0h1m2 0h1m3 0h1m1 0h1m3 0h4m1 0h2m2 0h1M4 35.5h1m5 0h1m3 0h1m1 0h2m4 0h6m4 0h3M4 36.5h7m1 0h1m1 0h6m1 0h1m1 0h1m2 0h4m1 0h1m1 0h1m1 0h1"/></svg></div>
+<div style="flex:1;display:flex;flex-direction:column;gap:6px">
+<b style="font-size:14px;letter-spacing:-.01em">Point a phone at this</b>
+<span class="tiny">It opens their list — what you want from them, and nothing about anybody else. No account, no password.</span>
+<span class="badge"><svg class="ic"><use href="#i-lock"/></svg>Anyone with it can join</span>
+</div>
+</div>
+<div class="row" style="gap:6px"><div class="btn sm sec" style="flex:1;height:36px;font-size:12px"><svg class="ic s"><use href="#i-copy"/></svg>Copy the link</div><div class="btn sm sec" style="flex:1;height:36px;font-size:12px"><svg class="ic s"><use href="#i-share-2"/></svg>Share</div></div>
+<div class="btn sm" style="height:38px;font-size:13px"><svg class="ic s" style="color:var(--primaryFg)"><use href="#i-message-square"/></svg>Send it to a WhatsApp group</div>
+<div class="hr"></div>
+<div class="sec"><div class="t"><svg class="ic"><use href="#i-user-round-plus"/></svg>Add the ones you know</div><div class="m">6 added</div></div>
+<div class="tiny">A name added now means their join lands on that row, and you can see who has not turned up yet.</div>
+<div class="field"><svg class="ic"><use href="#i-plus"/></svg><span class="ph">Name, and a mobile if you have it</span></div>
+<div class="row" style="gap:6px"><span class="badge">Priya Shah <svg class="ic"><use href="#i-x"/></svg></span><span class="badge">Tom Okafor <svg class="ic"><use href="#i-x"/></svg></span><span class="badge">Dan Whitmore <svg class="ic"><use href="#i-x"/></svg></span><span class="badge">+ 3</span></div>
+<div class="hr"></div>
+<div class="grp"><div class="lab">How many are you expecting?</div><div class="row" style="gap:8px;align-items:center"><div class="iconbtn"><svg class="ic"><use href="#i-minus"/></svg></div><div class="field" style="flex:1;justify-content:center;font-size:20px;font-weight:800">24</div><div class="iconbtn"><svg class="ic"><use href="#i-plus"/></svg></div></div><div class="tiny">A target, not a limit — and the number the coach maths uses until people actually join.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The code first, because that is the one that works in a room. The link, the WhatsApp group and the names are the ways to reach whoever was not there.</p>
+</div>
+
+<div style="width:390px">
+<div class="modelab">Block 3 · How often Roam chases</div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>The group</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">Roam does the chasing</div><p class="sub">You should not have to ask anybody twice</p></div>
+<div class="body scroll">
+<div class="grp"><div class="lab">Everything wanted by</div><div class="field focus"><svg class="ic"><use href="#i-calendar"/></svg>Friday 16 October</div><div class="tiny">Three weeks before you go. Every reminder counts back from this.</div></div>
+<div class="grp"><div class="lab">How often</div><div class="seg3"><div>Gentle</div><div class="on">Standard</div><div>Firm</div></div></div>
+<div class="slab">
+<div class="row" style="justify-content:space-between"><b style="font-size:13px">Five reminders</b><span class="tiny">9am, to whoever still has something outstanding</span></div>
+<div class="ladder">
+<div class="rung"><span>Fri 18 Sep</span><span class="tiny">4 weeks before</span></div>
+<div class="rung"><span>Fri 2 Oct</span><span class="tiny">2 weeks before</span></div>
+<div class="rung"><span>Fri 9 Oct</span><span class="tiny">1 week before</span></div>
+<div class="rung"><span>Tue 13 Oct</span><span class="tiny">3 days before</span></div>
+<div class="rung"><span>Thu 15 Oct</span><span class="tiny">the day before</span></div>
+</div>
+<span class="tiny">Nobody is written to twice inside 48 hours, and nobody with nothing outstanding is written to at all.</span>
+</div>
+<div class="warnbox"><svg class="ic"><use href="#i-triangle-alert"/></svg><div><b>Nothing can be delivered yet.</b> Roam writes and keeps every reminder, but no way to send messages is connected. One key, and they all go out on the next run.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">Built already, moved into the setup where it belongs. The dates are shown as dates, not as a cadence name.</p>
+</div>
+
+<div class="notes" style="width:300px">
+<h4>WhatsApp, honestly</h4>
+<ul>
+<li><b>Sharing into a group needs nothing.</b> A link of the form <code>wa.me/?text=…</code> opens WhatsApp with the message written and lets the organiser pick the group. No integration, no account, no review — it can ship with this block.</li>
+<li><b>Reminders arriving in WhatsApp is a different thing</b> — the Business API, a verified sender, message templates approved in advance, and a per-message cost. That is the "next" the owner has in mind, and it is weeks not hours.</li>
+<li><b>In between</b>: the reminder text is the same either way, so the sender is swappable — one key, no screen changes.</li>
+</ul>
+<h4>The code</h4>
+<ul>
+<li>Generated from the invite link at the moment it is shown, so a new link is a new code.</li>
+<li>Large enough to scan across a table, and it is the first thing in the block rather than behind a button.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section><h2>4 · Block 4 — the money, which is more than an amount</h2>
+<p class="sub">Roger has hired a coach for <b>£600</b> and holds <b>26 match tickets at £32 each</b>. Today the app can only be told “£45”, per party, with three words about refunds. Those two costs are not the same shape: the tickets are a price per person that never moves, and the coach is a fixed pot whose price per head falls with every person who joins. So <b>charging is a list, not a fee</b> — and each line needs a way of being priced.</p>
+<div class="frames">
+
+<div style="width:390px">
+<div class="modelab">Priced three ways · A · a fixed amount each</div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>The group</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">The match tickets</div><p class="sub">What you are owed, and by whom</p></div>
+<div class="body scroll">
+<div class="grp"><div class="lab">What is it for — in your words</div><div class="field" style="height:auto;align-items:flex-start"><span>Your match ticket. I bought 26 in the members' window.</span></div></div>
+<div class="grp"><div class="lab">How is it priced?</div><div class="seg3"><div class="on">The same for everyone</div><div>Split a total</div><div>By numbers</div></div></div>
+<div class="grp"><div class="lab">Amount</div><div class="field focus"><svg class="ic"><use href="#i-pound-sterling"/></svg>32.00</div></div>
+<div class="grp"><div class="lab">Per head, or per booking?</div><div class="row" style="gap:6px"><span class="opt on"><svg class="ic s"><use href="#i-users"/></svg>Each head</span><span class="opt"><svg class="ic s"><use href="#i-user-round"/></svg>Each party</span></div><div class="tiny">Priya is bringing Leo. Per head is £64 from her; per party is £32.</div></div>
+<div class="slab">
+<div class="money2"><span>24 heads expected</span><b>£768</b></div>
+<div class="money2"><span>18 joined so far</span><b>£576</b></div>
+<div class="money2"><span>You paid</span><b>£832 for 26</b></div>
+<span class="tiny">Two spare tickets are yours to carry or to sell — Roam does not guess at that.</span>
+</div>
+<div class="mintbox"><svg class="ic"><use href="#i-info"/></svg><div>Right for anything with a real per-person price: a ticket, an entry fee, a t-shirt.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">What the app does today, with the one thing it is missing: per head, not per party.</p>
+</div>
+
+<div style="width:390px">
+<div class="opthead"><b>B · split a total</b><span class="pickme"><svg class="ic s"><use href="#i-check"/></svg>The coach</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>The group</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">The coach</div><p class="sub">£600, split between whoever comes</p></div>
+<div class="body scroll">
+<div class="grp"><div class="lab">How is it priced?</div><div class="seg3"><div>The same for everyone</div><div class="on">Split a total</div><div>By numbers</div></div></div>
+<div class="grp"><div class="lab">What it costs you, in total</div><div class="field focus"><svg class="ic"><use href="#i-pound-sterling"/></svg>600.00</div></div>
+<div class="slab">
+<div class="row" style="justify-content:space-between;align-items:flex-end"><div><span class="tiny">RIGHT NOW, AT 18 HEADS</span><div class="big">£33.34</div></div><span class="badge"><svg class="ic"><use href="#i-users"/></svg>each</span></div>
+<div class="ladder">
+<div class="rung off"><span>12 heads</span><span>£50.00 each</span></div>
+<div class="rung on"><span>18 heads · where you are</span><span>£33.34 each</span></div>
+<div class="rung off"><span>24 heads · what you expect</span><span>£25.00 each</span></div>
+</div>
+<span class="tiny">Rounded up to the penny, so the £600 is always covered. Anything over is yours.</span>
+</div>
+<div class="grp"><div class="lab">It only runs if enough people come</div><div class="row" style="gap:8px;align-items:center"><div class="field" style="width:84px;justify-content:center;font-weight:800">15</div><span class="tiny">heads by Fri 16 Oct, or the coach is off and nobody is charged.</span></div></div>
+<div class="grp"><div class="lab">When the price stops moving</div><div class="row" style="gap:6px"><span class="opt on">On 16 Oct</span><span class="opt">When you say</span></div><div class="tiny">Until then everyone sees the figure move. On the day it settles, that is the price, and anyone who joins later pays it.</div></div>
+<div class="mintbox"><svg class="ic"><use href="#i-users"/></svg><div><b>Everyone can see the maths.</b> “Bring somebody and it comes down for all of us” is the only recruiting tool an organiser has ever had.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The shape the app cannot express today, and the one a hired coach, a villa or a minibus actually has.</p>
+</div>
+
+<div style="width:390px">
+<div class="opthead"><b>C · by numbers</b><span class="tiny">what the quote actually said</span></div>
+<div class="phone" data-theme="light">
+<div class="status"><span>9:41</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>The group</span><div class="wordmark">Roam<span class="pin"><svg viewBox="0 0 48 56"><path d="M24 2C13 2 5 10.5 5 21c0 13 19 33 19 33s19-20 19-33C43 10.5 35 2 24 2z" fill="currentColor"/><circle cx="24" cy="21" r="7" fill="var(--head)"/><path d="M37 52l-7.5-6.9c-2.5-2.3-2.5-6 0.4-7.8 2.1-1.3 4.9-0.5 7.1 1.8 2.2-2.3 5-3.1 7.1-1.8 2.9 1.8 2.9 5.5 0.4 7.8z" fill="#EC3013" stroke="var(--head)" stroke-width="2.5"/></svg></span></div></div><div class="title">The coach</div><p class="sub">Priced off the coach company's bands</p></div>
+<div class="body scroll">
+<div class="grp"><div class="lab">How is it priced?</div><div class="seg3"><div>The same for everyone</div><div>Split a total</div><div class="on">By numbers</div></div></div>
+<div class="tiny">Their quote had three prices in it. Put them in as they are, and Roam works out where the group stands.</div>
+<div class="ladder">
+<div class="rung off"><span>Up to 15 · no coach</span><span>off</span></div>
+<div class="rung off"><span>16-seater</span><span>£600 · £37.50 each</span></div>
+<div class="rung on"><span>24-seater · where you are</span><span>£850 · £35.42 each</span></div>
+<div class="rung off"><span>33-seater</span><span>£980 · £29.70 each</span></div>
+</div>
+<div class="btn sm sec" style="height:34px;font-size:12px"><svg class="ic s"><use href="#i-plus"/></svg>Another band</div>
+<div class="slab">
+<div class="money2"><span>18 joined</span><b>the 24-seater</b></div>
+<div class="money2"><span>Each head pays</span><b>£35.42</b></div>
+<div class="money2"><span>If six more come</span><b>£29.70 each</b></div>
+</div>
+<div class="warnbox"><svg class="ic"><use href="#i-triangle-alert"/></svg><div>Bands jump. Someone joining can put the group into a bigger coach and <b>put the price up</b> for a moment — say so before anybody pays, or settle the price on a date.</div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The most honest to the real world, and the most explaining to do. Worth having; not worth being the default.</p>
+</div>
+</div>
+
+<h3 style="font-size:16px;margin:26px 0 6px">The five settings that hang off any of the three</h3>
+<table class="cmp" style="max-width:1080px">
+<tr><th style="width:190px">Setting</th><th style="width:330px">What it asks</th><th>Why it has to be there</th></tr>
+<tr><td><b>Per head or per party</b></td><td>“Priya is bringing Leo — is that two shares or one?”</td><td>A coach seat is per head; a room is per party; a kitty is usually per party. Getting it wrong is the most common way an organiser ends up short, and the app has no way of saying it today.</td></tr>
+<tr><td><b>A minimum for it to run</b></td><td>“It needs 15 heads by Friday 16 October, or it is off.”</td><td>The owner's question. Every organiser carrying a fixed cost has this number in their head. Stated, it does three things: it is a promise the participant reads before paying, it is the thing the reminders can say (“four more and the coach runs”), and it is what makes cancelling clean.</td></tr>
+<tr><td><b>What happens if it is not met</b></td><td>Everyone told, nobody charged, or everyone refunded.</td><td>Until Roam takes the money, nothing has been taken and the answer is “told, and nobody pays”. When it does, this is the refund rule and it must be written before a card is entered.</td></tr>
+<tr><td><b>Refundable, or until when</b></td><td>“Refundable until 16 October — after that I have paid the coach company.”</td><td>Already in the app as three words with no date behind them. The date is the whole meaning.</td></tr>
+<tr><td><b>When it is due</b></td><td>The same date as everything else, or its own.</td><td>Money and bookings do not always share a deadline: the coach deposit is due before anybody books a room.</td></tr>
+<tr><td><span class="tag">Later</span> <b>A different price for children</b></td><td>“Leo is 15 — a coach seat is a seat, but the museum is half.”</td><td>A third axis, and the first thing a school or a club will ask for. Not v1; the model should not make it impossible.</td></tr>
+</table>
+
+<h3 style="font-size:16px;margin:26px 0 6px">And what the person paying reads</h3>
+<p class="sub">Three moments, in the dark palette. None of them takes a card: until Roam can take money, this is arithmetic, a promise, and the organiser's tick. The words do not change when payment arrives — only the button does.</p>
+<div class="frames">
+
+<div style="width:390px">
+<div class="modelab">Before paying</div>
+<div class="phone" data-theme="dark">
+<div class="status"><span>21:44</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Your list</span></div><div class="title">The coach — £33.34</div><p class="sub">Priya Shah · your share of £600</p></div>
+<div class="body scroll">
+<div class="mintbox"><svg class="ic"><use href="#i-message-square"/></svg><div><b>Roger says:</b> “Coach both ways from the club. It's £600 whoever is on it, so the more of us the cheaper it gets.”</div></div>
+<div class="slab">
+<div class="money2"><span>The coach</span><b>£600.00</b></div>
+<div class="money2"><span>Coming so far</span><b>18 heads</b></div>
+<div class="money2"><span>Your share, for you and Leo</span><b>£66.68</b></div>
+</div>
+<div class="mintbox"><svg class="ic"><use href="#i-users"/></svg><div><b>If more people come it gets cheaper</b>, and Roger will owe you the difference. At 24 it is £50 for the two of you.</div></div>
+<div class="warnbox"><svg class="ic"><use href="#i-triangle-alert"/></svg><div><b>It needs 15 people by Friday 16 October.</b> If fewer come the coach is off, and you will not have paid anything. After the 16th it is not refundable — that is the day Roger pays the coach company.</div></div>
+<div class="btn sec"><svg class="ic"><use href="#i-check"/></svg>I've sent Roger £66.68</div>
+<div class="tiny" style="text-align:center">Pay Roger however you normally do. He ticks it off here. <span class="pickme" style="padding:1px 8px">later</span> this is a Pay button.</div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The amount, how it was worked out, what would change it, and the two promises — in that order, before anything is asked of her.</p>
+</div>
+
+<div style="width:390px">
+<div class="modelab">Six more people joined</div>
+<div class="phone" data-theme="dark">
+<div class="status"><span>08:02</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Your list</span></div><div class="title">Your share went down</div><p class="sub">24 coming now, so the coach splits further</p></div>
+<div class="body scroll">
+<div class="slab">
+<div class="money2"><span>You sent Roger</span><b>£66.68</b></div>
+<div class="money2"><span>Your share now</span><b>£50.00</b></div>
+<div class="money2"><span>He owes you</span><b>£16.68</b></div>
+</div>
+<div class="mintbox"><svg class="ic"><use href="#i-info"/></svg><div>Roam has told Roger. He can settle it now or on the coach — <b>Roam is not holding the money</b>, so it is between the two of you.</div></div>
+<div class="hr"></div>
+<div class="lab">Still to do</div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-bed-double"/></svg><div class="nm" style="font-size:13px">A room at the Parkgate<div class="tiny" style="font-weight:600">By Friday 16 October</div></div><svg class="ic"><use href="#i-chevron-right"/></svg></div></div>
+<div class="item"><div class="t"><svg class="ic"><use href="#i-utensils"/></svg><div class="nm" style="font-size:13px">The Potted Pig, Sat 19:30<div class="tiny" style="font-weight:600">Are you coming? He needs a number</div></div><svg class="ic"><use href="#i-chevron-right"/></svg></div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The price moving is the point of splitting a pot, so the app has to be able to say the awkward half of it too: who is owed what.</p>
+</div>
+
+<div style="width:390px">
+<div class="modelab">It did not reach fifteen</div>
+<div class="phone" data-theme="dark">
+<div class="status"><span>09:00</span><span>●●● ⌔</span></div>
+<div class="screen">
+<div class="head"><div class="top"><span class="back"><svg class="ic s"><use href="#i-chevron-left"/></svg>Your list</span></div><div class="title">The coach is off</div><p class="sub">11 people by Friday 16 October, and it needed 15</p></div>
+<div class="body scroll">
+<div class="warnbox"><svg class="ic"><use href="#i-circle-alert"/></svg><div><b>Nothing has been taken from you.</b> Roger said it needed fifteen and it did not get there, so he has not booked the coach.</div></div>
+<div class="slab">
+<div class="money2"><span>The coach</span><b>Cancelled</b></div>
+<div class="money2"><span>You owe</span><b>Nothing</b></div>
+<div class="money2"><span>Match ticket · still yours</span><b>£32.00</b></div>
+</div>
+<div class="mintbox"><svg class="ic"><use href="#i-car"/></svg><div>The weekend is still on. Roger has asked everybody who is driving to say so — <b>4 seats going spare</b> so far.</div></div>
+<div class="hr"></div>
+<div class="lab">The rest of your list is unchanged</div>
+<div class="item"><div class="t"><span class="dot done"><svg class="ic"><use href="#i-bed-double"/></svg></span><div class="nm" style="font-size:13px">A room at the Parkgate<div class="tiny" style="font-weight:600">Booked · 8 Sep</div></div></div></div>
+</div>
+<div class="tabbar"><div><svg class="ic l"><use href="#i-sparkles"/></svg>Plan</div><div><svg class="ic l"><use href="#i-compass"/></svg>Places</div><div class="on"><svg class="ic l"><use href="#i-route"/></svg>Trips</div><div><svg class="ic l"><use href="#i-users"/></svg>Household</div><div><svg class="ic l"><use href="#i-settings"/></svg>Settings</div></div>
+</div>
+</div>
+<p class="cap">The promise being kept, which is the only reason the minimum was worth stating. And the group is not over — one cost has gone.</p>
+</div>
+</div>
+
+<div class="row" style="margin-top:18px">
+<table class="cmp" style="max-width:900px">
+<tr><th style="width:230px"></th><th>Now — Roam holds no money</th><th>When Roam can take it</th></tr>
+<tr><td>Setting it up</td><td colspan="2" style="text-align:center"><b>Identical. Every question on this page is asked either way.</b></td></tr>
+<tr><td>The participant's button</td><td>“I've sent Roger £66.68”, and he ticks it off</td><td>“Pay £66.68”, and it settles to him</td></tr>
+<tr><td>A price that has fallen</td><td>Roam says who is owed what; the two of them settle it</td><td>Refunded to the card, automatically</td></tr>
+<tr><td>The minimum not met</td><td>Nobody was charged; everybody is told</td><td>Everything taken is refunded, and everybody is told</td></tr>
+<tr><td>What it needs from you</td><td><b>Nothing</b></td><td>Stripe Connect, verification, refund terms, a privacy notice</td></tr>
+</table>
+<div class="notes">
+<h4>Money is a list</h4>
+<ul>
+<li>The coach and the tickets are two charges with two shapes. One “fee” per group cannot describe this trip, and this trip is the ordinary case.</li>
+<li>Each line: what it is for in the organiser's words, how it is priced, per head or per party, a minimum, a refund rule, a date.</li>
+<li>The group's total is then a real number — “you are owed £1,368, and £702 of it has reached you”.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section><h2>5 · What the Group tab says at each stage</h2>
+<p class="sub">The complaint in one line: the screen only ever had one state, and it was the third one. There are four, and only two of them are about chasing.</p>
+<div class="stage">
+<div><b>1 · Nothing set up</b>“Is anyone else coming?” — one card, and the four blocks underneath it, block 1 open. The word <i>chase</i> does not appear.</div>
+<div><b>2 · Set up, nobody in</b>The code, big, with “nobody has joined yet — send it to them”. The four blocks fold to a line each. Still no chasing.</div>
+<div><b>3 · People joining</b>Who is in and what they have done appears above the blocks. Chasing is named for the first time — and Roam has started, so it says when the next reminder goes.</div>
+<div><b>4 · Chasing</b>What is outstanding, in the order it was drawn in the first mock-up, with the roster underneath and the four blocks folded at the bottom.</div>
+</div>
+<div class="row">
+<div class="notes" style="width:340px">
+<h4>The rule</h4>
+<ul>
+<li><b>Never report on work nobody has been asked to do.</b> Outstanding means somebody was asked and has not done it; before that it is just a list.</li>
+<li>Stage 3 is where the app has to be at its most encouraging: two people in, twenty-two to go, and the thing that helps is the code and the WhatsApp button, not a red 22.</li>
+</ul>
+</div>
+<div class="notes" style="width:340px">
+<h4>What is already built and stays</h4>
+<ul>
+<li>The chase blocks, the roster, the person view, the reminder schedule and its honesty about not being able to send.</li>
+<li>The participant's list, joining from a link, self-declared bookings, the wrong-weekend catch.</li>
+<li>What changes is the <b>order</b>, the <b>empty states</b>, and the money model underneath block 4.</li>
+</ul>
+</div>
+<div class="notes" style="width:340px">
+<h4>What it costs to change</h4>
+<ul>
+<li><b>Blocks 1–3:</b> a reordering of the panel that exists, plus a QR (a small dependency, or ~60 lines) and a <code>wa.me</code> link. Half a day.</li>
+<li><b>Block 4:</b> real work — a charges list with three pricing shapes, per-head/per-party, a minimum, and the arithmetic that follows a moving price. A day, and worth it: it is the part nobody else does.</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section><h2>6 · The calls to make</h2>
+<table class="cmp" style="max-width:1080px">
+<tr><th style="width:230px">Question</th><th style="width:320px">What I would do</th><th>Why</th></tr>
+<tr><td><b>Wizard or page?</b></td><td><b>B — one page of four numbered blocks</b>, opening in order the first time and staying a page after.</td><td>The first run needs a wizard's discipline; every run after it needs a settings page. B is both without two screens to build or two states to keep in step.</td></tr>
+<tr><td><b>Is the money a list or a fee?</b></td><td><b>A list.</b> The coach and the tickets are two charges with different shapes on the same trip.</td><td>A single fee cannot describe the ordinary case, and an organiser who has to add them together by hand is back in the spreadsheet.</td></tr>
+<tr><td><b>Which pricing shapes in v1?</b></td><td><b>Fixed each</b> and <b>split a total</b>. Bands can wait — the ladder is the same code, so it is a fortnight's work later rather than a rewrite.</td><td>Those two cover a ticket and a coach, which is nearly everything. Bands add explaining that a first version does not need.</td></tr>
+<tr><td><b>Per head by default?</b></td><td><b>Per head</b>, and say what it means for the party in front of them: “Priya + Leo = £66.68”.</td><td>Coaches, dinners and tickets are per head. A room is the exception, and it is a booking rather than a charge.</td></tr>
+<tr><td><b>A minimum, in v1?</b></td><td><b>Yes</b> — a number and a date, shown to everyone before they pay, and said in the reminders while it is short.</td><td>It is the owner's question, it costs almost nothing once a charge has a headcount, and it is the difference between an organiser who commits and one who cannot.</td></tr>
+<tr><td><b>WhatsApp now, or next?</b></td><td><b>Sharing now</b> (a <code>wa.me</code> link, no integration), <b>reminders later</b> (the Business API).</td><td>The first is a link and works today. The second is a verified sender, approved templates and a per-message cost.</td></tr>
+<tr><td><b>Do we say it is a group trip before it is set up?</b></td><td>Yes, but with what is missing: “Nobody asked in yet.”</td><td>Half a group is worse than none if the app implies people have been asked.</td></tr>
+</table>
+<p class="sub" style="margin-top:14px;max-width:1000px"><b>The one-paragraph version:</b> the Group tab opens on four numbered questions instead of a progress report — what is wanted from everyone and what is only being asked about, a code big enough to point a phone at with a link and a WhatsApp button beside it, how often Roam chases, and what you are charging for. That last one becomes a <b>list of charges</b> rather than a fee, each priced either as the same amount for everybody or as a total split between whoever comes, per head or per party, with a minimum number for it to happen at all and a date after which it is not refundable. Chasing does not appear at all until somebody has joined.</p>
+</section>
+
+<p class="lede" style="margin-top:32px;border-top:1px solid #E5EFEA;padding-top:16px">Follows <a href="./group-trips-options.html">Group trips — how the group is run, three ways</a> and <a href="./group-trips.html">the organiser's six weeks</a>, and the group built on 4 September 2026. The QR code on this page is a real one for the deployed invite link. Drawn against the September 2026 style guide in both palettes; every icon is from the app's own set.</p>
+</body></html>
