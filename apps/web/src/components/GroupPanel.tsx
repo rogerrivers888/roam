@@ -739,7 +739,7 @@ function CostCard({ item, group: g, busy, onEdit, onClose, onRemove }: {
           ) : null}
           {item.state === 'cancelled' ? <Wrap><Chip label="Put it back" icon="refresh" onPress={() => onClose({ action: 'reopen' })} /></Wrap> : null}
           <Wrap>
-            <Chip label={item.perHead ? 'A share each head' : 'A share each party'} icon="household" onPress={() => onEdit({ perHead: !item.perHead })} />
+            <Chip label={item.perHead ? 'Per person' : 'Per household'} icon="household" onPress={() => onEdit({ perHead: !item.perHead })} />
             <Chip label={item.required ? 'Everyone pays it' : 'An extra'} icon={item.required ? 'check' : 'info'} onPress={() => onEdit({ required: !item.required })} />
             {!busy && item.money?.paidPence === 0 ? <Chip label="Remove" icon="close" onPress={onRemove} /> : null}
           </Wrap>
@@ -791,6 +791,7 @@ function AddCost({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIte
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState('');
   const [everyone, setEveryone] = useState(false);
+  const [perHead, setPerHead] = useState(true);
   const [pricing, setPricing] = useState<'fixed' | 'variable'>('variable');
   const [amount, setAmount] = useState('');
   const [total, setTotal] = useState('');
@@ -819,6 +820,11 @@ function AddCost({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIte
       <Wrap>
         <Chip label="Everyone" selected={everyone} onPress={() => setEveryone(true)} />
         <Chip label="Only those who opt in" selected={!everyone} onPress={() => setEveryone(false)} />
+      </Wrap>
+      <Text style={type.label}>A share each</Text>
+      <Wrap>
+        <Chip label="Per person" selected={perHead} onPress={() => setPerHead(true)} />
+        <Chip label="Per household" selected={!perHead} onPress={() => setPerHead(false)} />
       </Wrap>
       <Text style={type.label}>Price</Text>
       <Segmented
@@ -868,8 +874,7 @@ function AddCost({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIte
           onPress={() => {
             if (!label.trim()) return;
             onAdd({
-              // Always a share a head: who a head is was settled when they joined.
-              kind: 'fee', label: label.trim(), required: everyone, perHead: true, pricing,
+              kind: 'fee', label: label.trim(), required: everyone, perHead, pricing,
               amountPence: pricing === 'fixed' ? pence(amount) : null,
               totalPence: pricing === 'variable' ? totalP : null,
               expectedCount: everyone ? null : numberOrNull(expected),
@@ -965,8 +970,9 @@ function PersonRow({ p, items, open, busy, onOpen, onMark, onChange, onRemind }:
             <Row>
               <Text style={type.h3}>{p.name}</Text>
               {p.memberId ? <Chip label="You" selected /> : null}
-              {p.heads > 1 ? <Text style={type.small}>{p.heads} heads</Text> : null}
+              {p.heads > 1 ? <Chip label={`Household of ${p.heads}`} icon="household" /> : null}
             </Row>
+            {p.brings ? <Text style={type.small}>With {p.brings}</Text> : null}
             <Text style={type.small}>
               {!p.joinedAt ? `Not joined${p.invitedAt ? ` · link sent ${when(p.invitedAt)}` : ''}`
                 : p.outstanding.length ? `${p.outstanding.map((o) => o.label).slice(0, 2).join(', ')}${p.outstanding.length > 2 ? ` and ${p.outstanding.length - 2} more` : ''} outstanding`
@@ -1001,7 +1007,18 @@ function PersonRow({ p, items, open, busy, onOpen, onMark, onChange, onRemind }:
               </Row>
             );
           })}
-          <Text style={type.label}>A NOTE, JUST FOR YOU</Text>
+          <Text style={type.label}>Their household</Text>
+          <Row>
+            <NumberBox value={String(p.heads)} onChange={(v) => onChange({ heads: Math.max(1, Number(v) || 1) })} width={72} />
+            <TextInput
+              value={p.brings ?? ''}
+              onChangeText={(v) => onChange({ brings: v })}
+              placeholder="Who else is coming"
+              placeholderTextColor={colors.inkFaint}
+              style={[styles.input, { flex: 1 }]}
+            />
+          </Row>
+          <Text style={type.label}>A note, just for you</Text>
           <TextInput value={note} onChangeText={setNote} onBlur={() => note !== (p.note ?? '') && onChange({ note })} placeholder="They never see this" placeholderTextColor={colors.inkFaint} style={styles.input} />
           {p.reminders.length ? <Text style={type.small}>Chased {p.reminders.length} time{p.reminders.length === 1 ? '' : 's'} — last {when(p.lastRemindedAt)}</Text> : null}
           <Wrap>
