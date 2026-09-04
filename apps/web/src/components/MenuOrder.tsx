@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api, DishNote, HouseholdResponse, Member, MenuItem, MenuLink, Order, OrderItem, ReadMenu } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { useViewport } from '../hooks/useViewport';
@@ -386,7 +386,14 @@ export function MenuPanel({ ctl, onOrder }: { ctl: MenuOrderCtl; onOrder: () => 
             {!reading && !error && !link?.url ? <Text style={type.small}>{link?.why ?? 'Looking on their website…'}</Text> : null}
             {how.length ? <Text style={type.tiny}>{how.join(' · ')}</Text> : null}
             {error ? <Text style={[type.small, { color: colors.allergen }]}>{error}</Text> : null}
-            {!reading && error ? <Wrap><Button label="Try again" icon="restaurant" onPress={ctl.readTheMenu} /></Wrap> : null}
+            {!reading && error ? (
+              <Wrap>
+                <Button label="Try again" icon="restaurant" onPress={ctl.readTheMenu} />
+                {/* We know where their menu is even when we cannot read it: a
+                    link beats a dead end (owner, 4 Sep 2026). */}
+                {link?.url ? <Button label="Open their menu" icon="external" kind="secondary" onPress={() => Linking.openURL(link.url!)} /> : null}
+              </Wrap>
+            ) : null}
           </Card>
         ) : null}
 
