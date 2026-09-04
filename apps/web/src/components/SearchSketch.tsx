@@ -199,6 +199,7 @@ export function SearchSketch({
   const answered = useMemo(() => events.filter((e) => e.type === 'answered') as Extract<SketchEvent, { type: 'answered' }>[], [events]);
   const failed = useMemo(() => events.filter((e) => e.type === 'failed') as Extract<SketchEvent, { type: 'failed' }>[], [events]);
   const cached = events.some((e) => e.type === 'cached');
+  const joining = events.some((e) => e.type === 'joining');
   const waited = events.some((e) => e.type === 'waiting');
   const found = answered.reduce((n, e) => n + e.count, 0);
   const outstanding = asked.filter((s) => !answered.some((a) => a.source === s.key) && !failed.some((f) => f.source === s.key));
@@ -249,7 +250,7 @@ export function SearchSketch({
       {variant === 'strip' ? (
         <Row style={{ gap: 8, paddingTop: 8 }}>
           <Mark done={done} />
-          <Text style={type.small} numberOfLines={1}>{stripLine({ t, place, radiusKm, areas, asked, answered, failed, found, cached })}</Text>
+          <Text style={type.small} numberOfLines={1}>{stripLine({ t, place, radiusKm, areas, asked, answered, failed, found, cached, joining })}</Text>
         </Row>
       ) : (
         <View style={{ paddingTop: spacing.md, gap: 6 }}>
@@ -265,6 +266,7 @@ export function SearchSketch({
             </Line>
             <Line done={!outstanding.length && asked.length > 0} pending={!asked.length}>
               {cached ? 'Already held from earlier — nothing asked'
+                : joining ? 'Waiting on the same search, already running'
                 : !asked.length ? 'Asking'
                 : outstanding.length
                   ? `${waited ? 'Still waiting on ' : 'Asking '}${outstanding.map((s) => s.label).join(', ')}`
@@ -299,8 +301,9 @@ function beatLabel(t: number, map: SketchMap | null, place: string, radiusKm: nu
   return `${radiusKm} km around ${place}`;
 }
 
-function stripLine({ t, place, radiusKm, areas, asked, answered, failed, found, cached }: any) {
+function stripLine({ t, place, radiusKm, areas, asked, answered, failed, found, cached, joining }: any) {
   if (cached) return `${found} places, already held`;
+  if (joining) return 'Waiting on the same search, already running';
   if (t < B.toGround) return `Working out ${radiusKm} km around ${place ?? 'you'}`;
   if (t < B.sweep && areas.length > 1) return `Looking through ${areas.slice(0, 3).map((a: any) => a.name).join(', ')}`;
   if (failed.length) return `${failed.map((f: any) => f.label).join(', ')} did not answer · ${found} places`;

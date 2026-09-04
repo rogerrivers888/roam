@@ -46,7 +46,16 @@ export async function searchCached(params, { refresh = false, onProgress = null 
   // what is already held says so rather than miming a fetch that never ran.
   const cachedSay = (result) => { try { onProgress?.({ type: 'cached', count: result.venues.length }); } catch { /* not the search */ } };
   if (fresh(hit) && !refresh) { cachedSay(hit.result); return { ...hit.result, cached: true, fetchedAt: new Date(hit.at).toISOString(), fetched: false }; }
-  if (inFlight.has(key) && !refresh) { const r = await inFlight.get(key); cachedSay(r); return { ...r, cached: true, fetchedAt: new Date().toISOString(), fetched: false }; }
+  if (inFlight.has(key) && !refresh) {
+    // Two people, or two screens, asking the same thing at once. This one waits
+    // on the answer the other is already getting — and is told so at once,
+    // because "asking" would be a lie and the wait can be the whole 25 seconds
+    // of a slow source.
+    try { onProgress?.({ type: 'joining' }); } catch { /* not the search */ }
+    const r = await inFlight.get(key);
+    cachedSay(r);
+    return { ...r, cached: true, fetchedAt: new Date().toISOString(), fetched: false };
+  }
   const run = searchAllSources(params, { onProgress })
     .then((result) => {
       kept.delete(key);

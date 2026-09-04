@@ -348,6 +348,8 @@ export type SketchEvent =
   | { type: 'answered'; source: string; label: string; count: number; points: [number, number][] }
   | { type: 'failed'; source: string; label: string; error: string }
   | { type: 'cached'; count: number }
+  /** This search is riding on one already running, and is waiting for its answer. */
+  | { type: 'joining' }
   | { type: 'waiting'; at: number };
 
 export type SearchParams = { q?: string; categories?: string; radiusKm?: number; near?: string; sources?: string; refresh?: '1' };
