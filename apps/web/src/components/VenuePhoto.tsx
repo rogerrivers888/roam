@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { API_URL, VenuePhotoRef } from '../api';
 import { colors, radius, type } from '../theme';
@@ -12,13 +12,21 @@ import { colors, radius, type } from '../theme';
  */
 export function VenuePhoto({ photos, size = 72, credit = true }: { photos?: VenuePhotoRef[] | null; size?: number; credit?: boolean }) {
   const [failed, setFailed] = useState(false);
+  const [ready, setReady] = useState(false);
   const photo = photos?.[0];
+  // A picture that has not arrived in a few seconds is not coming: show nothing
+  // rather than an empty tile (owner, 4 Sep 2026).
+  useEffect(() => {
+    if (ready || failed) return;
+    const t = setTimeout(() => setFailed(true), 6000);
+    return () => clearTimeout(t);
+  }, [ready, failed, photo?.ref, photo?.url]);
   if (!photo || failed) return null;
   const uri = photo.url ?? (photo.ref ? `${API_URL}/api/photos/google?name=${encodeURIComponent(photo.ref)}&w=${size >= 120 ? 480 : 240}` : null);
   if (!uri) return null;
   return (
     <View style={{ width: size, gap: 2 }}>
-      <Image source={{ uri }} style={[styles.img, { width: size, height: size }]} onError={() => setFailed(true)} accessibilityIgnoresInvertColors />
+      <Image source={{ uri }} style={[styles.img, { width: size, height: size }]} onError={() => setFailed(true)} onLoad={() => setReady(true)} accessibilityIgnoresInvertColors />
       {credit && photo.attribution ? <Text style={[type.tiny, styles.credit]} numberOfLines={1}>{photo.attribution}</Text> : null}
     </View>
   );

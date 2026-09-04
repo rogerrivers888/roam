@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api, DishNote, HouseholdResponse, Member, MenuItem, MenuLink, Order, OrderItem, ReadMenu } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
@@ -157,7 +157,7 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
     if (!enabled) return;
     let live = true;
     api.household().then((h) => live && setHousehold(h)).catch(() => {});
-    api.heldMenu(venueRef)
+    api.heldMenu(venueRef, website ?? null)
       .then((d) => { if (!live) return; setMenu(d.menu); setLink(d.link ?? null); setSection(d.menu?.sections[0]?.title ?? null); })
       .catch((e) => { if (live) { setMenu(null); setError(e.message); } });
     api.orderHistory(venueRef).then((d) => {
@@ -352,7 +352,7 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
   const dietLines = members.flatMap((m) => (m.diets ?? []).map((d) => `${m.name.split(' ')[0]} is ${d.value.toLowerCase()}.`));
 
   return {
-    venueLabel, menu, link, reading, error, how, members, sections, shown, section, setSection, itemsById,
+    venueRef, venueLabel, menu, link, reading, error, how, members, sections, shown, section, setSection, itemsById,
     picks, pickOf, setPick, chosen, total, order, resumed, marks, setMarks, busy, staff, setStaff, phase, setPhase,
     noting, setNoting, asked, groups, allergenLines, dietLines, history, again, setAgain,
     readTheMenu, toTheOrder, removeFromOrder, noteOnOrder, startAgain, weAteIt, saveStars, whatIsThis, orderAgain,
@@ -363,6 +363,15 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
 
 export function MenuPanel({ ctl, onOrder }: { ctl: MenuOrderCtl; onOrder: () => void }) {
   const { menu, link, reading, error, how, members, sections, shown, chosen, total, asked } = ctl;
+  // Opening the Menu tab is the household asking for the menu: read it, rather
+  // than offering a button that says so (owner, 4 Sep 2026 — "I shouldn't even
+  // have to click Read the menu because I'm clicking on the menu tab"). Once
+  // per venue; if it fails, the button comes back as a way to try again.
+  const tried = useRef(false);
+  useEffect(() => { tried.current = false; }, [ctl.venueRef]);
+  useEffect(() => {
+    if (menu === null && !reading && !error && !tried.current) { tried.current = true; ctl.readTheMenu(); }
+  }, [menu, reading, error]);
   return (
     <>
       <ScrollView contentContainerStyle={styles.body}>
@@ -370,15 +379,14 @@ export function MenuPanel({ ctl, onOrder }: { ctl: MenuOrderCtl; onOrder: () => 
 
         {menu === null ? (
           <Card>
-            {/* No paragraph: the button says what it does (owner, 4 Sep 2026). */}
-            <Text style={type.h3}>Read their menu</Text>
-            {!link?.url ? <Text style={type.small}>{link?.why ?? 'Looking on their website…'}</Text> : null}
+            <Text style={type.h3}>{reading ? 'Reading their menu…' : error ? 'Their menu would not open' : 'Their menu'}</Text>
+            {reading ? (
+              <Row><ActivityIndicator color={colors.icon} /><Text style={type.small}>{link?.url ? `From ${link.url.replace(/^https?:\/\//, '').slice(0, 48)}` : 'Looking on their website…'}</Text></Row>
+            ) : null}
+            {!reading && !error && !link?.url ? <Text style={type.small}>{link?.why ?? 'Looking on their website…'}</Text> : null}
             {how.length ? <Text style={type.tiny}>{how.join(' · ')}</Text> : null}
             {error ? <Text style={[type.small, { color: colors.allergen }]}>{error}</Text> : null}
-            <Wrap>
-              <Button label={reading ? 'Reading their menu…' : 'Read their menu'} icon="restaurant" onPress={ctl.readTheMenu} disabled={reading} />
-              {reading ? <ActivityIndicator color={colors.icon} /> : null}
-            </Wrap>
+            {!reading && error ? <Wrap><Button label="Try again" icon="restaurant" onPress={ctl.readTheMenu} /></Wrap> : null}
           </Card>
         ) : null}
 

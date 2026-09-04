@@ -129,7 +129,16 @@ menu.get('/', async (req, res, next) => {
     let link = null;
     if (!held) {
       const venue = recallVenue(ref);
-      if (venue?.website) link = await findMenuUrl({ website: venue.website, name: venue.name, locality: venue.locality ?? null, address: typeof venue.address === 'string' ? venue.address : venue.address?.line1 ?? null });
+      const website = String(req.query?.website || venue?.website || '').trim();
+      if (website) {
+        let locality = venue?.locality ?? null;
+        let address = typeof venue?.address === 'string' ? venue.address : venue?.address?.line1 ?? null;
+        if (!locality && !address) {
+          const { rows: at } = await query('select locality, postcode from household_places where household_id = $1 and venue_ref = $2', [household.id, ref]);
+          if (at[0]) { locality = at[0].locality ?? null; address = at[0].postcode ?? null; }
+        }
+        link = await findMenuUrl({ website, name: venue?.name ?? '', locality, address });
+      }
     }
     res.json({ menu: held, link });
   } catch (err) { next(err); }
@@ -171,10 +180,21 @@ menu.post('/read', async (req, res, next) => {
     const label = String(req.body?.label || venue?.name || '').trim() || null;
     const website = String(req.body?.website || venue?.website || '').trim();
 
+    // Which town this one is in. A licensed venue is never held in memory, so
+    // for a group with two restaurants the answer comes from the atlas — where
+    // the place already carries its locality and postcode — or from the screen
+    // that asked (owner, 4 Sep 2026: the Windsor menu was one click away).
+    let locality = String(req.body?.locality || venue?.locality || '').trim() || null;
+    let address = String(req.body?.address || (typeof venue?.address === 'string' ? venue.address : venue?.address?.line1) || '').trim() || null;
+    if (!locality && !address) {
+      const { rows } = await query('select locality, postcode from household_places where household_id = $1 and venue_ref = $2', [household.id, ref]);
+      if (rows[0]) { locality = rows[0].locality ?? null; address = rows[0].postcode ?? null; }
+    }
+
     let url = String(req.body?.url || '').trim();
     let found = null;
     if (!url) {
-      found = await findMenuUrl({ website, name: label ?? '', locality: venue?.locality ?? null, address: typeof venue?.address === 'string' ? venue.address : venue?.address?.line1 ?? null });
+      found = await findMenuUrl({ website, name: label ?? '', locality, address });
       url = found?.url || '';
     }
     if (!url) {

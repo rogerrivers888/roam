@@ -87,6 +87,28 @@ function foldHours(lines: string[]): string[] {
 /** The address as you would read it aloud, without the protocol. */
 const prettyUrl = (u: string) => u.replace(/^https?:\/\//i, '').replace(/\/$/, '').slice(0, 64);
 
+/**
+ * One picture, which removes itself if it does not arrive. A photo that 404s —
+ * a provider's daily allowance run out — used to leave a coloured box on the
+ * screen for as long as you looked at it (owner, 4 Sep 2026).
+ */
+function Hero({ uri, attribution }: { uri: string | null; attribution: string | null }) {
+  const [failed, setFailed] = useState(false);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (ready || failed) return;
+    const t = setTimeout(() => setFailed(true), 8000);
+    return () => clearTimeout(t);
+  }, [ready, failed, uri]);
+  if (!uri || failed) return null;
+  return (
+    <View>
+      <Image source={{ uri }} style={styles.hero} onError={() => setFailed(true)} onLoad={() => setReady(true)} accessibilityIgnoresInvertColors />
+      {attribution ? <Text style={type.tiny}>{attribution}</Text> : null}
+    </View>
+  );
+}
+
 export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, added, shortlisted, ours, capture, onVenue, gettingThere }: {
   item: BrowseItem | null;
   baseLabel?: string | null;
@@ -289,7 +311,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
 
                   {photos.length ? (
                     <View style={{ gap: spacing.sm }}>
-                      {photos.map((p, i) => { const u = photoUri(p, 800); return u ? <View key={i}><Image source={{ uri: u }} style={styles.hero} accessibilityIgnoresInvertColors />{p.attribution ? <Text style={type.tiny}>{p.attribution}</Text> : null}</View> : null; })}
+                      {photos.map((p, i) => <Hero key={i} uri={photoUri(p, 800)} attribution={p.attribution ?? null} />)}
                     </View>
                   ) : null}
 

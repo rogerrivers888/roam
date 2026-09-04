@@ -627,7 +627,7 @@ export const api = {
 
   // menu, order and stars (the table half of an evening, owner 4 Sep 2026)
   /** What we already hold for this place — and, when we hold nothing, where their menu is. */
-  heldMenu: (venueRef: string) => request<{ menu: ReadMenu | null; link: MenuLink | null }>(`/api/menu${qs({ ref: venueRef })}`),
+  heldMenu: (venueRef: string, website?: string | null) => request<{ menu: ReadMenu | null; link: MenuLink | null }>(`/api/menu${qs({ ref: venueRef, website: website ?? undefined })}`),
   /** Which of the four openers this deployment has: a browser makes a JavaScript menu readable for nothing. */
   menuOpeners: () => request<MenuOpeners>('/api/menu/openers'),
   /** Read their menu now. Slow on purpose: it fetches, may render, and reads. */

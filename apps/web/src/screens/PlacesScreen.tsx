@@ -47,6 +47,9 @@ const LINE_COLOURS: Record<string, string> = {
 };
 
 /** The kinds of food or thing a place is known for, ignoring anything blank. */
+/** Which segment a place will show up under, from its category alone. */
+const kindOfCategory = (c?: string | null): Kind => (['restaurant', 'cafe', 'pub', 'bar'].includes(String(c)) ? 'eat' : 'do');
+
 const cuisinesOf = (p: AtlasPlace) => (((p.venue ?? {}) as Partial<Venue>).cuisines ?? []).filter(Boolean);
 const experiencesOf = (p: AtlasPlace) => (((p.venue ?? {}) as Partial<Venue>).experiences ?? []).filter(Boolean);
 
@@ -163,6 +166,10 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
   // A place found by searching, before it is anything of ours: the drawer shows
   // its details so you can be sure it is the right one.
   const [newVenue, setNewVenue] = useState<Venue | null>(null);
+  // A place the household has just added: close the search, show the segment it
+  // is in, and mark the row (owner, 4 Sep 2026: "when I exit out of that screen,
+  // I want to come back to my places… and see the place that I've just added").
+  const [landed, setLanded] = useState<{ venueRef: string; kind: Kind } | null>(null);
   const refills = useRef(0);
 
   const members = household?.members ?? [];
@@ -276,6 +283,7 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
           key={home ? 'home' : `${country!.code}/${city!.name}`}
           country={country} city={city} home={home} places={places} household={household} viewer={viewer} wide={wide} viewportHeight={height}
           onBack={() => { setSel(null); setOpen(null); }} onOpen={setOpen} onOpenVenue={setNewVenue} openRef={open?.venueRef ?? null}
+          landed={landed} onLandedShown={() => setLanded(null)}
           onPlanTrip={() => onPlanTrip?.(home ? { placeText: home.label ?? 'home' } : { placeText: `${city!.name}, ${country!.name}`, countryCode: country!.code })}
           onChanged={refreshAll}
         />
@@ -293,7 +301,8 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
           if (!v) return null;
           const w = country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {};
           const known = newVenue ? !!newVenue.household?.visits || !!newVenue.household?.ledger : !!open;
-          return <CapturePanel venue={v} household={household} ctx={w} been={!!(newVenue ? newVenue.household?.visits : open?.visits)} saved={known} onChanged={refreshAll} />;
+          return <CapturePanel venue={v} household={household} ctx={w} been={!!(newVenue ? newVenue.household?.visits : open?.visits)} saved={known} onChanged={refreshAll}
+            onLanded={(venueRef, kind) => setLanded({ venueRef, kind })} />;
         })()}
         ours={newVenue
           ? <NewPlacePanel venue={newVenue} household={household} ctx={country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {}} onChanged={refreshAll} />
@@ -334,9 +343,10 @@ const Count = ({ label, heart }: { label: string; heart?: boolean }) => (
 // Inside a city
 // ---------------------------------------------------------------------------
 
-function CityPanel({ country, city, home, places, household, viewer, wide, viewportHeight, onBack, onOpen, onOpenVenue, openRef, onPlanTrip, onChanged }: {
+function CityPanel({ country, city, home, places, household, viewer, wide, viewportHeight, onBack, onOpen, onOpenVenue, openRef, onPlanTrip, onChanged, landed, onLandedShown }: {
   country: AtlasCountry | null; city: AtlasCity | null; home: AtlasHome | null; places: AtlasPlace[]; household: HouseholdResponse | null; viewer: string | null; wide: boolean; viewportHeight: number;
   onBack: () => void; onOpen: (p: AtlasPlace) => void; onOpenVenue: (v: Venue) => void; openRef: string | null; onPlanTrip: () => void; onChanged: () => Promise<void>;
+  landed: { venueRef: string; kind: Kind } | null; onLandedShown: () => void;
 }) {
   // The filters are per city: coming back to London should not bring Lisbon's
   // "food only, been" with it.
@@ -362,6 +372,13 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
   const centre = home ? { lat: home.lat, lng: home.lng } : city!.lat != null && city!.lng != null ? { lat: city!.lat, lng: city!.lng } : null;
   const searchRadiusKm = home ? Math.round(home.radiusMiles * 1.60934) : 5;
   const ctx = home ? {} : { country: country!.name, countryCode: country!.code, locality: city!.name };
+
+  // Something just added: the search closes, the segment follows the place, and
+  // the row is marked so the eye finds it.
+  useEffect(() => {
+    if (!landed) return;
+    setAdding(false); setKind(landed.kind); setStatus('any'); setTypeF(null); setView('list');
+  }, [landed?.venueRef]);
 
   const inKind = (p: AtlasPlace) => kind === 'all' || kindsOf(p).includes(kind);
   const counts = useMemo(() => ({ all: places.length, do: places.filter((p) => kindsOf(p).includes('do')).length, eat: places.filter((p) => kindsOf(p).includes('eat')).length }), [places]);
@@ -417,7 +434,7 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
           options={adding
             ? [{ value: 'all', label: 'Everything' }, { value: 'do', label: 'Things to do' }, { value: 'eat', label: 'Food & drink' }]
             : [{ value: 'all', label: `Everything ${counts.all}` }, { value: 'do', label: `Things to do ${counts.do}` }, { value: 'eat', label: `Food & drink ${counts.eat}` }]}
-          onChange={(k) => { setKind(k); setTypeF(null); setSelPin(null); }}
+          onChange={(k) => { setKind(k); setTypeF(null); setSelPin(null); onLandedShown(); }}
         />
         {adding ? (
           <AddPlace household={household} kind={kind} centre={centre} radiusKm={searchRadiusKm} ctx={ctx} wide={wide} onAdded={onChanged} onOpen={onOpenVenue} />
@@ -439,11 +456,14 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
             <View style={[{ gap: spacing.sm }, wide && showMap && { width: 440 }]}>
               {rows.length ? (
                 <View style={styles.list}>
-                  {rows.map((p, i) => <PlaceRow key={p.venueRef} place={p} kind={kind} viewer={viewer} first={i === 0} selected={openRef === p.venueRef} onPress={() => onOpen(p)} />)}
+                  {rows.map((p, i) => <PlaceRow key={p.venueRef} place={p} kind={kind} viewer={viewer} first={i === 0} selected={openRef === p.venueRef || landed?.venueRef === p.venueRef} onPress={() => { onLandedShown(); onOpen(p); }} />)}
                 </View>
               ) : (
                 <Card><Text style={type.small}>{places.length ? 'Nothing matches — clear a filter.' : 'Nothing here yet. Add a place you know, or a trip\'s shortlist will fill it.'}</Text></Card>
               )}
+              {landed && rows.some((p) => p.venueRef === landed.venueRef) ? (
+                <StatusLine tone="good">{rows.find((p) => p.venueRef === landed.venueRef)?.name} is in your places.</StatusLine>
+              ) : null}
               <Text style={type.tiny}>{rows.length} of {places.length} · tap a row for the drawer.</Text>
             </View>
           ) : null}
@@ -599,8 +619,10 @@ function PickSheet({ visible, title, options, value, onPick, onClose }: { visibl
  * the tap and then says so; the household's fuller record — history, special,
  * removing it — is under Ours (owner, 4 Sep 2026).
  */
-function CapturePanel({ venue, household, ctx: where, been, saved, onChanged }: {
+function CapturePanel({ venue, household, ctx: where, been, saved, onChanged, onLanded }: {
   venue: Venue; household: HouseholdResponse | null; ctx: { country?: string; countryCode?: string; locality?: string }; been: boolean; saved: boolean; onChanged: () => Promise<void>;
+  /** It is in the list now: close up and show it there. */
+  onLanded: (venueRef: string, kind: Kind) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -624,13 +646,13 @@ function CapturePanel({ venue, household, ctx: where, been, saved, onChanged }: 
       {!open ? (
         <Row style={{ flexWrap: 'wrap' }}>
           <Button label={here ? 'Been again' : "We've been here"} kind={here ? 'secondary' : 'primary'} onPress={() => setOpen(true)} />
-          {!kept ? <Button label="Save as a place" kind="secondary" loading={busy} onPress={async () => { setBusy(true); try { await api.savePlace(venue.venueRef, 'saved', ctx); setDone('saved'); await onChanged(); } finally { setBusy(false); } }} /> : null}
+          {!kept ? <Button label="Save as a place" kind="secondary" loading={busy} onPress={async () => { setBusy(true); try { await api.savePlace(venue.venueRef, 'saved', ctx); setDone('saved'); await onChanged(); onLanded(venue.venueRef, kindOfCategory(venue.category)); } finally { setBusy(false); } }} /> : null}
         </Row>
       ) : (
         <>
           <BeenCapture venue={venue} household={household}
             onCreate={async (body) => { await api.createVisit({ venueRef: venue.venueRef, venueLabel: venue.name, category: venue.category, lat: venue.lat, lng: venue.lng, visitedOn: body.visitedOn, note: body.note, attendeeIds: body.attendeeIds, takes: body.takes, venue: { experiences: venue.experiences, cuisines: venue.cuisines, category: venue.category }, ...where }); }}
-            onSaved={async () => { setOpen(false); setDone('been'); await onChanged(); }} />
+            onSaved={async () => { setOpen(false); setDone('been'); await onChanged(); onLanded(venue.venueRef, kindOfCategory(venue.category)); }} />
           <Button label="Close" icon="close" kind="ghost" onPress={() => setOpen(false)} style={{ alignSelf: 'flex-start' }} />
         </>
       )}

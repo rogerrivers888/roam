@@ -131,7 +131,7 @@ app.get('/api/photos/google', async (req, res) => {
     if (!/^places\/[^/]+\/photos\/[^/]+$/.test(name)) return res.status(400).end();
     const household = await currentHousehold();
     const photo = await photoFor(name, Math.min(1200, Number(req.query.w) || 480));
-    if (!photo) return res.status(404).end();
+    if (!photo) return res.status(404).json({ error: 'no_photo', message: 'The provider has no photo by that name.' });
     if (!photo.cached) {
       await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, 'google-places', 'photo', { 'google-photos': 1 }]).catch(() => null);
     }
@@ -139,7 +139,9 @@ app.get('/api/photos/google', async (req, res) => {
     res.setHeader('cache-control', 'private, max-age=3600');
     res.send(photo.body);
   } catch (err) {
-    res.status(502).json({ error: 'photo_unavailable', message: err.message });
+    // The status the provider gave, so a quota that has run out reads as one.
+    console.error('photo', err.message);
+    res.status(err.status === 403 || err.status === 429 ? 429 : 502).json({ error: 'photo_unavailable', message: err.message });
   }
 });
 

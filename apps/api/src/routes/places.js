@@ -192,8 +192,14 @@ places.get('/search', async (req, res, next) => {
     const q = String(req.query.q || '').trim();
     const sources = optInFrom(req.query.sources);
 
+    // Somebody is watching a spinner: give the sources a few seconds and show
+    // what has arrived (owner, 4 Sep 2026 — "sushi in Windsor took more than a
+    // minute"; Google had answered in a second and the wait was OpenStreetMap
+    // running out its own clock). Nothing is lost: settleBy still waits
+    // properly when not one source has found anything.
+    const deadlineMs = Math.min(20_000, Math.max(2_000, Number(req.query.deadlineMs) || 6_000));
     const { venues, degraded, sourcesQueried, units } = await searchAllSources({
-      center: { lat: near.lat, lng: near.lng }, radiusKm, categories, query: q, includeEvents: false, sources,
+      center: { lat: near.lat, lng: near.lng }, radiusKm, categories, query: q, includeEvents: false, sources, deadlineMs,
     });
     await query('insert into provider_calls (household_id, provider, purpose, units) values ($1, $2, $3, $4)', [household.id, sourcesQueried.join('+') || 'none', 'places.search', units]);
 

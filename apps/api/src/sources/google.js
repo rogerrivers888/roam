@@ -362,7 +362,15 @@ export async function fetchPhoto(name, maxWidthPx = 480) {
   const key = KEY();
   if (!key) return null;
   const res = await fetch(`${PLACES}/${name}/media?maxWidthPx=${maxWidthPx}&key=${key}`, { redirect: 'follow', signal: AbortSignal.timeout(15_000) });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    // Say why. A picture that never arrives used to be an empty green box on
+    // the screen for as long as you cared to look at it (owner, 4 Sep 2026);
+    // the screen can only give up quickly if it is told.
+    const why = await res.text().catch(() => '');
+    const err = new Error(`Google photo ${res.status}: ${why.slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
   return { contentType: res.headers.get('content-type') || 'image/jpeg', body: Buffer.from(await res.arrayBuffer()) };
 }
 
