@@ -482,7 +482,8 @@ export async function libraryStats() {
             group by i.source order by n desc`),
     query(`select licence, attribution_required, count(*)::int as n from image_assets
             group by licence, attribution_required order by n desc`),
-    query(`select r.slug, r.name, r.nation, r.target_count, r.harvest_state, r.harvested_at,
+    query(`select r.slug, r.name, r.nation, r.kind, r.wikidata_id, r.lat, r.lng,
+                  r.target_count, r.harvest_state, r.harvested_at,
                   r.candidate_count, r.published_count, r.image_count, r.harvest_error
              from regions r order by r.nation, r.position`),
     query(`select count(*)::int as n from image_assets where moderation = 'pending'`),

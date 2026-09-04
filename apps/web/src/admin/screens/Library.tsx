@@ -134,7 +134,7 @@ export function Library({ canManage }: { canManage: boolean }) {
       </ScrollView>
 
       {section === 'coverage' ? (
-        <Coverage overview={overview} canManage={canManage} onOpen={openRegion} onChanged={load} wide={wide} />
+        <Coverage overview={overview} canManage={canManage} onOpen={openRegion} onChanged={load} wide={wide} busy={Boolean(running)} />
       ) : null}
       {section === 'attractions' ? (
         <Attractions regions={overview?.coverage ?? []} region={region} onRegion={setRegion} canManage={canManage} wide={wide} />
@@ -197,12 +197,16 @@ function RunProgress({ run, canManage, onChange }: { run: HarvestRun; canManage:
 // coverage
 // ---------------------------------------------------------------------------
 
-function Coverage({ overview, canManage, onOpen, onChanged, wide }: {
+function Coverage({ overview, canManage, onOpen, onChanged, wide, busy: running }: {
   overview: LibraryOverview | null; canManage: boolean; onOpen: (slug: string) => void;
-  onChanged: () => void; wide: boolean;
+  onChanged: () => void; wide: boolean; busy?: boolean;
 }) {
   const [nation, setNation] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
+  // One harvest at a time is the API's rule, so a second button press is a 409
+  // rather than a second run. Better to have the buttons off than to explain
+  // the refusal afterwards — the progress panel above is already saying why.
+  const busy = sending || Boolean(running);
   const [note, setNote] = useState<string | null>(null);
 
   const rows = (overview?.coverage ?? []).filter((r) => !nation || r.nation === nation);
@@ -211,10 +215,10 @@ function Coverage({ overview, canManage, onOpen, onChanged, wide }: {
   const failed = (overview?.coverage ?? []).filter((r) => r.harvest_state === 'failed').length;
 
   const harvest = async (body: Parameters<typeof api.libraryHarvest>[0]) => {
-    setBusy(true); setNote(null);
+    setSending(true); setNote(null);
     try { await api.libraryHarvest(body); onChanged(); }
     catch (e: any) { setNote(e.message); }
-    finally { setBusy(false); }
+    finally { setSending(false); }
   };
 
   return (
@@ -223,7 +227,7 @@ function Coverage({ overview, canManage, onOpen, onChanged, wide }: {
         <Panel title="Run the harvest"
                sub="Wikidata for what is there, Wikipedia for how many people look it up, Wikimedia Commons for the pictures. No key, no account, no bill — about a minute and a half a county.">
           <Wrap>
-            <Button label={`Everything (${overview?.coverage.length ?? 0} regions)`} icon="download" disabled={busy}
+            <Button label={running ? 'A harvest is already running' : `Everything (${overview?.coverage.length ?? 0} regions)`} icon="download" disabled={busy}
                     onPress={() => harvest({ scope: 'all', withImages: true, refreshTypes: true })} />
             <Button label={`Not done yet (${never})`} kind="secondary" disabled={busy || !never}
                     onPress={() => harvest({ scope: 'never', withImages: true })} />
@@ -250,7 +254,7 @@ function Coverage({ overview, canManage, onOpen, onChanged, wide }: {
           </FilterRow>
         </View>
         {rows.map((r) => (
-          <RegionRow key={r.slug} region={r} wide={wide} canManage={canManage}
+          <RegionRow key={r.slug} region={r} wide={wide} canManage={canManage && !busy}
                      onOpen={() => onOpen(r.slug)}
                      onHarvest={() => harvest({ regions: [r.slug], withImages: true })} />
         ))}
