@@ -22,6 +22,7 @@ import { BrowseNear, FindState, emptyFind } from '../components/BrowseNear';
 import { getSpeakPref } from './SettingsScreen';
 import { SourceDataPanel } from '../components/SourceData';
 import { isAdmin } from '../admin';
+import { recallScreen, rememberScreen } from '../screenState';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
 const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
@@ -36,6 +37,11 @@ type OpenWith = { section?: Section; findRadiusKm?: number; findPrices?: string[
 // List
 // ---------------------------------------------------------------------------
 
+/** Where the Trips tab was: which trip was open, and whether the folds were down. */
+type TripsMemory = { openId: string | null; fold: 'later' | 'past' | null };
+/** And inside a trip: which of Find / Shortlist / The day you were on. */
+type TripPageMemory = { section: Section };
+
 export function TripsScreen({ household, refreshHousehold, prefill, onPrefillConsumed }: {
   household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; prefill?: TripPrefill | null; onPrefillConsumed?: () => void;
 }) {
@@ -43,10 +49,16 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
   const wide = width >= 1000;
   const [data, setData] = useState<Awaited<ReturnType<typeof api.trips>> | null>(null);
   const [creating, setCreating] = useState(!!prefill);
-  const [openId, setOpenId] = useState<string | null>(null);
+  // The trip you were in, kept for the day (owner, 4 Sep 2026: "same for any of
+  // the other tabs"). Only the identifier: the trip itself is fetched again, and
+  // it is our own data, so there is nothing here to go stale or to expire.
+  const heldTrips = useRef(recallScreen<TripsMemory>('trips')).current;
+  const [openId, setOpenId] = useState<string | null>(heldTrips?.data.openId ?? null);
   const [openWith, setOpenWith] = useState<OpenWith | null>(null);
-  const [fold, setFold] = useState<'later' | 'past' | null>(null);
+  const [fold, setFold] = useState<'later' | 'past' | null>(heldTrips?.data.fold ?? null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { rememberScreen<TripsMemory>('trips', { openId, fold }); }, [openId, fold]);
 
   useEffect(() => {
     if (prefill?.openTripId) { setOpenWith({ section: prefill.section, findRadiusKm: prefill.findRadiusKm, findPrices: prefill.findPrices }); setOpenId(prefill.openTripId); setCreating(false); onPrefillConsumed?.(); }
@@ -54,7 +66,12 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
   }, [prefill]);
 
   const load = useCallback(async () => {
-    try { setData(await api.trips()); } catch (e: any) { setError(e.message); }
+    try {
+      const next = await api.trips();
+      setData(next);
+      // A trip deleted since you last looked should not reopen as an error page.
+      setOpenId((cur) => (cur && !next.trips.some((t) => t.id === cur) ? null : cur));
+    } catch (e: any) { setError(e.message); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -306,7 +323,11 @@ function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<vo
 
 function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: { id: string; openWith?: OpenWith | null; household: HouseholdResponse | null; onBack: () => Promise<void>; refreshHousehold: () => Promise<void>; wide: boolean }) {
   const [d, setD] = useState<TripDetail | null>(null);
-  const [section, setSection] = useState<Section>('shortlist');
+  // Which part of the trip you were on, per trip: the section a fortnight in
+  // Lisbon is on has nothing to do with Saturday's day out.
+  const sectionKey = `trip.${id}.section`;
+  const [section, setSection] = useState<Section>(recallScreen<TripPageMemory>(sectionKey)?.data.section ?? 'shortlist');
+  useEffect(() => { rememberScreen<TripPageMemory>(sectionKey, { section }); }, [sectionKey, section]);
   const [dayId, setDayId] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
   // What Find fetched lives with the trip page, so tabbing away and back shows the same list without another fetch.
@@ -321,7 +342,10 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
       if (first.current) {
         first.current = false;
         const running = t.shortlist.some((s) => ['to_call', 'booked', 'no_booking'].includes(s.status));
-        setSection(openWith?.section ?? (t.days[0]?.slots.some((sl) => sl.stops.length) ? 'day' : running ? 'shortlist' : 'find'));
+        // Being sent here from somewhere else wins; then where you were when you
+        // left; then the guess about what this trip is ready for.
+        const remembered = recallScreen<TripPageMemory>(sectionKey)?.data.section ?? null;
+        setSection(openWith?.section ?? remembered ?? (t.days[0]?.slots.some((sl) => sl.stops.length) ? 'day' : running ? 'shortlist' : 'find'));
       }
     } catch (e: any) { setError(e.message); }
   }, [id]);
