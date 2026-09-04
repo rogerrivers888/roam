@@ -380,6 +380,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
           attendingIds={attendingIds ? [...attendingIds] : null}
           who={members.length > 1 ? <View style={{ gap: 4 }}><Text style={type.tiny}>Who's coming</Text>{whoTicks}</View> : null}
           whoLabel={whoLabel}
+          home={household?.household?.home ?? null}
           onPlan={(utterance) => { setMode('tell'); send(utterance); }}
           onOpenTrip={onOpenTrip}
           listening={speech.listening} transcript={speech.transcript} supported={speech.supported}

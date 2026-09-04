@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, BrowseItem, IdeaBudget, Idea, IdeaHeadline, IdeaThing, InspireStage, Taste, TasteTable } from '../api';
+import { api, BrowseItem, IdeaBudget, SketchEvent, Idea, IdeaHeadline, IdeaThing, InspireStage, Taste, TasteTable } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, StatusLine, Wrap, minutes } from './ui';
 import { Icon, CategoryIcon, Rating } from './Icon';
 import { VenuePhoto } from './VenuePhoto';
 import { TasteTables } from './TasteTables';
+import { SearchSketch } from './SearchSketch';
 import { VenueDrawer } from './VenueDrawer';
 import type { OpenTripOptions } from '../screens/PlanScreen';
 import { recallScreen, rememberScreen } from '../screenState';
@@ -109,13 +110,15 @@ type InspireMemory = {
  * a day out in Trips — the Find tab already filled, what Roam named on the
  * shortlist — and "Plan this" hands the idea to the rows instead.
  */
-export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The family', onPlan, onOpenTrip, listening, transcript, supported, onSpeak, onStop }: {
+export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The family', home = null, onPlan, onOpenTrip, listening, transcript, supported, onSpeak, onStop }: {
   query: string; setQuery: (q: string) => void;
   attendingIds: string[] | null;
   /** The ticks, shown when the one-line row is opened. */
   who: React.ReactNode;
   /** Who is coming, in a few words, for that line. */
   whoLabel?: string;
+  /** Home, so the wait can be a map of where Roam is looking rather than a spinner. */
+  home?: { label: string; lat: number; lng: number } | null;
   onPlan: (utterance: string) => void;
   onOpenTrip?: (tripId: string, opts?: OpenTripOptions) => void;
   listening: boolean; transcript: string; supported: boolean; onSpeak: () => void; onStop: () => void;
@@ -491,6 +494,16 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
   const nextUnanswered = STEPS.find((step) => !picks[step.key]) ?? null;
   const openStep = editing ? STEPS.find((step) => step.key === editing) ?? null : nextUnanswered;
   const formOpen = formChoice ?? !(ideas && ideas.length);
+  // The map is fed by the run: Roam is thinking, then each idea that has found
+  // its place drops a pin. Nothing here is a timer — it is what has happened.
+  const sketchEvents = useMemo<SketchEvent[]>(() => {
+    const out: SketchEvent[] = [{ type: 'asking', sources: [{ key: 'roam', label: 'Roam' }] }];
+    for (const idea of ideas ?? []) {
+      if (!idea.place) continue;
+      out.push({ type: 'answered', source: 'roam', label: idea.title, count: 1, points: [[Number(idea.place.lat.toFixed(5)), Number(idea.place.lng.toFixed(5))]] });
+    }
+    return out;
+  }, [ideas]);
   const budgetLabel = budget === 'any' ? 'any budget' : (BUDGETS.find((b) => b.value === budget)?.label ?? 'any budget').toLowerCase();
   // "Don't mind" is not a choice worth reading back (owner, 4 Sep 2026: "it
   // says 'fun, don't mind, don't mind', which obviously makes no sense"), so
@@ -612,6 +625,22 @@ export function InspireMe({ query, setQuery, attendingIds, who, whoLabel = 'The 
         note={tastesNote} error={tastesError} capMinutes={tastesCap.minutes} capFromWords={tastesCap.said}
         attendingIds={attendingIds} onOpenTrip={onOpenTrip}
       />
+
+      {/* The wait is a map of where Roam is looking, and each idea drops onto it
+          as it is pinned (owner, 4 Sep 2026: "I'd like to see, while I'm
+          waiting, the map, because the app is very slow… we need to find ways
+          to make this acceptable and keep people engaged"). */}
+      {busy && home ? (
+        <SearchSketch
+          variant="notes"
+          centre={{ lat: home.lat, lng: home.lng }}
+          radiusKm={cap ? Math.max(5, (cap / 60) * 45) : 120}
+          placeLabel={home.label}
+          events={sketchEvents}
+          done={!busy}
+          onStop={stopWaiting}
+        />
+      ) : null}
 
       {busy ? (
         <Row style={{ alignItems: 'center', gap: spacing.sm }}>

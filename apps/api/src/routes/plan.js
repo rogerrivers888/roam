@@ -1515,7 +1515,10 @@ async function runInspire({ household, attending, session, state, append = false
       id: `idea-${already.length + i}-${Date.now().toString(36)}`, title: idea.title, why: idea.why, placeText: idea.place_text, place: null,
       travelMinutes: idea.travel_minutes ?? null, overnight: idea.overnight, do: idea.do, eat: idea.eat, placing: true,
     }));
-    const ideas = [...already, ...fresh];
+    // The five just rejected do not go above the five just asked for (owner,
+    // 4 Sep 2026: "I've already just rejected the 5 that's shown, so it should
+    // show the new 5 at the top").
+    const ideas = [...fresh, ...already];
     await publish({ ideas, reply: out.reply, stage: 'placing', placed: already.length });
 
     // The map answers about one name a second, so each pin is published as it
