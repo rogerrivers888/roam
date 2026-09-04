@@ -356,7 +356,7 @@ async function parseMenuText({ text, venueLabel, householdId, sessionId }) {
  * show — "read their PDF", "rendered their page", "read by Claude" — because
  * a household should be able to see where the dishes on their phone came from.
  */
-export async function readMenu({ url, venueLabel, householdId, sessionId }) {
+export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun = false }) {
   if (!/^https?:\/\//i.test(String(url || ''))) throw Object.assign(new Error('menu_url_required'), { status: 400 });
 
   const steps = [];
@@ -431,6 +431,8 @@ export async function readMenu({ url, venueLabel, householdId, sessionId }) {
     err.steps = steps;
     throw err;
   }
+
+  if (dryRun) return { dryRun: true, kind, how: steps, sourceUrl: res?.url || url, chars: text.length, sample: text.slice(0, 600) };
 
   const menu = await parseMenuText({ text, venueLabel, householdId, sessionId });
   const items = menu.sections.reduce((n, s) => n + s.items.length, 0);

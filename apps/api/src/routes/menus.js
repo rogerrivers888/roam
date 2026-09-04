@@ -169,7 +169,13 @@ menu.post('/read', async (req, res, next) => {
 
     let read;
     try {
-      read = await readMenu({ url, venueLabel: label, householdId: household.id, sessionId: req.body?.sessionId ?? null });
+      read = await readMenu({
+        url, venueLabel: label, householdId: household.id, sessionId: req.body?.sessionId ?? null,
+        // { dryRun: true } opens the menu and stops before Claude: it says which
+        // opener worked and how much text it got, and costs nothing.
+        dryRun: req.body?.dryRun === true,
+      });
+      if (read.dryRun) return res.json({ dryRun: read });
     } catch (err) {
       if (err.status === 422) {
         return res.status(422).json({
