@@ -40,6 +40,13 @@ import { siteFacts } from './site.js';
 // reason to give up on a place the household has told us it cares about.
 const BACKOFF_MIN = [5, 30, 180, 720, 2880];
 const MAX_ATTEMPTS = 6;
+// A place where nothing at all was found is a different case from one that
+// errored, and it is usually not the truth. Overpass under load answers "no
+// results" rather than refusing, so "no match in OpenStreetMap" can mean the
+// map was not really asked. Somewhere with no OSM entry, no website and no
+// article does exist, but it is rare — so an empty answer is tried again a few
+// times, slowly, rather than being written off for ever.
+const EMPTY_BACKOFF_MIN = [60, 360, 1440];
 // One at a time. This is background work nobody is waiting on, and the whole
 // cost of it is somebody else's patience: Overpass, Wikipedia and a restaurant's
 // own server, none of whom are being paid.
@@ -330,27 +337,30 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   }
 
   const { fields } = await compose(venueRef);
-  // "Done" means we asked everyone we can ask. A place with no OSM match, no
-  // website and no article is done too — there is nothing more to find, and
-  // trying again tomorrow would find the same nothing.
-  const state = found ? 'done' : problems.some((p) => !/no match|did not answer/.test(p)) ? 'failed' : 'done';
+  // Three outcomes, not two. Something was found: done, and left alone until the
+  // next refresh. A source refused: failed, and tried again soon. Every source
+  // answered and none of them knew this place: partial — probably true, possibly
+  // a bad afternoon on a free service, so tried again a few times over the next
+  // day and then let be.
+  const refused = problems.some((p) => !/no match|did not answer/.test(p));
+  const state = found ? 'done' : refused ? 'failed' : 'partial';
+
   const { rows } = await query(
     `update place_records set
        enrich_state = $2, enriched_at = now(), enrich_attempts = enrich_attempts + 1,
-       enrich_error = $3, matched = $4, updated_at = now(),
-       next_attempt_at = case when $2 = 'failed' then now() + ($5 || ' minutes')::interval else null end
+       enrich_error = $3, matched = $4, updated_at = now()
      where venue_ref = $1 returning enrich_attempts`,
-    [venueRef, state, problems.length ? problems.join('; ') : null, JSON.stringify(matched),
-     String(BACKOFF_MIN[Math.min(BACKOFF_MIN.length - 1, 0)])],
+    [venueRef, state, problems.length ? problems.join('; ') : null, JSON.stringify(matched)],
   );
-  if (state === 'failed') {
-    const attempts = rows[0]?.enrich_attempts ?? 1;
-    const wait = BACKOFF_MIN[Math.min(attempts - 1, BACKOFF_MIN.length - 1)];
-    await query(
-      `update place_records set next_attempt_at = case when $3 >= $4 then null else now() + ($2 || ' minutes')::interval end where venue_ref = $1`,
-      [venueRef, String(wait), attempts, MAX_ATTEMPTS],
-    );
-  }
+  const attempts = rows[0]?.enrich_attempts ?? 1;
+  const schedule = state === 'failed' ? BACKOFF_MIN : state === 'partial' ? EMPTY_BACKOFF_MIN : null;
+  const giveUpAfter = state === 'failed' ? MAX_ATTEMPTS : EMPTY_BACKOFF_MIN.length + 1;
+  await query(
+    `update place_records set next_attempt_at = $2 where venue_ref = $1`,
+    [venueRef, schedule && attempts < giveUpAfter
+      ? new Date(Date.now() + schedule[Math.min(attempts - 1, schedule.length - 1)] * 60_000)
+      : null],
+  );
   return { state, fields, matched, problems };
 }
 
@@ -450,10 +460,10 @@ export async function sweepExpired() {
 export async function catchUp({ limit = 25 } = {}) {
   const { rows } = await query(
     `select venue_ref from place_records
-      where (enrich_state = 'pending' or (enrich_state = 'failed' and next_attempt_at is not null and next_attempt_at <= now()))
-        and enrich_attempts < $2
+      where enrich_state = 'pending'
+         or (enrich_state in ('failed', 'partial') and next_attempt_at is not null and next_attempt_at <= now())
       order by enrich_attempts, first_owned limit $1`,
-    [limit, MAX_ATTEMPTS],
+    [limit],
   );
   for (const r of rows) queueEnrichment(r.venue_ref);
   return rows.length;
@@ -466,7 +476,7 @@ export async function ownedSummary(householdId) {
             count(*) filter (where r.enrich_state = 'done')::int as researched,
             count(*) filter (where r.osm_ref is not null)::int as in_open_map,
             count(*) filter (where r.summary is not null)::int as described,
-            count(*) filter (where r.enrich_state = 'pending')::int as waiting,
+            count(*) filter (where r.enrich_state in ('pending', 'partial'))::int as waiting,
             count(*) filter (where r.enrich_state = 'failed')::int as failed,
             max(r.updated_at) as last_change
        from (select distinct venue_ref from place_claims where household_id = $1) c
