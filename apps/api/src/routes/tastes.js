@@ -445,7 +445,9 @@ router.post('/tastes/trip', async (req, res, next) => {
     // Where the place is, in words, for the trip's title and its atlas entry.
     let locality = place.locality ?? null;
     if (!locality) {
-      try { const hit = await reverseGeocode(place.lat, place.lng, { zoom: 12 }); locality = hit?.locality ?? hit?.label?.split(',')[0] ?? null; } catch { /* the name alone will do */ }
+      // Zoom 14 asks the map for the town rather than the district it sits in:
+      // a steakhouse near Rickmansworth is not in "Three Rivers".
+      try { const hit = await reverseGeocode(place.lat, place.lng, { zoom: 14 }); locality = hit?.address?.town || hit?.locality || null; } catch { /* the name alone will do */ }
     }
     place.locality = locality;
     const destination = { label: place.name, lat: place.lat, lng: place.lng, locality, how: 'place' };
@@ -457,7 +459,10 @@ router.post('/tastes/trip', async (req, res, next) => {
     // What the family was shown around it goes on by name, exactly as Inspire
     // me does it; the restaurant follows, so the note that says why it is here
     // is the one that survives the shortlist's upsert.
-    const idea = { title, place: { label: place.name, lat: place.lat, lng: place.lng, locality, countryCode: null }, do: wants, eat: [] };
+    // The idea's title here is only ever matched against place names, so it is
+    // the restaurant and nothing else: a title carrying the town had "Three
+    // Rivers" geocoded onto the shortlist as a waste company.
+    const idea = { title: place.name, place: { label: place.name, lat: place.lat, lng: place.lng, locality, countryCode: null }, do: wants, eat: [] };
     let others = [];
     try { others = await seedShortlistFromIdea({ household, session: null, trip, idea }); } catch { /* the restaurant alone is enough */ }
     await addShortlistItem(trip, household, {
