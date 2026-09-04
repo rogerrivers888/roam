@@ -949,6 +949,25 @@ router.post('/join/:token/items/:itemId', async (req, res, next) => {
     } else {
       if (!PARTICIPANT_STATUSES.includes(b.status)) return res.status(400).json({ error: 'bad_status', message: `status must be one of ${PARTICIPANT_STATUSES.join(', ')}` });
       if (b.status === 'paid') return res.status(400).json({ error: 'not_yours_to_say', message: 'The organiser ticks the money off as it reaches them.' });
+      // Saying yes to an extra: it may be full, or shut.
+      if (b.status === 'in' && item[0].state !== 'cancelled') {
+        const { rows: on } = await query(
+          `select p.heads from group_item_states s join group_participants p on p.id = s.participant_id
+            where s.item_id = $1 and s.status in ('in','paid') and p.withdrawn_at is null and p.id <> $2`,
+          [item[0].id, me[0].id],
+        );
+        const taken = on.reduce((n, r) => n + (item[0].per_head ? r.heads : 1), 0);
+        const mine = item[0].per_head ? me[0].heads : 1;
+        if (item[0].capacity && taken + mine > item[0].capacity) {
+          return res.status(409).json({ error: 'full', message: `${item[0].label} is full — ${taken} of ${item[0].capacity} taken.` });
+        }
+        if (item[0].state === 'closed' && item[0].late_joiners === 'no') {
+          return res.status(409).json({ error: 'closed', message: `${item[0].label} closed on ${inWords(item[0].closes_on)} and is not taking anybody else.` });
+        }
+        if (item[0].state === 'closed' && item[0].late_joiners === 'ask') {
+          return res.status(409).json({ error: 'ask_organiser', message: `${item[0].label} has already been booked. Ask the organiser whether there is room.` });
+        }
+      }
       await query(
         `insert into group_item_states (item_id, participant_id, status, booking_ref, where_booked, starts_on, ends_on, note, marked_by, on_date)
          values ($1,$2,$3,$4,$5,$6,$7,$8,'participant',now())
