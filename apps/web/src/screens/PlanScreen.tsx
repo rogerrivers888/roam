@@ -12,6 +12,7 @@ import { Button, Card, Chip, Row, Segmented, StatusLine, Stepper, Wrap, minutes,
 import { TimeBar } from '../components/TimeBar';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { BrowsePool } from '../components/BrowsePool';
+import { OnTheWay } from '../components/OnTheWay';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { InspireMe } from '../components/InspireMe';
 import { Icon } from '../components/Icon';
@@ -115,7 +116,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
       const diff: Record<string, string> = {};
       for (const r of next.rows ?? []) { const was = before.get(r.key); if (was && r.value && was !== r.value) diff[r.key] = was; }
       setChanged(diff);
-      return { ...(prev ?? {} as PlanResponse), ...next, question: next.question ?? null, checks: next.checks ?? [], rows: next.rows ?? prev?.rows ?? null };
+      return { ...(prev ?? {} as PlanResponse), ...next, question: next.question ?? null, checks: next.checks ?? [], rows: next.rows ?? prev?.rows ?? null, running: next.running ?? false };
     });
     if (next.reply) {
       setTurns((t) => [...t, { role: 'assistant', text: next.reply! }]);
@@ -607,7 +608,7 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
             {clock(plan.trip.departAt)} – {clock(plan.trip.returnAt)} there · {plan.trip.travelMode}
             {plan.reach ? ` · reach ~${plan.reach.maxTravelMinutes} min (estimated)` : ''}
           </Text>
-          {plan.journey && plan.journey.minutes > 20 ? <Text style={type.small}>Getting there: {plan.journey.from} → {plan.journey.to}, about {minutes(plan.journey.minutes)} by {plan.journey.mode} (estimated) — not counted in your time there.</Text> : null}
+          {plan.journey && plan.journey.minutes > 20 && !plan.route ? <Text style={type.small}>Getting there: {plan.journey.from} → {plan.journey.to}, about {minutes(plan.journey.minutes)} by {plan.journey.mode} (estimated) — not counted in your time there.</Text> : null}
           {plan.anchor ? <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>Fixed: {plan.anchor.name}{plan.anchor.start_time ? ` at ${plan.anchor.start_time}` : ''} · {plan.anchor.place.label}</Text> : null}
           <Stepper
             label="Time we have"
@@ -624,6 +625,18 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
             value={plan.trip.intensity}
             options={[{ value: 'relaxed', label: 'Relaxed' }, { value: 'balanced', label: 'Balanced' }, { value: 'packed', label: 'Packed' }]}
             onChange={(v) => act({ type: 'set', intensity: v })}
+          />
+        </Card>
+      ) : null}
+
+      {/* The journey is part of the day: what is worth stopping for on the way */}
+      {plan?.route ? (
+        <Card>
+          <OnTheWay
+            route={plan.route}
+            busy={busy === 'updating'}
+            onAdd={(s) => act({ type: 'route_add', stopId: s.id })}
+            onDrop={(s) => act({ type: 'route_drop', stopId: s.id })}
           />
         </Card>
       ) : null}
