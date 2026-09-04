@@ -288,6 +288,12 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
         baseLabel={city?.name ?? (home ? 'home' : null)}
         onClose={() => { setOpen(null); setNewVenue(null); }}
         onVenue={async (v) => { if (open?.unnamed && v.name) { try { await api.nameAtlasPlace(open.venueRef, v.name); await loadPlaces(); } catch { /* the drawer still shows the fetched name */ } } }}
+        capture={(() => {
+          const v = newVenue ?? (open ? atlasToVenue(open) : null);
+          if (!v) return null;
+          const w = country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {};
+          return <CapturePanel venue={v} household={household} ctx={w} been={!newVenue && !!open?.visits} onChanged={refreshAll} />;
+        })()}
         ours={newVenue
           ? <NewPlacePanel venue={newVenue} household={household} ctx={country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {}} onChanged={refreshAll} />
           : open ? <OursPanel place={open} household={household} ctx={country && city ? { country: country.name, countryCode: country.code, locality: city.name } : {}} viewer={viewer} onChanged={refreshAll} onRemoved={() => setOpen(null)} /> : null}
@@ -587,6 +593,33 @@ function PickSheet({ visible, title, options, value, onPick, onClose }: { visibl
  * the tabs beside it, so the first thing you can check is that it is the right
  * one (owner, 4 Sep 2026).
  */
+/**
+ * The one question, at the top of the drawer: did everyone love it. It saves on
+ * the tap and then says so; the household's fuller record — history, special,
+ * removing it — is under Ours (owner, 4 Sep 2026).
+ */
+function CapturePanel({ venue, household, ctx: where, been, onChanged }: {
+  venue: Venue; household: HouseholdResponse | null; ctx: { country?: string; countryCode?: string; locality?: string }; been: boolean; onChanged: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  if (!household) return null;
+  return (
+    <View style={styles.capturePanel}>
+      <Row style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <Text style={type.h3}>{been ? 'Been here before' : "Have you been?"}</Text>
+        <Button label={open ? 'Close' : "We've been here"} icon={open ? 'close' : undefined} kind={open ? 'ghost' : 'primary'} onPress={() => { setMsg(null); setOpen((o) => !o); }} />
+      </Row>
+      {msg ? <StatusLine tone="good">{msg}</StatusLine> : null}
+      {open ? (
+        <BeenCapture venue={venue} household={household}
+          onCreate={async (body) => { await api.createVisit({ venueRef: venue.venueRef, venueLabel: venue.name, category: venue.category, lat: venue.lat, lng: venue.lng, visitedOn: body.visitedOn, note: body.note, attendeeIds: body.attendeeIds, takes: body.takes, venue: { experiences: venue.experiences, cuisines: venue.cuisines, category: venue.category }, ...where }); }}
+          onSaved={async () => { setOpen(false); setMsg('Saved — thank you.'); await onChanged(); }} />
+      ) : null}
+    </View>
+  );
+}
+
 function NewPlacePanel({ venue, household, ctx: where, onChanged }: {
   venue: Venue; household: HouseholdResponse | null; ctx: { country?: string; countryCode?: string; locality?: string }; onChanged: () => Promise<void>;
 }) {
@@ -601,7 +634,6 @@ function NewPlacePanel({ venue, household, ctx: where, onChanged }: {
         <Chip label="Not in your places yet" />
       </Row>
       <Wrap>
-        <Button label={adding ? 'Close' : "We've been here"} icon={adding ? 'close' : undefined} kind={adding ? 'ghost' : 'primary'} onPress={() => setAdding((a) => !a)} />
         <Button label="Save to try" kind="secondary" onPress={async () => { await api.savePlace(venue.venueRef, 'saved', ctx); setMsg(`Saved ${venue.name} to try.`); await onChanged(); }} />
       </Wrap>
       {msg ? <StatusLine tone="good">{msg}</StatusLine> : null}
@@ -643,9 +675,9 @@ function OursPanel({ place, household, ctx: where, viewer, onChanged, onRemoved 
           place (owner, 4 Sep 2026): the stars are given on the order, and
           "our history here" shows what was ordered and what was loved. */}
       <Wrap>
-        {/* Dishes are rated on the order; this is the whole evening in one tap,
-            for the times nobody photographed a menu (owner, 4 Sep 2026). */}
-        <Button label={adding ? 'Close' : "We've been here"} icon={adding ? 'close' : undefined} kind={adding ? 'ghost' : 'primary'} onPress={() => { setEditing(null); setDetailed(false); setAdding((a) => !a); }} />
+        {/* "We've been here" is the first thing in the drawer now; this is the
+            long way round, for another date, who came, a note or exact scores. */}
+        <Button label={adding ? 'Close' : 'Record a past visit'} icon={adding ? 'close' : undefined} kind="ghost" onPress={() => { setEditing(null); setDetailed(true); setAdding((a) => !a); }} />
         {!place.visits && place.ledger !== 'saved' && !place.special ? <Button label="Save to try" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'saved', ctx); setMsg('Saved to try.'); await onChanged(); }} /> : null}
         {place.visits > 0 && !place.special ? <Button label="Mark as special" icon="keep" kind="secondary" onPress={async () => { await api.savePlace(place.venueRef, 'special', ctx); setMsg('Marked special — the planner will go further for it.'); await onChanged(); }} /> : null}
       </Wrap>
@@ -879,6 +911,7 @@ const styles = StyleSheet.create({
   close: { width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'center' },
   opt: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md },
   optOn: { backgroundColor: colors.primary },
+  capturePanel: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.panel },
   ours: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line },
   scores: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, alignItems: 'center' },
   scoreLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },

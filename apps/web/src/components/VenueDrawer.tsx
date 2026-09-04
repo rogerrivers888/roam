@@ -87,7 +87,7 @@ function foldHours(lines: string[]): string[] {
 /** The address as you would read it aloud, without the protocol. */
 const prettyUrl = (u: string) => u.replace(/^https?:\/\//i, '').replace(/\/$/, '').slice(0, 64);
 
-export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, added, shortlisted, ours, onVenue, gettingThere }: {
+export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, added, shortlisted, ours, capture, onVenue, gettingThere }: {
   item: BrowseItem | null;
   baseLabel?: string | null;
   onClose: () => void;
@@ -97,6 +97,12 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
   shortlisted?: boolean;
   /** The household's own side of the place (Places tab): status, history, notes — shown above the source's tabs. */
   ours?: React.ReactNode;
+  /**
+   * The one question worth asking the moment the place is open — did everyone
+   * love it? — at the top of the overview, where the household's own record
+   * sits behind the reviews tab (owner, 4 Sep 2026).
+   */
+  capture?: React.ReactNode;
   /** The source's record once fetched (the atlas uses it to learn a name it only held as an identifier). */
   onVenue?: (venue: Venue) => void;
   /** How you get to it — the station, its lines, the postcode — which now has a tab of its own. */
@@ -245,6 +251,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
 
               {shown === 'overview' ? (
                 <View style={{ gap: spacing.sm }}>
+                  {capture}
                   {v?.summary ?? item.summary ? <Text style={type.body}>{v?.summary ?? item.summary}</Text> : null}
                   {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
                   {v?.address ?? item.address ? <IconText name="address">{v?.address ?? item.address}</IconText> : null}
