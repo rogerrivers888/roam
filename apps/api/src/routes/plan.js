@@ -1617,6 +1617,22 @@ router.post('/go', async (req, res, next) => {
     // applied, and no source is asked anything.
     if (state.pool?.length && session.trip_id && state.retrievalKey && state.retrievalKey === retrievalKey(state)) {
       await recomposeFromIntent(session, household);
+      // Plan it makes a planned day and opens it in Trips, so asking again for
+      // the same day settles it again from the places already found and opens
+      // the same trip — never a second look at the sources.
+      if (state.outcome?.kind === 'handoff' && state.outcome.handoff?.tripId === session.trip_id) {
+        const { options } = await recompose(session, household);
+        const first = options[0] ?? null;
+        const filled = first ? (await commitOption({ household, session, optionId: first.id })).stops.map((x) => x.name) : [];
+        const title = state.outcome.handoff.title || 'The day';
+        const reply = filled.length
+          ? `Same ${state.pool.length} places, nothing new looked up — ${title} is ${filled.join(', ')}. Opening it in Trips.`
+          : `Same ${state.pool.length} places, nothing new looked up. Opening ${title} in Trips.`;
+        state.outcome = { kind: 'handoff', reply, handoff: { ...state.outcome.handoff, section: filled.length ? 'day' : 'shortlist' } };
+        state.transcript.push({ role: 'assistant', text: reply });
+        await saveSession(session.id, state, null);
+        return res.json({ sessionId: session.id, reply, handoff: state.outcome.handoff, rows: state.rows ?? [], checks: [], answered: state.answered ?? [], ready: true, intent: state.intent, options: [], reused: true });
+      }
       await saveSession(session.id, state, null);
       return respond(res, {
         session, household,
@@ -1874,6 +1890,25 @@ function retrievalKey(state) {
 }
 
 /**
+ * How long the day is, as asked for. The day starts when it always did; only
+ * its end moves. Whatever is being stopped for on the way is then taken off
+ * each end again, so the window the options are composed for is the time
+ * actually at the destination.
+ */
+async function setDayLength(session, minutes) {
+  const state = session.state;
+  const { trip } = await sessionTrip(session);
+  const tz = trip.timezone || DEFAULT_TZ;
+  const applied = state.route?.applied ?? { out: 0, back: 0 };
+  const baseStart = state.route?.windowStart ?? trip.depart_at;
+  const baseEnd = new Date(new Date(baseStart).getTime() + minutes * 60_000).toISOString();
+  const start = new Date(new Date(baseStart).getTime() + applied.out * 60_000);
+  const end = new Date(new Date(baseEnd).getTime() - applied.back * 60_000);
+  await query('update trip_days set start_time = $2::time, end_time = $3::time where id = $1', [state.dayId, wallClock(start, tz).hhmm, wallClock(end, tz).hhmm]);
+  if (state.route) { state.route.windowStart = baseStart; state.route.windowEnd = baseEnd; }
+}
+
+/**
  * The household changed the shape of the day and pressed Plan it again. None of
  * this needs a provider: the pool already found is composed differently.
  */
@@ -1888,13 +1923,11 @@ async function recomposeFromIntent(session, household) {
   const duration = intent.duration_minutes != null ? Math.min(720, Math.max(60, Number(intent.duration_minutes))) : null;
   const mode = intent.travel_mode && TRAVEL_MODES.includes(intent.travel_mode) ? intent.travel_mode : null;
   const intensity = intent.intensity && INTENSITY_TARGETS[intent.intensity] ? intent.intensity : null;
-  if (duration != null || mode || intensity) {
-    // The window the household asked for is the one without stops on the way.
-    const applied = state.route?.applied ?? { out: 0, back: 0 };
-    await applyTripChanges(session, { durationMinutes: duration != null ? duration + applied.out + applied.back : null, intensity, travelMode: mode });
-    await syncRouteWindow(session);
-    await applyRouteToDay(session);
-  }
+  if (mode || intensity) await applyTripChanges(session, { durationMinutes: null, intensity, travelMode: mode });
+  // The hours the household asked for are the hours of the day itself, before
+  // anything on the way is taken out of it. Setting the day's end from its own
+  // (already shortened) start would pay for the same stop twice.
+  if (duration != null && state.dayId) await setDayLength(session, duration);
   if (intent.attending?.length || intent.attending_everyone) {
     const members = await loadMembers(household.id);
     const named = new Set((intent.attending || []).map((n) => n.toLowerCase()));
