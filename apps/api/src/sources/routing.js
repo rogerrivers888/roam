@@ -1,4 +1,5 @@
 import { bump } from './meter.js';
+import { wallClock, wallToUtc } from '../domain/time.js';
 // Real travel times via the Google Routes API, with the distance-based
 // estimate as the fallback when there is no key (domain/travel.js).
 //
@@ -12,17 +13,77 @@ const ROUTES = 'https://routes.googleapis.com';
 
 const MODE = { driving: 'DRIVE', walking: 'WALK', cycling: 'BICYCLE', transit: 'TRANSIT' };
 
+// ---------------------------------------------------------------------------
+// The day's quota, once it is gone (owner, 4 Sep 2026: "we've already breached
+// the API calls for Google Routes, and we need to wait for a data pass").
+//
+// Google answers an exhausted quota with 429 RESOURCE_EXHAUSTED, and there is
+// nothing to do about it until the quota resets — which for a daily one is
+// midnight Pacific, whatever timezone the household is in. So the first refusal
+// stops every caller asking again until then: no screen waits on a call that
+// cannot succeed, and no more requests are spent finding that out. Every caller
+// already falls back to the distance estimate and says that it has.
+//
+// The pause is per method, because the quotas are: a spent route matrix must
+// not take the Directions drawer down with it.
+// ---------------------------------------------------------------------------
+const QUOTA_TZ = 'America/Los_Angeles';
+const MATRIX = '/distanceMatrix/v2:computeRouteMatrix';
+const ROUTE = '/directions/v2:computeRoutes';
+const exhausted = new Map();
+
+/** When a daily quota next resets, as an instant. */
+function nextQuotaReset(now = new Date()) {
+  const there = wallClock(now, QUOTA_TZ);
+  const tomorrow = new Date(new Date(`${there.dateStr}T12:00:00Z`).getTime() + 86_400_000).toISOString().slice(0, 10);
+  return wallToUtc(tomorrow, '00:00', QUOTA_TZ);
+}
+
+/**
+ * Null when this method is available; otherwise when it is expected back.
+ * `method` is 'matrix' (how long to each of these places) or 'route' (one
+ * journey, and the directions drawer).
+ */
+export function routingPaused(method = 'matrix') {
+  const path = method === 'route' ? ROUTE : MATRIX;
+  const until = exhausted.get(path);
+  if (!until) return null;
+  if (Date.now() >= until.getTime()) { exhausted.delete(path); return null; }
+  return { until: until.toISOString(), reason: 'quota', method };
+}
+
+/** For an owner who has raised the quota and wants it tried again now. */
+export const resumeRouting = () => exhausted.clear();
+
+const isExhausted = (status, body) => status === 429 || /RESOURCE_EXHAUSTED/.test(String(body));
+function pause(path) {
+  const until = nextQuotaReset();
+  exhausted.set(path, until);
+  console.warn(`Google Routes: no quota left for ${path}; not asking again until ${until.toISOString()}`);
+  return new Error('Google Routes has no quota left today — travel times are worked out from the distance until it resets.');
+}
+
+/** Whether Routes is configured at all. Quota is a separate question: routingPaused(). */
 export const routingEnabled = () => Boolean(KEY());
 
 async function post(path, body, fieldMask) {
+  if (routingPaused(path === ROUTE ? 'route' : 'matrix')) throw new Error('Google Routes has no quota left today — travel times are worked out from the distance until it resets.');
   const res = await fetch(`${ROUTES}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'X-Goog-Api-Key': KEY(), 'X-Goog-FieldMask': fieldMask },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15_000),
   });
-  if (!res.ok) throw new Error(`Google Routes ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
-  return res.json();
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    if (isExhausted(res.status, text)) throw pause(path);
+    throw new Error(`Google Routes ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  // A spent quota also arrives as a 200 whose rows carry an error instead of a
+  // route, so the body has to be read as well as the status.
+  if (Array.isArray(data) && data.length && data.every((r) => r?.error) && isExhausted(null, JSON.stringify(data.slice(0, 3)))) throw pause(path);
+  return data;
 }
 
 const wp = (p) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
@@ -34,7 +95,7 @@ const secondsToMinutes = (s) => Math.round(Number(String(s || '0s').replace('s',
  * element, so the caller keeps the two sides small.
  */
 export async function routeMatrixMinutes({ origins, destinations, mode = 'driving', departAt = null, meter = null }) {
-  if (!KEY() || !origins.length || !destinations.length) return null;
+  if (!KEY() || routingPaused('matrix') || !origins.length || !destinations.length) return null;
   const out = origins.map(() => new Array(destinations.length).fill(null));
   // The matrix allows up to 625 elements; keep batches small so one failure is cheap.
   const perBatch = Math.max(1, Math.floor(100 / origins.length));
@@ -66,7 +127,7 @@ export async function travelMatrixMinutes({ origin, destinations, mode = 'drivin
 
 /** One journey: minutes, distance and the encoded polyline (for search-along-route). */
 export async function routeBetween({ from, to, mode = 'driving', departAt = null, meter = null }) {
-  if (!KEY()) return null;
+  if (!KEY() || routingPaused('route')) return null;
   bump(meter, 'google-routes');
   const body = {
     origin: wp(from), destination: wp(to), travelMode: MODE[mode] || 'DRIVE',
@@ -85,7 +146,7 @@ export async function routeBetween({ from, to, mode = 'driving', departAt = null
  * and departure time. Fetched when the drawer opens, never stored.
  */
 export async function directions({ from, to, mode = 'walking', departAt = null }) {
-  if (!KEY()) return null;
+  if (!KEY() || routingPaused('route')) return null;
   const body = {
     origin: wp(from), destination: wp(to), travelMode: MODE[mode] || 'WALK',
     ...(mode === 'driving' ? { routingPreference: 'TRAFFIC_AWARE' } : {}),

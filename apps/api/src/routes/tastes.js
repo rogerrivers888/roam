@@ -20,7 +20,7 @@ import { searchCached } from '../sources/cache.js';
 import { defaultSourceKeys, sourceHasKey, sourceOff } from '../sources/index.js';
 import { applyConstraints } from '../domain/ranking.js';
 import { estimateTravelMinutes, kmBetween } from '../domain/travel.js';
-import { routingEnabled, travelMatrixMinutes } from '../sources/routing.js';
+import { routingEnabled, routingPaused, travelMatrixMinutes } from '../sources/routing.js';
 import { foodTastes, likedConcepts, whyForUs, dishEvidence, driveRadiusKm, firstName, capFromText, foodLeads } from '../domain/tastes.js';
 import { checkMenu, menuCheckEnabled, menuCheckUsage } from '../sources/menu.js';
 import { createTripFromIntent, seedShortlistFromIdea, thingsAround, THINGS_RADIUS_KM } from './plan.js';
@@ -132,11 +132,16 @@ async function buildTable({ household, attending, attendees, session, taste, hom
 
   // Real drive times for the finalists only — one matrix call, a handful of
   // elements, so "within an hour" is the road and not a straight line.
-  const finalists = scored.slice(0, PLACES_PER_TABLE + 3);
-  let travelNote = routingEnabled() ? routing.note : 'Google Routes is not switched on here, so the drive is worked out from the distance.';
+  // Only the places that will be shown get a real road time: Routes bills per
+  // element against a daily quota (owner, 4 Sep 2026).
+  const finalists = scored.slice(0, PLACES_PER_TABLE);
+  const paused = routingPaused('matrix');
+  let travelNote = !routingEnabled() ? 'Google Routes is not switched on here, so the drive is worked out from the distance.'
+    : paused ? `Google Routes has no quota left today, so these are worked out from the distance — a road is longer than a straight line. It comes back at ${new Date(paused.until).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', timeZone: 'Europe/London' })}.`
+    : routing.note;
   // One refusal from Routes stands for the whole run: the next table does not
   // ask again to be told the same thing (and billed for asking).
-  if (routingEnabled() && !routing.off && finalists.length) {
+  if (routingEnabled() && !paused && !routing.off && finalists.length) {
     try {
       const rows = await travelMatrixMinutes({ origin: home, destinations: finalists, mode: 'driving', meter });
       rows?.forEach((row, i) => { if (row?.minutes != null) { finalists[i].travelMinutes = row.minutes; finalists[i].travelEstimated = false; } });

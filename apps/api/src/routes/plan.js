@@ -12,6 +12,10 @@ import { z } from 'zod/v4';
 import { query, withTransaction } from '../db.js';
 import { parseStructured, spendSummary, SpendBoundError, MODEL } from '../claude.js';
 
+// How many candidates get a real road time from Google Routes on each plan.
+// Billed per element against a daily quota, so it is a budget, not a maximum.
+const MATRIX_MAX = Number(process.env.ROAM_MATRIX_MAX || 60);
+
 // Rows fill while the household is still talking: a smaller, quicker model reads the words so far.
 const PREVIEW_MODEL = process.env.ROAM_PREVIEW_MODEL || 'claude-sonnet-5';
 import { searchAllSources, searchCorridor, eventSources, optInFrom, defaultSourceKeys, enabledSources } from '../sources/index.js';
@@ -643,9 +647,19 @@ async function retrievePool({ household, trip, attendees, intent, sessionId, sou
   if (routingEnabled() && reached.length) {
     try {
       const meter = {};
-      const real = await travelMatrixMinutes({ origin: originPoint, destinations: reached.slice(0, 200), mode: trip.travel_mode, departAt: trip.depart_at, meter });
-      if (real) reached = reached.map((v, i) => (real[i] ? { ...v, travelMinutes: real[i].minutes, travelEstimated: false } : { ...v, travelEstimated: true }));
-      await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, sessionId, 'google-routes', 'plan.matrix', meter]);
+      // The nearest by estimate get the real road time; the far tail keeps its
+      // estimate and is nearly always dropped by the reach filter anyway.
+      // Routes bills per origin×destination element and the daily quota is
+      // finite: 200 of these on every plan was three quarters of a day's
+      // allowance (owner, 4 Sep 2026, after the quota was breached).
+      const asked = [...reached].sort((a, b) => a.travelMinutes - b.travelMinutes).slice(0, MATRIX_MAX);
+      const real = await travelMatrixMinutes({ origin: originPoint, destinations: asked, mode: trip.travel_mode, departAt: trip.depart_at, meter });
+      if (real) {
+        const roadMinutes = new Map();
+        asked.forEach((v, i) => { if (real[i]) roadMinutes.set(v, real[i].minutes); });
+        reached = reached.map((v) => (roadMinutes.has(v) ? { ...v, travelMinutes: roadMinutes.get(v), travelEstimated: false } : { ...v, travelEstimated: true }));
+      }
+      if (Object.keys(meter).length) await query('insert into provider_calls (household_id, session_id, provider, purpose, units) values ($1, $2, $3, $4, $5)', [household.id, sessionId, 'google-routes', 'plan.matrix', meter]);
     } catch { /* keep estimates */ }
   }
   const inReach = reached
