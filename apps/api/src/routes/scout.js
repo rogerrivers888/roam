@@ -15,10 +15,8 @@
 import express from 'express';
 import { requires } from '../access.js';
 import * as scout from '../repositories/scout.js';
-import { fillMenus, rescore, sweep } from '../sources/scoutArea.js';
+import { fillMenus, readFoundMenus, rescore, sweep } from '../sources/scoutArea.js';
 import { geocode } from '../sources/geocode.js';
-import { readMenu } from '../sources/menuRead.js';
-import { recordMenuRead } from '../domain/placeMenus.js';
 import { currentHousehold } from './household.js';
 
 const router = express.Router();
@@ -106,22 +104,20 @@ router.get('/menus/missing', requires('view_library'), async (_req, res, next) =
  */
 router.post('/menus/read', requires('manage_library'), async (req, res, next) => {
   try {
-    const limit = Math.min(25, Number(req.body?.limit) || 3);
+    const limit = Math.min(40, Number(req.body?.limit) || 3);
     const household = await currentHousehold();
-    const due = await scout.menusToRead(limit);
-    const done = [];
-    for (const row of due) {
-      try {
-        const read = await readMenu({ url: row.menu_url, venueLabel: row.venue_label, householdId: household.id, sessionId: req.session?.id ?? null });
-        const stored = await recordMenuRead({ venueRef: row.venue_ref, venueLabel: row.venue_label, read });
-        done.push({ name: row.venue_label, items: stored.items ?? 0, kind: read.kind, url: row.menu_url });
-      } catch (err) {
-        const why = String(err.message).slice(0, 160);
-        await scout.recordMenuMiss(row.venue_ref, { venueLabel: row.venue_label, why, menuUrl: row.menu_url, nextAttemptAt: new Date(Date.now() + 24 * 3600_000) });
-        done.push({ name: row.venue_label, items: 0, why });
-      }
-    }
-    res.json({ read: due.length, done });
+    const sessionId = req.session?.id ?? null;
+
+    // A menu takes the better part of a minute to read and a batch of four
+    // outlives the proxy in front of this API — the reads finished, the answer
+    // never arrived, and from here it looked like a failure (found 5 Sep 2026).
+    // So a batch is started and not waited on; `GET /api/admin/scout/` is where
+    // the progress is.
+    if (req.body?.wait === true) return res.json(await readFoundMenus({ limit, householdId: household.id, sessionId }));
+    const pending = await scout.menusToRead(limit);
+    void readFoundMenus({ limit, householdId: household.id, sessionId })
+      .catch((err) => console.warn(`scout: batch menu read failed: ${err.message}`));
+    res.status(202).json({ started: pending.length, watch: '/api/admin/scout/' });
   } catch (err) { next(err); }
 });
 

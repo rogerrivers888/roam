@@ -38,6 +38,9 @@ import { score } from '../domain/scoring.js';
 import { queueEnrichment } from './own.js';
 import { accoladesFor } from './accolades.js';
 import { findMenuUrl } from './menuLink.js';
+import { readMenu } from './menuRead.js';
+import { recordMenuRead } from '../domain/placeMenus.js';
+import { firstHousehold } from '../repositories/households.js';
 
 /** What to ask the licensed search. Different words surface different halves of a town. */
 const QUERIES = ['restaurants', 'best restaurants', 'italian restaurant', 'indian restaurant', 'asian restaurant', 'pub food', 'fine dining', 'brunch'];
@@ -271,6 +274,36 @@ export async function fillMenus({ limit = 3, householdId = null } = {}) {
   return { looked: due.length, done };
 }
 
+
+/**
+ * Turn the menus we have found into dishes, a couple at a time.
+ *
+ * Separate from `fillMenus` because this is the step that spends: finding the
+ * address is a free fetch of the restaurant's own page, reading it is a Claude
+ * call. Kept small per tick on purpose — the owner asked for "an automated
+ * function that runs over a number of weeks", and a few menus every quarter of
+ * an hour builds the dataset without a bill arriving in one afternoon.
+ */
+export async function readFoundMenus({ limit = 2, householdId = null, sessionId = null } = {}) {
+  if (!householdId) return { read: 0, done: [], why: 'no household to attribute the reads to' };
+  const due = await scout.menusToRead(limit);
+  const done = [];
+  for (const row of due) {
+    try {
+      const read = await readMenu({ url: row.menu_url, venueLabel: row.venue_label, householdId, sessionId });
+      const stored = await recordMenuRead({ venueRef: row.venue_ref, venueLabel: row.venue_label, read });
+      done.push({ name: row.venue_label, items: stored.items ?? 0, kind: read.kind });
+    } catch (err) {
+      const why = String(err.message).slice(0, 160);
+      // A menu that would not open waits a day before anyone tries again, and
+      // says why in the meantime.
+      await scout.recordMenuMiss(row.venue_ref, { venueLabel: row.venue_label, why, menuUrl: row.menu_url, nextAttemptAt: backoff(1) });
+      done.push({ name: row.venue_label, items: 0, why });
+    }
+  }
+  return { read: due.length, done };
+}
+
 const backoff = (attempts) => new Date(Date.now() + (MENU_BACKOFF_H[Math.min(attempts, MENU_BACKOFF_H.length) - 1] ?? 720) * 3600_000);
 
 /** The background loop: one area at a time, then menus. Nothing here is urgent. */
@@ -281,6 +314,12 @@ export function startScoutLoop({ everyMs = 15 * 60_000 } = {}) {
       if (area) await sweep(area.code);
     } catch (err) { console.warn(`scout: sweep failed: ${err.message}`); }
     try { await fillMenus({ limit: 3 }); } catch (err) { console.warn(`scout: menus failed: ${err.message}`); }
+    // And read a couple of what it found. Small and slow: this is the only part
+    // of the sweep that costs, and nobody is waiting on it.
+    try {
+      const household = await firstHousehold();
+      if (household) await readFoundMenus({ limit: 2, householdId: household.id });
+    } catch (err) { console.warn(`scout: menu reads failed: ${err.message}`); }
   };
   const first = setTimeout(tick, 120_000);
   const timer = setInterval(tick, everyMs);
