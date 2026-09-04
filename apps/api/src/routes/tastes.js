@@ -148,15 +148,15 @@ async function buildTable({ household, attending, attendees, session, taste, hom
       // A spent quota comes back both ways: a 429, and a 200 whose rows carry
       // an error instead of a route. Neither is worth asking again this run.
       if (!rows?.some((row) => row?.minutes != null)) {
-        travelNote = 'Google Routes answered without a road time for any of these, so they are worked out from the distance — a road is longer than a straight line. Its daily quota is the usual reason.';
+        travelNote = 'Google Routes answered without a road time for any of these, so they are worked out from the distance — a road is longer than a straight line. Being out of quota is the usual reason.';
         routing.off = true;
         routing.note = travelNote;
       }
     } catch (err) {
       // The estimate stands, but the reason is said out loud in the log and on
       // the table: an hour by road is not an hour as the crow flies.
-      travelNote = /429|RESOURCE_EXHAUSTED/.test(String(err?.message))
-        ? 'Google Routes has no quota left today, so these times are worked out from the distance and a road is longer than a straight line.'
+      travelNote = /quota|429|RESOURCE_EXHAUSTED/i.test(String(err?.message))
+        ? 'Google Routes is out of quota just now, so these times are worked out from the distance and a road is longer than a straight line.'
         : `Drive times are estimated: ${String(err?.message || err).slice(0, 160)}`;
       routing.off = true;
       routing.note = travelNote;
