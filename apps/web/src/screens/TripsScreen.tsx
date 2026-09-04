@@ -368,7 +368,7 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
     <>
       {section === 'find' ? (
         <View style={{ gap: spacing.md }}>
-          <BrowseNear d={d} onChanged={load} find={find} setFind={setFind} initialPrices={openWith?.findPrices} onShortlist={() => setSection('shortlist')} />
+          <BrowseNear d={d} household={household} onChanged={load} find={find} setFind={setFind} initialPrices={openWith?.findPrices} onShortlist={() => setSection('shortlist')} />
           {household && day ? (
             <View style={{ gap: spacing.sm }}>
               <Button label={planning ? 'Hide the planner' : 'Plan it for me'} icon="plan" kind="ghost" onPress={() => setPlanning((v) => !v)} />
