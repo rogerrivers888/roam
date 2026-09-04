@@ -78,11 +78,25 @@ export async function researchRestrictions({ parentRef, parentName, website, hou
   if (!answer?.rides?.length) return { learned: 0, skipped: 'no-answer' };
 
   const byName = new Map(rides.map((r) => [norm(r.name), r]));
+  // A park writes "Colossus – The World's First 10 Looping Coaster" where the
+  // map says "Colossus", so an exact name is only the first way in.
+  const match = (said) => {
+    const want = norm(said.name);
+    if (byName.has(want)) return byName.get(want);
+    const alt = norm(said.as_published);
+    if (alt && byName.has(alt)) return byName.get(alt);
+    for (const key of [want, alt].filter((k) => k && k.length >= 4)) {
+      const hit = rides.find((r) => { const n = norm(r.name); return n.includes(key) || key.includes(n); });
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const missed = [];
   const sources = (answer.source_urls || []).filter((u) => typeof u === 'string').slice(0, 4);
   let learned = 0;
   for (const said of answer.rides) {
-    const ride = byName.get(norm(said.name));
-    if (!ride) continue;
+    const ride = match(said);
+    if (!ride) { missed.push(said.name); continue; }
     const minH = cm(said.min_height_cm);
     const maxH = cm(said.max_height_cm);
     const age = Number.isFinite(Number(said.min_age)) && Number(said.min_age) > 0 && Number(said.min_age) < 21 ? Math.round(Number(said.min_age)) : null;
@@ -101,5 +115,6 @@ export async function researchRestrictions({ parentRef, parentName, website, hou
     if (minH || maxH || age || said.supervision) learned += 1;
     await placeContents.updateFacts(parentRef, ride.itemRef, facts, sources);
   }
-  return { learned, sources };
+  if (missed.length) console.warn(`restrictions ${parentRef}: no ride here called ${missed.slice(0, 6).join(', ')}`);
+  return { learned, matched: answer.rides.length - missed.length, sources };
 }
