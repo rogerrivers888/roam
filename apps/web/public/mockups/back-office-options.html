@@ -1,0 +1,1003 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Roam · The back office — three ways to hold a million places</title>
+<style>
+  :root{
+    --bg:#F7F6F2;--surface:#fff;--muted:#F0EEE8;--well:#EDEBE4;
+    --ink:#1D1B16;--ink2:#6B675E;--ink3:#A8A399;--line:#E4E0D6;
+    --accent:#1F5F5B;--accentSoft:#DCEBE9;
+    --ok:#15803D;--okSoft:#DCF0E2;
+    --warn:#B0771E;--warnSoft:#F8EEDA;
+    --crit:#C0392B;--critSoft:#FAE3E0;
+    --plum:#5B21B6;--plumSoft:#EDE5FB;
+    --blue:#2563A8;--blueSoft:#DEEAF7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#E9E6DF;color:var(--ink);padding:28px 32px 80px;
+       font:13.5px/1.45 -apple-system,Inter,"Segoe UI",Helvetica,Arial,sans-serif}
+  h1{font-size:28px;margin:0 0 6px;letter-spacing:-.4px}
+  h2{font-size:21px;margin:0 0 4px;letter-spacing:-.2px}
+  h3{font-size:15px;margin:0 0 8px}
+  .lede{color:var(--ink2);max-width:940px;margin:0 0 8px;font-size:15px;line-height:1.5}
+  section{margin:0 0 52px}
+  .sub{color:var(--ink2);margin:0 0 18px;max-width:980px;line-height:1.5}
+  .rule{height:1px;background:#D6D2C7;margin:34px 0 30px;border:0}
+  a{color:var(--accent)}
+
+  /* the desktop frame every option is drawn in */
+  .frame{width:1240px;max-width:100%;background:var(--bg);border:8px solid #2A2823;border-radius:14px;
+         overflow:hidden;box-shadow:0 20px 44px rgba(0,0,0,.20);display:flex;min-height:660px}
+  .rail{width:176px;flex:none;background:var(--surface);border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:1px}
+  .rail .brand{font:italic 700 20px/1 Caveat,cursive;color:var(--accent);padding:2px 6px 2px}
+  .rail .badge{font-size:9px;letter-spacing:1.1px;text-transform:uppercase;font-weight:700;color:var(--ink3);padding:0 6px 12px}
+  .rail .grp{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--ink3);font-weight:700;padding:12px 6px 5px}
+  .rail i{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;font-size:12.5px;color:var(--ink2);font-style:normal}
+  .rail i.on{background:var(--well);color:var(--ink);font-weight:700}
+  .rail i.new{color:var(--accent)}
+  .rail i.gone{color:var(--ink3);text-decoration:line-through}
+  .rail .foot{margin-top:auto;border-top:1px solid var(--line);padding-top:10px;font-size:11px;color:var(--ink3)}
+  .page{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+  .head{padding:14px 18px 12px;border-bottom:1px solid var(--line);background:var(--surface)}
+  .head .t{font-size:19px;font-weight:700;letter-spacing:-.2px}
+  .head .s{font-size:12px;color:var(--ink2);margin-top:2px}
+  .body{flex:1;overflow:hidden;padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+  .split{display:flex;gap:14px;flex:1;min-height:0}
+
+  /* kit */
+  .tiles{display:flex;gap:10px;flex-wrap:wrap}
+  .tile{flex:1;min-width:132px;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--ink3);border-radius:9px;padding:9px 11px}
+  .tile.ok{border-left-color:var(--ok)} .tile.warn{border-left-color:var(--warn)}
+  .tile.crit{border-left-color:var(--crit)} .tile.acc{border-left-color:var(--accent)}
+  .tile .l{font-size:9.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--ink3);font-weight:700}
+  .tile .v{font-size:21px;font-weight:800;letter-spacing:-.5px;margin:1px 0 0}
+  .tile .sb{font-size:10.5px;color:var(--ink2);line-height:1.3;margin-top:2px}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-height:0}
+  .panel > .ph{padding:9px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .panel > .ph .t{font-weight:700;font-size:13px}
+  .panel > .ph .s{font-size:11px;color:var(--ink2)}
+  .panel > .ph .r{margin-left:auto;display:flex;gap:6px}
+  .panel .pb{padding:10px 12px;overflow:hidden}
+  .panel .pb.flush{padding:0}
+  .pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;
+        background:var(--muted);color:var(--ink2);white-space:nowrap}
+  .pill.ok{background:var(--okSoft);color:var(--ok)} .pill.warn{background:var(--warnSoft);color:var(--warn)}
+  .pill.crit{background:var(--critSoft);color:var(--crit)} .pill.acc{background:var(--accentSoft);color:var(--accent)}
+  .pill.plum{background:var(--plumSoft);color:var(--plum)} .pill.blue{background:var(--blueSoft);color:var(--blue)}
+  .btn{display:inline-flex;align-items:center;gap:5px;height:29px;padding:0 11px;border-radius:8px;font-size:12px;font-weight:700;
+       background:var(--ink);color:#fff;white-space:nowrap}
+  .btn.g{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  .btn.a{background:var(--accent)}
+  .btn.sm{height:24px;font-size:11px;padding:0 9px;border-radius:6px}
+  .chip{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);
+        background:var(--surface);font-size:11.5px;font-weight:600;color:var(--ink2);white-space:nowrap}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .chip .n{opacity:.6;font-weight:700}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .search{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:6px 10px;font-size:12.5px;color:var(--ink3)}
+  svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink3);font-weight:700;
+     padding:7px 8px;border-bottom:1px solid var(--line);background:var(--muted);white-space:nowrap}
+  td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr.sel td{background:var(--accentSoft)}
+  tr.hov td{background:var(--muted)}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+  .nm{font-weight:700}
+  .dim{color:var(--ink3)}
+  .thumb{width:34px;height:26px;border-radius:5px;background:var(--well);flex:none;display:flex;align-items:center;justify-content:center;color:var(--ink3);overflow:hidden}
+  .thumb.p1{background:linear-gradient(140deg,#9DB7AE,#5E7C73)} .thumb.p2{background:linear-gradient(140deg,#C3B091,#8A7150)}
+  .thumb.p3{background:linear-gradient(140deg,#A8B8CC,#6A7D94)} .thumb.p4{background:linear-gradient(140deg,#C9A5A0,#96six)}
+  .thumb.p4{background:linear-gradient(140deg,#C9A5A0,#96706B)} .thumb.p5{background:linear-gradient(140deg,#B3C29A,#7E8F63)}
+  .cellrow{display:flex;align-items:center;gap:8px;min-width:0}
+
+  /* completeness dots — the one invention this file is arguing for */
+  .dots{display:flex;gap:3px}
+  .dots b{width:9px;height:9px;border-radius:2.5px;background:var(--line);display:inline-block}
+  .dots b.y{background:var(--ok)} .dots b.n{background:var(--critSoft);box-shadow:inset 0 0 0 1px #E9BDB6}
+  .dots b.p{background:var(--warnSoft);box-shadow:inset 0 0 0 1px #E0C78B}
+  .legend{display:flex;gap:12px;font-size:10.5px;color:var(--ink2);flex-wrap:wrap;align-items:center}
+  .legend span{display:flex;align-items:center;gap:4px}
+
+  /* heat matrix */
+  .matrix{width:100%;border-collapse:separate;border-spacing:2px;font-size:11px}
+  .matrix th{background:transparent;border:0;padding:3px 4px;font-size:9px}
+  .matrix th.rot{writing-mode:vertical-rl;transform:rotate(180deg);height:74px;text-align:left;padding:0}
+  .matrix td{border:0;padding:0}
+  .matrix td.rh{padding:0 8px 0 2px;font-weight:700;font-size:11.5px;white-space:nowrap;width:1px}
+  .cell{height:26px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10.5px;color:#fff}
+  .h0{background:#C0392B}.h1{background:#D9694F}.h2{background:#E09B4E}.h3{background:#C9B24B;color:#3A3312}
+  .h4{background:#8FB870;color:#22331A}.h5{background:#4E9C63}.h6{background:#2E7D4F}
+  .hna{background:var(--muted);color:var(--ink3)}
+
+  /* inspector drawer */
+  .drawer{width:430px;flex:none;background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .drawer .dh{padding:12px;border-bottom:1px solid var(--line)}
+  .drawer .tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--muted)}
+  .drawer .tabs div{padding:8px 10px;font-size:11.5px;font-weight:600;color:var(--ink2);border-bottom:2px solid transparent}
+  .drawer .tabs div.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:700}
+  .drawer .dc{padding:12px;display:flex;flex-direction:column;gap:11px;overflow:hidden}
+  .fact{display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--line)}
+  .fact:first-child{border-top:0}
+  .fact .k{width:96px;flex:none;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink3);font-weight:700;padding-top:2px}
+  .fact .v{flex:1;min-width:0;font-size:12.5px}
+  .fact .v .src{font-size:10.5px;color:var(--ink3);margin-top:2px}
+  .fact .act{display:flex;gap:4px;flex:none}
+  .ico{width:22px;height:22px;border-radius:6px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--ink2)}
+  .ico.bad{border-color:#E9BDB6;color:var(--crit)}
+  .ico.good{border-color:#A9D3B7;color:var(--ok)}
+
+  /* score working */
+  .bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;display:flex}
+  .bar i{display:block;height:100%}
+  .term{display:flex;align-items:center;gap:8px;font-size:11.5px;padding:3px 0}
+  .term .k{width:110px;color:var(--ink2)}
+  .term .t{flex:1;height:7px;border-radius:4px;background:var(--muted);overflow:hidden}
+  .term .t i{display:block;height:100%;background:var(--accent)}
+  .term .v{width:52px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+  .formula{font:11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--well);border-radius:7px;padding:9px 11px;color:var(--ink2);white-space:pre-wrap}
+
+  /* preview of the household drawer inside the back office */
+  .preview{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+  .preview .pv-hero{height:96px;background:linear-gradient(140deg,#9DB7AE,#4E6C63);position:relative}
+  .preview .pv-hero .cred{position:absolute;bottom:5px;right:7px;font-size:8.5px;color:#fff;opacity:.85}
+  .preview .pv-b{padding:10px 11px;display:flex;flex-direction:column;gap:7px}
+  .preview .pv-t{font-size:16px;font-weight:800;letter-spacing:-.3px}
+
+  /* notes column */
+  .with-notes{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}
+  .notes{width:310px;flex:none;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:14px 16px;font-size:12.5px;line-height:1.5}
+  .notes h4{margin:0 0 6px;font-size:12.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink3)}
+  .notes ul{margin:0 0 12px;padding-left:17px}
+  .notes li{margin:0 0 5px}
+  .notes .good{color:var(--ok);font-weight:700}
+  .notes .bad{color:var(--crit);font-weight:700}
+  .cap{font-size:11.5px;color:var(--ink2);margin:9px 0 0;max-width:1240px}
+
+  .find{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:10px;padding:12px 15px;margin:0 0 12px;max-width:1240px}
+  .find.crit{border-left-color:var(--crit)} .find.ok{border-left-color:var(--ok)} .find.acc{border-left-color:var(--accent)}
+  .find h4{margin:0 0 4px;font-size:14px}
+  .find p{margin:0 0 6px;color:var(--ink2);line-height:1.5}
+  .find code{background:var(--well);padding:1px 5px;border-radius:4px;font-size:11.5px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:1240px}
+  @media (max-width:1100px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<h1>The back office, held together</h1>
+<p class="lede">
+  Three ways to present a catalogue that is going to hold hundreds of thousands of locations —
+  written against the real numbers on production this morning, not a sketch.
+  Everything below is one argument: <b>Atlas, Shelves and the sweep are not three things.
+  They are one catalogue, one property of it, and one job that fills it.</b>
+</p>
+
+<hr class="rule">
+
+<!-- ===================================================================== -->
+<section>
+<h2>What production actually says today</h2>
+<p class="sub">Pulled from <code>/api/admin/library</code>, <code>/api/admin/scout/</code> and <code>/api/places/area/SL4</code> on 5 Sep 2026. These are the numbers the screens have to make legible.</p>
+
+<div class="grid2">
+  <div class="find">
+    <h4>The atlas is 24% harvested and its pictures are 76% unattributed</h4>
+    <p>7,461 attractions found, <b>921 published</b>, <b>26 of 107 regions</b> done, 80 never run.
+      2,524 pictures, <b>1,928 of them need a credit line</b>, 371 MB held. 13 published places have no card image.</p>
+    <p>The Atlas screen shows all five of these as tiles. What it cannot do is tell you <i>which 1,928</i>
+      in one tap, or which regions the hole is in.</p>
+  </div>
+  <div class="find crit">
+    <h4>The sweep can read one menu in four</h4>
+    <p>10 areas swept, 867 seen, <b>245 kept</b>, 204 researched, <b>39 menus read</b>, 3,821 dishes,
+      <b>128 places with no menu</b>. SL1 Slough: 25 kept, 2 read, 23 failed.</p>
+    <p>The Menus tab lists all 126 outstanding — but with <b>63 distinct free-text reasons</b>
+      ("Followed “Christmas Menu” on theswinleyascot.co.uk."). Only three are coded
+      (<code>menu_had_no_items</code>, <code>menu_unreadable</code>, <code>menu_url_required</code>).
+      A list of 63 sentences is an anecdote. <b>It cannot be counted, charted, or fixed in priority order.</b></p>
+  </div>
+  <div class="find crit">
+    <h4>Our restaurant score is mostly Google's rating wearing a coat</h4>
+    <p><code>score()</code> weights the crowd at <b>0.5</b>, accolades 0.3, substance 0.2. No Windsor
+      restaurant has a single accolade, so accolade = 0 for all 25. Every one of the top 12 is banded
+      <b>"top"</b>. The spread across the whole first page is <b>6.7 → 5.8</b>.</p>
+    <p>So the ranking is: Google's band (saturated), then how many dishes we read. <code>owned_score</code>
+      is stored beside it and <b>is not shown anywhere in the back office</b> — which is the one number
+      that would prove the ranking survives the key dying.</p>
+  </div>
+  <div class="find">
+    <h4>Everything you asked about the Atlas is a missing link, not missing data</h4>
+    <p>"4 pictures" is real — <code>GET /api/admin/library/images?subjectType=attraction&amp;subjectId=…</code>
+      answers with all four, licence, credit, photographer and Commons URL. <b>Nothing on the row calls it.</b></p>
+    <p><b>Pin</b> = this row survives the next harvest's pruning and sorts to the top of its county
+      (<code>library.js:326</code>, <code>:346</code>). <b>Hide</b> = <code>state='hidden'</code>, dropped
+      from ranking and from the app. Neither says so on screen, and neither is a per-fact rejection.</p>
+  </div>
+</div>
+</section>
+
+<hr class="rule">
+
+<!-- ===================================================================== -->
+<section>
+<h2>Option A · One catalogue, many lenses</h2>
+<p class="sub">
+  One rail item — <b>Places</b> — holding every location whatever found it. Type is a column, not a table.
+  The screen is a big table with facets down the left and <b>saved views</b> across the top; the saved view
+  <i>is</i> the work queue. Shelves becomes a control inside the inspector; the sweep becomes a job on the Jobs page.
+</p>
+
+<div class="with-notes">
+<div class="frame">
+  <div class="rail">
+    <div class="brand">Roam</div><div class="badge">Back office</div>
+    <div class="grp">The catalogue</div>
+    <i class="on"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Places</div>
+    <i class="new"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>Coverage</i>
+    <i class="new"><svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/></svg>Jobs &amp; spend</i>
+    <i class="new"><svg viewBox="0 0 24 24"><path d="M12 20h9M4 4h16v12H4z"/></svg>Teaching</i>
+    <div class="grp">The business</div>
+    <i><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/></svg>Accounts</i>
+    <i><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>Households</i>
+    <i><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="8"/><rect x="14" y="6" width="3" height="12"/></svg>Reporting</i>
+    <i><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>Roles</i>
+    <div class="foot">
+      <div style="text-decoration:line-through;color:#C0392B">Atlas · Shelves · The sweep</div>
+      <div style="margin-top:3px">folded into the four above</div>
+    </div>
+  </div>
+
+  <div class="page">
+    <div class="head">
+      <div class="t">Places</div>
+      <div class="s">7,706 locations · 921 published · every source, one list</div>
+    </div>
+    <div class="body">
+      <div class="chips">
+        <span class="chip on">Everything <span class="n">7,706</span></span>
+        <span class="chip">No picture <span class="n">13</span></span>
+        <span class="chip">Menu unread <span class="n">128</span></span>
+        <span class="chip">Never described <span class="n">6,540</span></span>
+        <span class="chip">Needs a credit <span class="n">1,928</span></span>
+        <span class="chip">Rating disputed <span class="n">31</span></span>
+        <span class="chip" style="border-style:dashed;color:var(--accent)">+ Save this view</span>
+      </div>
+
+      <div class="split">
+        <!-- facets -->
+        <div class="panel" style="width:186px;flex:none">
+          <div class="ph"><span class="t">Narrow it</span></div>
+          <div class="pb" style="display:flex;flex-direction:column;gap:11px;font-size:11.5px">
+            <div>
+              <div style="font-weight:700;font-size:10px;letter-spacing:.6px;color:var(--ink3);text-transform:uppercase;margin-bottom:5px">What it is</div>
+              <div style="display:flex;flex-direction:column;gap:3px;color:var(--ink2)">
+                <div><b style="color:var(--ink)">Restaurant</b> <span class="dim">245</span></div>
+                <div>Heritage <span class="dim">1,140</span></div>
+                <div>Outdoors <span class="dim">886</span></div>
+                <div>Museum <span class="dim">742</span></div>
+                <div>Family <span class="dim">318</span></div>
+                <div>Active <span class="dim">604</span></div>
+                <div class="dim">Animals · Arts · Landmark</div>
+              </div>
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:10px;letter-spacing:.6px;color:var(--ink3);text-transform:uppercase;margin-bottom:5px">Who found it</div>
+              <div style="display:flex;flex-direction:column;gap:3px;color:var(--ink2)">
+                <div>Wikidata <span class="dim">7,432</span></div>
+                <div>Google sweep <span class="dim">245</span></div>
+                <div>OpenStreetMap <span class="dim">29</span></div>
+                <div>A household <span class="dim">0</span></div>
+              </div>
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:10px;letter-spacing:.6px;color:var(--ink3);text-transform:uppercase;margin-bottom:5px">Where</div>
+              <div style="display:flex;flex-direction:column;gap:3px;color:var(--ink2)">
+                <div><b style="color:var(--ink)">Berkshire</b> <span class="dim">20</span></div>
+                <div>SL4 Windsor <span class="dim">25</span></div>
+                <div>Kent <span class="dim">18</span></div>
+                <div class="dim">+ 104 more</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- the table -->
+        <div class="panel" style="flex:1;min-width:0">
+          <div class="ph">
+            <div class="search" style="flex:1"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Name, county, cuisine, photographer, licence…</div>
+            <div class="r"><span class="btn g sm">Columns</span><span class="btn sm">Export</span></div>
+          </div>
+          <div class="pb flush" style="overflow:hidden">
+            <table>
+              <tr><th style="width:26px"></th><th>Place</th><th>Type</th><th>Where</th><th style="width:112px">What we hold</th><th class="num">Ours</th><th class="num">Composite</th><th>Last touched</th></tr>
+              <tr class="sel">
+                <td><div class="thumb p1"></div></td>
+                <td><div class="nm">Windsor Castle</div><div class="dim">rct.uk/visit/windsorcastle</div></td>
+                <td><span class="pill">Heritage</span></td>
+                <td>Berkshire <span class="dim">· 1st</span></td>
+                <td><div class="dots"><b class="y"></b><b class="y"></b><b class="y"></b><b class="y"></b><b class="n"></b><b class="y"></b></div></td>
+                <td class="num">7.7</td><td class="num">7.7</td><td class="dim">2d</td>
+              </tr>
+              <tr>
+                <td><div class="thumb p2"></div></td>
+                <td><div class="nm">Legoland Windsor</div><div class="dim">legoland.co.uk</div></td>
+                <td><span class="pill">Family</span></td>
+                <td>Berkshire <span class="dim">· 5th</span></td>
+                <td><div class="dots"><b class="y"></b><b class="y"></b><b class="p"></b><b class="y"></b><b class="n"></b><b class="y"></b></div></td>
+                <td class="num">4.8</td><td class="num">4.8</td><td class="dim">2d</td>
+              </tr>
+              <tr class="hov">
+                <td><div class="thumb p5"><svg viewBox="0 0 24 24"><path d="M3 7h18v13H3z"/><path d="M8 7V5a4 4 0 018 0v2"/></svg></div></td>
+                <td><div class="nm">Antalya</div><div class="dim">antalyarestaurantwindsor.co.uk</div></td>
+                <td><span class="pill plum">Restaurant</span> <span class="pill">Turkish</span></td>
+                <td>SL4 Windsor <span class="dim">· 1st</span></td>
+                <td><div class="dots"><b class="y"></b><b class="n"></b><b class="n"></b><b class="y"></b><b class="y"></b><b class="p"></b></div></td>
+                <td class="num" style="color:var(--warn)">3.4</td><td class="num">6.7</td><td class="dim">14h</td>
+              </tr>
+              <tr>
+                <td><div class="thumb p5"></div></td>
+                <td><div class="nm">Sebastian's</div><div class="dim">sebastianswindsor.com</div></td>
+                <td><span class="pill plum">Restaurant</span> <span class="pill">Italian</span></td>
+                <td>SL4 Windsor <span class="dim">· 3rd</span></td>
+                <td><div class="dots"><b class="y"></b><b class="n"></b><b class="n"></b><b class="y"></b><b class="y"></b><b class="p"></b></div></td>
+                <td class="num" style="color:var(--warn)">3.9</td><td class="num">6.5</td><td class="dim">14h</td>
+              </tr>
+              <tr>
+                <td><div class="thumb"><svg viewBox="0 0 24 24"><path d="M3 7h18v13H3z"/><circle cx="12" cy="13" r="3"/></svg></div></td>
+                <td><div class="nm">Sushi Point</div><div class="dim">sushipoint.uk</div></td>
+                <td><span class="pill plum">Restaurant</span> <span class="pill">Sushi</span></td>
+                <td>SL4 Windsor <span class="dim">· 10th</span></td>
+                <td><div class="dots"><b class="n"></b><b class="n"></b><b class="n"></b><b class="y"></b><b class="n"></b><b class="p"></b></div></td>
+                <td class="num" style="color:var(--crit)">1.7</td><td class="num">5.9</td><td class="dim">14h</td>
+              </tr>
+              <tr>
+                <td><div class="thumb p3"></div></td>
+                <td><div class="nm">Ascot Racecourse</div><div class="dim">ascot.com</div></td>
+                <td><span class="pill">Active</span></td>
+                <td>Berkshire <span class="dim">· 11th</span></td>
+                <td><div class="dots"><b class="y"></b><b class="y"></b><b class="p"></b><b class="y"></b><b class="n"></b><b class="n"></b></div></td>
+                <td class="num">3.9</td><td class="num">3.9</td><td class="dim">2d</td>
+              </tr>
+              <tr>
+                <td><div class="thumb p4"></div></td>
+                <td><div class="nm">Basildon Park</div><div class="dim">nationaltrust.org.uk</div></td>
+                <td><span class="pill">Museum</span></td>
+                <td>Berkshire <span class="dim">· 9th</span></td>
+                <td><div class="dots"><b class="y"></b><b class="y"></b><b class="y"></b><b class="y"></b><b class="n"></b><b class="y"></b></div></td>
+                <td class="num">3.9</td><td class="num">3.9</td><td class="dim">2d</td>
+              </tr>
+            </table>
+          </div>
+          <div class="ph" style="border-top:1px solid var(--line);border-bottom:0">
+            <div class="legend">
+              <b style="font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--ink3)">What we hold:</b>
+              <span><span class="dots"><b class="y"></b></span> picture</span>
+              <span><span class="dots"><b class="y"></b></span> description</span>
+              <span><span class="dots"><b class="y"></b></span> hours</span>
+              <span><span class="dots"><b class="y"></b></span> website</span>
+              <span><span class="dots"><b class="y"></b></span> menu</span>
+              <span><span class="dots"><b class="y"></b></span> shelf</span>
+            </div>
+            <div class="r"><span class="dim" style="font-size:11px">1–7 of 7,706</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h4>Why this shape</h4>
+  <ul>
+    <li>One table means <b>one answer to "have we found everything"</b>. Two tables means two half-answers you have to add up in your head.</li>
+    <li>The saved view is the work queue. "Menu unread · 128" is a tab, not a report you go and read somewhere else.</li>
+    <li>The six dots are the whole quality model in 54 pixels. They sort, they filter, they roll up into Coverage.</li>
+    <li><b>Ours</b> beside <b>Composite</b> makes the licensed dependency visible on every row. Antalya 3.4 / 6.7 says out loud: two thirds of that number is Google's.</li>
+  </ul>
+  <h4>The cost</h4>
+  <ul>
+    <li class="bad">Restaurants and attractions want different columns. One table means either sparse columns or a column set per saved view.</li>
+    <li class="bad">Merging <code>attractions</code> and <code>scout_places</code> is a migration, not a screen change. Two days, not two hours.</li>
+  </ul>
+</div>
+</div>
+<p class="cap"><b>A · Places.</b> Rows are real: Windsor Castle score 0.770 shown ×10, Antalya 6.7 composite against a computed owned score of ~3.4. Type, source and county are facets because those are the three ways a hole shows up.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ===================================================================== -->
+<section>
+<h2>Option B · Coverage first — the gaps <i>are</i> the screen</h2>
+<p class="sub">
+  The home of the back office is not a list of places, it is a matrix of <b>what we are missing and where</b>.
+  Rows are places you can sweep (a county, a postcode district); columns are the facts a household needs.
+  Every cell is a percentage and a click; the click is the work queue of exactly those records.
+  Underneath sits <b>Recovery</b> — everything we tried and failed, grouped by a <i>coded</i> cause with a retry per cause.
+</p>
+
+<div class="with-notes">
+<div class="frame">
+  <div class="rail">
+    <div class="brand">Roam</div><div class="badge">Back office</div>
+    <div class="grp">The catalogue</div>
+    <i class="on"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>Coverage</i>
+    <i><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Places</i>
+    <i><svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>Jobs &amp; spend</i>
+    <i><svg viewBox="0 0 24 24"><path d="M12 20h9M4 4h16v12H4z"/></svg>Teaching</i>
+    <div class="grp">The business</div>
+    <i><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/></svg>Accounts</i>
+    <i><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="8"/></svg>Reporting</i>
+    <i><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>Roles</i>
+  </div>
+
+  <div class="page">
+    <div class="head">
+      <div class="t">Coverage</div>
+      <div class="s">Where the holes are, what caused them, and the button that fills them</div>
+    </div>
+    <div class="body">
+      <div class="tiles">
+        <div class="tile crit"><div class="l">Regions never run</div><div class="v">80</div><div class="sb">of 107 · ~2 hours of harvest</div></div>
+        <div class="tile warn"><div class="l">Facts missing</div><div class="v">11,204</div><div class="sb">across published places</div></div>
+        <div class="tile crit"><div class="l">Could not recover</div><div class="v">128</div><div class="sb">tried and failed at least once</div></div>
+        <div class="tile ok"><div class="l">Ours without a key</div><div class="v">58%</div><div class="sb">score that survives Google going dark</div></div>
+        <div class="tile"><div class="l">Oldest fact</div><div class="v">14h</div><div class="sb">nothing stale yet</div></div>
+      </div>
+
+      <div class="split">
+        <div class="panel" style="flex:1.35;min-width:0">
+          <div class="ph"><span class="t">What we hold, by area</span><span class="s">click a cell to work that queue</span>
+            <div class="r"><span class="chip on">Berkshire &amp; Bucks</span><span class="chip">Everywhere</span></div></div>
+          <div class="pb" style="overflow:auto">
+            <table class="matrix">
+              <tr>
+                <td class="rh"></td>
+                <th class="rot">Found</th><th class="rot">Picture</th><th class="rot">Description</th>
+                <th class="rot">Hours</th><th class="rot">Website</th><th class="rot">Menu</th>
+                <th class="rot">Prices</th><th class="rot">Shelf</th><th class="rot">Credit line</th>
+              </tr>
+              <tr><td class="rh">Berkshire <span class="dim">20</span></td>
+                <td><div class="cell h6">100</div></td><td><div class="cell h6">100</div></td><td><div class="cell h6">100</div></td>
+                <td><div class="cell h1">15</div></td><td><div class="cell h5">85</div></td><td><div class="cell hna">n/a</div></td>
+                <td><div class="cell h2">35</div></td><td><div class="cell h4">70</div></td><td><div class="cell h1">22</div></td></tr>
+              <tr><td class="rh">SL4 Windsor <span class="dim">25</span></td>
+                <td><div class="cell h6">100</div></td><td><div class="cell h0">8</div></td><td><div class="cell h3">52</div></td>
+                <td><div class="cell h0">4</div></td><td><div class="cell h6">96</div></td><td><div class="cell h4">64</div></td>
+                <td><div class="cell h4">64</div></td><td><div class="cell h2">40</div></td><td><div class="cell hna">n/a</div></td></tr>
+              <tr><td class="rh">SL6 Maidenhead <span class="dim">25</span></td>
+                <td><div class="cell h6">100</div></td><td><div class="cell h0">4</div></td><td><div class="cell h3">48</div></td>
+                <td><div class="cell h0">0</div></td><td><div class="cell h5">88</div></td><td><div class="cell h1">12</div></td>
+                <td><div class="cell h1">12</div></td><td><div class="cell h2">36</div></td><td><div class="cell hna">n/a</div></td></tr>
+              <tr><td class="rh">SL1 Slough <span class="dim">25</span></td>
+                <td><div class="cell h6">100</div></td><td><div class="cell h0">0</div></td><td><div class="cell h2">36</div></td>
+                <td><div class="cell h0">0</div></td><td><div class="cell h4">72</div></td><td><div class="cell h0">8</div></td>
+                <td><div class="cell h0">8</div></td><td><div class="cell h1">24</div></td><td><div class="cell hna">n/a</div></td></tr>
+              <tr><td class="rh">SL5 Ascot <span class="dim">25</span></td>
+                <td><div class="cell h6">100</div></td><td><div class="cell h0">4</div></td><td><div class="cell h2">40</div></td>
+                <td><div class="cell h0">0</div></td><td><div class="cell h5">84</div></td><td><div class="cell h1">16</div></td>
+                <td><div class="cell h1">16</div></td><td><div class="cell h1">24</div></td><td><div class="cell hna">n/a</div></td></tr>
+              <tr><td class="rh">SL7 Marlow <span class="dim">25</span></td>
+                <td><div class="cell h6">100</div></td><td><div class="cell h0">0</div></td><td><div class="cell h2">32</div></td>
+                <td><div class="cell h0">0</div></td><td><div class="cell h5">88</div></td><td><div class="cell h1">12</div></td>
+                <td><div class="cell h1">12</div></td><td><div class="cell h1">20</div></td><td><div class="cell hna">n/a</div></td></tr>
+              <tr><td class="rh">Kent <span class="dim">18</span></td>
+                <td><div class="cell h6">100</div></td><td><div class="cell h6">100</div></td><td><div class="cell h6">100</div></td>
+                <td><div class="cell h1">11</div></td><td><div class="cell h4">78</div></td><td><div class="cell hna">n/a</div></td>
+                <td><div class="cell h2">28</div></td><td><div class="cell h3">55</div></td><td><div class="cell h0">6</div></td></tr>
+              <tr><td class="rh dim">Surrey <span class="dim">—</span></td>
+                <td><div class="cell h0">0</div></td><td><div class="cell hna">—</div></td><td><div class="cell hna">—</div></td>
+                <td><div class="cell hna">—</div></td><td><div class="cell hna">—</div></td><td><div class="cell hna">—</div></td>
+                <td><div class="cell hna">—</div></td><td><div class="cell hna">—</div></td><td><div class="cell hna">—</div></td></tr>
+              <tr><td class="rh dim">80 regions never run</td>
+                <td><div class="cell h0">0</div></td><td colspan="8" style="padding-left:6px"><span class="dim" style="font-size:11px">nothing to measure until the harvest runs · <b style="color:var(--accent)">Run all 80 →</b></span></td></tr>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel" style="flex:1;min-width:0">
+          <div class="ph"><span class="t">Recovery</span><span class="s">128 places we tried and failed</span>
+            <div class="r"><span class="btn g sm">All causes</span></div></div>
+          <div class="pb flush" style="overflow:hidden">
+            <table>
+              <tr><th>Why we could not read it</th><th class="num">Places</th><th style="width:96px">What fixes it</th></tr>
+              <tr><td><b>No menu link on their site</b><div class="dim">crawler found the site, found no menu anchor</div></td><td class="num">38</td><td><span class="btn sm">Try /menu</span></td></tr>
+              <tr><td><b>Menu page has no dishes</b><div class="dim">it is a PDF, an image, or a link out</div></td><td class="num">21</td><td><span class="btn sm a">Read the PDF</span></td></tr>
+              <tr><td><b>Their site did not answer</b><div class="dim">timeout, DNS, or 5xx</div></td><td class="num">21</td><td><span class="btn g sm">Retry</span></td></tr>
+              <tr><td><b>Followed a seasonal menu</b><div class="dim">"Christmas Menu", "Festive Menu" — wrong anchor won</div></td><td class="num">17</td><td><span class="btn sm">Rank anchors</span></td></tr>
+              <tr><td><b>Menu is on a delivery platform</b><div class="dim">Deliveroo / Just Eat / Order Online</div></td><td class="num">12</td><td><span class="btn g sm">Decide</span></td></tr>
+              <tr><td><b>Website is a social profile</b><div class="dim">instagram.com, facebook.com</div></td><td class="num">8</td><td><span class="btn g sm">Find real site</span></td></tr>
+              <tr><td><b>No website at all</b><div class="dim">nothing to open</div></td><td class="num">7</td><td><span class="dim" style="font-size:11px">nothing to do</span></td></tr>
+              <tr><td><b>Chain microsite</b><div class="dim">marriott.com, greatlocalpubs.co.uk</div></td><td class="num">4</td><td><span class="btn g sm">Per-brand rule</span></td></tr>
+            </table>
+          </div>
+          <div class="ph" style="border-top:1px solid var(--line);border-bottom:0">
+            <span class="pill warn">Seasonal-anchor bug: 17 places · one fix</span>
+            <div class="r"><span class="btn a sm">Fix and re-run all 128</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h4>Why this shape</h4>
+  <ul>
+    <li>Your real question is not "show me a place", it is <b>"where are the holes"</b>. This makes the hole the first-class object.</li>
+    <li>The matrix is how <a href="https://dqops.com/how-to-make-a-data-quality-dashboard/">data-quality dashboards</a> are built everywhere else: completeness × segment, drill to the failing rows.</li>
+    <li class="good">Recovery is the answer to your reporting ask. <b>Eight coded causes replace 63 sentences</b>, and each has one fix that moves a number.</li>
+    <li>"Seasonal-anchor bug: 17 places · one fix" is what a crawler backlog looks like when it is countable. Today it is invisible.</li>
+  </ul>
+  <h4>The cost</h4>
+  <ul>
+    <li class="bad">Needs a <code>fact_coverage</code> view and a <b>coded failure taxonomy</b> — the crawler must stop throwing prose.</li>
+    <li class="bad">It is a reporting screen. You still need Option A's table to actually curate a row.</li>
+  </ul>
+</div>
+</div>
+<p class="cap"><b>B · Coverage.</b> Every percentage is computed from production: SL4 has 16 of 25 menus (64%), SL1 has 2 of 25 (8%), Berkshire's 20 published all have a picture but 22% carry a credit line. The eight causes are the 63 free-text reasons grouped by hand — which is the point.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ===================================================================== -->
+<section>
+<h2>Option C · Two catalogues, one inspector</h2>
+<p class="sub">
+  Keep the split, but make it <b>the split a person feels</b> rather than the split the harvest left behind:
+  <b>Somewhere to go</b> and <b>Somewhere to eat</b>. They genuinely need different columns —
+  an attraction wants dwell, season, booking and designation; a restaurant wants menu, dishes, prices, cuisine and accolades.
+  Both open the same inspector, and Coverage sits over both.
+</p>
+
+<div class="with-notes">
+<div class="frame">
+  <div class="rail">
+    <div class="brand">Roam</div><div class="badge">Back office</div>
+    <div class="grp">The catalogue</div>
+    <i><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>Coverage</i>
+    <i><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Somewhere to go</i>
+    <i class="on"><svg viewBox="0 0 24 24"><path d="M4 3v8a3 3 0 006 0V3M7 11v10M15 3c-1 3-1 6 0 8v10"/></svg>Somewhere to eat</i>
+    <i><svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>Jobs &amp; spend</i>
+    <i><svg viewBox="0 0 24 24"><path d="M12 20h9M4 4h16v12H4z"/></svg>Teaching</i>
+    <div class="grp">The business</div>
+    <i><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/></svg>Accounts</i>
+    <i><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="8"/></svg>Reporting</i>
+  </div>
+
+  <div class="page">
+    <div class="head">
+      <div class="t">Somewhere to eat</div>
+      <div class="s">245 restaurants across 10 areas · 39 menus read · 3,821 dishes</div>
+    </div>
+    <div class="body" style="padding-right:0">
+      <div class="chips" style="margin-right:18px">
+        <span class="chip on">SL4 Windsor <span class="n">25</span></span>
+        <span class="chip">SL6 Maidenhead <span class="n">25</span></span>
+        <span class="chip">SL1 Slough <span class="n">25</span></span>
+        <span class="chip">SL5 Ascot <span class="n">25</span></span>
+        <span class="chip" style="border-color:#E0C78B;color:var(--warn)">Menu unread <span class="n">128</span></span>
+        <span class="chip" style="border-color:#E9BDB6;color:var(--crit)">Rating disputed <span class="n">31</span></span>
+      </div>
+
+      <div class="split">
+        <div class="panel" style="flex:1;min-width:0;margin-right:0;border-right:0;border-top-right-radius:0;border-bottom-right-radius:0">
+          <div class="ph">
+            <div class="search" style="flex:1"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Name, cuisine, dish, postcode…</div>
+            <div class="r"><span class="btn g sm">Sort: ours</span></div>
+          </div>
+          <div class="pb flush">
+            <table>
+              <tr><th style="width:22px">#</th><th>Restaurant</th><th>Cuisine</th><th>Menu</th><th class="num">Ours</th><th class="num">Roam</th><th class="num">Google</th></tr>
+              <tr class="sel"><td class="dim">1</td>
+                <td><div class="nm">Antalya</div><div class="dim">Peascod Street · SL4 1DG</div></td>
+                <td><span class="pill">Turkish</span></td>
+                <td><span class="pill ok">84 dishes</span></td>
+                <td class="num" style="color:var(--warn)">3.4</td><td class="num">6.7</td><td class="num dim">4.7 <span style="font-weight:400">·1.1k</span></td></tr>
+              <tr><td class="dim">2</td>
+                <td><div class="nm">Meimo</div><div class="dim">High Street · SL4 1LD</div></td>
+                <td><span class="pill">Moroccan</span></td>
+                <td><span class="pill ok">100 dishes</span></td>
+                <td class="num" style="color:var(--warn)">3.5</td><td class="num">6.7</td><td class="num dim">4.6 <span style="font-weight:400">·900</span></td></tr>
+              <tr><td class="dim">3</td>
+                <td><div class="nm">Sebastian's</div><div class="dim">Thames Street · SL4 1PL</div></td>
+                <td><span class="pill">Italian</span> <span class="pill">European</span></td>
+                <td><span class="pill ok">215 dishes</span></td>
+                <td class="num" style="color:var(--warn)">3.9</td><td class="num">6.5</td><td class="num dim">4.6 <span style="font-weight:400">·480</span></td></tr>
+              <tr><td class="dim">6</td>
+                <td><div class="nm">A La Russe</div><div class="dim">Peascod Street · SL4 1DE</div></td>
+                <td><span class="pill">French</span></td>
+                <td><span class="pill warn">16 dishes</span></td>
+                <td class="num">2.6</td><td class="num">6.2</td><td class="num dim">4.8 <span style="font-weight:400">·210</span></td></tr>
+              <tr><td class="dim">9</td>
+                <td><div class="nm">50nine</div><div class="dim">Thames Street · SL4 1QN</div></td>
+                <td><span class="pill">Lebanese</span></td>
+                <td><span class="pill crit">5 dishes</span></td>
+                <td class="num" style="color:var(--crit)">1.9</td><td class="num">6.1</td><td class="num dim">4.5 <span style="font-weight:400">·640</span></td></tr>
+              <tr><td class="dim">10</td>
+                <td><div class="nm">Sushi Point</div><div class="dim">Peascod Street · SL4 1EA</div></td>
+                <td><span class="pill">Sushi</span></td>
+                <td><span class="pill crit">no menu</span><div class="dim" style="margin-top:2px">nothing on sushipoint.uk says menu</div></td>
+                <td class="num" style="color:var(--crit)">1.7</td><td class="num">5.9</td><td class="num dim">4.6 <span style="font-weight:400">·380</span></td></tr>
+              <tr><td class="dim">11</td>
+                <td><div class="nm">Best Meze Grill</div><div class="dim">St Leonards Rd · SL4 3BP</div></td>
+                <td><span class="pill">Turkish</span></td>
+                <td><span class="pill crit">no menu</span><div class="dim" style="margin-top:2px">followed “Menu”, page was empty</div></td>
+                <td class="num" style="color:var(--crit)">1.7</td><td class="num">5.8</td><td class="num dim">4.7 <span style="font-weight:400">·290</span></td></tr>
+            </table>
+          </div>
+          <div class="ph" style="border-top:1px solid var(--line);border-bottom:0">
+            <span class="pill crit">Google column is live, held for this response only, never written</span>
+            <div class="r"><span class="btn g sm">Refresh the bench</span></div>
+          </div>
+        </div>
+
+        <!-- inspector -->
+        <div class="drawer">
+          <div class="dh">
+            <div style="display:flex;align-items:flex-start;gap:9px">
+              <div class="thumb p5" style="width:52px;height:40px"></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:16px;font-weight:800;letter-spacing:-.3px">Antalya</div>
+                <div class="dim" style="font-size:11.5px">Turkish · Peascod Street, Windsor SL4 1DG</div>
+                <div class="chips" style="margin-top:5px">
+                  <span class="pill ok">1st in SL4</span><span class="pill">Independent</span><span class="pill warn">No hours</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="tabs"><div class="on">Why this score</div><div>The menu</div><div>Pictures</div><div>As they'll see it</div></div>
+          <div class="dc">
+            <div>
+              <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:7px">
+                <div style="font-size:30px;font-weight:800;letter-spacing:-1px">6.7</div>
+                <div style="font-size:12px;color:var(--ink2)">composite</div>
+                <div style="margin-left:auto;text-align:right">
+                  <div style="font-size:19px;font-weight:800;color:var(--warn)">3.4</div>
+                  <div style="font-size:10px;color:var(--ink2)">without Google</div>
+                </div>
+              </div>
+              <div class="bar"><i style="width:72%;background:var(--blue)"></i><i style="width:0%;background:var(--warn)"></i><i style="width:28%;background:var(--ok)"></i></div>
+              <div class="legend" style="margin-top:5px">
+                <span><span class="dots"><b style="background:var(--blue)"></b></span> crowd 72%</span>
+                <span><span class="dots"><b style="background:var(--warn)"></b></span> accolades 0%</span>
+                <span><span class="dots"><b style="background:var(--ok)"></b></span> what we own 28%</span>
+              </div>
+            </div>
+
+            <div>
+              <div class="term"><span class="k">Crowd band</span><span class="t"><i style="width:100%"></i></span><span class="v">top</span></div>
+              <div class="term"><span class="k">How many spoke</span><span class="t"><i style="width:85%"></i></span><span class="v">many</span></div>
+              <div class="term"><span class="k">Accolades</span><span class="t"><i style="width:0%"></i></span><span class="v">none</span></div>
+              <div class="term"><span class="k">Menu (84 dishes)</span><span class="t"><i style="width:100%"></i></span><span class="v">0.45</span></div>
+              <div class="term"><span class="k">Named cuisine</span><span class="t"><i style="width:100%"></i></span><span class="v">0.20</span></div>
+              <div class="term"><span class="k">Their own site</span><span class="t"><i style="width:100%"></i></span><span class="v">0.15</span></div>
+              <div class="term"><span class="k">Opening hours</span><span class="t"><i style="width:0%"></i></span><span class="v" style="color:var(--crit)">0.00</span></div>
+              <div class="term"><span class="k">Chain weight</span><span class="t"><i style="width:100%"></i></span><span class="v">×1.00</span></div>
+            </div>
+
+            <div class="formula">crowd    = top·0.8 + many·0.2      = 0.970
+accolade = Σpoints · 0.7            = 0.000
+substance= 0.45+0.20+0.15+0+0       = 0.800
+composite= (0.970·0.5 + 0·0.3 + 0.800·0.2) · 1.00 · 10
+         = <b style="color:var(--ink)">6.7</b>
+owned    = (0·0.6 + 0.800·0.4) · 10 = <b style="color:var(--warn)">3.2</b></div>
+
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <span class="btn g sm">Open scoring.js</span>
+              <span class="btn g sm">Compare to Google</span>
+              <span class="btn g sm">Reject this rating</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h4>Why this shape</h4>
+  <ul>
+    <li>Two lists is what the columns want. A restaurant row that has to carry "dwell time" and "World Heritage" is mostly empty.</li>
+    <li class="good">Answers your rating ask head-on: <b>Ours · Roam · Google</b> in one table, with the working one click away.</li>
+    <li>The inspector shows the <i>actual arithmetic from <code>domain/scoring.js</code></i>, not a description of it. "Opening hours 0.00" is a to-do you can see.</li>
+    <li>Migration-free. Both tables stay where they are.</li>
+  </ul>
+  <h4>The cost</h4>
+  <ul>
+    <li class="bad">You keep asking "have we found everything" twice. Two answers, and no single number.</li>
+    <li class="bad">A pub with a menu and a beer garden is a restaurant and a place to go. It has to live in one list or be duplicated.</li>
+    <li class="bad">Every new source (activities, karting, flying) needs a home. Is a trampoline park "somewhere to go"? A third list?</li>
+  </ul>
+</div>
+</div>
+<p class="cap"><b>C · Somewhere to eat, with the inspector open.</b> Every figure in the drawer is the real arithmetic for Antalya from <code>domain/scoring.js</code>. Google's column is fetched live for the bench and never persisted — see the decision at the foot of this page.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ===================================================================== -->
+<section>
+<h2>The inspector, in full — the part all three share</h2>
+<p class="sub">
+  Whichever option wins, the detail is the same object and it is <b>four tabs</b>. This is the answer to
+  "I can't see the 4 pictures", "what does pin do", "let me reject a description", and
+  "show me what the user is going to see".
+</p>
+
+<div class="frame" style="min-height:600px">
+  <div class="rail" style="width:150px">
+    <div class="brand">Roam</div><div class="badge">Back office</div>
+    <i><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/></svg>Coverage</i>
+    <i class="on"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Places</i>
+    <i><svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4"/></svg>Jobs</i>
+    <i><svg viewBox="0 0 24 24"><path d="M12 20h9M4 4h16v12H4z"/></svg>Teaching</i>
+  </div>
+  <div class="page">
+    <div class="head"><div class="t">Windsor Castle</div>
+      <div class="s">Berkshire · 1st of 20 · heritage · Q42646 · harvested from Wikidata, 2 days ago</div></div>
+    <div class="body">
+      <div class="tabs" style="display:flex;gap:2px;border-bottom:1px solid var(--line)">
+        <div style="padding:8px 12px;font-size:12.5px;font-weight:700;border-bottom:2px solid var(--accent)">As they'll see it</div>
+        <div style="padding:8px 12px;font-size:12.5px;color:var(--ink2)">Every fact &amp; where it came from</div>
+        <div style="padding:8px 12px;font-size:12.5px;color:var(--ink2)">Pictures <span class="pill" style="margin-left:4px">4</span></div>
+        <div style="padding:8px 12px;font-size:12.5px;color:var(--ink2)">Decisions <span class="pill acc" style="margin-left:4px">3</span></div>
+      </div>
+
+      <div class="split" style="gap:14px">
+        <!-- what the household sees -->
+        <div class="panel" style="width:340px;flex:none">
+          <div class="ph"><span class="t">The household's drawer</span><span class="s">live, from the same API</span></div>
+          <div class="pb">
+            <div class="preview">
+              <div class="pv-hero"><span class="cred">Julie Anne Workman · CC BY-SA 3.0</span></div>
+              <div class="pv-b">
+                <div class="pv-t">Windsor Castle</div>
+                <div class="chips"><span class="pill acc">Heritage</span><span class="pill">Half a day</span><span class="pill">Mostly indoors</span></div>
+                <div style="font-size:12px;color:var(--ink2);line-height:1.45">
+                  The oldest and largest occupied castle in the world, and a working royal residence for
+                  almost a thousand years. The State Apartments, St George's Chapel and Queen Mary's
+                  Dolls' House are the three things people come for.
+                </div>
+                <div class="chips"><span class="pill ok">Book ahead</span><span class="pill warn">Chapel shut Sundays</span></div>
+                <div style="display:flex;gap:6px;margin-top:2px"><span class="btn a sm" style="flex:1;justify-content:center">Add to a day</span><span class="btn g sm">Their site</span></div>
+              </div>
+            </div>
+            <div style="margin-top:9px;display:flex;gap:6px;flex-wrap:wrap">
+              <span class="chip">Phone</span><span class="chip on">Web</span><span class="chip">Offline</span>
+            </div>
+            <div class="dim" style="font-size:11px;margin-top:7px;line-height:1.4">
+              Offline shows only what <code>offline/policy.ts</code> lets a device keep — so you can see
+              exactly what survives the signal going.
+            </div>
+          </div>
+        </div>
+
+        <!-- every fact -->
+        <div class="panel" style="flex:1;min-width:0">
+          <div class="ph"><span class="t">Every fact, and where it came from</span>
+            <div class="r"><span class="btn g sm">Re-read</span><span class="btn sm">Approve all</span></div></div>
+          <div class="pb" style="overflow:hidden">
+            <div class="fact">
+              <div class="k">Name</div>
+              <div class="v">Windsor Castle
+                <div class="src">Wikidata Q42646 · label</div></div>
+              <div class="act"><span class="ico good"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></span><span class="ico bad"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></span></div>
+            </div>
+            <div class="fact">
+              <div class="k">Description</div>
+              <div class="v">“Windsor Castle is a royal residence at Windsor in the English county of Berkshire, about 25 miles west of central London…”
+                <div class="src">Wikipedia extract · read 2 days ago · <span style="color:var(--warn)">judged, not quoted</span></div></div>
+              <div class="act"><span class="ico"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></span><span class="ico bad"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></span></div>
+            </div>
+            <div class="fact">
+              <div class="k">Category</div>
+              <div class="v"><span class="pill">heritage</span>
+                <div class="src">from 6 Wikidata types · Q23413 castle wins</div></div>
+              <div class="act"><span class="ico good"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></span><span class="ico bad"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></span></div>
+            </div>
+            <div class="fact">
+              <div class="k">Shelves</div>
+              <div class="v">
+                <span class="pill acc">Culture 0.90</span> <span class="pill">Fun 0.40</span> <span class="pill">Outdoors 0.20</span>
+                <div class="src">rule on <b>Q23413 castle</b> · you taught this 5 Sep · <span style="color:var(--accent)">draws on Culture only</span></div></div>
+              <div class="act"><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></span></div>
+            </div>
+            <div class="fact">
+              <div class="k">Opening hours</div>
+              <div class="v"><span style="color:var(--crit);font-weight:600">Nothing held</span>
+                <div class="src">rct.uk has them behind a booking widget · <b style="color:var(--accent)">Try again with a browser</b></div></div>
+              <div class="act"><span class="ico"><svg viewBox="0 0 24 24"><path d="M21 2v6h-6M3 12a9 9 0 0115-6.7L21 8"/></svg></span></div>
+            </div>
+            <div class="fact">
+              <div class="k">Score</div>
+              <div class="v"><b>0.770</b> · 1st in Berkshire
+                <div class="src">613,221 views/yr (1.00) · 85 sitelinks (0.97) · designated 1.00 · open 0.50 · illustrated 1.00</div></div>
+              <div class="act"><span class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg></span><span class="ico bad"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></span></div>
+            </div>
+            <div class="fact">
+              <div class="k">Standing</div>
+              <div class="v">
+                <span class="pill acc" style="background:var(--plumSoft);color:var(--plum)">Pinned — stays 1st and survives the next harvest</span>
+                <div class="src">Pin holds a row against pruning and sorts it first. Hide takes it out of the app entirely.</div></div>
+              <div class="act"><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 17v5M9 2h6l-1 7 4 3v2H6v-2l4-3z"/></svg></span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- pictures -->
+        <div class="panel" style="width:250px;flex:none">
+          <div class="ph"><span class="t">Pictures</span><span class="s">4 held</span></div>
+          <div class="pb" style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+              <div style="position:relative"><div class="thumb p1" style="width:100%;height:62px;border-radius:7px"></div>
+                <span class="pill acc" style="position:absolute;top:4px;left:4px;font-size:9px">Hero</span></div>
+              <div><div class="thumb p2" style="width:100%;height:62px;border-radius:7px"></div></div>
+              <div><div class="thumb p3" style="width:100%;height:62px;border-radius:7px"></div></div>
+              <div style="position:relative"><div class="thumb p4" style="width:100%;height:62px;border-radius:7px"></div>
+                <span class="pill crit" style="position:absolute;top:4px;left:4px;font-size:9px">Needs credit</span></div>
+            </div>
+            <div style="border-top:1px solid var(--line);padding-top:8px;font-size:11.5px;line-height:1.5">
+              <div style="font-weight:700">Curfew Tower, Windsor Castle</div>
+              <div class="dim">Julie Anne Workman · CC BY-SA 3.0</div>
+              <div class="dim">4356 × 7587 · 149 KB · 3 widths</div>
+              <a href="#" style="font-size:11px">commons.wikimedia.org →</a>
+            </div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap">
+              <span class="btn g sm">Make hero</span>
+              <span class="btn g sm">Reject</span>
+              <span class="btn g sm">Re-credit</span>
+            </div>
+            <div class="dim" style="font-size:10.5px;line-height:1.4;border-top:1px solid var(--line);padding-top:7px">
+              Rejecting a picture is a decision with a reason and a name against it. It never deletes the
+              bytes — an unrejection has to be possible.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="cap"><b>The inspector.</b> Four tabs, one place. The three-icon act on every fact row — <b>approve · correct · reject</b> — is the per-fact rejection you asked for, and it is the same gesture the Reading screen already uses for a whole record. Pin and Hide stop being unlabelled chips and become one "Standing" fact that says what they do.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ===================================================================== -->
+<section>
+<h2>The rating bench</h2>
+<p class="sub">
+  Your fundamental test: <b>is our number right?</b> A bench run samples N places, calls the provider once each,
+  holds their figures <i>in the response only</i>, and shows the two orderings side by side with the disagreements first.
+</p>
+
+<div class="with-notes">
+<div class="frame" style="min-height:470px">
+  <div class="rail" style="width:150px">
+    <div class="brand">Roam</div><div class="badge">Back office</div>
+    <i><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/></svg>Coverage</i>
+    <i><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z"/></svg>Places</i>
+    <i class="on"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>Bench</i>
+    <i><svg viewBox="0 0 24 24"><path d="M12 20h9M4 4h16v12H4z"/></svg>Teaching</i>
+  </div>
+  <div class="page">
+    <div class="head"><div class="t">Rating bench · SL4 Windsor</div>
+      <div class="s">25 places · 25 live calls · about 12p · figures held for this answer and never written</div></div>
+    <div class="body">
+      <div class="tiles">
+        <div class="tile acc"><div class="l">Rank agreement</div><div class="v">0.41</div><div class="sb">Spearman ρ · weak</div></div>
+        <div class="tile crit"><div class="l">Where we differ by 5+</div><div class="v">9</div><div class="sb">of 25 places</div></div>
+        <div class="tile warn"><div class="l">Band saturation</div><div class="v">25/25</div><div class="sb">every place bands “top” — no signal</div></div>
+        <div class="tile ok"><div class="l">Ours vs Roam</div><div class="v">0.88</div><div class="sb">our own ranking tracks the composite</div></div>
+        <div class="tile"><div class="l">Accolades found</div><div class="v">0</div><div class="sb">30% of the score is dead weight here</div></div>
+      </div>
+
+      <div class="panel" style="flex:1;min-height:0">
+        <div class="ph"><span class="t">Biggest disagreements first</span>
+          <span class="s">“Δ” is their rank minus ours</span>
+          <div class="r"><span class="chip on">SL4</span><span class="chip">All 10 areas</span><span class="btn a sm">Run the bench</span></div></div>
+        <div class="pb flush">
+          <table>
+            <tr><th>Restaurant</th><th class="num">Our rank</th><th class="num">Their rank</th><th class="num">Δ</th><th class="num">Roam</th><th class="num">Ours</th><th class="num">Google</th><th>Why we differ</th></tr>
+            <tr><td class="nm">Sushi Point</td><td class="num">10</td><td class="num">3</td><td class="num" style="color:var(--crit)">+7</td><td class="num">5.9</td><td class="num">1.7</td><td class="num">4.6 ·380</td><td class="dim">No menu read, no hours — substance 0.35</td></tr>
+            <tr><td class="nm">A La Russe</td><td class="num">6</td><td class="num">1</td><td class="num" style="color:var(--crit)">+5</td><td class="num">6.2</td><td class="num">2.6</td><td class="num">4.8 ·210</td><td class="dim">16 dishes read of a much longer menu</td></tr>
+            <tr><td class="nm">50nine</td><td class="num">9</td><td class="num">14</td><td class="num" style="color:var(--warn)">−5</td><td class="num">6.1</td><td class="num">1.9</td><td class="num">4.5 ·640</td><td class="dim">5 dishes — the crawler read a drinks list</td></tr>
+            <tr><td class="nm">Sebastian's</td><td class="num">3</td><td class="num">7</td><td class="num">−4</td><td class="num">6.5</td><td class="num">3.9</td><td class="num">4.6 ·480</td><td class="dim">215 dishes lifts substance to its cap</td></tr>
+            <tr><td class="nm">Antalya</td><td class="num">1</td><td class="num">2</td><td class="num" style="color:var(--ok)">−1</td><td class="num">6.7</td><td class="num">3.4</td><td class="num">4.7 ·1.1k</td><td class="dim">agrees</td></tr>
+            <tr><td class="nm">Meimo</td><td class="num">2</td><td class="num">4</td><td class="num" style="color:var(--ok)">−2</td><td class="num">6.7</td><td class="num">3.5</td><td class="num">4.6 ·900</td><td class="dim">agrees</td></tr>
+          </table>
+        </div>
+        <div class="ph" style="border-top:1px solid var(--line);border-bottom:0;gap:10px">
+          <span class="pill crit">Nothing on this screen is written to the database</span>
+          <span class="dim" style="font-size:11px">The run keeps only: rank correlation, count of large deltas, and which places disagreed.</span>
+          <div class="r"><span class="btn g sm">Save the verdict, not the figures</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h4>What the bench would actually tell you today</h4>
+  <ul>
+    <li class="bad"><b>Every one of Windsor's 25 bands "top".</b> A four-word band over a range where every restaurant scores 4.5–4.8 carries almost no information. The bands need re-cutting against the real distribution, or the crowd term needs to be percentile-within-area.</li>
+    <li class="bad"><b>Accolades are 30% of the score and zero for all 25.</b> Outside Michelin territory that weight silently redistributes to nothing — the composite is effectively crowd 0.71 / substance 0.29.</li>
+    <li class="bad"><b>Substance is a proxy for crawler luck.</b> 50nine ranks 9th on 5 dishes because the crawler found a drinks list. That is a scraping bug expressed as a food opinion.</li>
+    <li class="good">All three are only visible <i>because</i> the two orderings sit next to each other. That is the argument for building this.</li>
+  </ul>
+  <h4>The rule this has to obey</h4>
+  <ul>
+    <li>Technical Constraints §4 forbids <b>storing</b> the figure. A bench that fetches, compares, displays and discards is inside that line — but it is your call, and the screen says so in the footer rather than hiding it.</li>
+  </ul>
+</div>
+</div>
+<p class="cap"><b>The bench.</b> Ranks are from production; Google's column is illustrative of what a live run returns. The verdict row — ρ, delta count, which places — is the only thing persisted.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ===================================================================== -->
+<section>
+<h2>What I would build, and what I need from you</h2>
+
+<div class="grid2">
+  <div class="find ok">
+    <h4>Recommendation: B for the shell, A for the table, C's inspector</h4>
+    <p>They are not really alternatives. <b>Coverage</b> is the landing page because your question is
+      "where are the holes". <b>Places</b> is one list with type as a facet, because "have we found
+      everything" must have one answer. The <b>inspector</b> is the same four tabs everywhere.</p>
+    <p>The rail becomes: <b>Coverage · Places · Jobs &amp; spend · Teaching</b>, then the business half.
+      Atlas, Shelves and the sweep stop being destinations.</p>
+  </div>
+  <div class="find acc">
+    <h4>Shelves is a field. The sweep is a job.</h4>
+    <p>A shelf weight is a property of a location, so it belongs on the location — with a "rules you have
+      taught" list under <b>Teaching</b> beside the extraction lessons, which are the same kind of object
+      (a sentence you can argue with).</p>
+    <p>The sweep, the atlas harvest, the menu reads and the picture passes are four instances of one thing:
+      a job that costs money and writes places. One <b>Jobs &amp; spend</b> page, one cost line.</p>
+  </div>
+</div>
+
+<div class="find crit">
+  <h4>Three decisions that are yours, not mine</h4>
+  <p><b>1 · Do we merge <code>attractions</code> and <code>scout_places</code>?</b> Migration 044 already
+    made <code>attractions</code> multi-source (Wikidata, Google, OSM). Merging is the honest end of that
+    road and it is a day's migration with a backfill. Not merging is fine too — but then Coverage has to
+    union them, and every new source needs a home decided in advance.</p>
+  <p><b>2 · May the bench show me Google's figure on screen?</b> We never store it. Fetching it live,
+    showing it in a table, and keeping only the verdict is my reading of §4 — but it is a licensing
+    judgement and I would rather you make it than assume it.</p>
+  <p><b>3 · The crawler must stop throwing prose.</b> 63 free-text reasons for 126 failures is why there
+    is no recovery report today. Coding the causes (eight of them cover everything on production) is the
+    smallest change with the biggest reporting payoff, and it is the prerequisite for the whole of Option B.</p>
+</div>
+
+<div class="find">
+  <h4>Quick wins that need no decision at all</h4>
+  <p>• Make "4 pictures" a link — the endpoint already answers.
+    • Label Pin and Hide with what they do.
+    • Put <code>owned_score</code> next to <code>roam_score</code> everywhere a score is shown.
+    • Show the website address as a column and a link.
+    • Add "opening hours" to what the sweep researches — it is 0.10 of substance and null for every Windsor restaurant.</p>
+</div>
+
+<p class="dim" style="max-width:1240px;margin-top:22px;font-size:11.5px;line-height:1.6">
+  Research behind the patterns used here:
+  <a href="https://dqops.com/how-to-make-a-data-quality-dashboard/">DQOps — how to make a data quality dashboard</a> ·
+  <a href="https://dagster.io/learn/data-quality-dimensions">Dagster — data quality dimensions</a> ·
+  <a href="https://www.pencilandpaper.io/articles/ux-pattern-analysis-enterprise-data-tables">Pencil &amp; Paper — enterprise data tables</a> ·
+  <a href="https://stephaniewalter.design/blog/essential-resources-design-complex-data-tables/">Stéphanie Walter — complex data tables</a> ·
+  <a href="https://velt.dev/blog/designing-human-in-the-loop-workflows-ai-products">Velt — human-in-the-loop workflows</a> ·
+  <a href="https://atlan.com/data-catalog-tools/">Atlan — data catalog tools</a>
+</p>
+</section>
+
+</body>
+</html>
