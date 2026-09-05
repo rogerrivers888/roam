@@ -282,12 +282,25 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood }: {
     ? 'Family'
     : members.filter((m) => attending.has(m.id)).map((m) => firstName(m.name)).join(', ') || 'Nobody yet';
 
+  /**
+   * The place, opened.
+   *
+   * Our own photograph travels in as the drawer's picture, carrying its credit
+   * — which is where the credit now lives (owner, 5 Sep 2026: "I don't want the
+   * credits on the main image. They can go into the side drawer when you click
+   * through onto the image"). The licence is still satisfied: the line is shown
+   * with the picture at the size anybody would actually look at it, rather than
+   * set in 10px grey under a thumbnail, and it is in the drawer's footer too.
+   */
   const open = (item: InspireItem) => setDrawer({
     id: item.venueRef, venueRef: item.venueRef, name: item.name, category: item.category,
     lat: item.lat, lng: item.lng, dwellMinutes: item.dwellMinutes, reasons: [], justification: null,
     startsAt: null, endsAt: null, pinned: false,
     rating: item.rating, ratingCount: item.ratingCount, priceLevel: item.priceLevel,
-    photos: item.photos, summary: null, attribution: item.attribution.join(' · ') || null,
+    photos: item.image
+      ? [{ url: `${API_URL}/api/images/${item.image.id}/960`, attribution: item.image.credit ?? undefined }]
+      : item.photos,
+    summary: item.summary ?? null, attribution: item.attribution.join(' · ') || null,
     distanceKm: item.distanceKm, travelFromBaseMinutes: item.travelMinutes,
     source: item.source,
   } as BrowseItem);
@@ -633,7 +646,6 @@ function Card({ item, wide, onOpen, onKeep, kept }: {
   const [loaded, setLoaded] = useState(false);
   const price = priceMarks(item.priceLevel);
   const kind = kindLine(item);
-  const credit = owned?.creditRequired ? owned.credit : null;
   return (
     <Pressable onPress={() => onOpen(item)} style={{ width: w, gap: spacing.sm }} accessibilityRole="button" accessibilityLabel={item.name}>
       <View style={[styles.tile, { width: w, height: h }]}>
@@ -661,11 +673,7 @@ function Card({ item, wide, onOpen, onKeep, kept }: {
         <Text style={styles.cardName} numberOfLines={2}>{item.name}</Text>
         <Text style={type.small}>{minutes(item.travelMinutes)} · {minutes(item.dwellMinutes)}</Text>
         {price || kind ? <Text style={[type.small, { color: colors.ink }]} numberOfLines={1}>{price ?? kind}</Text> : null}
-        {/* Shown because the licence says so, and only while the picture is.
-            Two lines, because a credit cut off at "via Wikimedia Com…" has not
-            credited anybody — the condition is the whole line, not a gesture
-            at it. */}
-        {credit && !failed ? <Text style={styles.credit} numberOfLines={2}>{credit}</Text> : null}
+
       </View>
     </Pressable>
   );
@@ -738,7 +746,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center',
   },
   cardName: { fontSize: 14, fontWeight: '700', lineHeight: 18, color: colors.ink },
-  credit: { fontSize: 10, lineHeight: 13, color: colors.inkFaint },
   waiting: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
   empty: { gap: 6, paddingVertical: spacing.lg },
   foot: { gap: 6, paddingTop: spacing.lg },
