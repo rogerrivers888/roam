@@ -37,7 +37,7 @@
 -- what was read
 -- ---------------------------------------------------------------------------
 
-create table attraction_facts (
+create table if not exists attraction_facts (
   attraction_id uuid primary key references attractions(id) on delete cascade,
 
   -- The filled-in form. One jsonb rather than fifteen columns because the shape
@@ -81,8 +81,8 @@ create table attraction_facts (
   read_at      timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
-create index attraction_facts_review_idx on attraction_facts (review, read_at desc);
-create index attraction_facts_approved_idx on attraction_facts (review) where review = 'approved';
+create index if not exists attraction_facts_review_idx on attraction_facts (review, read_at desc);
+create index if not exists attraction_facts_approved_idx on attraction_facts (review) where review = 'approved';
 
 -- ---------------------------------------------------------------------------
 -- what he taught it
@@ -97,7 +97,7 @@ create index attraction_facts_approved_idx on attraction_facts (review) where re
 -- because the categories are too coarse to teach against: Q23413 castle and
 -- Q33506 museum are both `heritage` on some rows, and a rule about keeps must
 -- not reach a museum. `place_kinds` already holds the label for ~1,500 types.
-create table extraction_lessons (
+create table if not exists extraction_lessons (
   id          uuid primary key default gen_random_uuid(),
   -- 'all' — every read. 'kind' — every place of this Wikidata type. 'place' —
   -- this one row, for when the article itself is the odd thing.
@@ -131,7 +131,7 @@ create table extraction_lessons (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create index extraction_lessons_scope_idx on extraction_lessons (scope, subject) where active;
+create index if not exists extraction_lessons_scope_idx on extraction_lessons (scope, subject) where active;
 
 -- The owner reads and teaches; support and analysts may look.
 insert into role_capabilities (role_id, capability)

@@ -89,6 +89,10 @@ function shape(row) {
     country: a.country || null,
     countryCode: a.country_code ? a.country_code.toUpperCase() : null,
     locality,
+    // Nominatim's own breakdown, untouched. `locality` is the one answer most
+    // callers want; this is for the caller that needs to know whether that
+    // answer came from a town, a village or a council's name.
+    parts: a,
     kind: row.type || row.class || null,
     source: 'osm',
     sourcePlaceId: `${row.osm_type}/${row.osm_id}`,
