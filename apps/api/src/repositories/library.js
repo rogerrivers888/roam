@@ -198,6 +198,10 @@ export async function retireDeniedAttractions() {
             note = coalesce(a.note, 'Withdrawn: its type is not something to go and do'),
             updated_at = now()
       where a.state <> 'hidden'
+        -- Pinned beats the rule, as it does everywhere else here. Cliveden is
+        -- a country house hotel and a National Trust property, and the type
+        -- alone cannot tell it from Elcot Park; a person can, once, for good.
+        and not a.pinned
         and exists (select 1 from unnest(a.kinds) as k(qid)
                      join place_kinds pk on pk.qid = k.qid
                     where pk.admit = false)
