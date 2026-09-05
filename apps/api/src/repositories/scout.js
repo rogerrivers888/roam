@@ -146,13 +146,15 @@ export async function menusDue(limit = 5) {
     `select p.venue_ref, coalesce(p.name, r.name) as name, coalesce(r.website, p.website) as website,
             r.menu_url, r.address, r.postcode, r.category, p.area_code
        from scout_places p
+       join scout_areas a on a.code = p.area_code
        join place_records r on r.venue_ref = p.venue_ref
        left join place_menus m on m.venue_ref = p.venue_ref
-      -- What a menu needs is an address to fetch, not a finished research pass.
-      -- Gating this on enrich_state = 'done' meant a Google 429 on the "what is
-      -- this place" step — which has nothing to do with menus — held up the
-      -- entire menu pipeline behind it (found 5 Sep 2026).
-      where coalesce(r.website, p.website) is not null
+      -- Only the top of each area before anybody asks, and anything a household
+      -- has actually claimed whatever its rank (migration 047). Reading a menu
+      -- is the only expensive thing here, and most are never opened.
+      where (p.rank <= ceil(a.keep * a.menu_share)
+             or exists (select 1 from place_claims pc where pc.venue_ref = p.venue_ref))
+        and coalesce(r.website, p.website) is not null
         and (m.venue_ref is null
              or (m.state not in ('read', 'found') and m.attempts < 4 and (m.next_attempt_at is null or m.next_attempt_at <= now())))
       order by p.rank limit $1`,
@@ -222,11 +224,19 @@ export async function menusToRead(limit = 5, ref = null) {
             coalesce(r.name, p.name) as name, r.address, r.postcode
        from place_menus m
        join scout_places p on p.venue_ref = m.venue_ref
+       join scout_areas a on a.code = p.area_code
        left join place_records r on r.venue_ref = m.venue_ref
       where m.menu_url is not null
         and ($2::text is null or m.venue_ref = $2)
         and (m.state = 'found' or $2::text is not null)
-      order by p.rank limit $1`,
+        -- Same rule as menusDue: the top of the area, or a place somebody asked
+        -- for. A named ref is somebody asking, so it is not held to the share.
+        and ($2::text is not null
+             or p.rank <= ceil(a.keep * a.menu_share)
+             or exists (select 1 from place_claims pc where pc.venue_ref = p.venue_ref))
+      -- A place a household claimed goes first: somebody is waiting for that one.
+      order by (exists (select 1 from place_claims pc where pc.venue_ref = p.venue_ref)) desc, p.rank
+      limit $1`,
     [limit, ref],
   );
   return rows;
@@ -290,4 +300,48 @@ export async function spend() {
 export async function nameAreas() {
   const { rows } = await query('select distinct name, area_code from scout_places where name is not null');
   return rows;
+}
+
+/** Set how much of an area is worth a menu before anyone asks. */
+export async function setMenuShare(code, share) {
+  const { rows } = await query(
+    'update scout_areas set menu_share = $2 where code = $1 returning code, keep, menu_share', [code, share],
+  );
+  return rows[0] ?? null;
+}
+
+/** The same, for every area in one go — a county at a time. */
+export async function setMenuShareForAll(share, keep = null) {
+  const { rows } = await query(
+    `update scout_areas set menu_share = $1, keep = coalesce($2, keep) returning code`, [share, keep],
+  );
+  return rows.length;
+}
+
+/** What Roam already knows about one place's menu, if anything. */
+export async function menuStateOf(venueRef) {
+  const { rows } = await query('select state, menu_url, attempts from place_menus where venue_ref = $1', [venueRef]);
+  return rows[0] ?? null;
+}
+
+/**
+ * Enough to go looking for one place's menu, from wherever we know it.
+ *
+ * A claimed place may never have been swept — a household can shortlist
+ * somewhere in a county Roam has not reached — so the owned record is the
+ * first source and the sweep's row is the fallback.
+ */
+export async function placeForMenu(venueRef) {
+  const { rows } = await query(
+    `select coalesce(r.name, p.name) as name,
+            coalesce(r.website, p.website) as website,
+            r.address, coalesce(r.postcode, h.postcode) as postcode
+       from place_records r
+       full join scout_places p on p.venue_ref = r.venue_ref
+       left join lateral (select postcode from household_places where venue_ref = $1 and postcode is not null limit 1) h on true
+      where coalesce(r.venue_ref, p.venue_ref) = $1
+      limit 1`,
+    [venueRef],
+  );
+  return rows[0] ?? null;
 }

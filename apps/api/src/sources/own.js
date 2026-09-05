@@ -40,6 +40,9 @@ import { googleSource } from './google.js';
 // Whether the owner has a key for it, and has not switched it off in Settings:
 // asking a source the owner has turned off is not ours to do.
 import { sourceHasKey, sourceOff } from './index.js';
+// The picture ladder: a mark, a Commons photograph or a street-level frame of
+// the front door — never a photograph of somebody's food that we did not take.
+import { sweepPictures } from './placePicture.js';
 
 // How long a failed attempt waits before it is tried again. Overpass rate-limits
 // by IP and a restaurant's website goes down for an afternoon; neither is a
@@ -60,6 +63,10 @@ const CONCURRENCY = 1;
 // A record is re-researched twice a year, so a restaurant that changed its
 // phone number is not wrong for ever.
 const REFRESH_AFTER_DAYS = 180;
+// How many places the picture ladder looks at per tick. Small: each one can be
+// three requests to three different strangers' servers, and there is nobody
+// waiting on the answer.
+const PICTURE_BATCH = 6;
 
 /**
  * What the research can do, as a number.
@@ -494,6 +501,18 @@ export async function claimPlace(householdId, venueRef, reason, seed = {}) {
     return;
   }
   queueEnrichment(venueRef, { householdId, seed });
+
+  // And put the menu in line (owner, 5 Sep 2026: "a user can request the menu
+  // if they add it to a trip, and then we can go get the menu as soon as it's
+  // added"). Only the acts that mean somebody intends to eat there — being
+  // somewhere once is not a reason to pay to read its menu — and only ever a
+  // queue: nothing here waits, and the household's own tap on the Menu tab
+  // still reads it there and then.
+  if (['shortlisted', 'saved', 'special', 'planned'].includes(reason)) {
+    import('./scoutArea.js')
+      .then((m) => m.wantMenu(venueRef, householdId))
+      .catch((err) => console.warn(`own: could not queue the menu for ${venueRef}: ${err.message}`));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -557,13 +576,23 @@ export async function ownedSummary(householdId) {
 
 /**
  * The background loop. Catches up on anything claimed but not yet researched,
- * and sweeps expired facts. Started by the server; slow on purpose, because
+ * sweeps expired facts, and goes looking for a picture for the places that have
+ * a record but no card image. Started by the server; slow on purpose, because
  * nothing here is urgent and Overpass is somebody else's machine.
+ *
+ * The picture pass runs last and in a small batch, because it is the least
+ * urgent of the three and the most likely to be waiting on somebody's slow
+ * server. A place that has just been researched has a website and a point on
+ * the map for the first time, which is exactly what the ladder needs — so it is
+ * worth running in the same tick rather than on a clock of its own.
  */
-export function startOwnLoop({ everyMs = 5 * 60_000 } = {}) {
+export function startOwnLoop({ everyMs = 5 * 60_000, pictures = PICTURE_BATCH } = {}) {
   const tick = async () => {
     try { await sweepExpired(); } catch (err) { console.warn(`own: sweep failed: ${err.message}`); }
     try { await catchUp(); } catch (err) { console.warn(`own: catch-up failed: ${err.message}`); }
+    if (pictures > 0) {
+      try { await sweepPictures({ limit: pictures }); } catch (err) { console.warn(`own: picture sweep failed: ${err.message}`); }
+    }
   };
   // A first pass a minute after boot, so a deploy does not race the migration.
   const first = setTimeout(tick, 60_000);

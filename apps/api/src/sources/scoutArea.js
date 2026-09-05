@@ -445,6 +445,34 @@ async function siteCounts() {
   return (name) => byName.get(norm(name))?.size ?? 1;
 }
 
+
+/**
+ * Somebody wants this menu, so go and get it.
+ *
+ * A place outside the top slice of its area has no menu read for it in advance
+ * — that is the saving. A household act cancels that: shortlisting a place, or
+ * putting it in a plan, says this one matters, and `menusDue`/`menusToRead`
+ * both let a claimed place through whatever its rank. This finds the address
+ * now and leaves the reading to the next tick of the loop, which is a few
+ * minutes rather than the days a place at rank twenty-eight would otherwise
+ * wait (owner, 5 Sep 2026).
+ */
+export async function wantMenu(venueRef, householdId = null) {
+  const known = await scout.menuStateOf(venueRef);
+  if (known?.state === 'read' || known?.state === 'found') return { state: known.state };
+  const row = await scout.placeForMenu(venueRef);
+  if (!row?.website) return { state: 'no website' };
+  const link = await findMenuUrl({ website: row.website, name: row.name, locality: row.postcode, address: row.address });
+  if (!link.url) {
+    await scout.recordMenuMiss(venueRef, { venueLabel: row.name, why: link.why || 'No menu found on their site.', nextAttemptAt: backoff(1) });
+    return { state: 'none', why: link.why };
+  }
+  await scout.recordMenuFound(venueRef, { venueLabel: row.name, menuUrl: link.url, how: link.how });
+  // Read it on the next tick rather than here: the household is not waiting on
+  // this call, and a read is a minute of somebody else's server and ours.
+  return { state: 'found', url: link.url };
+}
+
 const backoff = (attempts) => new Date(Date.now() + (MENU_BACKOFF_H[Math.min(attempts, MENU_BACKOFF_H.length) - 1] ?? 720) * 3600_000);
 
 /** The background loop: one area at a time, then menus. Nothing here is urgent. */

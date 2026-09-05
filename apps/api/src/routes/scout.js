@@ -173,7 +173,8 @@ router.get('/cost', requires('view_library'), async (_req, res, next) => {
 router.post('/counties/:name', requires('manage_library'), async (req, res, next) => {
   try {
     const { place, outcodes } = await outcodesIn(req.params.name);
-    const keep = Number(req.body?.keep) || 25;
+    const keep = Number(req.body?.keep) || 30;
+    const menuShare = req.body?.menuShare == null ? null : Number(req.body.menuShare);
     const radiusKm = Number(req.body?.radiusKm) || 2.5;
     const added = [];
     for (const [i, o] of outcodes.entries()) {
@@ -186,6 +187,7 @@ router.post('/counties/:name', requires('manage_library'), async (req, res, next
         lat: o.lat, lng: o.lng, radiusKm, keep,
         nextSweepAt: existing?.next_sweep_at ?? new Date(Date.now() + i * 60_000),
       });
+      if (menuShare != null) await scout.setMenuShare(o.code, menuShare);
       added.push({ code: area.code, label: area.label, swept: Boolean(existing?.swept_at) });
     }
     res.status(201).json({
@@ -194,6 +196,27 @@ router.post('/counties/:name', requires('manage_library'), async (req, res, next
       alreadySwept: added.filter((a) => a.swept).length,
       areas: added,
     });
+  } catch (err) { next(err); }
+});
+
+
+/**
+ * How much of an area is worth a menu before anybody asks.
+ *
+ * Owner, 5 Sep 2026: "maybe we just take the top 20% of restaurants' menus…
+ * In the case of London, we might take the top 10%." So it is a dial rather
+ * than a constant, and it can differ by place: a London postcode holds far
+ * more restaurants than a Surrey one, and the tenth of it that people actually
+ * search is still a longer list.
+ */
+router.post('/menus/share', requires('manage_library'), async (req, res, next) => {
+  try {
+    const share = Number(req.body?.share);
+    if (!(share > 0 && share <= 1)) return res.status(400).json({ error: 'share_required', message: 'A fraction between 0 and 1 — 0.2 is the top fifth.' });
+    const keep = req.body?.keep == null ? null : Number(req.body.keep);
+    const code = String(req.body?.code || '').trim().toUpperCase() || null;
+    if (code) return res.json({ area: await scout.setMenuShare(code, share) });
+    res.json({ areas: await scout.setMenuShareForAll(share, keep), share, keep });
   } catch (err) { next(err); }
 });
 
