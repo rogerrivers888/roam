@@ -333,13 +333,13 @@ export async function readFoundMenus({ limit = 2, householdId = null, sessionId 
     try {
       let read;
       try {
-        read = await readMenu({ url: row.menu_url, venueLabel: row.venue_label, householdId, sessionId });
+        read = await readMenu({ url: row.menu_url, venueLabel: row.venue_label, householdId, sessionId, searchTheWeb });
       } catch (err) {
         // The page we found is an index, not a menu: "Select a menu to view",
         // with the four real menus one click further in. Sebastian's Windsor is
         // exactly this, and it is the same click-through the owner opened with.
         if (!/menu_had_no_items|menu_unreadable/.test(err.message)) throw err;
-        read = await readChildren(row, { householdId, sessionId });
+        read = await readChildren(row, { householdId, sessionId, searchTheWeb });
         if (!read) throw err;
       }
       const stored = await recordMenuRead({ venueRef: row.venue_ref, venueLabel: row.venue_label, read });
@@ -365,7 +365,7 @@ export async function readFoundMenus({ limit = 2, householdId = null, sessionId 
  * so the household sees one menu with "Dinner · Starters" in it rather than
  * three menus or none.
  */
-async function readChildren(row, { householdId, sessionId, max = 3, depth = 2 } = {}) {
+async function readChildren(row, { householdId, sessionId, max = 3, depth = 2, searchTheWeb = false } = {}) {
   // The words that say which restaurant this is. A group's menu page asks
   // before it shows you anything, and the answer is in the venue's own name as
   // often as in the town: Megan's Windsor is "megans-by-the-crown", with no
@@ -384,12 +384,12 @@ async function readChildren(row, { householdId, sessionId, max = 3, depth = 2 } 
     try {
       let part = null;
       try {
-        part = await readMenu({ url: child.url, venueLabel: row.venue_label, householdId, sessionId });
+        part = await readMenu({ url: child.url, venueLabel: row.venue_label, householdId, sessionId, searchTheWeb });
       } catch (err) {
         // One more level, once. Megan's is a chooser, then a branch page, then
         // nine PDFs — three deep, and stopping at two found nothing.
         if (depth <= 1 || !/menu_had_no_items|menu_unreadable/.test(err.message)) throw err;
-        part = await readChildren({ ...row, menu_url: child.url }, { householdId, sessionId, max, depth: depth - 1 });
+        part = await readChildren({ ...row, menu_url: child.url }, { householdId, sessionId, max, depth: depth - 1, searchTheWeb });
       }
       if (!part?.sections?.length) continue;
       const label = child.label?.trim();

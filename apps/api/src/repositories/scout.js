@@ -229,7 +229,8 @@ export async function menusToRead(limit = 5, ref = null) {
   // without it a particular restaurant can sit behind ninety others while
   // somebody is waiting to see whether a fix worked.
   const { rows } = await query(
-    `select m.venue_ref, m.venue_label, m.menu_url, p.area_code,
+    `select m.venue_ref, m.venue_label, m.menu_url, p.area_code, p.rank,
+            exists (select 1 from place_claims pc where pc.venue_ref = p.venue_ref) as claimed,
             coalesce(r.name, p.name) as name, r.address, r.postcode
        from place_menus m
        join scout_places p on p.venue_ref = m.venue_ref

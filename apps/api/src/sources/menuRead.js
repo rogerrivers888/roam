@@ -718,7 +718,7 @@ export async function describeDish({ name, hint, householdId, sessionId }) {
  * show — "read their PDF", "rendered their page", "read by Claude" — because
  * a household should be able to see where the dishes on their phone came from.
  */
-export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun = false }) {
+export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun = false, searchTheWeb = false }) {
   if (!/^https?:\/\//i.test(String(url || ''))) throw Object.assign(new Error('menu_url_required'), { status: 400 });
 
   const steps = [];
@@ -778,6 +778,28 @@ export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun
         }
       }
     }
+  }
+
+  // Still nothing readable. Claude searches the open web for the menu and
+  // writes it out — and this step has to earn its place, because it does not.
+  //
+  // Measured over 127 menus (5 Sep 2026): 61 calls, 14 menus, $12.22 — 11% of
+  // the menus we hold and 52% of everything the sweep has ever spent. Seventy-
+  // seven per cent of the calls produced nothing at all and still cost twenty
+  // cents each. Worse than the price: it is the only opener that *writes* a
+  // menu rather than reading one, from search results rather than from a page
+  // we chose, so a dish or a price it invents is indistinguishable from one it
+  // found. Everything else here transcribes something we are looking at.
+  //
+  // So it is off unless the caller asks for it, and the caller only asks for
+  // the places worth it — the top few of an area, or one a household has
+  // actually chosen. Everywhere else the honest answer is "they publish no
+  // menu we could read", which is a fact worth recording (owner, 5 Sep 2026).
+  if (text.length < THIN_TEXT && !searchTheWeb) {
+    const err = new Error('menu_unreadable');
+    err.status = 422;
+    err.steps = [...steps, 'nothing readable on the page, and searching the web for it was not worth the cost here'];
+    throw err;
   }
 
   // Still nothing readable: Claude opens it, and anything the restaurant
