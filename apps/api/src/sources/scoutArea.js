@@ -31,6 +31,7 @@
 
 import * as scout from '../repositories/scout.js';
 import * as owned from '../repositories/ownedPlaces.js';
+import * as providerCalls from '../repositories/providerCalls.js';
 import { osmSource } from './osm.js';
 import { sweepArea as googleSweep } from './google.js';
 import { detectChain } from '../domain/chains.js';
@@ -83,7 +84,7 @@ const samePlace = (a, b) => {
  * open map answered and the licensed search did not is still a useful sweep,
  * and saying so is more honest than a failure.
  */
-export async function sweep(code, { dryRun = false } = {}) {
+export async function sweep(code, { dryRun = false, householdId = null } = {}) {
   const area = await scout.areaFor(code);
   if (!area) throw Object.assign(new Error(`No area called ${code}. Add it first.`), { status: 404 });
   if (!dryRun && !(await scout.markSweeping(code))) return { code, state: 'sweeping', why: 'A sweep of this area is already running.' };
@@ -117,6 +118,10 @@ export async function sweep(code, { dryRun = false } = {}) {
   try {
     const { places, calls, problems } = await googleSweep({ center, radiusKm, queries: QUERIES, pages: 2 });
     googleCalls = calls;
+    // Every outbound provider call is attributed (CLAUDE.md; Technical
+    // Constraints §2). A sweep is not a household's search, so it is logged
+    // against the estate's own household with a purpose that says what it was.
+    if (calls) await logSweepCalls(householdId, calls);
     // Said out loud rather than left as a zero.
     if (problems?.length) notes.push(`the crowd pass was refused: ${problems[0]}`);
     for (const g of places) {
@@ -355,6 +360,26 @@ async function readChildren(row, { householdId, sessionId, max = 3 } = {}) {
     currency: null,
     how: [`the page was a list of menus; read ${from.length} of them`],
   };
+}
+
+
+/**
+ * Write the sweep's licensed requests to `provider_calls`.
+ *
+ * The record is of what we asked of whom, not of what came back, so a refused
+ * request counts the same as an answered one. A sweep has no household behind
+ * it — nobody asked — so it is attributed to the estate's own, which is how the
+ * bill for going looking stays separate from the bill for someone searching.
+ */
+async function logSweepCalls(householdId, calls) {
+  try {
+    const id = householdId ?? (await firstHousehold())?.id;
+    if (!id) return;
+    // `units` is the meter's shape: what each provider billed for.
+    await providerCalls.record(id, 'google', 'scout.sweep', { google: calls }, null);
+  } catch (err) {
+    console.warn(`scout: could not record ${calls} provider call(s): ${err.message}`);
+  }
 }
 
 const backoff = (attempts) => new Date(Date.now() + (MENU_BACKOFF_H[Math.min(attempts, MENU_BACKOFF_H.length) - 1] ?? 720) * 3600_000);

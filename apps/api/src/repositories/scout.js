@@ -235,3 +235,33 @@ export async function retryMisses() {
   );
   return rows.length;
 }
+
+/**
+ * What going looking has actually cost, by purpose.
+ *
+ * The owner, 5 Sep 2026: "could you confirm any API costs that we have incurred
+ * or estimated… We've got 25 restaurants here, and there are probably 50,000 in
+ * the UK. Just trying to understand the quantum of this task."
+ *
+ * So this is the real ledger rather than an estimate: `provider_calls` rows for
+ * the purposes the sweep uses, with Anthropic's own token cost where there is
+ * one. The free sources are in here too, at zero, because "the open map
+ * answered 165 times and charged nothing" is part of understanding the shape of
+ * the bill.
+ */
+export async function spend() {
+  const { rows } = await query(
+    `select provider, purpose,
+            count(*)::int                                   as calls,
+            coalesce(sum((units->>'google')::int), 0)::int  as google_requests,
+            coalesce(sum(estimated_cost_usd), 0)::numeric   as cost_usd,
+            coalesce(sum(input_tokens), 0)::bigint          as in_tokens,
+            coalesce(sum(output_tokens), 0)::bigint         as out_tokens,
+            min(created_at)                                 as first_at,
+            max(created_at)                                 as last_at
+       from provider_calls
+      where purpose in ('scout.sweep', 'menu.read', 'menu.read.web', 'menu.dish', 'own.match', 'own.geocode')
+      group by provider, purpose order by 5 desc, 3 desc`,
+  );
+  return rows;
+}

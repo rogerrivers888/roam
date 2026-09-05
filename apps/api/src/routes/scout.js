@@ -128,6 +128,23 @@ router.post('/menus/retry', requires('manage_library'), async (_req, res, next) 
   } catch (err) { next(err); }
 });
 
+/** What the sweep has cost so far, from provider_calls rather than an estimate. */
+router.get('/cost', requires('view_library'), async (_req, res, next) => {
+  try {
+    const lines = await scout.spend();
+    const areas = await scout.coverage();
+    const places = areas.reduce((n, a) => n + a.places, 0);
+    const menus = areas.reduce((n, a) => n + a.menus, 0);
+    const usd = lines.reduce((n, l) => n + Number(l.cost_usd || 0), 0);
+    res.json({
+      lines,
+      totals: { usd: Math.round(usd * 10000) / 10000, places, menus,
+        perPlaceUsd: places ? Math.round((usd / places) * 10000) / 10000 : null,
+        perMenuUsd: menus ? Math.round((usd / menus) * 10000) / 10000 : null },
+    });
+  } catch (err) { next(err); }
+});
+
 export default router;
 
 /**
