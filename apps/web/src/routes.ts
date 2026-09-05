@@ -79,8 +79,15 @@ export const MOODS: MoodKey[] = ['fun', 'food', 'culture', 'adrenaline', 'relaxi
  */
 export type TripSection = 'itinerary' | 'places' | 'map' | 'find' | 'shortlist' | 'day' | 'stay' | 'group' | 'data';
 export const TRIP_SECTIONS: TripSection[] = ['itinerary', 'places', 'map', 'find', 'shortlist', 'day', 'stay', 'group', 'data'];
-/** The three the segmented control draws; the others are reached from the menu. */
-export const TRIP_TABS: TripSection[] = ['itinerary', 'places', 'map'];
+/**
+ * The tabs the segmented control draws; the others are reached from the ⋯ menu.
+ *
+ * Group is one of them (owner, 5 Sep 2026: "We've lost the group tab… can you
+ * please add group into the boxes at the top?"). It is not a working surface
+ * like Find or the shortlist — it is other people, waiting on you — so putting
+ * it behind a menu made it something you had to remember to go and look at.
+ */
+export const TRIP_TABS: TripSection[] = ['itinerary', 'places', 'map', 'group'];
 
 export type SettingsSection = 'preferences' | 'providers';
 export const SETTINGS_SECTIONS: SettingsSection[] = ['preferences', 'providers'];

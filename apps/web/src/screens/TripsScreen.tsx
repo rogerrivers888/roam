@@ -741,8 +741,7 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
     { value: 'shortlist', label: `Shortlist · ${shortlist.length}`, icon: 'shortlist', hint: 'What is still to call and book' },
     { value: 'day', label: isTrip ? `Plan a day · ${days.length}` : 'Plan the day', icon: 'calendar', hint: 'Order the day and see if it fits' },
     ...(isTrip ? [{ value: 'stay' as Section, label: 'Stay', icon: 'hotel' as IconName, hint: booked ? booked.label.split(',')[0] : 'Nowhere booked yet' }] : []),
-    // Who else is coming, and what is still wanted from them (owner, 4 Sep 2026).
-    { value: 'group', label: 'Group', icon: 'household', hint: 'Who else is coming, and what they owe' },
+    // Group is a tab of its own now, not a menu item (owner, 5 Sep 2026).
     // What every source returned for a day, and where the plan lost it (owner,
     // 4 Sep 2026: "I'd like to be able to see the data for each one of these
     // APIs, to see how rich it is"). Admin only: it re-runs the retrieval.
@@ -753,6 +752,10 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
     { value: 'itinerary', label: 'Itinerary' },
     { value: 'places', label: `Places${tripPlaces ? ` · ${tripPlaces.counts.all}` : ''}` },
     { value: 'map', label: 'Map' },
+    // Who else is coming, and what is still wanted from them (owner, 4 Sep
+    // 2026; back on the top row 5 Sep 2026). Four fit across 390px; the count
+    // beside Places is what gives way if a fifth ever has to.
+    { value: 'group', label: 'Group' },
   ];
 
   const dayChips = isTrip ? (
