@@ -107,13 +107,15 @@ router.post('/menus/read', requires('manage_library'), async (req, res, next) =>
     const limit = Math.min(40, Number(req.body?.limit) || 3);
     const household = await currentHousehold();
     const sessionId = req.session?.id ?? null;
+    // One place by name, for proving a fix without waiting for its turn.
+    const ref = String(req.body?.ref || '').trim() || null;
 
     // A menu takes the better part of a minute to read and a batch of four
     // outlives the proxy in front of this API — the reads finished, the answer
     // never arrived, and from here it looked like a failure (found 5 Sep 2026).
     // So a batch is started and not waited on; `GET /api/admin/scout/` is where
     // the progress is.
-    if (req.body?.wait === true) return res.json(await readFoundMenus({ limit, householdId: household.id, sessionId }));
+    if (req.body?.wait === true || ref) return res.json(await readFoundMenus({ limit: ref ? 1 : limit, householdId: household.id, sessionId, ref }));
     const pending = await scout.menusToRead(limit);
     void readFoundMenus({ limit, householdId: household.id, sessionId })
       .catch((err) => console.warn(`scout: batch menu read failed: ${err.message}`));
