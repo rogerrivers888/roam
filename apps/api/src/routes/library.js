@@ -37,6 +37,8 @@ import { can, requires } from '../access.js';
 import * as lib from '../repositories/library.js';
 import { runHarvest, refreshKinds, WIDTHS } from '../sources/harvest.js';
 import { sweepRegion, sweepCost, ACTIVITY_QUERIES } from '../sources/activitySweep.js';
+import { sweepPictures, PICTURE_VERSION } from '../sources/placePicture.js';
+import { mapillaryReady } from '../sources/streetLevel.js';
 import { query } from '../db.js';
 
 const bad = (message, code = 'bad_request') => Object.assign(new Error(message), { status: 400, code });
@@ -381,6 +383,74 @@ adminRouter.post('/harvest', requires('manage_library'), async (req, res, next) 
 });
 
 // ---------------------------------------------------------------------------
+// pictures for places
+// ---------------------------------------------------------------------------
+
+/**
+ * What the picture ladder has managed so far, and what is still standing in its
+ * way.
+ *
+ * `mapillary` is reported because its absence is the single biggest hole in the
+ * coverage and it is not something an agent may fix: the token is free and does
+ * not bill, but it is a secret, and secrets come from Doppler by the owner's
+ * hand (CLAUDE.md). Saying so on the screen is better than the street-level
+ * rung quietly answering "nothing" for every place in the country.
+ */
+adminRouter.get('/pictures', requires('view_library'), async (_req, res, next) => {
+  try {
+    const stats = await lib.pictureStats();
+    const { rows: recent } = await query(
+      `select p.venue_ref, r.name, p.state, p.rung, p.tried, p.error, p.looked_at
+         from place_image_passes p left join place_records r on r.venue_ref = p.venue_ref
+        order by p.looked_at desc limit 40`);
+    res.json({
+      stats,
+      recent,
+      version: PICTURE_VERSION,
+      rungs: [
+        { key: 'household', what: 'A photograph somebody in the house took', ready: true },
+        { key: 'logo', what: 'The mark the business publishes for other software to draw', ready: true },
+        { key: 'wikimedia', what: 'A Commons photograph, via Wikidata or Wikipedia', ready: true },
+        { key: 'kartaview', what: 'A street-level frame of the shopfront (no key needed, thin coverage)', ready: true },
+        {
+          key: 'mapillary',
+          what: 'A street-level frame of the shopfront (far better coverage)',
+          ready: mapillaryReady(),
+          blocked: mapillaryReady() ? null : 'Needs MAPILLARY_TOKEN in Doppler. The token is free and does not bill, but it is a secret, so it is the owner’s to add.',
+        },
+      ],
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Walk the ladder over the places that have no picture.
+ *
+ * Not awaited, like the harvest: a thousand places is a long walk over other
+ * people's servers and an HTTP request is not the place to hold it. Unlike the
+ * harvest this one is also running quietly in the background loop
+ * (sources/own.js), so this endpoint is the way to make it hurry rather than
+ * the only way it ever happens.
+ */
+adminRouter.post('/pictures', requires('manage_library'), async (req, res, next) => {
+  try {
+    const limit = Math.min(500, Math.max(1, Number(req.body?.limit) || 50));
+    // `force` looks again at places already settled — the thing to do after
+    // adding a token, and nothing else.
+    const force = req.body?.force === true;
+    await query(
+      `insert into admin_audit (actor_id, actor_label, action, subject_type, subject_id, after)
+       values ($1,$2,'library.pictures','sweep',null,$3)`,
+      [req.account?.id ?? null, actorOf(req), JSON.stringify({ limit, force })]);
+
+    sweepPictures({ limit, force, onLine: (line) => console.log(`pictures: ${line}`) })
+      .catch((err) => console.warn(`pictures: sweep failed: ${err.message}`));
+
+    res.status(202).json({ started: true, limit, force });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
 // the activity sweep — the one thing here that spends money
 // ---------------------------------------------------------------------------
 
@@ -399,22 +469,28 @@ adminRouter.post('/sweep', requires('manage_library'), async (req, res, next) =>
     if (!Array.isArray(regions) || !regions.length) throw bad('Name the regions to sweep');
     if (regions.length > 4) throw bad('Four regions at a time. This one spends money.');
 
-    const before = await sweepCost();
-    const results = [];
-    for (const slug of regions) {
-      results.push(await sweepRegion(slug, {
-        across, pages, spanKm, dryRun,
-        queries: Array.isArray(queries) && queries.length ? queries : undefined,
-        startedBy: actorOf(req),
-      }));
-    }
-    const after = await sweepCost();
     await query(
       `insert into admin_audit (actor_id, actor_label, action, subject_type, after)
        values ($1,$2,'library.sweep','sweep',$3)`,
-      [req.account?.id ?? null, actorOf(req),
-       JSON.stringify({ regions, dryRun, calls: after.calls - before.calls })]);
-    res.json({ results, cost: after, queries: (queries ?? ACTIVITY_QUERIES).length });
+      [req.account?.id ?? null, actorOf(req), JSON.stringify({ regions, dryRun })]);
+
+    // Answered at once and run behind, like the harvest. A county is a few
+    // minutes of Google and a large Overpass query, and Railway's gateway gives
+    // up at five — the first real sweep died there with 264 requests spent and
+    // nothing written, because the work was inside the request.
+    const opts = { across, pages, spanKm, dryRun, startedBy: actorOf(req),
+      queries: Array.isArray(queries) && queries.length ? queries : undefined };
+    (async () => {
+      for (const slug of regions) {
+        try { await sweepRegion(slug, opts); }
+        catch (err) { console.error(`sweep ${slug}:`, err.message); }
+      }
+    })();
+
+    res.status(202).json({
+      started: regions, dryRun, queries: (queries ?? ACTIVITY_QUERIES).length,
+      watch: '/api/admin/library/sweep/cost',
+    });
   } catch (err) { next(err); }
 });
 

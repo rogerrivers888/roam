@@ -35,7 +35,7 @@
 // to each, so the band cannot be read backwards into the figure behind it.
 
 import { sweepArea } from './google.js';
-import { matchOsm } from './openMatch.js';
+import { normalise, metresBetween } from './openMatch.js';
 import * as lib from '../repositories/library.js';
 import { query } from '../db.js';
 
@@ -96,6 +96,70 @@ export function cellsFor({ lat, lng, spanKm = 40, across = 2 }) {
   return cells;
 }
 
+const OVERPASS = (process.env.ROAM_OVERPASS_URLS || 'https://overpass-api.de/api/interpreter').split(',')[0];
+
+/**
+ * Every day-out object OpenStreetMap holds in a region, in one request.
+ *
+ * The first version of this asked `matchOsm` per place, which for a county is
+ * 2,308 Overpass requests — forty minutes of somebody else's server for an
+ * answer that fits in one query. This fetches the map's whole answer for the
+ * area once and matches in memory, which is both faster and considerably more
+ * polite.
+ */
+async function osmNear({ lat, lng, spanKm }) {
+  const dLat = spanKm / 2 / 111.32;
+  const dLng = spanKm / 2 / (111.32 * Math.cos((lat * Math.PI) / 180) || 1);
+  const box = `${(lat - dLat).toFixed(4)},${(lng - dLng).toFixed(4)},${(lat + dLat).toFixed(4)},${(lng + dLng).toFixed(4)}`;
+  const q = `[out:json][timeout:120];(
+    nwr(${box})["name"]["leisure"];
+    nwr(${box})["name"]["tourism"];
+    nwr(${box})["name"]["attraction"];
+    nwr(${box})["name"]["historic"];
+    nwr(${box})["name"]["sport"];
+  );out tags center;`;
+  const res = await fetch(OVERPASS, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'RoamBot/1.0 (roam activity sweep)' },
+    body: new URLSearchParams({ data: q }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  if (!res.ok) throw new Error(`Overpass ${res.status}`);
+  const data = await res.json();
+  return (data.elements ?? []).map((e) => ({
+    ref: `${e.type}/${e.id}`,
+    tags: e.tags ?? {},
+    name: e.tags?.name ?? null,
+    lat: e.lat ?? e.center?.lat ?? null,
+    lng: e.lon ?? e.center?.lon ?? null,
+  })).filter((e) => e.lat != null && e.name);
+}
+
+/**
+ * The same place, seen by two indexes.
+ *
+ * Names first, position second: two different soft plays in one retail park are
+ * fifty metres apart, and "Jump In" and "Jump In Trampoline Park" are one
+ * business. So the names have to agree and the points have to be close, and
+ * neither alone is enough.
+ */
+function findMatch(place, osmList) {
+  const key = normalise(place.name);
+  if (!key) return null;
+  let best = null;
+  for (const o of osmList) {
+    const d = metresBetween(place, o);
+    if (d > 300) continue;
+    const k = normalise(o.name);
+    if (!k) continue;
+    const agrees = k === key || k.includes(key) || key.includes(k);
+    if (!agrees) continue;
+    const score = (k === key ? 1 : 0.75) - d / 3000;
+    if (!best || score > best.score) best = { ...o, distanceM: Math.round(d), confidence: score, score };
+  }
+  return best;
+}
+
 /**
  * Everything Google can find to do in one region, researched into rows we own.
  *
@@ -140,19 +204,20 @@ export async function sweepRegion(slug, {
     // --- turn the pointers into records we own ------------------------------
     let matched = 0; let kept = 0;
     if (!dryRun) {
+      onLine?.(`${region.name}: asking OpenStreetMap what it knows about the same ground`);
+      let osmList = [];
+      try {
+        osmList = await osmNear({ lat: region.lat, lng: region.lng, spanKm });
+        onLine?.(`${region.name}: OpenStreetMap has ${osmList.length} named places here`);
+      } catch (err) {
+        problems.push(`overpass: ${err.message}`);
+        onLine?.(`${region.name}: OpenStreetMap did not answer — everything stays a pointer`);
+      }
       for (const p of found.values()) {
-        // The one call that decides whether this place becomes ours or stays a
-        // pointer. Free, keyless, and the difference between a row we may keep
-        // and one whose name has to be fetched every time it is shown.
-        let osm = null;
-        try {
-          osm = await matchOsm({ venueRef: `google:${p.sourcePlaceId}`, name: p.name, lat: p.lat, lng: p.lng });
-        } catch { /* a matcher that fails is a place we do not own, not a sweep that failed */ }
+        const osm = findMatch(p, osmList);
         const owned = Boolean(osm && osm.confidence >= 0.6);
         if (owned) matched += 1;
-
-        const written = await upsertSwept(slug, p, osm, owned);
-        if (written) kept += 1;
+        if (await upsertSwept(slug, p, osm, owned)) kept += 1;
       }
     }
 
