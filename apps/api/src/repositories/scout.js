@@ -375,3 +375,21 @@ export async function placeForMenu(venueRef) {
   );
   return rows[0] ?? null;
 }
+
+/**
+ * How the menus we hold were actually opened.
+ *
+ * The point of this is cost rather than curiosity: the openers have wildly
+ * different bills — a parsed page is pennies, Claude searching the web for a
+ * menu is twenty cents — so knowing which ones earn their place is the whole
+ * question (owner asked, 5 Sep 2026).
+ */
+export async function menusByOpener() {
+  const { rows } = await query(
+    `select source_kind, state, count(*)::int as menus,
+            coalesce(sum(item_count), 0)::int as dishes,
+            coalesce(round(avg(item_count)), 0)::int as avg_dishes
+       from place_menus group by source_kind, state order by menus desc`,
+  );
+  return rows;
+}
