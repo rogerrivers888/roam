@@ -214,9 +214,10 @@ router.post('/menus/share', requires('manage_library'), async (req, res, next) =
     const share = Number(req.body?.share);
     if (!(share > 0 && share <= 1)) return res.status(400).json({ error: 'share_required', message: 'A fraction between 0 and 1 — 0.2 is the top fifth.' });
     const keep = req.body?.keep == null ? null : Number(req.body.keep);
+    const perCuisine = req.body?.perCuisine == null ? null : Number(req.body.perCuisine);
     const code = String(req.body?.code || '').trim().toUpperCase() || null;
     if (code) return res.json({ area: await scout.setMenuShare(code, share) });
-    res.json({ areas: await scout.setMenuShareForAll(share, keep), share, keep });
+    res.json({ areas: await scout.setMenuShareForAll(share, keep, perCuisine), share, keep, perCuisine });
   } catch (err) { next(err); }
 });
 

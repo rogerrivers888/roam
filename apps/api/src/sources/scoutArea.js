@@ -36,6 +36,7 @@ import { osmSource } from './osm.js';
 import { sweepArea as googleSweep } from './google.js';
 import { chainScale, detectChain } from '../domain/chains.js';
 import { score } from '../domain/scoring.js';
+import { cuisineGroup } from '../domain/cuisines.js';
 import { queueEnrichment } from './own.js';
 import { accoladesFor } from './accolades.js';
 import { childMenus, findMenuUrl } from './menuLink.js';
@@ -186,6 +187,9 @@ export async function sweep(code, { dryRun = false, householdId = null } = {}) {
     });
     c.roamScore = s.roamScore;
     c.ownedScore = s.ownedScore;
+    // What kind of food this is, coarsely — decided here so the menu queue can
+    // ask for "the best two Chinese" with a window function (migration 048).
+    c.cuisineGroup = cuisineGroup(c.cuisines);
   }
 
   // A place nobody has rated and nothing is known about is not "the top-rated
@@ -261,7 +265,8 @@ export async function rescore(code) {
       chainScale: scale,
     });
     scored.push({ ...r, venueRef: r.venue_ref, roamScore: s.roamScore, ownedScore: s.ownedScore,
-      crowdBand: r.crowd_band, countBand: r.count_band, chain, chainScale: scale, sites });
+      crowdBand: r.crowd_band, countBand: r.count_band, chain, chainScale: scale, sites,
+      cuisineGroup: cuisineGroup(r.cuisines ?? []) });
   }
   scored.sort((a, b) => (b.roamScore - a.roamScore) || (b.ownedScore - a.ownedScore));
   for (const [i, p] of scored.entries()) await scout.putPlace(code, { ...p, rank: i + 1 });
@@ -473,6 +478,20 @@ export async function wantMenu(venueRef, householdId = null) {
   return { state: 'found', url: link.url };
 }
 
+
+/**
+ * Give the coarse kind to places swept before there was one.
+ *
+ * Free and offline: it is a lookup, not a fetch. Runs on the loop so the menu
+ * queue starts meaning "two Chinese and two Indian" for the areas already done
+ * rather than only for the ones swept from now on.
+ */
+export async function fillCuisineGroups({ limit = 5000 } = {}) {
+  const rows = await scout.placesNeedingCuisineGroup(limit);
+  for (const r of rows) await scout.setCuisineGroup(r.area_code, r.venue_ref, cuisineGroup(r.cuisines ?? []));
+  return rows.length;
+}
+
 const backoff = (attempts) => new Date(Date.now() + (MENU_BACKOFF_H[Math.min(attempts, MENU_BACKOFF_H.length) - 1] ?? 720) * 3600_000);
 
 /** The background loop: one area at a time, then menus. Nothing here is urgent. */
@@ -482,6 +501,7 @@ export function startScoutLoop({ everyMs = 15 * 60_000 } = {}) {
       const [area] = await scout.dueAreas(1);
       if (area) await sweep(area.code);
     } catch (err) { console.warn(`scout: sweep failed: ${err.message}`); }
+    try { await fillCuisineGroups(); } catch (err) { console.warn(`scout: cuisine groups failed: ${err.message}`); }
     try { await fillMenus({ limit: 3 }); } catch (err) { console.warn(`scout: menus failed: ${err.message}`); }
     // And read a couple of what it found. Small and slow: this is the only part
     // of the sweep that costs, and nobody is waiting on it.

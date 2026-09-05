@@ -68,8 +68,8 @@ export async function finishSweep(code, { state, why = null, seen = 0, chains = 
 export async function putPlace(areaCode, p) {
   await query(
     `insert into scout_places (area_code, venue_ref, name, rank, roam_score, owned_score, crowd_band, count_band,
-                               accolades, cuisines, chain, website, lat, lng, chain_scale, sites, last_seen, scored_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, now(), now())
+                               accolades, cuisines, chain, website, lat, lng, chain_scale, sites, cuisine_group, last_seen, scored_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17, now(), now())
      on conflict (area_code, venue_ref) do update set
        name = coalesce(excluded.name, scout_places.name), rank = excluded.rank,
        roam_score = excluded.roam_score, owned_score = excluded.owned_score,
@@ -77,11 +77,11 @@ export async function putPlace(areaCode, p) {
        accolades = excluded.accolades, cuisines = excluded.cuisines, chain = excluded.chain,
        website = coalesce(excluded.website, scout_places.website),
        lat = coalesce(excluded.lat, scout_places.lat), lng = coalesce(excluded.lng, scout_places.lng),
-       chain_scale = excluded.chain_scale, sites = excluded.sites,
+       chain_scale = excluded.chain_scale, sites = excluded.sites, cuisine_group = excluded.cuisine_group,
        last_seen = now(), scored_at = now()`,
     [areaCode, p.venueRef, p.name ?? null, p.rank, p.roamScore, p.ownedScore, p.crowdBand, p.countBand,
       JSON.stringify(p.accolades ?? []), JSON.stringify(p.cuisines ?? []), p.chain === true,
-      p.website ?? null, p.lat ?? null, p.lng ?? null, p.chainScale ?? 'independent', p.sites ?? 1],
+      p.website ?? null, p.lat ?? null, p.lng ?? null, p.chainScale ?? 'independent', p.sites ?? 1, p.cuisineGroup ?? null],
   );
   await query(
     `insert into scout_score_history (area_code, venue_ref, roam_score, owned_score, crowd_band, count_band, rank)
@@ -149,10 +149,19 @@ export async function menusDue(limit = 5) {
        join scout_areas a on a.code = p.area_code
        join place_records r on r.venue_ref = p.venue_ref
        left join place_menus m on m.venue_ref = p.venue_ref
-      -- Only the top of each area before anybody asks, and anything a household
-      -- has actually claimed whatever its rank (migration 047). Reading a menu
-      -- is the only expensive thing here, and most are never opened.
-      where (p.rank <= ceil(a.keep * a.menu_share)
+      -- Depth per kind of food, inside an overall ceiling, plus anything a
+      -- household has actually claimed whatever its rank (migrations 047, 048).
+      -- Reading a menu is the only expensive thing here and most are never
+      -- opened, so the rule is "the best two Chinese and the best two Indian",
+      -- not "the best six of anything".
+      where (p.venue_ref = any(
+               select q.venue_ref from (
+                 select sp.venue_ref,
+                        row_number() over (partition by sp.area_code, coalesce(sp.cuisine_group, 'not said') order by sp.rank) as depth,
+                        row_number() over (partition by sp.area_code order by sp.rank) as overall
+                   from scout_places sp where sp.area_code = p.area_code
+               ) q
+               where q.depth <= a.menu_per_cuisine and q.overall <= ceil(a.keep * a.menu_share * 3))
              or exists (select 1 from place_claims pc where pc.venue_ref = p.venue_ref))
         and coalesce(r.website, p.website) is not null
         and (m.venue_ref is null
@@ -229,10 +238,17 @@ export async function menusToRead(limit = 5, ref = null) {
       where m.menu_url is not null
         and ($2::text is null or m.venue_ref = $2)
         and (m.state = 'found' or $2::text is not null)
-        -- Same rule as menusDue: the top of the area, or a place somebody asked
-        -- for. A named ref is somebody asking, so it is not held to the share.
+        -- Same rule as menusDue. A named ref is somebody asking, so it is not
+        -- held to the depth at all.
         and ($2::text is not null
-             or p.rank <= ceil(a.keep * a.menu_share)
+             or p.venue_ref = any(
+                  select q.venue_ref from (
+                    select sp.venue_ref,
+                           row_number() over (partition by sp.area_code, coalesce(sp.cuisine_group, 'not said') order by sp.rank) as depth,
+                           row_number() over (partition by sp.area_code order by sp.rank) as overall
+                      from scout_places sp where sp.area_code = p.area_code
+                  ) q
+                  where q.depth <= a.menu_per_cuisine and q.overall <= ceil(a.keep * a.menu_share * 3))
              or exists (select 1 from place_claims pc where pc.venue_ref = p.venue_ref))
       -- A place a household claimed goes first: somebody is waiting for that one.
       order by (exists (select 1 from place_claims pc where pc.venue_ref = p.venue_ref)) desc, p.rank
@@ -311,11 +327,25 @@ export async function setMenuShare(code, share) {
 }
 
 /** The same, for every area in one go — a county at a time. */
-export async function setMenuShareForAll(share, keep = null) {
+export async function setMenuShareForAll(share, keep = null, perCuisine = null) {
   const { rows } = await query(
-    `update scout_areas set menu_share = $1, keep = coalesce($2, keep) returning code`, [share, keep],
+    `update scout_areas set menu_share = $1, keep = coalesce($2, keep),
+            menu_per_cuisine = coalesce($3, menu_per_cuisine) returning code`,
+    [share, keep, perCuisine],
   );
   return rows.length;
+}
+
+/** Backfill the coarse kind for places swept before it existed. */
+export async function placesNeedingCuisineGroup(limit = 5000) {
+  const { rows } = await query(
+    'select area_code, venue_ref, cuisines from scout_places where cuisine_group is null limit $1', [limit],
+  );
+  return rows;
+}
+
+export async function setCuisineGroup(areaCode, venueRef, group) {
+  await query('update scout_places set cuisine_group = $3 where area_code = $1 and venue_ref = $2', [areaCode, venueRef, group]);
 }
 
 /** What Roam already knows about one place's menu, if anything. */
