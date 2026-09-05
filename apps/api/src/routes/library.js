@@ -544,8 +544,15 @@ adminRouter.post('/sweep/rematch', requires('manage_library'), async (req, res, 
 adminRouter.post('/portraits', requires('manage_library'), async (req, res, next) => {
   try {
     const only = Array.isArray(req.body?.only) && req.body.only.length ? req.body.only : null;
-    const out = await portraitsForApp({ only, onLine: (l) => console.log('portrait:', l) });
-    res.json(out);
+    // Behind a 202, like the harvest and the sweep. Each place is a Wikidata
+    // search, a SPARQL lookup, an article read and three downloads; a dozen of
+    // them comfortably outlast Railway's five-minute gateway, which is how the
+    // first run got one portrait and a 502.
+    (async () => {
+      try { await portraitsForApp({ only, onLine: (l) => console.log('portrait:', l) }); }
+      catch (err) { console.error('portraits:', err.message); }
+    })();
+    res.status(202).json({ started: true, only, watch: '/api/admin/library/portraits' });
   } catch (err) { next(err); }
 });
 
