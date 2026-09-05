@@ -161,7 +161,7 @@ function PlaceList({ rows, onOpen }: { rows: LibraryAttraction[]; onOpen: (id: s
             {(a as any).band ? <Pill label={(a as any).band} tone={(a as any).band === 'top' ? 'ok' : 'plain'} /> : null}
             {(a as any).detail_state ? <Pill label={(a as any).detail_state === 'done' ? 'sources in' : (a as any).detail_state} /> : <Pill label="no sources" tone="warn" />}
           </Wrap>
-          <Icon name="chevronRight" size={16} color={colors.inkMuted} />
+          <Icon name="more" size={16} color={colors.inkMuted} />
         </Pressable>
       ))}
     </View>
@@ -230,7 +230,7 @@ function Compare({ id, canManage, wide, onClose, onChanged }: {
             <Button label={hasSources ? 'Fetch the sources again' : 'Go and read the sources'} kind="secondary"
                     icon="refresh" disabled={busy !== null}
                     onPress={() => act('detail', () => api.libraryFetchDetail(id, hasSources))} />
-            <Button label={facts ? 'Read it again' : 'Read it'} icon="sparkle"
+            <Button label={facts ? 'Read it again' : 'Read it'} icon="plan"
                     disabled={busy !== null || !hasSources}
                     onPress={() => act('read', () => api.libraryRead(id))} />
           </Wrap>
@@ -287,7 +287,7 @@ function Sources({ attraction, contents }: { attraction: LibraryAttractionDetail
         <View key={i} style={styles.source}>
           <Pressable onPress={() => setOpenSection(openSection === i ? null : i)} accessibilityRole="button">
             <Row style={{ gap: spacing.xs }}>
-              <Icon name={openSection === i ? 'chevronDown' : 'chevronRight'} size={14} color={colors.inkMuted} />
+              <Icon name={openSection === i ? 'expand' : 'more'} size={14} color={colors.inkMuted} />
               <Text style={[type.small, { flex: 1, minWidth: 0, fontWeight: '600' }]} numberOfLines={1}>
                 {s.heading ?? 'The opening'}
               </Text>
@@ -404,7 +404,7 @@ function Extracted({ facts, attraction, lessons, canManage, onReviewed }: {
                            accessibilityLabel={marked ? `${label} is marked wrong` : `Mark ${label} wrong`}
                            hitSlop={8}>
                   <Icon name={marked ? 'close' : 'check'} size={15}
-                        color={marked ? colors.danger : colors.inkFaint} />
+                        color={marked ? colors.overrun : colors.inkFaint} />
                 </Pressable>
               ) : null}
             </Row>
@@ -540,21 +540,21 @@ const styles = StyleSheet.create({
     padding: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line,
   },
   source: {
-    backgroundColor: colors.surfaceSunken, borderRadius: radius.sm,
+    backgroundColor: colors.surfaceMuted, borderRadius: radius.sm,
     padding: spacing.sm, gap: 2,
   },
   field: {
     borderLeftWidth: 2, borderLeftColor: colors.line,
     paddingLeft: spacing.sm, paddingVertical: spacing.xs,
   },
-  fieldWrong: { borderLeftColor: colors.danger },
+  fieldWrong: { borderLeftColor: colors.overrun },
   quote: {
     ...type.tiny, fontStyle: 'italic', color: colors.inkMuted,
     marginTop: 2, paddingLeft: spacing.xs,
   },
   judged: { ...type.tiny, color: colors.inkFaint, marginTop: 2 },
   teach: {
-    ...type.small, color: colors.ink, backgroundColor: colors.surfaceSunken,
+    ...type.small, color: colors.ink, backgroundColor: colors.surfaceMuted,
     borderRadius: radius.sm, padding: spacing.sm, minHeight: 72, textAlignVertical: 'top',
   },
   lesson: {
