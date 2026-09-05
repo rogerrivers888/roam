@@ -125,15 +125,20 @@ router.post('/pass', requires('manage_library'), async (req, res, next) => {
     const limit = Math.min(2000, Math.max(1, Number(req.body?.limit) || (which === 'naming' ? 200 : 4000)));
     const householdId = req.household?.id ?? null;
 
+    // Which county to fill, when the screen is sitting on one. The naming pass
+    // is a request a second and the atlas is 26,000 places, so scattering four
+    // hundred names across all of them fills nothing anybody is looking at.
+    const region = req.body?.region ? String(req.body.region).toLowerCase() : null;
+
     running = new Date().toISOString();
     const work = which === 'naming'
-      ? namingPass({ limit, householdId })
+      ? namingPass({ limit, householdId, region })
       : postalPass({ limit, householdId });
 
     // The answer goes out now and the work carries on; the tree's `remaining`
     // is what says whether it is finished, which is a number that moves rather
     // than a spinner that does not.
-    res.status(202).json({ started: which, limit });
+    res.status(202).json({ started: which, limit, region });
     work.then(refreshCounts).catch(() => null).finally(() => { running = null; });
   } catch (err) { running = null; next(err); }
 });

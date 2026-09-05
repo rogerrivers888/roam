@@ -1312,8 +1312,9 @@ export const api = {
       `/api/admin/places/coverage${qs({ county: p.county ?? undefined, slugs: p.slugs?.length ? p.slugs.join(',') : undefined })}`),
   locality: (slug: string, p: { kind?: 'go' | 'eat'; missing?: FactKey; limit?: number } = {}) =>
     request<LocalityPage>(`/api/admin/places/${encodeURIComponent(slug)}${qs(p)}`),
-  placePass: (which: 'postal' | 'naming', limit?: number) =>
-    post<{ started: string; limit: number }>('/api/admin/places/pass', { which, limit }),
+  /** `region` fills one county rather than scattering names across the country. */
+  placePass: (which: 'postal' | 'naming', p: { limit?: number; region?: string | null } = {}) =>
+    post<{ started: string; limit: number; region: string | null }>('/api/admin/places/pass', { which, ...p }),
   placeRecount: () => post<{ ok: boolean }>('/api/admin/places/recount', {}),
 
   // --- correcting a category where the mistake is (routes/library.js) ---

@@ -281,10 +281,17 @@ export async function namingPass({ limit = 200, householdId = null } = {}) {
   if (looked && householdId) {
     await providerCalls.record(householdId, 'osm-nominatim', 'localities.naming', String(looked)).catch(() => null);
   }
-  const { rows: left } = await query(
-    `select (select count(*) from attractions  where lat is not null and located_at is null)
-          + (select count(*) from scout_places where lat is not null and located_at is null) as n`);
-  return { looked, named, remaining: Number(left[0].n) };
+  // `remaining` answers for whatever was asked for: a county's own backlog when
+  // one was named, the whole estate's otherwise. A button that says "400 of
+  // 26,000" while you are working on Berkshire is telling you about somebody
+  // else's problem.
+  const { rows: left } = region
+    ? await query(
+      'select count(*) as n from attractions where lat is not null and located_at is null and region_slug = $1', [region])
+    : await query(
+      `select (select count(*) from attractions  where lat is not null and located_at is null)
+            + (select count(*) from scout_places where lat is not null and located_at is null) as n`);
+  return { looked, named, remaining: Number(left[0].n), region };
 }
 
 /** The county the atlas already filed an attraction under. */

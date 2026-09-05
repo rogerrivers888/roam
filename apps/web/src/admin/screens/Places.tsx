@@ -127,13 +127,24 @@ export function Places({ canManage }: { canManage: boolean }) {
 
   const go = (slug: string) => { setWhere(slug); setMissing(null); setOpenRow(null); };
 
-  const runPass = async (which: 'postal' | 'naming') => {
+  /**
+   * Fill in the county you are looking at, not the country.
+   *
+   * The naming pass is one request a second and the atlas is tens of thousands
+   * of places, so an unscoped batch of four hundred fills nothing you can see.
+   * When a county is open it is named first; the whole estate is still there
+   * behind the second button.
+   */
+  const countyOf = (p: LocalityPage | null) =>
+    p?.place.kind === 'county' ? p.place.slug : p?.place.parent_slug ?? null;
+
+  const runPass = async (which: 'postal' | 'naming', region?: string | null) => {
     setNote(null);
     try {
-      await api.placePass(which, which === 'naming' ? 400 : 2000);
+      await api.placePass(which, which === 'naming' ? { limit: 400, region } : { limit: 2000 });
       setNote(which === 'postal'
-        ? 'Asking ONS where every place is. A hundred at a time; this is quick.'
-        : 'Asking OpenStreetMap what each place is called. One a second, so the count below moves slowly.');
+        ? 'Asking ONS where every place is. A hundred coordinates a request, so this is quick.'
+        : `Asking OpenStreetMap what each place is called${region ? ` in ${page?.place.name ?? region}` : ''}. One a second, so the count moves slowly — leave it and come back.`);
       loadTree();
     } catch (e: any) { setNote(e.message); }
   };
@@ -167,7 +178,11 @@ export function Places({ canManage }: { canManage: boolean }) {
           <Wrap>
             <Button label="Where is everything" icon="search" kind="secondary"
                     disabled={Boolean(running)} onPress={() => runPass('postal')} />
-            <Button label={`Name the next 400${tree ? ` of ${count(tree.remaining)}` : ''}`} icon="download"
+            {countyOf(page) ? (
+              <Button label={`Name 400 in ${page?.place.kind === 'county' ? page.place.name : page?.place.parent_name}`} icon="download"
+                      disabled={Boolean(running)} onPress={() => runPass('naming', countyOf(page))} />
+            ) : null}
+            <Button label={`Name 400 anywhere${tree ? ` of ${count(tree.remaining)}` : ''}`} icon="download" kind="secondary"
                     disabled={Boolean(running) || !tree?.remaining} onPress={() => runPass('naming')} />
             <Button label="Recount" icon="refresh" kind="secondary"
                     onPress={async () => { await api.placeRecount(); loadTree(); setNote('Counted again from the rows themselves.'); }} />
