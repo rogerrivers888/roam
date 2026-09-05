@@ -318,7 +318,18 @@ export async function setPortrait({ subjectType, subjectId, file, name, onLine }
   const f = details.get(title) ?? [...details.values()][0];
   if (!f) throw Object.assign(new Error(`Commons has no file called ${title}`), { status: 404 });
   if (!f.mayStore) {
-    throw Object.assign(new Error(`${title} is under ${f.licence}, which does not permit keeping it`), { status: 422 });
+    // Naming the real reason. This said "is under CC BY-SA 4.0, which does not
+    // permit keeping it" for the Colosseum, which is nonsense — CC BY-SA 4.0 is
+    // exactly what most of the library is under. The refusal was right and the
+    // explanation was wrong: the file carries `ita-mibac`, Italy's restriction
+    // on commercial reproduction of its cultural heritage, which sits on top of
+    // a perfectly good copyright licence. A message that blames the wrong thing
+    // sends somebody looking for a different file when they should be looking
+    // for a different kind of subject.
+    const why = f.restrictions
+      ? `it carries the restriction "${f.restrictions}" on top of its ${f.licence} licence`
+      : `its licence is "${f.licence}", which is not one we may keep`;
+    throw Object.assign(new Error(`Refusing ${title}: ${why}`), { status: 422 });
   }
 
   const variants = [];
