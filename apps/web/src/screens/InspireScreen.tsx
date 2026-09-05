@@ -255,7 +255,32 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood }: {
 
   const pricesKnown = useMemo(() => (pool?.items ?? []).filter((i) => i.priceLevel != null).length, [pool]);
 
-  const minorComing = members.some((m) => m.isMinor && (!attending || attending.has(m.id)));
+  const coming = members.filter((m) => !attending || attending.has(m.id));
+  const minorComing = coming.some((m) => m.isMinor);
+  // The youngest person coming decides a lot: a four-year-old and a fifteen-
+  // year-old want different days out, and the household already knows both ages.
+  const youngest = coming.reduce<number | null>((y, m) => (m.age == null ? y : y == null ? m.age : Math.min(y, m.age)), null);
+
+  /**
+   * Who is coming ranks; it does not exclude (Requirements: allergens exclude,
+   * preferences rank — and who is in the car is a preference, not an allergy).
+   *
+   * The owner, 5 Sep 2026: "If the family are going, it should be focused on
+   * family activities. If adults are going, then it shouldn't be showing
+   * playgrounds." So a day with a child in it leads with the places built for
+   * one, and a day without leads with everything else.
+   *
+   * It ranks rather than filters because the atlas's `family` is a coarse word:
+   * it holds amusement parks and heritage railways, and it also holds
+   * distilleries, which are the opposite of a children's day out. Demoting a
+   * distillery on an adults' outing is a small mistake; deleting it is a
+   * bigger one, and the household can always see it by scrolling.
+   */
+  const forWhoever = (i: InspireItem): number => {
+    const kid = i.atlasCategory === 'family' || i.atlasCategory === 'animals';
+    if (!kid) return 0;
+    return minorComing ? -1 : 1;
+  };
 
   /** The pool, narrowed by every chip. One pass, no calls. */
   const shown = useMemo(() => {
@@ -275,8 +300,13 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood }: {
 
   const shelves = useMemo(() => {
     const order = [mood, ...SHELVES.filter((m) => m !== mood)];
-    return order.map((key) => ({ key, items: shown.filter((i) => i.moods.includes(key)) }));
-  }, [shown, mood]);
+    // A stable sort over the answer's own order, so the atlas's ranking still
+    // decides everything except who is in the car.
+    return order.map((key) => ({
+      key,
+      items: shown.filter((i) => i.moods.includes(key)).sort((a, b) => forWhoever(a) - forWhoever(b)),
+    }));
+  }, [shown, mood, minorComing]);
 
   const whoLabel = !attending || attending.size === members.length
     ? 'Family'
@@ -450,7 +480,11 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood }: {
                       );
                     })}
                   </View>
-                  <Text style={type.small}>Who is coming decides what Roam leaves out, and comes with you into the trip.</Text>
+                  <Text style={type.small}>
+                    {minorComing
+                      ? `With ${youngest != null ? `a ${youngest}-year-old` : 'a child'} coming, places built for children come first.`
+                      : 'On an adults\u2019 day out, children\u2019s places drop down the shelves rather than off them.'}
+                  </Text>
                 </>
               ) : null}
             </View>
