@@ -661,8 +661,11 @@ function Card({ item, wide, onOpen, onKeep, kept }: {
         <Text style={styles.cardName} numberOfLines={2}>{item.name}</Text>
         <Text style={type.small}>{minutes(item.travelMinutes)} · {minutes(item.dwellMinutes)}</Text>
         {price || kind ? <Text style={[type.small, { color: colors.ink }]} numberOfLines={1}>{price ?? kind}</Text> : null}
-        {/* Shown because the licence says so, and only while the picture is. */}
-        {credit && !failed ? <Text style={styles.credit} numberOfLines={1}>{credit}</Text> : null}
+        {/* Shown because the licence says so, and only while the picture is.
+            Two lines, because a credit cut off at "via Wikimedia Com…" has not
+            credited anybody — the condition is the whole line, not a gesture
+            at it. */}
+        {credit && !failed ? <Text style={styles.credit} numberOfLines={2}>{credit}</Text> : null}
       </View>
     </Pressable>
   );
