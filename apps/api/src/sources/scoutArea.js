@@ -194,13 +194,25 @@ export async function sweep(code, { dryRun = false, householdId = null } = {}) {
   candidates.sort((a, b) => (b.roamScore - a.roamScore) || (b.ownedScore - a.ownedScore) || a.name.localeCompare(b.name));
   const kept = candidates.slice(0, area.keep);
 
+  // Whether this sweep could actually ask what people think of these places.
+  const askedTheCrowd = kept.some((c) => c.crowdBand);
+
   if (dryRun) {
     return { code, dryRun: true, seen, chains, kept: kept.length, googleCalls, notes,
       places: kept.map((c, i) => ({ rank: i + 1, ...c })) };
   }
 
+  // Researching a set that is about to be replaced is waste, and at a county's
+  // scale it is expensive waste. An area whose crowd pass was refused and which
+  // has never had one is a census in name order, not a ranking: the twenty-five
+  // it kept are unlikely to be the twenty-five it keeps tomorrow. So the census
+  // is written down — it cost nothing and it is worth having — and the research
+  // waits for a sweep that could actually ask (found queueing Surrey, 5 Sep 2026).
+  const provisional = !askedTheCrowd && !area.swept_at;
+
   for (const [i, c] of kept.entries()) {
     await scout.putPlace(code, { ...c, rank: i + 1 });
+    if (provisional) continue;
     // Straight to the researcher: OpenStreetMap, their own page, the
     // encyclopedias. Nothing licensed is asked for and nothing waits on it.
     await owned.ensureRecord(c.venueRef);
@@ -208,15 +220,14 @@ export async function sweep(code, { dryRun = false, householdId = null } = {}) {
   }
   const dropped = await scout.pruneArea(code, kept.map((c) => c.venueRef));
 
-  // A sweep that could not ask the crowd is a census, not a ranking: those
-  // areas are ordered on `owned_score` alone. The daily Text Search cap is a
-  // fact about today rather than about the area, so it comes back tomorrow
-  // instead of in six months (found sweeping SL6–SL9, 5 Sep 2026).
-  const askedTheCrowd = kept.some((c) => c.crowdBand);
+  // The daily Text Search cap is a fact about today rather than about the area,
+  // so an area that could not ask comes back tomorrow instead of in six months
+  // (found sweeping SL6–SL9, 5 Sep 2026).
   const next = new Date(Date.now() + (askedTheCrowd ? RESWEEP_DAYS : 1) * 86_400_000);
   await scout.finishSweep(code, {
     state: kept.length ? 'done' : 'failed',
-    why: askedTheCrowd ? notes.join('; ') : `${notes.join('; ')} — ranked on open data alone; will ask the crowd again tomorrow`,
+    why: askedTheCrowd ? notes.join('; ')
+      : `${notes.join('; ')} — ranked on open data alone${provisional ? ', research held until the crowd can be asked' : ''}; will try again tomorrow`,
     seen, chains, kept: kept.length, nextSweepAt: next,
   });
 
