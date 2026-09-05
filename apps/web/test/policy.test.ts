@@ -26,6 +26,16 @@ test('an endpoint nobody has thought about is not saved', () => {
   }
 });
 
+test('what a hotel room costs never lands on a phone', () => {
+  // The Stay tab's answer carries LiteAPI's hotels and their live prices. Both
+  // are rented, and a price is stale within minutes besides — a phone is
+  // somewhere we cannot reach to correct either. The trip itself is saved (the
+  // test above), so this one exists to stop `/stays` being swept along with it.
+  for (const path of ['/api/trips/abc-123/stays', '/api/trips/abc-123/stays?radiusKm=2&rooms=1']) {
+    assert.equal(storable(path, { results: [{ name: 'A hotel', offer: { total: 312.5 } }] }), null, `${path} must not be saved`);
+  }
+});
+
 test('a licensed place row loses its venue on the way to the device', () => {
   const body = {
     places: [
