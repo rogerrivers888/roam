@@ -34,7 +34,7 @@ const cache = new Map();
 const inflight = new Map();
 
 /** Paths worth trying when their front page carries no link we recognise. */
-const GUESSES = ['/menu', '/menus', '/food'];
+const GUESSES = ['/menu', '/menus', '/food', '/order', '/our-menu', '/menu.pdf'];
 
 const clean = (s) => String(s ?? '').replace(/<[^>]*>/g, ' ').replace(/&[a-z]+;|&#\d+;/gi, ' ').replace(/\s+/g, ' ').trim();
 
@@ -65,7 +65,14 @@ function score(href, text) {
   let n = 0;
   if (/^(the |our |view |see |our full |full )?(food |drinks? |dinner |lunch |brunch |breakfast |bar |wine |all day |sample |set |kids'? |children'?s )?menus?$/.test(t)) n += 6;
   else if (/\bmenus?\b/.test(t)) n += 4;
+  // A great many restaurants publish no menu of their own and put the whole
+  // thing — every dish, every price — on the page you order from. Intoku's
+  // site has eight links and not one of them says menu; it says Delivery and
+  // Pickup (owner, 5 Sep 2026). Worth less than a menu proper, because an
+  // ordering page can also be a booking form, but far better than giving up.
+  else if (/\b(order (online|now|here)?|delivery|takeaway|take away|pickup|collection|click and collect)\b/.test(t)) n += 3;
   if (/\/menus?\b|\/menus?$|[?&]menu|\bmenu-|carte|speisekarte/.test(h)) n += 3;
+  else if (/\/order\b|\/ordering\b|\/delivery\b|\/takeaway\b|deliveroo|just-?eat|ubereats|chownow|slerp|toasttab|square(up|site)|orderyoyo/.test(h)) n += 2;
   if (/\bfood\b|\bwhat we serve\b|\beat\b/.test(t)) n += 1;
   if (/\.pdf($|\?)/.test(h) && n > 0) n += 1;
   if (/^menus?\./.test(new URL(href, 'https://x.invalid').hostname)) n += 2;
@@ -185,7 +192,18 @@ export async function findMenuUrl({ website, name = '', locality = null, address
     if (/\/menus?\b/i.test(page.url)) return { url: page.url, label: 'Menu', how: 'Their website is the menu.', checkedAt: at() };
 
     const found = page.html ? bestLink(page.html, page.url) : null;
-    if (found) return { url: found.url, label: found.label, how: `Followed “${found.label}” on ${new URL(page.url).hostname}.`, checkedAt: at() };
+    if (found && !branchLooksWrong(found.url, words, locality)) {
+      return { url: found.url, label: found.label, how: `Followed “${found.label}” on ${new URL(page.url).hostname}.`, checkedAt: at() };
+    }
+    if (found) {
+      // We found something and it is somebody else's branch. Say so rather than
+      // storing it: a menu for the wrong town is worse than no menu.
+      return {
+        url: null, label: null, how: null,
+        why: `The only menu link on their site goes to another branch (${new URL(found.url).pathname.slice(0, 48)}), not the one in ${locality ?? 'this town'}.`,
+        checkedAt: at(),
+      };
+    }
 
     // A group's front page: pick this restaurant, then look again.
     const branch = page.html ? branchLink(page.html, page.url, words) : null;
@@ -218,7 +236,7 @@ export async function findMenuUrl({ website, name = '', locality = null, address
         const probe = await get(candidate, { method: 'HEAD' });
         // A site with no menu page often redirects /menu back to its front
         // page and answers 200; that is a no, not a menu.
-        if (probe.ok && /\/menus?\b|\/food\b/i.test(new URL(probe.url).pathname)) {
+        if (probe.ok && /\/menus?\b|\/food\b|\/order\b|\/our-menu\b/i.test(new URL(probe.url).pathname)) {
           return { url: probe.url, label: 'Menu', how: `Nothing linked on their site; ${guess} answers.`, checkedAt: at() };
         }
       } catch { /* try the next one */ }
@@ -399,7 +417,7 @@ export function menusInIndex(urls, words = []) {
     try { u = new URL(url); } catch { continue; }
     const path = u.pathname.toLowerCase();
     const isPdf = /\.pdf$/.test(path);
-    const menuish = /\/menus?\b|\/menus?\/|\/food\b|\/eat\b|\/drinks?\b|\/a-la-carte\b/.test(path) || (isPdf && /menu/.test(path));
+    const menuish = /\/menus?\b|\/menus?\/|\/food\b|\/eat\b|\/drinks?\b|\/a-la-carte\b|\/order\b|\/ordering\b|\/takeaway\b/.test(path) || (isPdf && /menu/.test(path));
     if (!menuish) continue;
     if (/gift|voucher|news|blog|job|career|privacy|terms|cookie/.test(path)) continue;
     const branch = words.filter((w) => path.includes(w)).length * 3;
@@ -410,4 +428,42 @@ export function menusInIndex(urls, words = []) {
     out.push({ url: u.toString(), label: decodeURIComponent(path.split('/').filter(Boolean).pop() ?? 'Menu').replace(/[-_]/g, ' ').slice(0, 60), n });
   }
   return out.sort((a, b) => b.n - a.n);
+}
+
+/**
+ * Is this address plausibly *this* branch's menu?
+ *
+ * Intoku's site has one Delivery link and it goes to
+ * order.store/gb/store/intoku-reading — the Reading branch, for a restaurant in
+ * Windsor (found 5 Sep 2026). Storing that would be worse than storing nothing:
+ * a household would open the menu, order from it, and turn up to a different
+ * town's prices and dishes.
+ *
+ * So an address on somebody else's host has to earn it. Either it names this
+ * branch — the town, or a word from the venue's own name — or it names no
+ * branch at all, which is the ordinary case for a single-site restaurant. What
+ * it may not do is name a different one.
+ */
+export function branchLooksWrong(url, words = [], locality = null) {
+  let path;
+  try { path = `${new URL(url).pathname}`.toLowerCase(); } catch { return false; }
+  const town = String(locality ?? '').toLowerCase().match(/[a-z]{4,}/g)?.[0] ?? null;
+  if (!town) return false;                      // nothing to contradict
+  if (path.includes(town)) return false;        // it names our town: right branch
+
+  // The brand's own name is not the reassurance it looks like. "intoku-reading"
+  // contains "intoku", and letting that settle it is exactly how a Windsor
+  // household ends up with Reading's menu. So the segment that carries the
+  // brand is read for what follows it, and a different town there is decisive.
+  const segments = path.split('/').filter(Boolean);
+  for (const segment of segments) {
+    const brand = words.find((w) => segment.includes(w));
+    if (!brand) continue;
+    const rest = segment.split(brand).join(' ').split(/[^a-z]+/).filter((x) => x.length >= 4);
+    // Words a branch slug uses that are not places.
+    const notPlaces = new Set(['restaurant', 'restaurants', 'group', 'store', 'menu', 'menus', 'online', 'order', 'takeaway', 'delivery']);
+    const other = rest.find((x) => !notPlaces.has(x) && !words.includes(x));
+    if (other && other !== town) return true;
+  }
+  return false;
 }
