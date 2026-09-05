@@ -145,6 +145,12 @@ async function candidates(itemId) {
  * conclusion: where nothing names it, we would rather hold no picture than the
  * wrong one. A card with no photograph is a gap; a card with somebody else's
  * war is a mistake nobody can explain.
+ *
+ * It works for a town and it cannot work for a country. Wikipedia's image list
+ * comes back alphabetically rather than in article order, and no Italian
+ * landmark is called Italy: the Colosseum is `Colosseo 2020.jpg`. Countries are
+ * few enough to choose by hand — `setPortrait` is how — and there is no
+ * automatic rule here that would not be a guess.
  */
 function namesThePlace(title, name) {
   const words = String(name).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
@@ -293,3 +299,58 @@ const COUNTRY_NAMES = {
   GR: 'Greece', HR: 'Croatia', AT: 'Austria', CH: 'Switzerland', SE: 'Sweden',
   NO: 'Norway', DK: 'Denmark', PL: 'Poland', CZ: 'Czech Republic', TR: 'Turkey',
 };
+
+/**
+ * Give a place a portrait by naming the Commons file.
+ *
+ * Because there is no honest automatic answer for a country. Italy's designated
+ * image is a satellite photograph, and the pictures in its article are of
+ * Garibaldi, Fellini and the Frecce Tricolori — all of Italy, none named Italy.
+ * A person picks `File:Colosseo 2020.jpg` in a second and no rule was ever going
+ * to.
+ *
+ * The licence is still read and still enforced: choosing a file by hand does not
+ * make it ours, and this refuses one whose terms do not permit keeping it.
+ */
+export async function setPortrait({ subjectType, subjectId, file, name, onLine }) {
+  const title = file.startsWith('File:') ? file : `File:${file}`;
+  const details = await wm.fileDetails([title], { widths: WIDTHS });
+  const f = details.get(title) ?? [...details.values()][0];
+  if (!f) throw Object.assign(new Error(`Commons has no file called ${title}`), { status: 404 });
+  if (!f.mayStore) {
+    throw Object.assign(new Error(`${title} is under ${f.licence}, which does not permit keeping it`), { status: 422 });
+  }
+
+  const variants = [];
+  for (const width of WIDTHS) {
+    const thumb = f.thumbs[width];
+    if (!thumb) continue;
+    const got = await wm.fetchImage(thumb.url);
+    if (!got) continue;
+    variants.push({ width, actualWidth: thumb.width, actualHeight: thumb.height, mime: got.mime, bytes: got.body.length, body: got.body });
+  }
+  if (!variants.length) throw Object.assign(new Error(`${title} would not download`), { status: 502 });
+  const small = variants.find((v) => v.width === 20) ?? variants[0];
+  const large = variants[variants.length - 1];
+
+  const held = await lib.portraitOf(subjectType, subjectId);
+  if (held) await lib.unlinkImage(held.id, subjectType, subjectId);
+
+  const image = await lib.saveImage({
+    source: 'wikimedia', sourceRef: f.title, sourcePageUrl: f.descriptionUrl,
+    licence: f.licence, licenceUrl: f.licenceUrl, usageTerms: f.usageTerms,
+    restrictions: f.restrictions, attributionRequired: f.attributionRequired, mayStore: true,
+    creator: f.creator, creatorUrl: f.creatorUrl,
+    creditLine: f.attributionRequired
+      ? `${f.creator || 'Unknown author'}, ${f.licence}, via Wikimedia Commons`
+      : `${f.licence}, via Wikimedia Commons`,
+    title: f.objectName || f.title.replace(/^File:/, '').replace(/\.[a-z]+$/i, ''),
+    caption: f.caption, tags: [name, subjectType, subjectId].filter(Boolean),
+    mime: large.mime, width: f.width, height: f.height, bytes: large.bytes,
+    sha256: crypto.createHash('sha256').update(large.body).digest('hex'),
+    lqip: small.width === 20 ? `data:${small.mime};base64,${small.body.toString('base64')}` : null,
+  }, variants);
+  await lib.linkImage(image.id, { subjectType, subjectId, role: 'hero', position: 0 });
+  onLine?.(`${subjectId}: ${f.title} — ${f.licence}`);
+  return { subjectType, subjectId, imageId: image.id, file: f.title, licence: f.licence };
+}

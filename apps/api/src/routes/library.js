@@ -39,7 +39,7 @@ import { runHarvest, refreshKinds, WIDTHS, researchAttraction, detailPass } from
 import { contentsOf } from '../sources/inside.js';
 import { readAttraction } from '../domain/attractionReading.js';
 import { sweepRegion, sweepCost, rematchRegion, ACTIVITY_QUERIES } from '../sources/activitySweep.js';
-import { portraitsForApp } from '../sources/portraits.js';
+import { portraitsForApp, setPortrait } from '../sources/portraits.js';
 import { sweepPictures, PICTURE_VERSION } from '../sources/placePicture.js';
 import { mapillaryReady } from '../sources/streetLevel.js';
 import { query } from '../db.js';
@@ -553,6 +553,22 @@ adminRouter.post('/portraits', requires('manage_library'), async (req, res, next
       catch (err) { console.error('portraits:', err.message); }
     })();
     res.status(202).json({ started: true, only, watch: '/api/admin/library/portraits' });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Choose a place's portrait by hand. The licence is still read and enforced —
+ * picking a file does not make it ours.
+ */
+adminRouter.put('/portraits/:type/:id', requires('manage_library'), async (req, res, next) => {
+  try {
+    if (!['country', 'locality'].includes(req.params.type)) throw bad('A portrait is of a country or a locality');
+    if (!req.body?.file) throw bad('Name the Commons file');
+    res.json(await setPortrait({
+      subjectType: req.params.type, subjectId: req.params.id,
+      file: String(req.body.file), name: req.body.name ?? req.params.id,
+      onLine: (l) => console.log('portrait:', l),
+    }));
   } catch (err) { next(err); }
 });
 
