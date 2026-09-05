@@ -627,6 +627,21 @@ export type Mood = { key: MoodKey; label: string; count: number };
  * shelf, every filter and every count on that screen is composed from these —
  * changing a chip never asks a provider anything (Requirements: one pool).
  */
+/**
+ * A photograph Roam owns outright — harvested from Wikimedia Commons under a
+ * licence that lets us keep and republish it. `lqip` is a 20px JPEG as a data
+ * URI, about 500 bytes, so a card paints before the network is touched.
+ *
+ * `credit` is not decoration. For everything except CC0 and public domain,
+ * showing the picture without the line is the licence broken, so a card that
+ * draws the image must draw the credit too.
+ */
+export type OwnedImage = {
+  id: string; lqip: string | null; credit: string | null;
+  licence: string; licenceUrl: string | null; sourceUrl: string | null;
+  creditRequired: boolean;
+};
+
 export type InspireItem = {
   venueRef: string; source: string; name: string; category: string;
   moods: MoodKey[]; experiences: string[]; cuisines: string[];
@@ -643,6 +658,13 @@ export type InspireItem = {
   /** How long this household would spend there, at their own pace. */
   dwellMinutes: number;
   household: { visits?: number; lastOn?: string; loved?: number; notForMe?: number; ledger?: string } | null;
+  /** Set on an atlas place: ours, illustrated, and researched from open sources. */
+  image?: OwnedImage | null;
+  summary?: string | null;
+  heritage?: string | null;
+  website?: string | null;
+  wikipediaUrl?: string | null;
+  region?: string | null;
 };
 
 export type InspireNear = {
@@ -650,6 +672,8 @@ export type InspireNear = {
   from: { label: string | null; lat: number; lng: number; how: 'home' | 'given' | 'centre' };
   mode: string; radiusKm: number;
   moods: Mood[]; items: InspireItem[];
+  /** True when the answer came from the atlas alone — no provider was asked. */
+  partial?: boolean;
   cached: boolean; tookMs: number; attribution: string[];
 };
 
@@ -1164,7 +1188,7 @@ export const api = {
    * The home screen's one read: everything around a point, already sorted into
    * the six moods, with the journey and the stay worked out per place.
    */
-  inspireNear: (q: { lat?: number; lng?: number; label?: string; locality?: string | null; from?: string | null; mode?: string }) =>
+  inspireNear: (q: { lat?: number; lng?: number; label?: string; locality?: string | null; from?: string | null; mode?: string; owned?: 1 }) =>
     request<InspireNear>(`/api/inspire/near${qs(q)}`),
 
   imageUrl: (id: string, width = 500) => `${API_URL}/api/images/${id}/${width}`,
