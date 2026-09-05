@@ -72,6 +72,13 @@ function point(text) {
 const weight = (v) => (v.rating ?? 0) * Math.log10((v.ratingCount ?? 0) + 2);
 
 /**
+ * How far out the atlas half reaches. Twice the look-around, because a family
+ * will drive half an hour to a castle and will not drive half an hour to a
+ * playground, and the two pools should not be held to the same ring.
+ */
+const ATLAS_RADIUS_KM = THINGS_RADIUS_KM * 2;
+
+/**
  * The credit a picture and a rating travel with. Sources hand this over as a
  * line of text or as a list of them, so both shapes end as a list — a card that
  * shows the content and not the credit is the licence broken.
@@ -185,18 +192,20 @@ inspire.get('/near', async (req, res, next) => {
     // and no join exists between those. Two names that match within 250 m are
     // the same place — at that distance a real coincidence would have to be a
     // second Windsor Castle in the grounds of the first.
+    let atlasCount = 0;
     const nameKey = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
     const already = items.map((i) => ({ key: nameKey(i.name), lat: i.lat, lng: i.lng }));
     const seen = (a) => already.some((b) => b.key === nameKey(a.name)
       && a.lat != null && kmBetween(a, b) < 0.25);
 
-    const atlas = await publishedNear({ lat: centre.lat, lng: centre.lng, km: THINGS_RADIUS_KM * 2 });
+    // Twice the OSM radius, because an attraction worth driving to is worth
+    // showing from further away than a playground is. It is therefore the outer
+    // edge of the whole answer, which is what `radiusKm` has to report.
+    const atlas = await publishedNear({ lat: centre.lat, lng: centre.lng, km: ATLAS_RADIUS_KM });
     for (const a of atlas) {
       if (a.lat == null || a.lng == null) continue;
-      // The box is generous at its corners; this is the honest ring. Twice the
-      // OSM radius, because an attraction worth driving to is worth showing
-      // from further away than a playground is.
-      if (kmBetween(centre, a) > THINGS_RADIUS_KM * 2) continue;
+      // The box is generous at its corners; this is the honest ring.
+      if (kmBetween(centre, a) > ATLAS_RADIUS_KM) continue;
       if (seen(a)) continue;
       items.push({
         // Wikidata's own identifier where there is no OpenStreetMap one, which
@@ -235,6 +244,7 @@ inspire.get('/near', async (req, res, next) => {
         dwellMinutes: dwellFor({ category: 'attraction', experiences: [] }, household, attendees).minutes,
         household: null,
       });
+      atlasCount += 1;
     }
 
     // The heart on each card: whether this household has already kept, been to
@@ -248,7 +258,12 @@ inspire.get('/near', async (req, res, next) => {
       place: { label, ...centre, locality },
       from: origin,
       mode,
-      radiusKm: ownedOnly ? THINGS_RADIUS_KM * 2 : THINGS_RADIUS_KM,
+      // The furthest anything in this answer can be, not the radius of one of
+      // the two searches behind it. The screen prints this in "N places within
+      // X km", and the atlas half reaches twice as far as the look-around — so
+      // reporting 5 while showing Windsor Castle at 9.7 would be a plain
+      // untruth on the screen.
+      radiusKm: atlasCount ? ATLAS_RADIUS_KM : THINGS_RADIUS_KM,
       // Said plainly rather than left to be inferred from a thin Food shelf.
       partial: ownedOnly,
       moods: MOODS.map((m) => ({ ...m, count: counts[m.key] })),
