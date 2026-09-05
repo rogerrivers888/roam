@@ -116,14 +116,22 @@ export function Tile({ label, value, sub, tone = 'plain', onPress }: {
   tone?: Tone;
   onPress?: () => void;
 }) {
+  // `flexBasis` on a tile is meant for the *row* it sits in. Inside a Pressable
+  // — a column container — the same property becomes a minimum **height**, so a
+  // tile you can tap was 180px tall and, because a wrapped row stretches to its
+  // tallest child, it dragged every tile beside it to the same size. The wrapper
+  // carries the row's flex; the tile inside it carries none.
   const body = (
-    <View accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={label} style={[styles.tile, { borderLeftColor: RULE[tone] }]}>
+    <View accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={label}
+          style={[styles.tile, onPress && styles.tileInner, { borderLeftColor: RULE[tone] }]}>
       <Text style={styles.tileLabel}>{label}</Text>
       <Text style={styles.tileValue}>{value}</Text>
       {sub ? <Text style={type.tiny}>{sub}</Text> : null}
     </View>
   );
-  return onPress ? <Pressable onPress={onPress} style={{ flexGrow: 1, flexBasis: 180, maxWidth: 420 }}>{body}</Pressable> : body;
+  return onPress
+    ? <Pressable onPress={onPress} style={{ flexGrow: 1, flexBasis: 180, minWidth: 150, maxWidth: 420 }}>{body}</Pressable>
+    : body;
 }
 
 /** The auto-fitting row. Tiles grow to fill it, so two look right and seven do too. */
@@ -328,6 +336,8 @@ const styles = StyleSheet.create({
   page: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xxl },
 
   tileRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  /** Inside a Pressable the wrapper does the growing, so the tile must not. */
+  tileInner: { flexGrow: 0, flexBasis: 'auto', minWidth: 0, maxWidth: undefined, width: '100%' },
   tile: {
     // Grows to fill a row, but never past `maxWidth`: a lone tile on the last
     // row of a wrap would otherwise stretch the full width of the page and read

@@ -536,7 +536,7 @@ function LocalityRowView({ row, wide, on, onPress }: {
         )}
       </View>
 
-      <View style={{ flex: wide ? 3 : undefined, minWidth: 0, gap: 2 }}>
+      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <Text style={styles.rowName} numberOfLines={1}>{row.name}</Text>
         <Row style={{ gap: spacing.xs, flexWrap: 'wrap' }}>
           {row.type ? <Pill label={row.type} tone={row.side === 'eat' ? 'accent' : 'plain'} /> : null}
@@ -608,7 +608,7 @@ const styles = StyleSheet.create({
   lowerPhone: { flexDirection: 'column' },
 
   row: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap',
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
     borderTopWidth: 1, borderTopColor: colors.line,
   },
@@ -620,10 +620,10 @@ const styles = StyleSheet.create({
   rowOn: { backgroundColor: colors.accentSoft },
   rowName: { ...type.body, fontWeight: '700' },
 
-  dots: { flexDirection: 'row', gap: 3, flex: 0 },
+  dots: { flexDirection: 'row', gap: 3, flexGrow: 0, flexShrink: 0, width: 69 },
   dot: { width: 9, height: 9, borderRadius: 2.5, backgroundColor: colors.line },
   dotYes: { backgroundColor: colors.accent },
   dotNo: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.overrun },
 
-  score: { ...type.small, fontWeight: '800', width: 52, textAlign: 'right' },
+  score: { ...type.small, fontWeight: '800', width: 52, textAlign: 'right', flexGrow: 0, flexShrink: 0 },
 });
