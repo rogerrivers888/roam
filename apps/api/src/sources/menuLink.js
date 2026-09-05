@@ -228,7 +228,7 @@ export async function findMenuUrl({ website, name = '', locality = null, address
  */
 const NOT_A_MENU_HOST = /(^|\.)(facebook|instagram|twitter|x|tiktok|youtube|linkedin|pinterest|google|goo\.gl|maps\.app|tripadvisor|yelp|wordpress|wix|squarespace|godaddy|cookiebot|gstatic)\./i;
 
-export async function childMenus(menuUrl, { max = 4, render = true } = {}) {
+export async function childMenus(menuUrl, { max = 4, render = true, words = [] } = {}) {
   let page;
   try { page = await get(menuUrl); } catch { return []; }
   if (!page.ok || !page.html) return [];
@@ -267,7 +267,27 @@ export async function childMenus(menuUrl, { max = 4, render = true } = {}) {
     if (!isPdf && !looksMenu) continue;
     // An index links to its own children; it also links back to itself and to
     // the page that sent us here. A child names which menu it is.
-    const n = (isPdf ? 3 : 0) + (named.test(text) ? 2 : 0) + (named.test(u.pathname) ? 1 : 0) + (looksMenu ? 1 : 0) - (elsewhere ? 1 : 0);
+    // Which branch this is. A group's menu page asks which restaurant you mean
+    // before it will show you anything, and reading Kingston's menu for a
+    // Windsor pub is worse than reading none (Megan's, 5 Sep 2026).
+    // Every Megan's link matches "megans", so a yes/no on the venue's words puts
+    // all thirteen branches level and picks one at random. Count how many of the
+    // words hit instead: "megans-by-the-crown" matches two, the rest match one.
+    const hay = `${text} ${u.pathname}`.toLowerCase();
+    const branch = words.filter((w) => hay.includes(w)).length * 3;
+    // Food before drink when we can only afford a few.
+    const drinkOnly = /\b(drinks?|wine|cocktail|beer|bar)\b/i.test(text) && !/\bfood\b/i.test(text) ? 1 : 0;
+    // A page underneath the one we are standing on is a child of it, whatever
+    // it is called. Megan's Windsor is /menus/megans-by-the-crown/ — no town in
+    // it, no menu word beyond the section it sits in, and it scored exactly on
+    // the threshold and was dropped (5 Sep 2026).
+    let child = 0;
+    try {
+      const here = new URL(page.url).pathname.replace(/\/+$/, '');
+      child = !elsewhere && here && u.pathname.startsWith(`${here}/`) ? 1 : 0;
+    } catch { /* not a path we can compare */ }
+    const n = (isPdf ? 3 : 0) + (named.test(text) ? 2 : 0) + (named.test(u.pathname) ? 1 : 0)
+      + (looksMenu ? 1 : 0) + branch + child - (elsewhere ? 1 : 0) - drinkOnly;
     if (n <= 1) continue;
     seen.add(clean);
     out.push({ url: clean, label: text.slice(0, 60), n });

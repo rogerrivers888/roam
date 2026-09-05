@@ -462,6 +462,122 @@ const chunks = (text) => {
   return out;
 };
 
+/* ------------------------------------------------------- menus that are pictures */
+
+// Names that are never a menu, whatever else is true of them.
+const NOT_A_MENU_IMAGE = /logo|favicon|icon|avatar|badge|banner|header|hero|sprite|placeholder|cropped-|thumb|-\d{2,3}x\d{2,3}\.|instagram|facebook|tripadvisor|award|star-|arrow|cookie/i;
+// Names that usually are one.
+const MENU_WORDS = /menu|a-?la-?carte|carte|food|drink|wine|lunch|dinner|brunch|breakfast|sunday|roast|specials?|tasting|set-|kids|children|dessert|front|back|takeaway/i;
+/** Four is enough for a pub with a front, a back and a Sunday, and bounds the bill. */
+const MAX_MENU_IMAGES = Number(process.env.ROAM_MENU_IMAGES || 4);
+const MAX_IMAGE_BYTES = 5_000_000;
+
+/**
+ * The pictures on a page that might be a menu, best first.
+ *
+ * The owner, 5 Sep 2026: "the menu is an image, and so I want to understand
+ * from you how complicated it is to extract that image. What I do not want is
+ * for you to exclude something just because they have a basic website, because
+ * that will cut out 10% or more of all the rest of the restaurants in the
+ * country, and we could miss some diamonds."
+ *
+ * He is right about the proportion, and a pub that photographs its printed menu
+ * and uploads it is not a worse pub. So the crawler stops treating "no text" as
+ * "no menu".
+ *
+ * Choosing which pictures to send is a cost question rather than a correctness
+ * one: the model can tell a menu from a photograph of a burger perfectly well,
+ * but not for free, so the obvious rubbish is dropped by name first and the
+ * rest are ranked. The Alma's are called Alma-Front-April26 and
+ * Alma-Back-April26, which is the ordinary case — people name these files.
+ */
+export function menuImageCandidates(html, baseUrl) {
+  const seen = new Set();
+  const out = [];
+  const consider = (raw) => {
+    if (!raw) return;
+    let url;
+    try { url = new URL(raw.trim(), baseUrl).toString().replace(/#.*$/, ''); } catch { return; }
+    if (!/^https?:/i.test(url) || seen.has(url)) return;
+    if (!/\.(jpe?g|png|webp)($|\?)/i.test(url)) return;
+    seen.add(url);
+    const name = decodeURIComponent(url.split('/').pop() ?? '');
+    if (NOT_A_MENU_IMAGE.test(name)) return;
+    // A dimension in the file name is WordPress telling us this is a thumbnail.
+    const sized = name.match(/-(\d{3,4})x(\d{3,4})\./);
+    if (sized && Math.max(Number(sized[1]), Number(sized[2])) < 700) return;
+    let n = 0;
+    if (MENU_WORDS.test(name)) n += 3;
+    if (/scaled|full|large|original/i.test(name)) n += 1;
+    // A menu is a document: taller than it is wide, or nearly square.
+    if (sized && Number(sized[2]) >= Number(sized[1])) n += 1;
+    out.push({ url, name, n });
+  };
+
+  for (const [, attrs] of html.matchAll(/<img\b([^>]*)>/gi)) {
+    consider((attrs.match(/\bsrc\s*=\s*"([^"]*)"/i) || attrs.match(/\bsrc\s*=\s*'([^']*)'/i) || [])[1]);
+    consider((attrs.match(/\bdata-(?:src|lazy-src|large_image)\s*=\s*"([^"]*)"/i) || [])[1]);
+  }
+  // A gallery links the full-size picture from a thumbnail; that link is the
+  // one worth reading, because the thumbnail is unreadable by design.
+  for (const [, href] of html.matchAll(/<a\b[^>]*\bhref\s*=\s*"([^"]*\.(?:jpe?g|png|webp))"/gi)) consider(href);
+
+  return out.sort((a, b) => b.n - a.n).slice(0, MAX_MENU_IMAGES * 2);
+}
+
+/** Fetch a picture, small enough to send and large enough to read. */
+async function grabImage(url) {
+  const res = await grab(url);
+  if (!res.ok || !res.buffer?.length || res.buffer.length > MAX_IMAGE_BYTES) return null;
+  const type = /png/i.test(res.type) ? 'image/png' : /webp/i.test(res.type) ? 'image/webp' : 'image/jpeg';
+  if (!/^image\//i.test(res.type || '')) return null;
+  return { data: res.buffer.toString('base64'), type };
+}
+
+/**
+ * Read menus that were published as pictures.
+ *
+ * Everything goes in one call: a pub's front and back are one menu, and asking
+ * separately would produce two half-menus with duplicated section names. The
+ * model is told to ignore anything that is not a menu, which is what makes the
+ * candidate list allowed to be approximate.
+ */
+export async function readMenuImages({ urls, venueLabel, householdId, sessionId }) {
+  const images = [];
+  for (const url of urls.slice(0, MAX_MENU_IMAGES * 2)) {
+    if (images.length >= MAX_MENU_IMAGES) break;
+    try {
+      const img = await grabImage(url);
+      if (img) images.push({ ...img, url });
+    } catch { /* one picture that will not load is not the menu failing */ }
+  }
+  if (!images.length) return { sections: [], images: 0, why: 'none of the pictures could be fetched' };
+
+  console.log(`menu.read: reading ${images.length} picture(s) for ${venueLabel ?? 'a venue'} → ${MODEL}`);
+  const parsed = await parseStructured({
+    system: `${PARSE_SYSTEM}
+
+These are photographs or scans of a printed menu rather than text. Read what is printed. Some of the pictures may not be menus at all — a photograph of a dish, a logo, a picture of the room. Ignore those completely and say nothing about them. If none of the pictures is a menu, answer with no sections.`,
+    messages: [{
+      role: 'user',
+      content: [
+        ...images.map((img) => ({ type: 'image', source: { type: 'base64', media_type: img.type, data: img.data } })),
+        { type: 'text', text: `These pictures are from the menu page of ${venueLabel || 'a restaurant'}. Write out every menu you can read across all of them.` },
+      ],
+    }],
+    schema: MenuShape,
+    householdId,
+    sessionId,
+    purpose: 'menu.read.image',
+    effort: 'low',
+    thinking: 'off',
+    model: MODEL,
+    maxTokens: MAX_ANSWER_TOKENS,
+  });
+  const sections = (parsed.sections || []).filter((s) => s.items?.length);
+  return { sections, currency: parsed.currency ?? null, note: parsed.note ?? null, images: images.length, read: images.map((i) => i.url) };
+}
+
 async function parseMenuText({ text, venueLabel, householdId, sessionId }) {
   const parts = chunks(text);
   const sections = [];
@@ -558,6 +674,9 @@ export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun
   const steps = [];
   let text = '';
   let kind = null;
+  // Kept for the last resort: a page whose menu is a picture still has the
+  // picture in its markup.
+  let html = '';
 
   let res = null;
   try {
@@ -575,7 +694,7 @@ export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun
       steps.push(`their PDF would not open (${err.message})`);
     }
   } else if (res?.ok) {
-    const html = res.buffer.toString('utf8');
+    html = res.buffer.toString('utf8');
     text = visibleText(html);
     kind = 'html';
     steps.push(`read the page (${text.length.toLocaleString()} characters)`);
@@ -641,8 +760,35 @@ export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun
   if (dryRun) return { dryRun: true, kind, how: steps, sourceUrl: res?.url || url, chars: text.length, sample: text.slice(0, 600) };
 
   const menu = await parseMenuText({ text, venueLabel, householdId, sessionId });
-  const items = menu.sections.reduce((n, s) => n + s.items.length, 0);
+  let items = menu.sections.reduce((n, s) => n + s.items.length, 0);
   if (menu.failed?.length) steps.push(`${menu.failed.length} of ${Math.ceil(text.length / CHUNK_CHARS)} parts would not read`);
+
+  // The page had words but no dishes in them, which is what a page whose menu
+  // is a photograph looks like: kitchen hours, "click to enlarge each photo",
+  // and four pictures of a printed menu. Read the pictures (owner, 5 Sep 2026 —
+  // The Alma, and "I do not want you to exclude something just because they
+  // have a basic website").
+  if (!items && html) {
+    const candidates = menuImageCandidates(html, res?.url || url);
+    if (candidates.length) {
+      steps.push(`no dishes in the text; ${candidates.length} picture(s) on the page look like a menu`);
+      try {
+        const shot = await readMenuImages({ urls: candidates.map((c) => c.url), venueLabel, householdId, sessionId });
+        const found = shot.sections.reduce((n, x) => n + x.items.length, 0);
+        if (found) {
+          steps.push(`read ${shot.images} picture(s) of their printed menu`);
+          return {
+            sections: shot.sections, currency: shot.currency, note: shot.note, failed: [],
+            kind: 'photo', how: steps, sourceUrl: res?.url || url, chars: text.length, items: found,
+          };
+        }
+        steps.push('the pictures were not menus');
+      } catch (err) {
+        steps.push(`reading the pictures failed (${String(err.message).slice(0, 80)})`);
+      }
+    }
+  }
+
   if (!items) {
     const err = new Error('menu_had_no_items');
     err.status = 422;

@@ -349,9 +349,16 @@ export async function readFoundMenus({ limit = 2, householdId = null, sessionId 
  * so the household sees one menu with "Dinner · Starters" in it rather than
  * three menus or none.
  */
-async function readChildren(row, { householdId, sessionId, max = 3 } = {}) {
+async function readChildren(row, { householdId, sessionId, max = 3, depth = 2 } = {}) {
+  // The words that say which restaurant this is. A group's menu page asks
+  // before it shows you anything, and the answer is in the venue's own name as
+  // often as in the town: Megan's Windsor is "megans-by-the-crown", with no
+  // Windsor in it anywhere (5 Sep 2026).
+  const words = [...new Set(`${row.name ?? ''} ${row.postcode ?? ''} ${row.address ?? ''}`.toLowerCase().match(/[a-z]{4,}/g) ?? [])]
+    .filter((w) => !['road', 'street', 'lane', 'unit', 'high', 'avenue', 'close', 'place', 'square', 'united', 'kingdom', 'restaurant', 'kitchen'].includes(w));
+
   let children = [];
-  try { children = await childMenus(row.menu_url, { max }); } catch { return null; }
+  try { children = await childMenus(row.menu_url, { max, words }); } catch { return null; }
   if (!children.length) return null;
 
   const sections = [];
@@ -359,7 +366,15 @@ async function readChildren(row, { householdId, sessionId, max = 3 } = {}) {
   let kind = null;
   for (const child of children) {
     try {
-      const part = await readMenu({ url: child.url, venueLabel: row.venue_label, householdId, sessionId });
+      let part = null;
+      try {
+        part = await readMenu({ url: child.url, venueLabel: row.venue_label, householdId, sessionId });
+      } catch (err) {
+        // One more level, once. Megan's is a chooser, then a branch page, then
+        // nine PDFs — three deep, and stopping at two found nothing.
+        if (depth <= 1 || !/menu_had_no_items|menu_unreadable/.test(err.message)) throw err;
+        part = await readChildren({ ...row, menu_url: child.url }, { householdId, sessionId, max, depth: depth - 1 });
+      }
       if (!part?.sections?.length) continue;
       const label = child.label?.trim();
       for (const s of part.sections) {
