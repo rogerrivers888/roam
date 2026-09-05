@@ -548,9 +548,9 @@ const ABANDONED_AFTER = "5 minutes";
 export async function runningRun() {
   await query(
     `update harvest_runs
-        set state = 'failed', error = coalesce(error, 'The API restarted while this was running.'),
+        set state = 'failed', error = coalesce(error, $1),
             finished_at = now(), stage = null
-      where state = 'running' and touched_at < now() - interval '${ABANDONED_AFTER}'`);
+      where state = 'running' and touched_at < now() - interval '${ABANDONED_AFTER}'`, [RESTARTED]);
   const { rows } = await query(`select * from harvest_runs where state = 'running' order by started_at desc limit 1`);
   return rows[0] ?? null;
 }
@@ -567,14 +567,21 @@ export async function recoverAbandonedRuns() {
   const { rows } = await query(
     `update harvest_runs
         set state = 'failed',
-            error = coalesce(error, 'The API restarted while this was running.'),
+            error = coalesce(error, $1),
             finished_at = coalesce(finished_at, now()), stage = null
       where state = 'running'
-      returning id, scope, counts, started_by, started_at`);
+      returning id, scope, counts, started_by, started_at`, [RESTARTED]);
   await query(`update regions set harvest_state = 'never', updated_at = now() where harvest_state in ('queued', 'running')`);
   return rows;
 }
 
-/** When the last run started, whatever became of it. Guards the resume against a crash loop. */
-export const lastRunStartedAt = async () =>
-  (await query('select started_at from harvest_runs order by started_at desc limit 1')).rows[0]?.started_at ?? null;
+/** The most recent run, whatever became of it. */
+export const lastRun = async () =>
+  (await query('select id, scope, state, error, counts, started_at, finished_at from harvest_runs order by started_at desc limit 1')).rows[0] ?? null;
+
+/**
+ * The sentence written on a run that a restart took, and the one the resume
+ * looks for. A constant rather than a literal in two files, because the resume
+ * decides whether to pick hours of work back up by matching it.
+ */
+export const RESTARTED = 'The API restarted while this was running.';

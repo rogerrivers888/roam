@@ -505,10 +505,27 @@ export async function runHarvest({ slugs, withImages = true, refreshTypes = fals
 const COOL_OFF_MS = 4 * 60_000;
 
 export async function resumeInterrupted({ startedBy = 'Roam (resumed after a restart)' } = {}) {
-  const abandoned = await lib.recoverAbandonedRuns();
-  if (!abandoned.length) return null;
+  // Anything this boot found still saying "running" belongs to a process that
+  // is gone. Close it out first, whatever we then decide to do about it.
+  const justClosed = await lib.recoverAbandonedRuns();
 
-  const lastStart = await lib.lastRunStartedAt();
+  // …and then ask whether there is a harvest to carry on with. Looking at the
+  // *last run* rather than only at what this boot closed is the difference
+  // between resuming and not: the restart that kills a run and the restart that
+  // should pick it up are usually two different restarts. The first deploy
+  // closes the run; the next one boots into a database where nothing says
+  // "running" any more, and would otherwise leave ninety-seven counties sitting
+  // there for ever.
+  const last = justClosed[0] ?? (await lib.lastRun());
+  if (!last) return null;
+
+  // Only a run a restart took. A run somebody pressed Stop on is a decision,
+  // and a run that failed for its own reasons is a bug to look at rather than
+  // to repeat every hour until it fills the log.
+  const takenByARestart = justClosed.length > 0 || (last.state === 'failed' && last.error === lib.RESTARTED);
+  if (!takenByARestart) return { resumed: false, reason: `the last run ${last.state === 'done' ? 'finished' : `ended: ${last.error ?? last.state}`}` };
+
+  const lastStart = last.started_at;
   if (lastStart && Date.now() - new Date(lastStart).getTime() < COOL_OFF_MS) {
     return { resumed: false, reason: 'a run started moments ago; not resuming into a restart loop' };
   }
