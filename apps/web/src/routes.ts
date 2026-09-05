@@ -61,6 +61,27 @@ export function buildHref(segments: (string | null | undefined)[], query?: URLSe
   return s ? `${path}?${s}` : path;
 }
 
+/**
+ * One address changed in part: "/places/home?kind=eat" + {type: null} keeps the
+ * kind and drops the type. An empty or missing value means "not in the address"
+ * — the default is never written down — and the path is left alone unless
+ * `base` says otherwise, which is what the taps that move *and* set a filter
+ * need ("/places/GB/London?kind=eat" from a chip on another page).
+ *
+ * It composes, which is the point: a handler that changes two things is two
+ * calls, and the second must start from what the first wrote.
+ */
+export function withQuery(href: string, patch: Record<string, string | null | undefined>, base?: string): string {
+  const { path, query } = splitHref(href);
+  const q = new URLSearchParams(query);
+  for (const [k, v] of Object.entries(patch)) {
+    if (v == null || v === '') q.delete(k); else q.set(k, v);
+  }
+  const rest = q.toString();
+  const on = base ?? path;
+  return rest ? `${on}?${rest}` : on;
+}
+
 function toParams(o: Record<string, string | null | undefined>): URLSearchParams {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(o)) if (v != null && v !== '') q.set(k, v);
@@ -97,9 +118,9 @@ export const PROTOTYPE_SECTIONS: PrototypeSection[] = ['plan', 'places', 'trips'
 
 export type AdminScreen =
   | 'overview' | 'accounts' | 'households' | 'activity' | 'reporting'
-  | 'library' | 'shelves' | 'scout' | 'roles' | 'plans' | 'audit';
+  | 'places' | 'library' | 'shelves' | 'scout' | 'roles' | 'plans' | 'audit';
 export const ADMIN_SCREENS: AdminScreen[] = [
-  'overview', 'accounts', 'households', 'activity', 'reporting', 'library', 'shelves', 'scout', 'roles', 'plans', 'audit',
+  'overview', 'accounts', 'households', 'activity', 'reporting', 'places', 'library', 'shelves', 'scout', 'roles', 'plans', 'audit',
 ];
 
 /**

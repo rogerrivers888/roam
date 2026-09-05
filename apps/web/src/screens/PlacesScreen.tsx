@@ -17,7 +17,7 @@ const WELL = 56;
 const AREA_WELL = 60;
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap } from '../components/ui';
 import { PlacePicker } from '../components/PlacePicker';
-import { PickSheet } from '../components/PickSheet';
+import { PickPanel } from '../components/PickPanel';
 import { SourcePicker } from '../components/SourcePicker';
 import { BeenCapture, VenueRow, VisitForm, VisitSummary, rowsForVisit } from '../components/Visits';
 import { getViewer, onViewerChange, setViewer as rememberViewer } from '../viewer';
@@ -48,6 +48,8 @@ type Kind = 'do' | 'eat' | 'stay';
 /** Been there, kept for later, or kept and loved. The "All ▾" dropdown. */
 type Status = 'any' | 'been' | 'saved' | 'special';
 type Sort = 'name' | 'mine' | 'recent';
+/** The sort dropdown's three answers; the first is the default and is never written into the address. */
+const SORTS: { value: Sort; label: string }[] = [{ value: 'name', label: 'A–Z' }, { value: 'mine', label: 'My rating' }, { value: 'recent', label: 'Most recent' }];
 
 const uuid = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1).replace(/-/g, ' ');
@@ -393,9 +395,14 @@ function AtlasRoot({ data, error, household, members, viewer, wide, adding, onAd
 
       <View style={[styles.body, wide && styles.bodyCentred]}>
         <View style={styles.filters}>
-          <FilterChip label={areaOptions.find((o) => o.value === area)?.label ?? 'All areas'} on={area !== 'all'} onPress={() => setSheet('area')} />
-          <FilterChip label={whoLabel} on={!!viewer} onPress={() => setSheet('who')} />
+          <FilterChip label={areaOptions.find((o) => o.value === area)?.label ?? 'All areas'} on={area !== 'all'} open={sheet === 'area'} onPress={() => setSheet(sheet === 'area' ? null : 'area')} />
+          <FilterChip label={whoLabel} on={!!viewer} open={sheet === 'who'} onPress={() => setSheet(sheet === 'who' ? null : 'who')} />
         </View>
+        <PickPanel open={sheet === 'area'} title="Which part of the world" options={areaOptions} value={area}
+          onPick={(v) => { setArea(v as any); setSheet(null); }} onClose={() => setSheet(null)} />
+        <PickPanel open={sheet === 'who'} title="Whose verdicts" options={whoOptions} value={viewer ?? ''}
+          empty="Only you are in this household so far — add somebody on the Household tab."
+          onPick={(v) => { rememberViewer(v || null); setSheet(null); }} onClose={() => setSheet(null)} />
 
         {!data ? <Text style={type.small}>Loading your atlas…</Text> : null}
         {data && !countries.length && !data.home?.places ? (
@@ -438,8 +445,6 @@ function AtlasRoot({ data, error, household, members, viewer, wide, adding, onAd
         {data?.unplaced ? <Text style={type.tiny}>{data.unplaced} place{data.unplaced === 1 ? '' : 's'} still being placed on the map.</Text> : null}
       </View>
 
-      <PickSheet visible={sheet === 'area'} title="Which part of the world" options={areaOptions} value={area} onPick={(v) => { setArea(v as any); setSheet(null); }} onClose={() => setSheet(null)} />
-      <PickSheet visible={sheet === 'who'} title="Whose verdicts" options={whoOptions} value={viewer ?? ''} onPick={(v) => { rememberViewer(v || null); setSheet(null); }} onClose={() => setSheet(null)} />
     </View>
   );
 }
@@ -646,6 +651,11 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
   const inKind = (p: AtlasPlace) => kindsOf(p).includes(shown);
   /** Everything on this tab, before any of the dropdowns have been touched. */
   const inList = places.filter(inKind);
+  // What this tab holds, in words, for the empties: the list's, and every
+  // dropdown's, because a dropdown with nothing in it has to say why.
+  const thingsHere = shown === 'stay' ? 'places to stay' : shown === 'eat' ? 'food & drink' : 'things to do';
+  const nothingOnTab = !inList.length;
+  const noneYet = `No ${thingsHere} saved in ${title} yet.`;
   const inKindAndType = places.filter((p) => inKind(p) && (!typeF || typeOf(p, shown) === typeF));
   const statusOptions = [
     { value: 'any', label: 'All', count: inKindAndType.length },
@@ -729,17 +739,33 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
         ) : (
         <>
         <View style={styles.filters}>
-          <FilterChip label={statusOptions.find((o) => o.value === status)?.label ?? 'All'} on={status !== 'any'} onPress={() => setSheet('status')} />
-          <FilterChip label={typeF ?? 'Type'} on={!!typeF} onPress={() => setSheet('type')} />
-          <FilterChip label={moodF ? cap(moodF) : 'Mood'} on={!!moodF} onPress={() => setSheet('mood')} />
-          {tripOptions.length > 1 ? <FilterChip label={tripF ? tripOptions.find((o) => o.value === tripF)?.label ?? 'Trip' : 'Trip'} on={!!tripF} onPress={() => setSheet('trip')} /> : null}
-          <FilterChip label={sort === 'name' ? 'A–Z' : sort === 'mine' ? 'My rating' : 'Most recent'} on={sort !== 'name'} onPress={() => setSheet('sort')} />
+          <FilterChip label={statusOptions.find((o) => o.value === status)?.label ?? 'All'} on={status !== 'any'} open={sheet === 'status'} onPress={() => setSheet(sheet === 'status' ? null : 'status')} />
+          <FilterChip label={typeF ?? 'Type'} on={!!typeF} open={sheet === 'type'} onPress={() => setSheet(sheet === 'type' ? null : 'type')} />
+          <FilterChip label={moodF ? cap(moodF) : 'Mood'} on={!!moodF} open={sheet === 'mood'} onPress={() => setSheet(sheet === 'mood' ? null : 'mood')} />
+          {tripOptions.length > 1 ? <FilterChip label={tripF ? tripOptions.find((o) => o.value === tripF)?.label ?? 'Trip' : 'Trip'} on={!!tripF} open={sheet === 'trip'} onPress={() => setSheet(sheet === 'trip' ? null : 'trip')} /> : null}
+          <FilterChip label={sort === 'name' ? 'A–Z' : sort === 'mine' ? 'My rating' : 'Most recent'} on={sort !== 'name'} open={sheet === 'sort'} onPress={() => setSheet(sheet === 'sort' ? null : 'sort')} />
           <View style={{ flex: 1 }} />
           <View style={styles.viewToggle}>
             <Pressable onPress={() => setView('list')} style={[styles.viewBtn, view === 'list' && styles.viewBtnOn]} accessibilityRole="button" accessibilityLabel="List" accessibilityState={{ selected: view === 'list' }}><Icon name="list" size={15} color={view === 'list' ? colors.primaryFg : colors.ink} /></Pressable>
             <Pressable onPress={() => setView('map')} style={[styles.viewBtn, view === 'map' && styles.viewBtnOn]} accessibilityRole="button" accessibilityLabel="Map" accessibilityState={{ selected: view === 'map' }}><Icon name="map" size={15} color={view === 'map' ? colors.primaryFg : colors.ink} /></Pressable>
           </View>
         </View>
+
+        {/* The answer opens under the question (owner, 5 Sep 2026), and a
+            filter with nothing to offer says why rather than opening empty. */}
+        <PickPanel open={sheet === 'status'} title="Been here?" options={statusOptions} value={status}
+          onPick={(v) => { setStatus(v as Status); setSheet(null); setSelPin(null); }} onClose={() => setSheet(null)} />
+        <PickPanel open={sheet === 'type'} title={shown === 'eat' ? 'Cuisine' : shown === 'stay' ? 'Kind of stay' : 'Kind of thing'}
+          options={typeOptions} value={typeF ?? ''}
+          empty={nothingOnTab ? 'Nothing on this tab yet, so there is nothing to narrow.' : shown === 'eat' ? 'Nothing here has said what food it serves yet.' : 'Nothing here has said what kind of thing it is yet.'}
+          onPick={(v) => { setTypeF(v || null); setSheet(null); setSelPin(null); }} onClose={() => setSheet(null)} />
+        <PickPanel open={sheet === 'mood'} title="What's the day for?" options={moodOptions} value={moodF ?? ''}
+          empty={nothingOnTab ? 'Nothing on this tab yet, so there is no mood to pick.' : 'Nothing here has been given a mood yet.'}
+          onPick={(v) => { setMoodF(v || null); setSheet(null); setSelPin(null); }} onClose={() => setSheet(null)} />
+        <PickPanel open={sheet === 'trip'} title="On which trip" options={tripOptions} value={tripF ?? ''}
+          onPick={(v) => { setTripF(v || null); setSheet(null); setSelPin(null); }} onClose={() => setSheet(null)} />
+        <PickPanel open={sheet === 'sort'} title="Sort by" options={SORTS} value={sort}
+          onPick={(v) => { setSort(v as Sort); setSheet(null); }} onClose={() => setSheet(null)} />
 
         <View style={[styles.split, wide && showMap && styles.splitWide]}>
           {showList ? (
@@ -755,7 +781,7 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
                       filter that has hidden everything. */}
                   <Text style={type.small}>
                     {!places.length ? "Nothing here yet. Add a place you know, or a trip's shortlist will fill it."
-                      : !inList.length ? `No ${shown === 'stay' ? 'places to stay' : shown === 'eat' ? 'food & drink' : 'things to do'} saved in ${title} yet.${shown === 'stay' ? ' A hotel you book on a trip here lands in this list.' : ''}`
+                      : nothingOnTab ? `${noneYet}${shown === 'stay' ? ' A hotel you book on a trip here lands in this list.' : ''}`
                         : 'Nothing matches — clear a filter.'}
                   </Text>
                 </Card>
@@ -781,21 +807,17 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
         )}
       </View>
 
-      <PickSheet visible={sheet === 'status'} title="Been here?" options={statusOptions} value={status} onPick={(v) => { setStatus(v as Status); setSheet(null); setSelPin(null); }} onClose={() => setSheet(null)} />
-      <PickSheet visible={sheet === 'type'} title={shown === 'eat' ? 'Cuisine' : shown === 'stay' ? 'Kind of stay' : 'Kind of thing'} options={typeOptions} value={typeF ?? ''} onPick={(v) => { setTypeF(v || null); setSheet(null); setSelPin(null); }} onClose={() => setSheet(null)} />
-      <PickSheet visible={sheet === 'mood'} title="What's the day for?" options={moodOptions} value={moodF ?? ''} onPick={(v) => { setMoodF(v || null); setSheet(null); setSelPin(null); }} onClose={() => setSheet(null)} />
-      <PickSheet visible={sheet === 'trip'} title="On which trip" options={tripOptions} value={tripF ?? ''} onPick={(v) => { setTripF(v || null); setSheet(null); setSelPin(null); }} onClose={() => setSheet(null)} />
-      <PickSheet visible={sheet === 'sort'} title="Sort by" options={[{ value: 'name', label: 'A–Z' }, { value: 'mine', label: 'My rating' }, { value: 'recent', label: 'Most recent' }]} value={sort} onPick={(v) => { setSort(v as Sort); setSheet(null); }} onClose={() => setSheet(null)} />
     </View>
   );
 }
 
 
-function FilterChip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+/** A chip that opens its answers in a panel under the row. The chevron says which way. */
+function FilterChip({ label, on, open, onPress }: { label: string; on: boolean; open?: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.fchip, on && styles.fchipOn]} accessibilityRole="button">
+    <Pressable onPress={onPress} style={[styles.fchip, on && styles.fchipOn, open && !on && styles.fchipOpen]} accessibilityRole="button" accessibilityState={{ expanded: !!open }}>
       <Text style={[styles.fchipText, on && { color: colors.primaryFg }]} numberOfLines={1}>{label}</Text>
-      <Icon name="expand" size={13} color={on ? colors.primaryFg : colors.ink} />
+      <Icon name={open ? 'collapse' : 'expand'} size={13} color={on ? colors.primaryFg : colors.ink} />
     </Pressable>
   );
 }
@@ -1241,6 +1263,7 @@ const styles = StyleSheet.create({
   filters: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   fchip: { flexDirection: 'row', alignItems: 'center', gap: 2, height: 32, paddingLeft: 10, paddingRight: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, maxWidth: 150 },
   fchipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  fchipOpen: { borderColor: colors.ink, backgroundColor: colors.panel },
   fchipText: { fontSize: 12, fontWeight: '600', color: colors.ink, flexShrink: 1 },
   viewToggle: { flexDirection: 'row', height: 32, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 2, gap: 2 },
   viewBtn: { width: 30, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },

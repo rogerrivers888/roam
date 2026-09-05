@@ -12,7 +12,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hrefOf, legacyHref, parseRoute, paths, parentOf, tabOf, titleOf } from '../src/routes.ts';
+import { hrefOf, legacyHref, parseRoute, paths, parentOf, tabOf, titleOf, withQuery } from '../src/routes.ts';
 
 /** Read it, write it back, and get the same address. */
 const roundTrip = (href: string, expected?: string) => {
@@ -158,4 +158,27 @@ test('a window of Roam tabs is not seven identical ones', () => {
   assert.equal(titleOf(parseRoute('/places/IT')), 'IT · Roam');
   assert.equal(titleOf(parseRoute('/inspire/culture')), 'Culture · Roam');
   assert.equal(titleOf(parseRoute('/nowhere')), 'Not a page · Roam');
+});
+
+// --- changing part of an address -------------------------------------------
+
+test('a change to the query keeps the rest of the address', () => {
+  assert.equal(withQuery('/places/home?kind=eat&sort=recent', { status: 'been' }), '/places/home?kind=eat&sort=recent&status=been');
+  assert.equal(withQuery('/places/home', { kind: 'eat' }), '/places/home?kind=eat');
+  // A default is never written down, so clearing is null or the empty string.
+  assert.equal(withQuery('/places/home?kind=eat&type=Museum', { type: null }), '/places/home?kind=eat');
+  assert.equal(withQuery('/places/home?kind=eat', { kind: '' }), '/places/home');
+  // A tap that moves and sets a filter at once passes the path it is moving to.
+  assert.equal(withQuery('/inspire?mood=fun', { mood: 'culture' }, '/places/GB/London'), '/places/GB/London?mood=culture');
+});
+
+/**
+ * The one that mattered: tapping Food & drink also clears the Type filter, and
+ * those are two calls in the same handler. Each has to start from what the last
+ * one wrote, or the second undoes the first and the tab looks dead (owner,
+ * 5 Sep 2026: "when I click on Food and Drink, it does not work").
+ */
+test('two changes in one tap compose instead of racing', () => {
+  const first = withQuery('/places/home?type=Museum', { kind: 'eat' });
+  assert.equal(withQuery(first, { type: null }), '/places/home?kind=eat');
 });

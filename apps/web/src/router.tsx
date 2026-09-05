@@ -36,7 +36,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { recallScreen, rememberScreen } from './screenState';
-import { splitHref } from './routes';
+import { splitHref, withQuery } from './routes';
 
 const onWeb = Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.history !== 'undefined';
 
@@ -117,12 +117,17 @@ export function RouterProvider({ children }: { children: React.ReactNode }) {
       href, path, segments, query,
       navigate,
       setQuery: (patch, opts) => {
-        const q = new URLSearchParams(query);
-        for (const [k, v] of Object.entries(patch)) {
-          if (v == null || v === '') q.delete(k); else q.set(k, v);
-        }
-        const s = q.toString();
-        navigate(s ? `${path}?${s}` : path, { replace: opts?.replace !== false });
+        /**
+         * Read the address as it is *now*, not as it was when this render
+         * started. One tap often changes two things — the Food & drink tab
+         * also clears the Type filter — and those are two calls in the same
+         * handler, before React has re-rendered anything. Built from the
+         * render's query they would each start from the old address and the
+         * last one would undo the first, which is exactly how the segment
+         * ended up looking unclickable (owner, 5 Sep 2026: "I go into Places,
+         * Food and Drink, and it's simply not clickable").
+         */
+        navigate(withQuery(readHref(), patch), { replace: opts?.replace !== false });
       },
       back: (fallback: string) => {
         if (depth > 0) {

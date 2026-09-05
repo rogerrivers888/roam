@@ -10,7 +10,7 @@ import { WhereSearch } from '../components/WhereSearch';
 import { useViewport } from '../hooks/useViewport';
 import { firstName } from '../components/Faces';
 import { asList, asNumber, asOneOf, useQueryState, useRouter, useStickyQuery } from '../router';
-import { paths, MOODS, type Route } from '../routes';
+import { paths, withQuery, MOODS, type Route } from '../routes';
 import type { OpenTripOptions } from './PlanScreen';
 
 /**
@@ -205,7 +205,7 @@ export function InspireScreen({ route, household, onOpenTrip, onPlanner, onFood,
 }) {
   const { width } = useViewport();
   const wide = width >= 900;
-  const { query, navigate, setQuery, back } = useRouter();
+  const { href, query, navigate, setQuery, back } = useRouter();
   // How this screen was last set, filled in only when the address is silent.
   useStickyQuery('inspire', KEYS);
 
@@ -232,12 +232,7 @@ export function InspireScreen({ route, household, onOpenTrip, onPlanner, onFood,
   const setOpenRow = (m: MoodKey | null) => navigate((m ? paths.inspireShelf(m) : paths.inspire()) + hereQuery());
   const hereQuery = () => { const q = query.toString(); return q ? `?${q}` : ''; };
   /** One address out of a path and a change to the query, for the taps that do both at once. */
-  const withQuery = (base: string, patch: Record<string, string | null>) => {
-    const q = new URLSearchParams(query);
-    for (const [k, v] of Object.entries(patch)) { if (v == null || v === '') q.delete(k); else q.set(k, v); }
-    const rest = q.toString();
-    return rest ? `${base}?${rest}` : base;
-  };
+  const here = (base: string, patch: Record<string, string | null>) => withQuery(href, patch, base);
 
   const [pool, setPool] = useState<InspireNear | null>(null);
   const [loading, setLoading] = useState(true);
@@ -451,7 +446,7 @@ export function InspireScreen({ route, household, onOpenTrip, onPlanner, onFood,
         onClose={() => back(paths.inspire() + hereQuery())}
         // One address: the town they picked, with the search screen out of the
         // way behind them, so Back goes to where they were looking before.
-        onPick={(p) => navigate(withQuery(paths.inspire(), placeToQuery(p, 'search')), { replace: true })}
+        onPick={(p) => navigate(here(paths.inspire(), placeToQuery(p, 'search')), { replace: true })}
         onPlanner={onPlanner}
       />
     );
@@ -493,7 +488,7 @@ export function InspireScreen({ route, household, onOpenTrip, onPlanner, onFood,
                   ? <FoodDoor key={m} onPress={() => onFood?.()} />
                   // What the day is about closes any opened shelf, so it is one
                   // move and one address rather than two that race each other.
-                  : <Chip key={m} label={MOOD_LABEL[m]} selected={mood === m} onPress={() => navigate(withQuery(paths.inspire(), { mood: m === 'fun' ? null : m }))} />
+                  : <Chip key={m} label={MOOD_LABEL[m]} selected={mood === m} onPress={() => navigate(here(paths.inspire(), { mood: m === 'fun' ? null : m }))} />
               ))}
             </ScrollView>
           </View>
