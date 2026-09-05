@@ -2,9 +2,12 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import {
   Archive, ArrowLeft, ArrowRight, Baby, Ban, BedDouble, Beer, Bookmark, BookmarkCheck, Calendar, Camera, Car, CarTaxiFront, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck,
+  Bird, Fish,
   Clock, CloudOff, Coffee, Compass, Database, Download, ExternalLink, Footprints, GripVertical, Heart, House, Info, Landmark, List, LocateFixed, Lock, Map, MapPin, Mic, Minus, Monitor, Navigation, Pencil, Phone, Pin, Plus, Route, Search, Settings, Smartphone,
   MessageSquare, Moon, PoundSterling, RefreshCw, Sparkles, Square, Star, StarHalf, Sun, Ticket, TrainFront, TriangleAlert, User, Users, Utensils, Wine, X,
   Copy, Mail, Send, UserCog,
+  Bike, Binoculars, Blocks, BookOpen, Castle, Clapperboard, Drama, Droplets, Dumbbell, FerrisWheel, Gamepad2,
+  Mountain, Music, Palette, PartyPopper, Popcorn, Puzzle, Ship, ShoppingBag, Snowflake, Store, Tractor, TreePine, Trophy,
 } from 'lucide-react-native';
 import { colors, spacing, type } from '../theme';
 
@@ -39,6 +42,14 @@ const ICONS = {
   booked: CircleCheck, full: Ban, locked: Lock, money: PoundSterling, grip: GripVertical, list: List, map: Map, info: Info, search: Search, edit: Pencil,
   // categories
   restaurant: Utensils, cafe: Coffee, pub: Beer, bar: Wine, attraction: Landmark, event: Ticket, hotel: BedDouble, place: MapPin,
+  // What a place actually is, over the closed experience vocabulary
+  // (api/src/domain/concepts.js). A card with no photograph shows one of these
+  // instead, so four playgrounds do not all sit under a Greek temple.
+  museum: Landmark, gallery: Palette, theatre: Drama, cinema: Clapperboard, liveMusic: Music, comedy: PartyPopper,
+  park: TreePine, walk: Footprints, beach: Droplets, viewpoint: Binoculars, farm: Tractor, zoo: Bird, aquarium: Fish,
+  playground: Blocks, arcade: Gamepad2, escapeRoom: Puzzle, themePark: FerrisWheel, bowling: Trophy, sport: Dumbbell,
+  swimming: Droplets, climbing: Mountain, iceSkating: Snowflake, cycling: Bike, boat: Ship, festival: PartyPopper,
+  market: Store, shopping: ShoppingBag, bookshop: BookOpen, castle: Castle, history: Castle, cinemaSnack: Popcorn,
 } as const;
 
 export type IconName = keyof typeof ICONS;
@@ -52,6 +63,30 @@ export function Icon({ name, size = 18, color = colors.icon, fill, strokeWidth =
 }
 
 const CATEGORY: Record<string, IconName> = { restaurant: 'restaurant', cafe: 'cafe', pub: 'pub', bar: 'bar', attraction: 'attraction', event: 'event', hotel: 'hotel', lodging: 'hotel' };
+
+/**
+ * The experience vocabulary the sources answer with, in this set's names. A
+ * place says it is a playground or a castle long before it says what category
+ * it is, and that is the more useful thing to draw.
+ */
+const EXPERIENCE: Record<string, IconName> = {
+  museum: 'museum', 'art-gallery': 'gallery', theatre: 'theatre', cinema: 'cinema', 'live-music': 'liveMusic', comedy: 'comedy',
+  park: 'park', walk: 'walk', beach: 'beach', viewpoint: 'viewpoint', farm: 'farm', zoo: 'zoo', aquarium: 'aquarium',
+  playground: 'playground', arcade: 'arcade', 'escape-room': 'escapeRoom', 'theme-park': 'themePark', bowling: 'bowling',
+  'mini-golf': 'bowling', 'sports-game': 'sport', swimming: 'swimming', climbing: 'climbing', trampoline: 'sport',
+  'ice-skating': 'iceSkating', cycling: 'cycling', 'boat-trip': 'boat', festival: 'festival', market: 'market',
+  shopping: 'shopping', bookshop: 'bookshop', castle: 'castle', history: 'history',
+};
+
+/**
+ * The best icon for a place: what it *does* if a source said so, otherwise what
+ * kind of place it is. Used where a card has no photograph and the tile has to
+ * carry the meaning on its own.
+ */
+export function iconFor({ category, experiences }: { category?: string | null; experiences?: string[] | null }): IconName {
+  for (const e of experiences ?? []) if (EXPERIENCE[e]) return EXPERIENCE[e];
+  return CATEGORY[category ?? ''] ?? 'place';
+}
 
 /** The icon for a place's category; a pin when the category is unknown. */
 export function CategoryIcon({ category, size = 18, color = colors.icon }: { category?: string | null; size?: number; color?: string }) {

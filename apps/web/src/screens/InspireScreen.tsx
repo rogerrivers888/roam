@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { api, BrowseItem, HouseholdResponse, InspireItem, InspireNear, MoodKey, Place, API_URL } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
-import { Icon, IconName } from '../components/Icon';
+import { Icon, IconName, iconFor } from '../components/Icon';
 import { Chip, minutes } from '../components/ui';
 import { VenueDrawer } from '../components/VenueDrawer';
 import { WhereSearch } from '../components/WhereSearch';
@@ -505,7 +505,7 @@ function Card({ item, wide, onOpen, onKeep, kept }: {
         {uri && !failed ? (
           <Image source={{ uri }} style={StyleSheet.absoluteFill as any} resizeMode="cover" onError={() => setFailed(true)} accessibilityIgnoresInvertColors />
         ) : (
-          <View style={styles.tileEmpty}><Icon name={ICON_FOR[item.category] ?? 'place'} size={28} color={colors.icon} /></View>
+          <View style={styles.tileEmpty}><Icon name={iconFor(item)} size={28} color={colors.icon} /></View>
         )}
         <Pressable
           onPress={(e: any) => { e?.stopPropagation?.(); onKeep(item); }}
@@ -526,10 +526,6 @@ function Card({ item, wide, onOpen, onKeep, kept }: {
     </Pressable>
   );
 }
-
-const ICON_FOR: Record<string, IconName> = {
-  restaurant: 'restaurant', cafe: 'cafe', pub: 'pub', bar: 'bar', attraction: 'attraction', event: 'event', hotel: 'hotel',
-};
 
 function Empty({ title, body, onRetry }: { title: string; body: string; onRetry?: () => void }) {
   return (
