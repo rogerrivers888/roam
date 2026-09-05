@@ -219,3 +219,19 @@ export async function menusToRead(limit = 5) {
   );
   return rows;
 }
+
+/**
+ * Put every miss that still has an address back in the read queue, now.
+ *
+ * The crawler gets better in steps — it learns to follow an index page, or to
+ * open a portal on another host — and the places it already failed on are
+ * exactly the ones that prove whether the step worked. Without this they would
+ * sit behind their backoff for a day and the improvement would be invisible.
+ */
+export async function retryMisses() {
+  const { rows } = await query(
+    `update place_menus set state = 'found', next_attempt_at = null, attempts = 0
+      where state <> 'read' and menu_url is not null returning venue_ref`,
+  );
+  return rows.length;
+}

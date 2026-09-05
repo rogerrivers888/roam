@@ -121,6 +121,13 @@ router.post('/menus/read', requires('manage_library'), async (req, res, next) =>
   } catch (err) { next(err); }
 });
 
+/** Put every miss that still has an address back in the queue, to prove a fix. */
+router.post('/menus/retry', requires('manage_library'), async (_req, res, next) => {
+  try {
+    res.json({ requeued: await scout.retryMisses() });
+  } catch (err) { next(err); }
+});
+
 export default router;
 
 /**

@@ -212,3 +212,53 @@ export async function findMenuUrl({ website, name = '', locality = null, address
   run.then((value) => cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS })).catch(() => {}).finally(() => inflight.delete(key));
   return { ...(await run), cached: false };
 }
+
+/**
+ * The menus a menu page lists, when the page is an index rather than a menu.
+ *
+ * "Select a menu to view" is a page with no dishes on it and four links that
+ * each have plenty — Sebastian's Windsor is exactly this, which is why a read
+ * of the page we correctly found still came back with nothing (5 Sep 2026).
+ * It is the same click-through the owner opened this whole thread with, one
+ * level further in.
+ *
+ * Returns the child menus, best first: a PDF or a page whose link says Lunch,
+ * Dinner, À la carte, Drinks. Never the page it was given, and never something
+ * off-site that merely says menu.
+ */
+const NOT_A_MENU_HOST = /(^|\.)(facebook|instagram|twitter|x|tiktok|youtube|linkedin|pinterest|google|goo\.gl|maps\.app|tripadvisor|yelp|wordpress|wix|squarespace|godaddy|cookiebot|gstatic)\./i;
+
+export async function childMenus(menuUrl, { max = 4 } = {}) {
+  let page;
+  try { page = await get(menuUrl); } catch { return []; }
+  if (!page.ok || !page.html) return [];
+
+  let host;
+  try { host = new URL(page.url).hostname.replace(/^www\./, ''); } catch { return []; }
+
+  const named = /\b(lunch|dinner|brunch|breakfast|evening|a la carte|à la carte|carte|tasting|set|sunday|pre[- ]theatre|kids|children|wine|drinks|cocktail|bar|dessert|specials?|takeaway|main|food)\b/i;
+  const seen = new Set([page.url.replace(/#.*$/, '')]);
+  const out = [];
+  for (const { url, text } of links(page.html, page.url)) {
+    const clean = url.replace(/#.*$/, '');
+    if (seen.has(clean)) continue;
+    let u;
+    try { u = new URL(clean); } catch { continue; }
+    // Somewhere else entirely is usually noise, but not always: a small
+    // restaurant's menu often lives on the ordering portal its web company
+    // runs, and Sebastian's is one of those. So another host is allowed and
+    // ranked below their own, and the places that are never a menu are named.
+    const elsewhere = u.hostname.replace(/^www\./, '') !== host;
+    if (elsewhere && NOT_A_MENU_HOST.test(u.hostname)) continue;
+    const isPdf = /\.pdf($|\?)/i.test(clean);
+    const looksMenu = /\/menus?\b|\/menus?\//i.test(u.pathname) || /\bmenus?\b/i.test(text);
+    if (!isPdf && !looksMenu) continue;
+    // An index links to its own children; it also links back to itself and to
+    // the page that sent us here. A child names which menu it is.
+    const n = (isPdf ? 3 : 0) + (named.test(text) ? 2 : 0) + (named.test(u.pathname) ? 1 : 0) + (looksMenu ? 1 : 0) - (elsewhere ? 1 : 0);
+    if (n <= 1) continue;
+    seen.add(clean);
+    out.push({ url: clean, label: text.slice(0, 60), n });
+  }
+  return out.sort((a, b) => b.n - a.n).slice(0, max);
+}

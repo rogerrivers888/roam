@@ -37,7 +37,7 @@ import { detectChain } from '../domain/chains.js';
 import { score } from '../domain/scoring.js';
 import { queueEnrichment } from './own.js';
 import { accoladesFor } from './accolades.js';
-import { findMenuUrl } from './menuLink.js';
+import { childMenus, findMenuUrl } from './menuLink.js';
 import { readMenu } from './menuRead.js';
 import { recordMenuRead } from '../domain/placeMenus.js';
 import { firstHousehold } from '../repositories/households.js';
@@ -290,7 +290,17 @@ export async function readFoundMenus({ limit = 2, householdId = null, sessionId 
   const done = [];
   for (const row of due) {
     try {
-      const read = await readMenu({ url: row.menu_url, venueLabel: row.venue_label, householdId, sessionId });
+      let read;
+      try {
+        read = await readMenu({ url: row.menu_url, venueLabel: row.venue_label, householdId, sessionId });
+      } catch (err) {
+        // The page we found is an index, not a menu: "Select a menu to view",
+        // with the four real menus one click further in. Sebastian's Windsor is
+        // exactly this, and it is the same click-through the owner opened with.
+        if (!/menu_had_no_items|menu_unreadable/.test(err.message)) throw err;
+        read = await readChildren(row, { householdId, sessionId });
+        if (!read) throw err;
+      }
       const stored = await recordMenuRead({ venueRef: row.venue_ref, venueLabel: row.venue_label, read });
       done.push({ name: row.venue_label, items: stored.items ?? 0, kind: read.kind });
     } catch (err) {
@@ -302,6 +312,49 @@ export async function readFoundMenus({ limit = 2, householdId = null, sessionId 
     }
   }
   return { read: due.length, done };
+}
+
+
+/**
+ * Read the menus a menu page lists, and put them together as one.
+ *
+ * A restaurant with a lunch menu, a dinner menu and a wine list has three
+ * pages, and the page we found is the contents page for them. Each is read on
+ * its own and the sections are stacked, labelled by which menu they came from,
+ * so the household sees one menu with "Dinner · Starters" in it rather than
+ * three menus or none.
+ */
+async function readChildren(row, { householdId, sessionId, max = 3 } = {}) {
+  let children = [];
+  try { children = await childMenus(row.menu_url, { max }); } catch { return null; }
+  if (!children.length) return null;
+
+  const sections = [];
+  const from = [];
+  let kind = null;
+  for (const child of children) {
+    try {
+      const part = await readMenu({ url: child.url, venueLabel: row.venue_label, householdId, sessionId });
+      if (!part?.sections?.length) continue;
+      const label = child.label?.trim();
+      for (const s of part.sections) {
+        sections.push({ ...s, title: label && !s.title.toLowerCase().includes(label.toLowerCase()) ? `${label} · ${s.title}` : s.title });
+      }
+      kind = kind ?? part.kind;
+      from.push(child.url);
+    } catch { /* one child of four failing is not the menu failing */ }
+  }
+  if (!sections.length) return null;
+  return {
+    sections,
+    kind: kind ?? 'html',
+    // The page that listed them is the address worth remembering: it is the one
+    // that will still be right when they change the lunch menu's URL.
+    sourceUrl: row.menu_url,
+    note: from.length > 1 ? `Read from ${from.length} menus on their site` : null,
+    currency: null,
+    how: [`the page was a list of menus; read ${from.length} of them`],
+  };
 }
 
 const backoff = (attempts) => new Date(Date.now() + (MENU_BACKOFF_H[Math.min(attempts, MENU_BACKOFF_H.length) - 1] ?? 720) * 3600_000);
