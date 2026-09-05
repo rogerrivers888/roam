@@ -298,11 +298,15 @@ export async function familyOf(slug) {
   if (!county || county.kind !== 'county') return county ? [county.slug] : [];
   const { rows } = await query(
     `select slug from localities where parent_slug = $1
-      order by to_go_count + to_eat_count desc, name limit 24`, [county.slug]);
+      order by to_go_count + to_eat_count desc, name limit 12`, [county.slug]);
+  // By weight, not alphabetically. Berkshire's places carry a long tail of
+  // outward codes from every county it borders, and an alphabetical cut put
+  // GU10 through GU17 — Farnham and Aldershot — on the page while RG1, SL4 and
+  // SL6, which hold a hundred places between them, never appeared at all.
   const { rows: codes } = await query(
-    `select distinct upper(a.outcode) as code from attractions a
-      where a.region_slug = $1 and a.outcode is not null
-      order by 1 limit 24`, [county.slug]);
+    `select upper(a.outcode) as code, count(*)::int as n from attractions a
+      where a.region_slug = $1 and a.outcode is not null and a.state <> 'hidden'
+      group by 1 order by n desc, code limit 12`, [county.slug]);
   const postcodes = codes.map((c) => c.code.toLowerCase());
   return [county.slug, ...rows.map((r) => r.slug), ...postcodes];
 }
