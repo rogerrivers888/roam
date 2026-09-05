@@ -85,3 +85,32 @@ export function moodsFor(venue) {
   if (!out.size) out.add('fun');
   return MOOD_KEYS.filter((k) => out.has(k));
 }
+
+/**
+ * Which shelves an atlas attraction belongs on.
+ *
+ * The atlas has its own eight words for what a place is (sources/wikimedia.js
+ * ATTRACTION_ROOTS) because they answer a different question — what kind of
+ * thing is this — from the six the home screen asks, which is what a day spent
+ * there is like. A castle is `heritage` in one vocabulary and Culture in the
+ * other, and a country park is `outdoors` in one and both Outdoors and Relaxing
+ * in the other. This is the translation, and it is a table rather than a guess
+ * so that a category with no entry contributes nothing instead of landing
+ * everywhere.
+ *
+ * Food is deliberately unreachable from here. The atlas holds no restaurants —
+ * the owner: "I don't care about restaurant images… with restaurants it's more
+ * about reviews and the menus" — so no atlas place can land on the Food shelf.
+ */
+const BY_ATLAS_CATEGORY = {
+  museum: ['culture'],
+  arts: ['culture'],
+  heritage: ['culture'],
+  landmark: ['culture'],
+  outdoors: ['outdoors', 'relaxing'],
+  animals: ['fun', 'outdoors'],
+  family: ['fun'],
+  active: ['fun', 'adrenaline'],
+};
+
+export const moodsForAtlas = (category) => BY_ATLAS_CATEGORY[category] ?? ['culture'];

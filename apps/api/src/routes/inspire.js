@@ -19,9 +19,26 @@
  * That is what makes "35 min" true both for a park down the road and for a
  * gallery in Bath: the distance on the card is the journey they would make.
  *
+ * **Two pools, one shelf.** The search above is what is *near* — every playing
+ * field and parade of shops OpenStreetMap knows about. The atlas (§13.12) is
+ * what is *worth going to*: the top attractions of the county, researched from
+ * Wikidata and Wikipedia, each with a photograph we own outright. Without the
+ * second, "Fun near Ascot" was twenty suburban play areas and Ascot Racecourse
+ * — 0.9 km away, in the atlas, with a picture — was not on the screen at all.
+ * Neither was Legoland, Windsor Great Park or Windsor Castle.
+ *
+ * The atlas costs nothing to add: it is a bounding-box read of one small table,
+ * so this endpoint still makes exactly one provider call, which is the rule
+ * (Requirements: options are composed from one retrieved pool; adding an option
+ * must not add a call).
+ *
  * Nothing here goes on a device. The answer carries a provider's names, photos
  * and ratings, which are rented (Technical Constraints §4), so this path is
  * absent from `offline/policy.ts` and is therefore never written to IndexedDB.
+ * The atlas half *could* travel — it is CC0 and CC BY-SA and ours to keep — but
+ * it arrives here mixed with the rented half, and a rule that has to separate
+ * them per item is a rule that will one day separate them wrongly. It is served
+ * whole from `/api/atlas/regions/:slug`, which is where the device gets it.
  */
 
 import { Router } from 'express';
@@ -30,7 +47,8 @@ import { householdStatus } from './places.js';
 import { thingsAround, THINGS_RADIUS_KM } from './plan.js';
 import { estimateTravelMinutes, kmBetween, TRAVEL_MODES } from '../domain/travel.js';
 import { dwellFor } from '../domain/options.js';
-import { MOODS, moodsFor } from '../domain/moods.js';
+import { MOODS, moodsFor, moodsForAtlas } from '../domain/moods.js';
+import { publishedNear } from '../repositories/library.js';
 import { enabledSources } from '../sources/index.js';
 
 export const inspire = Router();
@@ -67,10 +85,22 @@ function attributionOf(v, lines) {
 }
 
 /**
- * GET /api/inspire/near?lat=&lng=&label=&locality=&from=lat,lng&mode=driving
+ * GET /api/inspire/near?lat=&lng=&label=&locality=&from=lat,lng&mode=driving&owned=1
  *
  * Everything around a point, on shelves. `from` defaults to the household's
  * home; `mode` to how they usually travel.
+ *
+ * `owned=1` answers from the atlas alone and makes no provider call at all. It
+ * returns in single-digit milliseconds against one indexed table, where the
+ * full answer waits about seven seconds on OpenStreetMap — so the screen can
+ * paint real, illustrated places immediately and fill the rest in behind them.
+ * That is the whole difference between a home screen that feels instant and one
+ * that feels like a search, and it is why the atlas was built.
+ *
+ * It is a narrower answer, not a cheaper one: the atlas holds no restaurants,
+ * so an owned-only reply has nothing on the Food shelf and says so by returning
+ * `partial: true`. A screen that showed it and stopped would be telling a
+ * household there is nowhere to eat near Ascot.
  */
 inspire.get('/near', async (req, res, next) => {
   try {
@@ -101,7 +131,11 @@ inspire.get('/near', async (req, res, next) => {
     const label = String(req.query.label || '').trim() || household.home_label || null;
     const locality = req.query.locality ? String(req.query.locality) : null;
 
-    const { venues, cached } = await thingsAround({ household, session: null, place: { ...centre, locality } });
+    // The atlas alone, for the first paint. No provider call, no waiting.
+    const ownedOnly = req.query.owned === '1' || req.query.owned === 'true';
+    const { venues, cached } = ownedOnly
+      ? { venues: [], cached: true }
+      : await thingsAround({ household, session: null, place: { ...centre, locality } });
 
     // Around this place, and only around it. A source is free to answer with
     // whatever its index matched, and the fixture set ignores the point it was
@@ -126,6 +160,10 @@ inspire.get('/near', async (req, res, next) => {
       priceLevel: v.priceLevel ?? null,
       goodForChildren: v.goodForChildren ?? null,
       photos: (v.photos ?? []).slice(0, 1),
+      // Only the atlas has a picture we own. A provider's photo still travels
+      // on `photos` and is fetched at display time; this key is always present
+      // so the card has one shape to draw rather than two.
+      image: null,
       attribution: attributionOf(v, lines),
       lat: v.lat,
       lng: v.lng,
@@ -141,6 +179,64 @@ inspire.get('/near', async (req, res, next) => {
       household: null,
     }));
 
+    // --- the second pool: what the county is actually known for -------------
+    // Deduped against the first by name and nearness, not by identifier: the
+    // same castle is `osm:way/123` in one pool and `wikidata:Q456` in the other
+    // and no join exists between those. Two names that match within 250 m are
+    // the same place — at that distance a real coincidence would have to be a
+    // second Windsor Castle in the grounds of the first.
+    const nameKey = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const already = items.map((i) => ({ key: nameKey(i.name), lat: i.lat, lng: i.lng }));
+    const seen = (a) => already.some((b) => b.key === nameKey(a.name)
+      && a.lat != null && kmBetween(a, b) < 0.25);
+
+    const atlas = await publishedNear({ lat: centre.lat, lng: centre.lng, km: THINGS_RADIUS_KM * 2 });
+    for (const a of atlas) {
+      if (a.lat == null || a.lng == null) continue;
+      // The box is generous at its corners; this is the honest ring. Twice the
+      // OSM radius, because an attraction worth driving to is worth showing
+      // from further away than a playground is.
+      if (kmBetween(centre, a) > THINGS_RADIUS_KM * 2) continue;
+      if (seen(a)) continue;
+      items.push({
+        // Wikidata's own identifier where there is no OpenStreetMap one, which
+        // is most of the time. It is CC0, it outlives every provider we might
+        // use, and it is the identifier this place already has.
+        venueRef: a.osm_ref ? `osm:${a.osm_ref}` : `wikidata:${a.wikidata_id}`,
+        source: 'atlas',
+        name: a.name,
+        category: 'attraction',
+        moods: moodsForAtlas(a.category),
+        experiences: [], cuisines: [],
+        rating: null, ratingCount: null, priceLevel: null, goodForChildren: null,
+        photos: [],
+        // The picture, and the licence it is shown under. `credit` is not
+        // decoration: for everything but CC0 and public domain, showing the
+        // photograph without it is the licence broken (L17).
+        image: a.image_id ? {
+          id: a.image_id, lqip: a.lqip, credit: a.credit_line,
+          licence: a.licence, licenceUrl: a.licence_url, sourceUrl: a.source_page_url,
+          creditRequired: a.attribution_required,
+        } : null,
+        summary: a.summary,
+        heritage: a.heritage,
+        website: a.website,
+        wikipediaUrl: a.wikipedia_url,
+        region: a.region_name,
+        attribution: [
+          ...(a.image_id && a.attribution_required && a.credit_line ? [a.credit_line] : []),
+          ...(a.summary ? ['Wikipedia, CC BY-SA 4.0'] : []),
+          'Wikidata, CC0',
+        ],
+        lat: a.lat, lng: a.lng,
+        distanceKm: Number(kmBetween(centre, a).toFixed(1)),
+        travelMinutes: estimateTravelMinutes(origin, a, mode),
+        estimated: true,
+        dwellMinutes: dwellFor({ category: 'attraction', experiences: [] }, household, attendees).minutes,
+        household: null,
+      });
+    }
+
     // The heart on each card: whether this household has already kept, been to
     // or made a special of the place. One query for the lot.
     const status = await householdStatus(household.id, items.map((i) => i.venueRef));
@@ -152,7 +248,9 @@ inspire.get('/near', async (req, res, next) => {
       place: { label, ...centre, locality },
       from: origin,
       mode,
-      radiusKm: THINGS_RADIUS_KM,
+      radiusKm: ownedOnly ? THINGS_RADIUS_KM * 2 : THINGS_RADIUS_KM,
+      // Said plainly rather than left to be inferred from a thin Food shelf.
+      partial: ownedOnly,
       moods: MOODS.map((m) => ({ ...m, count: counts[m.key] })),
       items,
       cached: Boolean(cached),

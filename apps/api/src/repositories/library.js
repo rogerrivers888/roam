@@ -264,6 +264,41 @@ export async function publishedFor(slug) {
   return rows;
 }
 
+/**
+ * Published attractions around a point, with the picture we own of each.
+ *
+ * This is what the home screen reads. It is a bounding-box scan over one small
+ * table with no third-party call anywhere in it, which is the whole reason the
+ * atlas exists: the shelves fill instantly and every card arrives illustrated.
+ *
+ * The box is degrees rather than a true great-circle distance, so the corners
+ * reach about 40% further than the edges. `kmBetween` in the caller does the
+ * honest filtering; this only has to be cheap and to not miss anything, and a
+ * box that is slightly too generous satisfies both.
+ */
+export async function publishedNear({ lat, lng, km = 25, limit = 60 }) {
+  const dLat = km / 111;
+  // Longitude degrees shorten towards the poles. Guarded so a search near a
+  // pole cannot divide by nothing and ask for the whole planet.
+  const dLng = km / Math.max(1, 111 * Math.cos((lat * Math.PI) / 180));
+  const { rows } = await query(
+    `select a.id, a.name, a.slug, a.summary, a.category, a.lat, a.lng, a.rank, a.region_slug,
+            a.website, a.wikipedia_url, a.wikidata_id, a.osm_ref, a.heritage, a.venue_ref, a.attribution,
+            r.name as region_name,
+            i.id as image_id, i.lqip, i.credit_line, i.licence, i.licence_url,
+            i.source_page_url, i.attribution_required
+       from attractions a
+       join regions r on r.slug = a.region_slug
+       left join image_links l on l.subject_type = 'attraction' and l.subject_id = a.id::text and l.role = 'hero'
+       left join image_assets i on i.id = l.image_id and i.moderation = 'approved'
+      where a.state = 'published'
+        and a.lat between $1 and $2 and a.lng between $3 and $4
+      order by a.score desc
+      limit $5`,
+    [lat - dLat, lat + dLat, lng - dLng, lng + dLng, limit]);
+  return rows;
+}
+
 // ---------------------------------------------------------------------------
 // the image library
 // ---------------------------------------------------------------------------
