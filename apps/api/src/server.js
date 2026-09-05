@@ -30,7 +30,7 @@ import { startScoutLoop } from './sources/scoutArea.js';
 import { photoFor } from './sources/google.js';
 import { currentHousehold } from './routes/household.js';
 import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
-import { enabledSources, defaultSourceKeys, loadSourceSettings, setSourceOff, sourceHasKey, sourceOff, sourceKeys } from './sources/index.js';
+import { enabledSources, defaultSourceKeys, loadSourceSettings, setSourceOff, sourceHasKey, sourceOff, sourceKeys, bedRatesOn } from './sources/index.js';
 import { routingEnabled } from './sources/routing.js';
 import sessionRoutes, { devices as deviceRoutes } from './routes/session.js';
 import { authConfigured, deployed, originAllowed, requireSession } from './auth.js';
@@ -170,7 +170,10 @@ app.get('/api/sources', async (_req, res, next) => {
       { key: 'predicthq', label: 'PredictHQ events (incl. community)', env: 'PREDICTHQ_API_KEY' },
       { key: 'datathistle', label: 'Data Thistle UK listings', env: 'DATATHISTLE_API_KEY' },
       { key: 'scout', label: 'Local scout (Claude reads local what\'s-on pages)', env: 'ROAM_LOCAL_SCOUT=on' },
-    ].map((a) => ({ ...a, on: live.some((s) => s.key === a.key), hasKey: sourceHasKey(a.key), off: sourceOff(a.key), optIn: Boolean(live.find((s) => s.key === a.key)?.optIn) })),
+      // Not a place search: it prices beds on the Stay tab and never runs
+      // inside a browse (sources/index.js ASIDE).
+      { key: 'liteapi', label: 'LiteAPI hotel rates (Stay tab)', env: 'LITEAPI_KEY' },
+    ].map((a) => ({ ...a, on: a.key === 'liteapi' ? bedRatesOn() : live.some((s) => s.key === a.key), hasKey: sourceHasKey(a.key), off: sourceOff(a.key), optIn: Boolean(live.find((s) => s.key === a.key)?.optIn) })),
   });
   } catch (err) {
     next(err);

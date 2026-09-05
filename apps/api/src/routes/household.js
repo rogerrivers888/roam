@@ -6,7 +6,7 @@ const NEGATION_PREFIX = /^(not|no|never|without|anything but|nothing)\s+/i;
 import { geocode } from '../sources/geocode.js';
 import { LINES, legacyLines, perSearchCost } from '../sources/pricing.js';
 import { usageBetween, allowanceUsage, usageByMonth } from '../sources/usage.js';
-import { enabledSources } from '../sources/index.js';
+import { enabledSources, bedRatesOn } from '../sources/index.js';
 import { routingEnabled } from '../sources/routing.js';
 import { paceOf, DEFAULT_PACE } from '../domain/pace.js';
 import { isValidTimezone } from '../domain/time.js';
@@ -385,7 +385,7 @@ router.get('/spend', async (req, res, next) => {
     const totalsByPeriod = { month: pm.total, 'last-month': pl.total, all: pa.total };
     const live = new Set(enabledSources({ includeOptIn: true }).map((s) => s.key));
     const perSearch = perSearchCost({ scoutAvgUsd: pm.lines.scout?.calls ? pm.lines.scout.costUsd / pm.lines.scout.calls : null });
-    const isOn = (line) => (line.key === 'claude' ? Boolean(process.env.ANTHROPIC_API_KEY) : line.key === 'google-routes' ? routingEnabled() : live.has(line.source));
+    const isOn = (line) => (line.key === 'claude' ? Boolean(process.env.ANTHROPIC_API_KEY) : line.key === 'google-routes' ? routingEnabled() : line.source === 'liteapi' ? bedRatesOn() : live.has(line.source));
     let paidTotal = 0;
     const lines = LINES.map((line) => {
       const s = stats[line.key] ?? { calls: 0, units: 0, costUsd: 0, estimated: false };

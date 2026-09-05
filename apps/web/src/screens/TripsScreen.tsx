@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import { GroupPanel } from '../components/GroupPanel';
-import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, Stay, TripDay, TripDetail, TripPlace, TripSummary, Venue, DayStop } from '../api';
+import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, Stay, StayPricing, TripDay, TripDetail, TripPlace, TripSummary, Venue, DayStop } from '../api';
 import { colors, fonts, memberColors, radius, spacing, TARGET, type } from '../theme';
-import { Button, Card, Chip, FoldLine, Row, Segmented, StatusLine, Wrap, clock, minutes } from '../components/ui';
+import { Button, Card, Chip, FoldLine, Row, Segmented, StatusLine, Stepper, Wrap, clock, minutes } from '../components/ui';
 import { SourcePicker, TripSpendLine } from '../components/SourcePicker';
 import { TimeBar } from '../components/TimeBar';
 import { Avatar, WhoLine } from '../components/Faces';
@@ -1263,6 +1263,20 @@ const clock24 = (iso: string) => { const d = new Date(iso); return `${String(d.g
 // Stay
 // ---------------------------------------------------------------------------
 
+/** A price in the household's own money, in as few characters as it can be said in. */
+const SYMBOL: Record<string, string> = { GBP: '\u00a3', USD: '$', EUR: '\u20ac' };
+const price = (n: number, currency: string) => {
+  const sym = SYMBOL[currency] ?? `${currency} `;
+  return `${sym}${n % 1 === 0 ? n.toFixed(0) : n.toFixed(2)}`;
+};
+
+/** "2 adults and 2 children (8, 11)" — who the room was priced for, in words. */
+function partyWords(p: StayPricing) {
+  const a = `${p.adults} ${p.adults === 1 ? 'adult' : 'adults'}`;
+  if (!p.childAges.length) return a;
+  return `${a} and ${p.childAges.length} ${p.childAges.length === 1 ? 'child' : 'children'} (${p.childAges.join(', ')})`;
+}
+
 /**
  * Where we're staying — the two things it can be, and never a blank box.
  *
@@ -1272,9 +1286,17 @@ const clock24 = (iso: string) => { const d = new Date(iso); return `${String(d.g
  * shortlist: a bed is ranked by how much of the week is on foot from its front
  * door, not by how near it is to a station.
  *
- * Prices and booking are not here. They need a provider with a key and a spend
- * cap, which is the owner's to add (CLAUDE.md); what is here is the geography,
- * which is the part that needs Roam.
+ * With a price source connected (LiteAPI) the row carries both halves at once:
+ * how much of the week is on foot from that front door, and what the room costs
+ * on these nights for these people. Neither is an answer on its own — a hotel
+ * on the doorstep at six hundred a night is not somewhere to stay either.
+ *
+ * The price is rented and short-lived. It is fetched for this screen, shown
+ * with what it is for, and never written down: /api/trips/:id/stays is not in
+ * offline/policy.ts and must not be added to it.
+ *
+ * Booking is not here. LiteAPI can take one, and that spends money and settles
+ * it — the owner's to switch on with a payment route and a cap (CLAUDE.md).
  */
 function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
   d: TripDetail; household: HouseholdResponse | null; onChanged: () => Promise<void>; onFindNear: () => void; openSearch?: boolean;
@@ -1291,6 +1313,11 @@ function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
   const [milesIdx, setMilesIdx] = useState(1);
   const [stays, setStays] = useState<Stay[] | null>(null);
   const [near, setNear] = useState<{ label: string } | null>(null);
+  const [pricing, setPricing] = useState<StayPricing | null>(null);
+  const [credits, setCredits] = useState<string[]>([]);
+  // How many rooms to price. One holding everybody is the cheapest honest
+  // default; who shares with whom is not ours to invent, so it is on screen.
+  const [rooms, setRooms] = useState(1);
   const [looking, setLooking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
@@ -1302,22 +1329,26 @@ function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
     : [{ km: 0.8, label: '10 min walk' }, { km: 1.6, label: '20 min walk' }, { km: 3, label: '2 miles' }, { km: 6, label: '4 miles' }];
   const ring = RINGS[Math.min(milesIdx, RINGS.length - 1)];
 
-  const look = useCallback(async (km: number) => {
+  const look = useCallback(async (km: number, howManyRooms = rooms) => {
     setLooking(true); setErr(null);
     try {
-      const r = await api.tripStays(trip.id, { radiusKm: km, mode: hasCar ? 'driving' : 'walking' });
-      setStays(r.results); setNear(r.near);
+      const r = await api.tripStays(trip.id, { radiusKm: km, mode: hasCar ? 'driving' : 'walking', rooms: howManyRooms });
+      setStays(r.results); setNear(r.near); setPricing(r.pricing);
+      setCredits(r.attributions ?? [r.attribution]);
     } catch (e: any) { setErr(e.message); setStays([]); } finally { setLooking(false); }
-  }, [trip.id, hasCar]);
+  }, [trip.id, hasCar, rooms]);
 
   // Arriving with nothing booked starts looking straight away, the way Find does.
   useEffect(() => { if (mode === 'find' && !stays && !looking && !err) look(ring.km); }, [mode]);
 
   const planned = shortlist.filter((sl) => sl.lat != null).length;
+  // Picking a bed is the household claiming a place, so it goes through the
+  // route that researches it in the open map rather than storing whatever the
+  // row said (api/routes/trips.js POST /:id/stay).
   const choose = async (stay: Stay) => {
     setSaving(stay.venueRef);
     try {
-      await api.updateTripV2(trip.id, { base: { label: stay.name, lat: stay.lat, lng: stay.lng }, baseKind: 'hotel' });
+      await api.setTripStay(trip.id, { venueRef: stay.venueRef, label: stay.name, lat: stay.lat, lng: stay.lng });
       await onChanged();
       setMode('known');
     } catch (e: any) { setErr(e.message); } finally { setSaving(null); }
@@ -1362,13 +1393,43 @@ function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
             <Wrap>
               {RINGS.map((r, i) => <Chip key={r.label} label={r.label} selected={i === milesIdx} onPress={() => { setMilesIdx(i); setStays(null); look(r.km); }} />)}
             </Wrap>
+
+            {/* What the prices are for. Never a number without the party and
+                the nights beside it, and never an assumed age left unsaid. */}
+            {pricing?.on && pricing.nights > 0 ? (
+              <View style={{ gap: 4 }}>
+                <Row style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.sm }}>
+                  <Text style={[type.small, { flex: 1, minWidth: 180 }]}>
+                    {pricing.nights} {pricing.nights === 1 ? 'night' : 'nights'} · {partyWords(pricing)}
+                  </Text>
+                  <Stepper label="Rooms" value={rooms} min={1} max={9} onChange={(v) => { setRooms(v); setStays(null); look(ring.km, v); }} />
+                </Row>
+                {pricing.assumedAges.length ? (
+                  <Text style={type.tiny}>
+                    We asked for {pricing.assumedAges.join(' and ')} at 10 because we do not have {pricing.assumedAges.length === 1 ? 'their' : 'their'} birthday.
+                    Add it in Household and the price will be the right one.
+                  </Text>
+                ) : null}
+                {pricing.sandbox ? (
+                  <StatusLine tone="warn">These are sandbox prices from a test key — invented hotels at invented prices. Swap LITEAPI_KEY for the live one in Doppler to see real rooms.</StatusLine>
+                ) : null}
+                {pricing.degraded.length ? (
+                  <StatusLine tone="warn">Prices did not come back this time ({pricing.degraded[0].source}). The beds below are the open map's; try again in a moment.</StatusLine>
+                ) : null}
+              </View>
+            ) : pricing?.on && pricing.reason === 'no_dates' ? (
+              <Text style={type.tiny}>Set the dates for this trip and we will price every one of these for the nights you are away.</Text>
+            ) : null}
+
             <Button label={looking ? 'Looking…' : stays ? 'Look again' : `Find somewhere in ${trip.locality ?? 'town'}`} icon="search" onPress={() => look(ring.km)} loading={looking} />
             {err ? <StatusLine tone="warn">{err}</StatusLine> : null}
-            {looking && !stays ? <Text style={type.small}>Reading the open map for beds around {trip.locality ?? 'town'}…</Text> : null}
+            {looking && !stays ? <Text style={type.small}>{pricing?.on === false ? 'Reading the open map for beds' : 'Reading the open map, and asking what the rooms cost'} around {trip.locality ?? 'town'}…</Text> : null}
             {stays && !stays.length && !looking ? <Text style={type.small}>Nothing on the map within {ring.label.toLowerCase()}. Try a wider ring.</Text> : null}
             {stays?.length ? (
               <View style={{ gap: spacing.sm }}>
-                <Text style={type.tiny}>{stays.length} places to stay · {near?.label ? `measured from ${near.label}` : ''}</Text>
+                <Text style={type.tiny}>
+                  {stays.length} places to stay{pricing?.withPrice ? ` · ${pricing.withPrice} with a room free` : ''} · {near?.label ? `measured from ${near.label}` : ''}
+                </Text>
                 {stays.slice(0, 12).map((s) => (
                   <Pressable key={s.venueRef} onPress={() => choose(s)} style={styles.stayRow} accessibilityRole="button">
                     <Row style={{ gap: spacing.sm }}>
@@ -1387,10 +1448,27 @@ function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
                     ) : (
                       <Text style={type.small}>{s.distanceKm} km from the middle of {trip.locality ?? 'town'}</Text>
                     )}
+                    {/* The other half of the answer: what it costs, on what terms. */}
+                    {s.offer ? (
+                      <Text style={type.small}>
+                        <Text style={styles.stayPrice}>{price(s.offer.total, s.offer.currency)}</Text>
+                        <Text style={type.small}>
+                          {' '}for {pricing?.nights ?? 0} {pricing?.nights === 1 ? 'night' : 'nights'}
+                          {s.offer.perNight ? ` · ${price(s.offer.perNight, s.offer.currency)} a night` : ''}
+                          {s.offer.board ? ` · ${s.offer.board}` : ''}
+                          {s.offer.refundable === true ? ' · free cancellation' : s.offer.refundable === false ? ' · non-refundable' : ''}
+                        </Text>
+                      </Text>
+                    ) : pricing?.priced ? (
+                      <Text style={type.tiny}>No room free on these nights.</Text>
+                    ) : null}
                     <View style={styles.stayPick}><Text style={styles.stayPickText}>{saving === s.venueRef ? 'Saving…' : "We'll stay here"}</Text></View>
                   </Pressable>
                 ))}
-                <Text style={type.tiny}>© OpenStreetMap contributors · beds and addresses only. Prices and booking need a provider key.</Text>
+                <Text style={type.tiny}>
+                  {credits.length ? credits.join(' · ') : '© OpenStreetMap contributors'}.
+                  {' '}Prices are for the party above and were live when this list was drawn; the hotel takes the booking, not Roam.
+                </Text>
               </View>
             ) : null}
           </>
@@ -1432,6 +1510,8 @@ const styles = StyleSheet.create({
   prow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 10, paddingHorizontal: spacing.md, minHeight: TARGET },
   rowLine: { borderTopWidth: 1, borderTopColor: colors.line },
   green: { fontFamily: fonts.body, fontSize: 12, fontWeight: '600', color: colors.accent },
+  // What the room costs: the second-loudest thing on a stay row, after its name.
+  stayPrice: { fontFamily: fonts.body, fontSize: 15, fontWeight: '700', color: colors.ink },
   // The one red thing on a past trip: somewhere they went and nobody has said what they thought.
   rate: { fontFamily: fonts.body, fontSize: 12, fontWeight: '700', color: colors.red },
   mapWrap: { position: 'relative' },

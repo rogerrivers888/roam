@@ -152,6 +152,22 @@ export type Place = {
   where?: string; kindWord?: string | null };
 
 /** A bed from the open map, with how it sits against what the household means to do. */
+/**
+ * What a room costs on the nights of this trip: the cheapest thing the hotel
+ * will sell, and the terms it comes on. LiteAPI's, fetched for this screen and
+ * never written down — the number on screen has an expiry measured in minutes.
+ */
+export type StayOffer = {
+  total: number; currency: string; perNight: number | null;
+  roomName: string | null;
+  /** "Room only", "Breakfast included" — the difference between two prices that look the same. */
+  board: string | null;
+  refundable: boolean | null;
+  /** When free cancellation runs out, where the rate has any. */
+  freeUntil: string | null;
+  offerId: string | null;
+};
+
 export type Stay = Venue & {
   stayKind: string | null;
   stars: number | null;
@@ -165,6 +181,27 @@ export type Stay = Venue & {
   typicalMinutes: number | null;
   nearest: { label: string; minutes: number; km: number } | null;
   farthest: { label: string; minutes: number; km: number } | null;
+  /** Null where the price source has no room here, or was not asked. */
+  offer?: StayOffer | null;
+  /** The price source's own id for this bed, where it is a different one from the row's. */
+  bookRef?: string | null;
+  reviewCount?: number | null;
+  photo?: string | null;
+};
+
+/** What the Stay tab asked the price source for, and what came back. */
+export type StayPricing = {
+  on: boolean; priced: boolean;
+  /** A sandbox key answers with invented hotels at invented prices. Always shown. */
+  sandbox: boolean; environment: 'sandbox' | 'production' | 'unknown' | null;
+  currency: string | null; nights: number;
+  checkIn: string | null; checkOut: string | null;
+  rooms: number; adults: number; childAges: number[];
+  /** Whose age we had to take a view on, so the screen can offer to fix it. */
+  assumedAges: string[];
+  withPrice: number;
+  reason: 'no_key' | 'switched_off' | 'no_dates' | null;
+  degraded: { source: string; error: string }[];
 };
 
 export type Household = {
@@ -924,13 +961,22 @@ export const api = {
    * front door. Open map only — no prices, no availability (those need a
    * booking provider with a key, which is the owner's to add).
    */
-  tripStays: (tripId: string, p: { radiusKm?: number; mode?: 'walking' | 'driving' } = {}) =>
+  tripStays: (tripId: string, p: { radiusKm?: number; mode?: 'walking' | 'driving'; rooms?: number; adults?: number; children?: string } = {}) =>
     request<{
       near: { lat: number; lng: number; label: string };
-      radiusKm: number; mode: 'walking' | 'driving'; cached: boolean; attribution: string;
+      radiusKm: number; mode: 'walking' | 'driving'; cached: boolean; attribution: string; attributions: string[];
       anchors: { label: string; lat: number; lng: number }[];
       results: Stay[];
+      pricing: StayPricing;
     }>(`/api/trips/${tripId}/stays${qs(p)}`),
+
+  /**
+   * This is where we're staying. Not a plain base update: a licensed bed is
+   * looked for in the open map first, so what the trip keeps is a place we may
+   * keep rather than a provider's record (api/routes/trips.js).
+   */
+  setTripStay: (tripId: string, b: { venueRef: string; label: string; lat: number; lng: number; checkIn?: string; checkOut?: string }) =>
+    post<TripDetail & { stay: { named: 'open' | 'household'; how: string | null } }>(`/api/trips/${tripId}/stay`, b),
 
   /** `sources` is the exact set of sources for this one search (e.g. 'osm,tripadvisor'); omitted = the default set, which never includes opt-in sources. */
   searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number; sources?: string }) =>

@@ -87,6 +87,12 @@ export const LINES = [
     console: { label: 'PredictHQ control center', url: 'https://control.predicthq.com/' },
   },
   {
+    key: 'liteapi', label: 'LiteAPI hotel rates', source: 'liteapi', unit: 'request', unitPlural: 'requests',
+    what: 'Hotels and live room prices for the Stay tab. One look is two requests: the beds on the map, then what they cost on your nights. Free to search — LiteAPI earns a commission on a booking, and Roam takes no booking.',
+    hardStop: 'Nothing to stop: searching costs nothing. Booking through LiteAPI is not built, and needs a payment route and a cap from the owner before it could be.',
+    console: { label: 'LiteAPI dashboard', url: 'https://dashboard.liteapi.travel/' },
+  },
+  {
     key: 'osm', label: 'OpenStreetMap', source: 'osm', unit: 'request', unitPlural: 'requests',
     what: 'Places and addresses from open data. Free; fair use of about one request a second.',
     legacyUnitsPerCall: () => 2,
@@ -136,6 +142,7 @@ export function perSearchCost({ scoutAvgUsd = null } = {}) {
     seatgeek: { perSearchUsd: 0, note: 'Free.' },
     predicthq: { perSearchUsd: 0, note: 'Free plan.' },
     datathistle: { perSearchUsd: 0, note: '1,000 requests a month free; one search is one request.' },
+    liteapi: { perSearchUsd: 0, note: 'Free: LiteAPI earns on a booking, not on a search.' },
     scout: { perSearchUsd: Number(scout.toFixed(2)), note: `Claude reads local what's-on pages: about $${scout.toFixed(2)} a search (${scoutAvgUsd != null ? 'measured this month' : 'estimate'}), capped at ${SCOUT_MONTHLY_RUNS} a month; the same place and day within 6 hours is free.` },
   };
 }

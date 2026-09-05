@@ -268,6 +268,23 @@ The argument for TravelTime survives the market change on different grounds:
 
 **Realistic V1 position:** surface the `reservable` flag and booking links present in place data, and deep-link out. Do not represent a booking as confirmed in-app.
 
+### 7.1 Accommodation — **connected** (owner, 5 Sep 2026)
+
+Restaurants and hotels are not the same problem, and the hotel one turns out to be solved. **Nuitée Connect (LiteAPI)** gives live rates and availability over 2M+ properties on a self-serve key, with no per-call charge: they earn a commission on a booking, so discovery is free. `LITEAPI_KEY` (Doppler).
+
+Two endpoints, and they are deliberately separate:
+
+| Call | What it gives | Held for |
+|---|---|---|
+| `GET /data/hotels?latitude&longitude&radius` | the beds on a patch of map: name, address, point, stars, guest score | 6 hours — hotels do not open and close while somebody decides |
+| `POST /hotels/rates` | what those beds cost for these dates and this party, by room type, with board and cancellation terms | 10 minutes — a price shown after it has moved is worse than no price |
+
+**The join is the product.** Roam is the only thing that holds the shortlist, so it is the only thing that can rank a bed by *how much of the week is on foot from its front door* (`domain/stays.js`). LiteAPI is what everybody has and Roam did not: the price. Neither is an answer alone — a hotel on the doorstep at £600 a night is not somewhere to stay. So the two lists are merged into one pool before anything is ranked (`sources/stays.js` `mergeBeds`, 250 m and an agreeing name, the same rule §13.10 uses for restaurants) and **the price never enters the sort**.
+
+**Rented, and merged so that it stays rented.** Where a bed is in both lists the open record wins the row — its reference, its name, its address are OpenStreetMap's and ours to keep — and LiteAPI contributes only the price. Picking one is a claim, so it goes through `POST /api/trips/:id/stay`, which looks a licensed hotel up in the open map (`sources/openMatch.js`) before storing anything; unmatched, the trip keeps the point and the household's own words for it. `/api/trips/:id/stays` is **not** in `offline/policy.ts` and must not be added: no price and no provider name reaches a device.
+
+**Booking is not built, and is the owner's to decide.** LiteAPI will take one end to end (`prebook`, `book`, `cancel`) — that settles money, so it needs a payment route and a spend cap first (CLAUDE.md). Until then the Stay tab shows what a room costs and on what terms, and the household books it themselves. This does not change the restaurant position above.
+
 **Signal that this is opening up:** ChatGPT added reservation booking through OpenTable, Resy and Yelp on 10 August 2026 — OpenTable globally, Resy US-only, Yelp US and Canada. Negotiated partnerships rather than open APIs, but they establish that these platforms will now do AI-assistant deals. Revisit once there are users to point at.
 
 ---
@@ -350,12 +367,13 @@ What each source gives before it costs anything. **The distinction between recur
 | Yelp Places API | 5,000 calls over a 30-day window | **One-time trial** | Business email |
 | Ticketmaster Discovery | Free key, no charge for discovery | **Ongoing** | No |
 | Eventbrite | Free key | **Ongoing** | No |
+| LiteAPI (Nuitée) | No call charge at all — commission on a booking | **Ongoing** | No |
 | Geoapify | Free tier | **Ongoing** | No |
 | Mapbox | Some sources cite 100,000 isochrones/month | **Recurring monthly** | Yes |
 | TravelTime | Trial only, sales-led | **One-time** | Contact sales |
 | Speech providers | Pay-as-you-go from ~$0.21/hr | N/A — cost negligible | Yes |
 
-**Operational consequence:** Google, Ticketmaster and Eventbrite can be left running indefinitely at zero cost during a four-person private beta. Tripadvisor's 1,000 free entities do not renew, so it runs at low single-figure dollars a month once they are spent (a browse costs about 20 entities). **Yelp and TravelTime cannot.** Their trials burn on a clock whether used or not, so they should be switched on only when there is a specific comparison to run and someone available to judge the results.
+**Operational consequence:** Google, Ticketmaster, Eventbrite and LiteAPI can be left running indefinitely at zero cost during a four-person private beta. Tripadvisor's 1,000 free entities do not renew, so it runs at low single-figure dollars a month once they are spent (a browse costs about 20 entities). **Yelp and TravelTime cannot.** Their trials burn on a clock whether used or not, so they should be switched on only when there is a specific comparison to run and someone available to judge the results.
 
 **Recommended evaluation sequence:**
 

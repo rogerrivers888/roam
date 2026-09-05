@@ -65,3 +65,55 @@ export function middleOf(points) {
     lng: points.reduce((a, p) => a + p.lng, 0) / points.length,
   };
 }
+
+// ---------------------------------------------------------------------------
+// who is sleeping in the room
+// ---------------------------------------------------------------------------
+
+/** A hotel counts a child up to eighteen, whatever Roam's own `is_minor` line is. */
+export const HOTEL_ADULT_AGE = 18;
+// Only used for somebody the household has told us is a child without saying
+// when they were born. Never silent: the answer names them so the screen can
+// say "we asked for Nina at 10 — change it" (owner: ask, do not guess).
+export const ASSUMED_CHILD_AGE = 10;
+
+/** Somebody's age on a given day, from whichever of the birth date or the birth year we hold. */
+export function ageOn(member, isoDate) {
+  const on = new Date(`${String(isoDate ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10)}T12:00:00Z`);
+  if (Number.isNaN(+on)) return null;
+  if (member.birth_date) {
+    const b = new Date(`${String(member.birth_date).slice(0, 10)}T12:00:00Z`);
+    if (Number.isNaN(+b)) return null;
+    let age = on.getUTCFullYear() - b.getUTCFullYear();
+    const had = on.getUTCMonth() > b.getUTCMonth() || (on.getUTCMonth() === b.getUTCMonth() && on.getUTCDate() >= b.getUTCDate());
+    return had ? age : age - 1;
+  }
+  // A birth year alone cannot say whether the birthday has been: the younger of
+  // the two answers is the safer one, because a hotel that is told a child is
+  // nine and meets a ten-year-old charges the difference at the desk, and a
+  // hotel told ten never quotes the child rate at all.
+  if (member.birth_year) return Math.max(0, on.getUTCFullYear() - Number(member.birth_year) - 1);
+  return null;
+}
+
+/**
+ * The party a room is priced for: how many adults, and how old each child is.
+ *
+ * Nobody coming is not zero people — it is a household that has not said who is
+ * coming yet, and the honest default there is two adults, which is what the
+ * screen shows and what they can change.
+ */
+export function partyForStay(members = [], { on = null } = {}) {
+  const adults = [];
+  const childAges = [];
+  const assumed = [];
+  for (const m of members) {
+    const age = ageOn(m, on);
+    if (age != null && age < HOTEL_ADULT_AGE) { childAges.push(age); continue; }
+    if (age == null && m.is_minor) { childAges.push(ASSUMED_CHILD_AGE); assumed.push(m.name); continue; }
+    adults.push(m.name);
+  }
+  if (!adults.length && !childAges.length) return { adults: 2, childAges: [], assumed: [], derived: false };
+  // A room of children and no adult is not a booking anybody takes.
+  return { adults: Math.max(1, adults.length), childAges: childAges.sort((a, b) => a - b), assumed, derived: true };
+}

@@ -14,6 +14,7 @@ import { seatgeekSource } from './seatgeek.js';
 import { predicthqSource } from './predicthq.js';
 import { datathistleSource } from './datathistle.js';
 import { localScoutSource } from './localscout.js';
+import { liteapiEnabled } from './liteapi.js';
 import { detectChain } from '../domain/chains.js';
 import { kmBetween } from '../domain/travel.js';
 import * as settings from '../repositories/settings.js';
@@ -21,6 +22,22 @@ import * as settings from '../repositories/settings.js';
 // Licensed sources register here and switch on when their key exists;
 // ROAM_SOURCES still narrows the set (Epic 2 C10: no code change to enable/disable).
 const REGISTRY = [fixturesSource, osmSource, googleSource, tripadvisorSource, ticketmasterSource, seatgeekSource, predicthqSource, datathistleSource, localScoutSource];
+
+/**
+ * Providers that are not place searches.
+ *
+ * LiteAPI answers one question — what does this room cost on these nights —
+ * which no search asks and no search should pay for. Putting it in REGISTRY
+ * would put it in every browse, so it sits here instead: it still has a key, a
+ * switch in Settings › Providers and a line in the ledger, and it is only ever
+ * called from the Stay tab (routes/trips.js `/:id/stays`).
+ */
+const ASIDE = [
+  { key: 'liteapi', label: 'LiteAPI hotel rates', enabled: liteapiEnabled },
+];
+
+/** Whether the Stay tab may ask for prices: the key exists and the owner has not switched it off. */
+export const bedRatesOn = () => sourceHasKey('liteapi') && !sourceOff('liteapi');
 
 /** Sources that return timed events, so "nothing on" can be told from "not looked". */
 export const eventSources = () => enabledSources().filter((s) => s.events);
@@ -57,9 +74,9 @@ export async function setSourceOff(key, off) {
   return [...offKeys];
 }
 /** Whether a source has what it needs to run (its key or flag), regardless of the owner's switch. */
-export const sourceHasKey = (key) => { const s = REGISTRY.find((x) => x.key === key); return Boolean(s && (typeof s.enabled !== 'function' || s.enabled())); };
+export const sourceHasKey = (key) => { const s = [...REGISTRY, ...ASIDE].find((x) => x.key === key); return Boolean(s && (typeof s.enabled !== 'function' || s.enabled())); };
 export const sourceOff = (key) => offKeys.has(key);
-export const sourceKeys = () => REGISTRY.map((s) => s.key);
+export const sourceKeys = () => [...REGISTRY, ...ASIDE].map((s) => s.key);
 
 export function enabledSources({ only = null, includeOptIn = false } = {}) {
   const configured = (process.env.ROAM_SOURCES || 'fixtures,osm,google,tripadvisor,ticketmaster,seatgeek,predicthq,datathistle,scout')
