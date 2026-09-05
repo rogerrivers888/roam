@@ -15,10 +15,11 @@ import groupRoutes, { startReminderLoop } from './routes/groups.js';
 import accountRoutes from './routes/accounts.js';
 import adminRoutes from './routes/admin.js';
 import { adminRouter as libraryAdminRoutes, atlasRouter as libraryAtlasRoutes, imageRouter as libraryImageRoutes } from './routes/library.js';
-import { recoverAbandonedRuns } from './repositories/library.js';
+import { resumeInterrupted } from './sources/harvest.js';
 import activityRoutes from './routes/activity.js';
 import { places as placeRoutes, visits as visitRoutes } from './routes/places.js';
 import { atlas as atlasRoutes } from './routes/atlas.js';
+import { inspire as inspireRoutes } from './routes/inspire.js';
 import { menu as menuRoutes, orders as orderRoutes } from './routes/menus.js';
 import { offline as offlineRoutes } from './routes/offline.js';
 import { startOwnLoop } from './sources/own.js';
@@ -116,6 +117,9 @@ app.use('/api/trips', tripRoutes);
 // router ends in a catch-all GET /:sessionId that would swallow these paths.
 app.use('/api/plan', tasteRoutes);
 app.use('/api/plan', planRoutes);
+// The home screen's one read. Mounted after the planner because it borrows
+// the planner's look-around, not its paths.
+app.use('/api/inspire', inspireRoutes);
 app.use('/api/concepts', conceptRoutes);
 app.use('/api/prototypes', prototypeRoutes);
 app.use('/api/places', placeRoutes);
@@ -268,11 +272,12 @@ startScoutLoop();
 startReminderLoop();
 // A harvest of the atlas cannot survive a restart, and this process restarting
 // is exactly what has just happened. Anything the last one left saying
-// "running" is closed out, and the regions it had claimed go back to being
-// regions nothing has finished — otherwise one dead row refuses every harvest
-// afterwards (repositories/library.js).
-recoverAbandonedRuns()
-  .then((n) => { if (n) console.log(`roam-api: closed ${n} harvest run(s) abandoned by a restart`); })
+// "running" is closed out, and — if it had regions still to reach — the work is
+// picked back up, because four hours of harvesting inside a web server would
+// otherwise never finish on a repository where somebody deploys every hour
+// (sources/harvest.js).
+resumeInterrupted()
+  .then((r) => { if (r) console.log(`roam-api: harvest ${r.resumed ? `resumed over ${r.regions} region(s)` : `not resumed — ${r.reason}`}`); })
   .catch((err) => console.error('harvest recovery', err.message));
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`roam-api listening on 0.0.0.0:${port}`);

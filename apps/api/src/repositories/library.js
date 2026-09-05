@@ -559,13 +559,22 @@ export async function runningRun() {
  * Called once as the API comes up. Whatever a previous process was doing, it is
  * not doing it now — so its run is closed and the regions it had claimed go
  * back to being regions nothing has finished.
+ *
+ * Returns the runs it closed, so the caller can decide whether to pick the work
+ * back up (sources/harvest.js `resumeInterrupted`).
  */
 export async function recoverAbandonedRuns() {
-  const { rowCount } = await query(
+  const { rows } = await query(
     `update harvest_runs
-        set state = 'failed', error = coalesce(error, 'The API restarted while this was running.'),
+        set state = 'failed',
+            error = coalesce(error, 'The API restarted while this was running.'),
             finished_at = coalesce(finished_at, now()), stage = null
-      where state = 'running'`);
+      where state = 'running'
+      returning id, scope, counts, started_by, started_at`);
   await query(`update regions set harvest_state = 'never', updated_at = now() where harvest_state in ('queued', 'running')`);
-  return rowCount;
+  return rows;
 }
+
+/** When the last run started, whatever became of it. Guards the resume against a crash loop. */
+export const lastRunStartedAt = async () =>
+  (await query('select started_at from harvest_runs order by started_at desc limit 1')).rows[0]?.started_at ?? null;

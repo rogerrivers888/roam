@@ -478,3 +478,47 @@ export async function runHarvest({ slugs, withImages = true, refreshTypes = fals
     clearInterval(poll);
   }
 }
+
+// ---------------------------------------------------------------------------
+// picking it back up
+// ---------------------------------------------------------------------------
+
+/**
+ * Resume a harvest the API was killed in the middle of.
+ *
+ * The United Kingdom is four or five hours of work living inside a web server
+ * that gets restarted for a deploy, a memory limit or nothing in particular —
+ * and on a shared repository, a deploy is somebody else's commit as often as
+ * it is ours. Left to a person to notice and press the button again, the atlas
+ * would simply never finish.
+ *
+ * So: if the process that just died was harvesting, and there are regions it
+ * never got to, this picks them up. It is safe to do unattended because the
+ * work is idempotent and cumulative — a finished county stays finished, and
+ * `sweepUnseen` keeps the ones that get re-listed honest.
+ *
+ * Two guards. It only fires when a run was actually interrupted, so a quiet
+ * boot does not start hours of work nobody asked for. And it refuses if the
+ * last run started within `COOL_OFF`, so a container in a crash loop cannot
+ * turn into a crash loop that also hammers Wikimedia.
+ */
+const COOL_OFF_MS = 4 * 60_000;
+
+export async function resumeInterrupted({ startedBy = 'Roam (resumed after a restart)' } = {}) {
+  const abandoned = await lib.recoverAbandonedRuns();
+  if (!abandoned.length) return null;
+
+  const lastStart = await lib.lastRunStartedAt();
+  if (lastStart && Date.now() - new Date(lastStart).getTime() < COOL_OFF_MS) {
+    return { resumed: false, reason: 'a run started moments ago; not resuming into a restart loop' };
+  }
+
+  const left = (await lib.listRegions({ state: 'never' })).map((r) => r.slug);
+  if (!left.length) return { resumed: false, reason: 'nothing left to harvest' };
+
+  const run = await lib.startRun(`resume:${left.length}`, startedBy);
+  await lib.noteRun(run.id, { line: `Picking up ${left.length} regions the last run did not reach.` });
+  runHarvest({ slugs: left, withImages: true, runId: run.id, startedBy })
+    .catch((err) => lib.endRun(run.id, { state: 'failed', error: err.message?.slice(0, 500) }));
+  return { resumed: true, regions: left.length, runId: run.id };
+}

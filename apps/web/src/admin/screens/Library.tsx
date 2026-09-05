@@ -276,7 +276,7 @@ function RegionRow({ region: r, wide, canManage, onOpen, onHarvest }: {
       <View style={{ flex: wide ? 2 : undefined, minWidth: 0 }}>
         <Row style={{ gap: spacing.xs, flexWrap: 'wrap' }}>
           <Pill label={`${r.published_count}/${r.target_count}`} tone={short ? 'warn' : 'ok'} />
-          <Pill label={`${r.image_count} pictures`} icon="camera" />
+          <Pill label={plural(r.image_count, 'picture')} icon="camera" />
           {r.candidate_count ? <Pill label={`${r.candidate_count} found`} /> : null}
         </Row>
       </View>
@@ -394,7 +394,7 @@ function AttractionRow({ row: a, wide, canManage, onCurate }: {
         <Wrap>
           {a.category ? <Pill label={a.category} /> : null}
           {a.heritage ? <Pill label={a.heritage} /> : null}
-          <Pill label={`${Number(a.image_count)} pictures`} icon="camera" />
+          <Pill label={plural(Number(a.image_count), 'picture')} icon="camera" />
         </Wrap>
       </View>
 
