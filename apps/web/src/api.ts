@@ -660,6 +660,13 @@ export type InspireItem = {
   household: { visits?: number; lastOn?: string; loved?: number; notForMe?: number; ledger?: string } | null;
   /** Set on an atlas place: ours, illustrated, and researched from open sources. */
   image?: OwnedImage | null;
+  /**
+   * The atlas's own word for the kind of place — heritage, outdoors, museum,
+   * arts, animals, family, active, landmark. Deliberately its own field rather
+   * than folded into `experiences`, which is a closed vocabulary that voice is
+   * interpreted against and must stay closed.
+   */
+  atlasCategory?: string | null;
   summary?: string | null;
   heritage?: string | null;
   website?: string | null;

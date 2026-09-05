@@ -130,9 +130,17 @@ const priceMarks = (p: number | null) => (p == null ? null : p === 0 ? 'Free' : 
 
 const cap1 = (s: string) => (s ? s[0].toUpperCase() + s.slice(1).replace(/-/g, ' ') : s);
 
-/** What kind of place this is, in its own words: "Castle · History", "Italian". */
+/**
+ * Every word we have for what kind of place this is. The atlas's own is first
+ * because it is the researched one — "Heritage", "Outdoors" — and a search's
+ * tags follow it.
+ */
+const kindsOf = (item: InspireItem): string[] =>
+  [item.atlasCategory, ...(item.experiences ?? [])].filter(Boolean) as string[];
+
+/** What kind of place this is, in its own words: "Heritage", "Castle · History", "Italian". */
 function kindLine(item: InspireItem): string | null {
-  const words = [...(item.experiences ?? []), ...(item.cuisines ?? [])].filter(Boolean);
+  const words = [...kindsOf(item), ...(item.cuisines ?? [])].filter(Boolean);
   const bits = words.length ? words.slice(0, 2) : item.category === 'attraction' ? [] : [item.category];
   return bits.length ? [...new Set(bits.map(cap1))].join(' · ') : null;
 }
@@ -241,7 +249,7 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood }: {
   // nothing (owner: no dead controls).
   const kindsHere = useMemo(() => {
     const seen = new Map<string, number>();
-    for (const i of pool?.items ?? []) for (const e of i.experiences ?? []) seen.set(e, (seen.get(e) ?? 0) + 1);
+    for (const i of pool?.items ?? []) for (const e of kindsOf(i)) seen.set(e, (seen.get(e) ?? 0) + 1);
     return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([key, count]) => ({ key, count }));
   }, [pool]);
 
@@ -257,7 +265,7 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood }: {
       if (cap != null && i.travelMinutes > cap) return false;
       if (outingMax != null && i.travelMinutes * 2 + i.dwellMinutes > outingMax) return false;
       if (band && band.max != null && (i.priceLevel == null || i.priceLevel > band.max)) return false;
-      if (kinds.length && !(i.experiences ?? []).some((e) => kinds.includes(e))) return false;
+      if (kinds.length && !kindsOf(i).some((e) => kinds.includes(e))) return false;
       // A source that has said outright that children are not welcome is taken
       // at its word; one that has said nothing is not guessed about.
       if (minorComing && i.goodForChildren === false) return false;
@@ -410,7 +418,7 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood }: {
                     {kinds.length ? <Pressable onPress={() => setKinds([])} hitSlop={8}><Text style={type.small}>Show all kinds</Text></Pressable> : null}
                   </>
                 ) : (
-                  <Text style={type.small}>The map has not said what kind of thing these places are — searching a town usually gives more.</Text>
+                  <Text style={type.small}>Nothing here has said what kind of thing it is yet.</Text>
                 )
               ) : null}
 

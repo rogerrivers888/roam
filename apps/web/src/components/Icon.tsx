@@ -79,11 +79,25 @@ const EXPERIENCE: Record<string, IconName> = {
 };
 
 /**
- * The best icon for a place: what it *does* if a source said so, otherwise what
- * kind of place it is. Used where a card has no photograph and the tile has to
- * carry the meaning on its own.
+ * The atlas's own eight words for what a place is (sources/wikimedia.js
+ * ATTRACTION_ROOTS). A separate table from the one above because it is a
+ * separate vocabulary — the experiences list is closed and voice is
+ * interpreted against it, so the atlas's words are not folded into it.
  */
-export function iconFor({ category, experiences }: { category?: string | null; experiences?: string[] | null }): IconName {
+const ATLAS: Record<string, IconName> = {
+  heritage: 'castle', museum: 'museum', arts: 'gallery', outdoors: 'park',
+  animals: 'zoo', family: 'playground', active: 'sport', landmark: 'attraction',
+};
+
+/**
+ * The best icon for a place: what the atlas researched it to be, then what a
+ * source tagged it, then what kind of place it is. Used where a card has no
+ * photograph and the tile has to carry the meaning on its own.
+ */
+export function iconFor({ category, experiences, atlasCategory }: {
+  category?: string | null; experiences?: string[] | null; atlasCategory?: string | null;
+}): IconName {
+  if (atlasCategory && ATLAS[atlasCategory]) return ATLAS[atlasCategory];
   for (const e of experiences ?? []) if (EXPERIENCE[e]) return EXPERIENCE[e];
   return CATEGORY[category ?? ''] ?? 'place';
 }
