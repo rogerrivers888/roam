@@ -150,6 +150,25 @@ export async function bedsNear(centre, radiusKm, { stay = null, meter = null } =
   // sum (owner, 5 Sep 2026: "It took more than a minute").
   const openLeg = clock('openMap', () => openBeds(centre, radiusKm));
 
+  // And the open map does not get to hold the answer up for ever.
+  //
+  // Overpass is volunteer infrastructure and its worst day is not its average
+  // one: the same wide ring around Bath came back in six seconds and, once, in
+  // thirty-seven. With a price source connected there is a whole list without
+  // it — LiteAPI has the hotels, the prices and the photographs — so waiting is
+  // now a choice rather than a necessity, and past this the search goes on
+  // without it and says so.
+  //
+  // What is lost by giving up on it is the open reference on rows that would
+  // have matched, and that is recoverable: picking a bed looks it up in the
+  // open map at that moment anyway (routes/trips.js POST /:id/stay), which is
+  // one lookup for the one place they chose instead of forty they did not.
+  const OPEN_MAP_DEADLINE_MS = Number(process.env.ROAM_STAYS_OPEN_DEADLINE_MS) || 10_000;
+  const openWithin = (ms) => Promise.race([
+    openLeg,
+    new Promise((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+
   if (!bedRatesOn()) {
     const { beds, cached } = await openLeg;
     return {
@@ -171,16 +190,34 @@ export async function bedsNear(centre, radiusKm, { stay = null, meter = null } =
   // look. The open map's beds are the floor — somewhere to sleep with no price
   // on it is still somewhere to sleep — and the screen is told which source
   // went quiet.
-  const [openGot, hotelsGot, ratesGot] = await Promise.allSettled([openLeg, hotelsLeg, ratesLeg]);
-
-  if (openGot.status === 'rejected') throw openGot.reason;
-  const { beds: open, cached: openCached } = openGot.value;
+  const [openGot, hotelsGot, ratesGot] = await Promise.allSettled([
+    openWithin(OPEN_MAP_DEADLINE_MS), hotelsLeg, ratesLeg,
+  ]);
 
   let calls = 0;
-  let cached = openCached;
+  let cached = true;
   const degraded = [];
+  let open = [];
   let hotels = [];
   let offers = new Map();
+
+  if (openGot.status === 'fulfilled' && openGot.value) {
+    open = openGot.value.beds;
+    if (!openGot.value.cached) cached = false;
+  } else {
+    // A rejection is every mirror refusing; a null is the deadline. Both mean
+    // the same thing to somebody looking at the screen, and neither is fatal
+    // while there is a price source — but with no price source the open map was
+    // the whole answer, so then it is.
+    const why = openGot.status === 'rejected'
+      ? String(openGot.reason?.message || openGot.reason)
+      : `no answer within ${Math.round(OPEN_MAP_DEADLINE_MS / 1000)}s`;
+    if (hotelsGot.status !== 'fulfilled' || !hotelsGot.value.hotels.length) {
+      throw openGot.status === 'rejected' ? openGot.reason : new Error(`The open map gave ${why}.`);
+    }
+    degraded.push({ source: 'osm', error: why });
+    cached = false;
+  }
 
   if (hotelsGot.status === 'fulfilled') {
     hotels = hotelsGot.value.hotels;
@@ -206,7 +243,11 @@ export async function bedsNear(centre, radiusKm, { stay = null, meter = null } =
     degraded,
     // Whether a price was asked for at all, which is not the same as whether
     // one came back: a sold-out weekend is a real answer and says "nothing free".
-    priced: nights > 0 && Boolean(hotels.length) && !degraded.length,
+    // Whether prices were asked for and came back. The open map going quiet has
+    // nothing to do with it — that is a different source answering a different
+    // question, and letting it flip this to false would put "no room free on
+    // these nights" under a hotel we never asked about.
+    priced: nights > 0 && Boolean(hotels.length) && !degraded.some((d) => d.source.startsWith('liteapi')),
     nights,
     currency: CURRENCY(),
     sandbox: liteapiKeyKind() === 'sandbox',
