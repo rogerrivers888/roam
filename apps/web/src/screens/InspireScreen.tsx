@@ -7,7 +7,6 @@ import { Icon, IconName, iconFor } from '../components/Icon';
 import { Chip, minutes } from '../components/ui';
 import { VenueDrawer } from '../components/VenueDrawer';
 import { WhereSearch } from '../components/WhereSearch';
-import { VenueThumb } from '../components/VenueThumb';
 import { useViewport } from '../hooks/useViewport';
 import { firstName } from '../components/Faces';
 import { asList, asNumber, asOneOf, useQueryState, useRouter, useStickyQuery } from '../router';
@@ -753,28 +752,29 @@ function Card({ item, wide, onOpen, onKeep, kept }: {
 }) {
   const w = wide ? 240 : 200;
   const h = wide ? 180 : 150;
+  // Ours first. A provider's photo is only ever fetched at display time and is
+  // never stored (Technical Constraints §4); ours is stored because we own it.
+  const owned = item.image;
+  const photo = item.photos?.[0];
+  const uri = owned
+    ? `${API_URL}/api/images/${owned.id}/${wide ? 960 : 500}`
+    : photo?.url ?? (photo?.ref ? `${API_URL}/api/photos/google?name=${encodeURIComponent(photo.ref)}&w=480` : null);
+  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const price = priceMarks(item.priceLevel);
   const kind = kindLine(item);
   return (
     <Pressable onPress={() => onOpen(item)} style={{ width: w, gap: spacing.sm }} accessibilityRole="button" accessibilityLabel={item.name}>
-      {/* Ours first, then the provider's, then the card's own identity —
-          VenueThumb decides which, and draws a mark differently from a
-          photograph. The credit is off here because the drawer carries it: a
-          shelf of cards each with a licence line under it is unreadable, and
-          the line has to appear wherever the picture is large enough to be the
-          point, which is the drawer. */}
-      <VenueThumb
-        name={item.name}
-        image={item.image}
-        photos={item.photos}
-        category={item.category}
-        experiences={item.experiences}
-        atlasCategory={item.atlasCategory}
-        width={w}
-        height={h}
-        rounded={6}
-        credit={false}
-      >
+      <View style={[styles.tile, { width: w, height: h }]}>
+        {/* The photograph's own colours, half a kilobyte, already in hand. */}
+        {owned?.lqip && !loaded && !failed ? (
+          <Image source={{ uri: owned.lqip }} style={StyleSheet.absoluteFill as any} resizeMode="cover" blurRadius={2} accessibilityIgnoresInvertColors />
+        ) : null}
+        {uri && !failed ? (
+          <Image source={{ uri }} style={StyleSheet.absoluteFill as any} resizeMode="cover" onError={() => setFailed(true)} onLoad={() => setLoaded(true)} accessibilityIgnoresInvertColors />
+        ) : (
+          <View style={styles.tileEmpty}><Icon name={iconFor(item)} size={28} color={colors.icon} /></View>
+        )}
         <Pressable
           onPress={(e: any) => { e?.stopPropagation?.(); onKeep(item); }}
           hitSlop={8}
@@ -785,7 +785,7 @@ function Card({ item, wide, onOpen, onKeep, kept }: {
         >
           <Icon name="keep" size={16} color={kept ? colors.red : colors.ink} fill={kept} strokeWidth={2} />
         </Pressable>
-      </VenueThumb>
+      </View>
       <View style={{ gap: 2 }}>
         <Text style={styles.cardName} numberOfLines={2}>{item.name}</Text>
         <Text style={type.small}>{minutes(item.travelMinutes)} · {minutes(item.dwellMinutes)}</Text>
