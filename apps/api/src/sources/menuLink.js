@@ -38,12 +38,44 @@ const GUESSES = ['/menu', '/menus', '/food', '/order', '/our-menu', '/menu.pdf']
 
 const clean = (s) => String(s ?? '').replace(/<[^>]*>/g, ' ').replace(/&[a-z]+;|&#\d+;/gi, ' ').replace(/\s+/g, ' ').trim();
 
-async function get(url, { method = 'GET' } = {}) {
+// The same rule as the reader's (sources/menuRead.js): Roam says who it is,
+// and a blanket "not a browser" refusal is retried once as one, where robots
+// does not object. Owner approved 5 Sep 2026 — Boleros Pizzeria answers 403 to
+// RoamBot, 200 to Chrome, and its robots.txt is a 403 too, so there is no
+// stated policy to respect.
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+
+async function robotsForbids(url) {
+  let target;
+  try { target = new URL(url); } catch { return false; }
+  try {
+    const res = await fetch(new URL('/robots.txt', target.origin).toString(), {
+      redirect: 'follow', signal: AbortSignal.timeout(8000), headers: { 'user-agent': UA },
+    });
+    if (!res.ok) return false;
+    const text = (await res.text()).slice(0, 100_000);
+    for (const block of text.split(/^user-agent:/gim).slice(1)) {
+      const who = block.split(/\r?\n/)[0].trim().toLowerCase();
+      if (who !== '*' && !who.includes('roam')) continue;
+      for (const [, path] of block.matchAll(/^\s*disallow:\s*(\S+)/gim)) {
+        if (path === '/') return true;
+        if (path && target.pathname.startsWith(path)) return true;
+      }
+    }
+    return false;
+  } catch { return false; }
+}
+
+async function get(url, { method = 'GET', as = UA } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { method, redirect: 'follow', signal: controller.signal, headers: { 'user-agent': UA, accept: 'text/html,application/xhtml+xml,application/pdf' } });
+    const res = await fetch(url, { method, redirect: 'follow', signal: controller.signal, headers: { 'user-agent': as, accept: 'text/html,application/xhtml+xml,application/pdf' } });
     const type = res.headers.get('content-type') || '';
+    if (!res.ok && (res.status === 403 || res.status === 406) && as === UA && !(await robotsForbids(url))) {
+      clearTimeout(timer);
+      return get(url, { method, as: BROWSER_UA });
+    }
     if (method === 'HEAD' || !res.ok) return { ok: res.ok, url: res.url || url, type, html: '' };
     if (!/text\/html|xhtml/i.test(type)) return { ok: true, url: res.url || url, type, html: '' };
     const html = (await res.text()).slice(0, MAX_BYTES);
@@ -460,9 +492,19 @@ export function branchLooksWrong(url, words = [], locality = null) {
     const brand = words.find((w) => segment.includes(w));
     if (!brand) continue;
     const rest = segment.split(brand).join(' ').split(/[^a-z]+/).filter((x) => x.length >= 4);
-    // Words a branch slug uses that are not places.
-    const notPlaces = new Set(['restaurant', 'restaurants', 'group', 'store', 'menu', 'menus', 'online', 'order', 'takeaway', 'delivery']);
-    const other = rest.find((x) => !notPlaces.has(x) && !words.includes(x));
+    // Words a branch slug uses that are not places: what kind of place it is,
+    // and the platform's own furniture.
+    const notPlaces = new Set([
+      'restaurant', 'restaurants', 'group', 'store', 'menu', 'menus', 'online', 'order', 'takeaway', 'delivery',
+      'cafe', 'café', 'pizzeria', 'grill', 'bar', 'kitchen', 'house', 'lounge', 'bistro', 'tavern', 'brasserie',
+      'coffee', 'bakery', 'diner', 'eatery', 'pizza', 'sushi', 'thai', 'indian', 'italian', 'chinese', 'turkish',
+    ]);
+    // A street is not a town. Boleros' ordering page is
+    // "boleros-pizzeria-cafe-88-maidenhead-road" — 88 Maidenhead Road, in
+    // Windsor — and reading "maidenhead" as the branch would throw away a
+    // perfectly good menu (found 5 Sep 2026).
+    const streetish = new Set(['road', 'street', 'lane', 'avenue', 'close', 'drive', 'hill', 'way', 'parade', 'square', 'terrace', 'walk', 'green']);
+    const other = rest.find((x, i) => !notPlaces.has(x) && !words.includes(x) && !streetish.has(x) && !streetish.has(rest[i + 1] ?? ''));
     if (other && other !== town) return true;
   }
   return false;

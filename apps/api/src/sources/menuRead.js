@@ -58,19 +58,69 @@ const MODEL = process.env.ROAM_MENU_MODEL || 'claude-sonnet-5';
 
 /* ------------------------------------------------------------------ fetching */
 
-async function grab(url) {
+/**
+ * An ordinary browser's user agent, for the one case it is warranted.
+ *
+ * Roam identifies itself everywhere by default, and that is the right thing:
+ * a restaurant's host should be able to see who asked. But a great many small
+ * sites sit behind an IIS or Cloudflare rule that refuses anything not shaped
+ * like a browser — switched on by their host, never thought about by them.
+ * Boleros Pizzeria answers 403 to RoamBot and 200 to Chrome, and its
+ * robots.txt is itself a 403, so there is no stated policy to respect
+ * (owner approved, 5 Sep 2026).
+ */
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+
+/**
+ * Does their robots.txt forbid this path?
+ *
+ * An explicit Disallow is a decision and is respected. A robots that cannot be
+ * read — because the same blanket rule refuses us that page too — is not a
+ * decision, and is treated as silence.
+ */
+async function robotsForbids(url) {
+  let target;
+  try { target = new URL(url); } catch { return false; }
+  try {
+    const res = await fetch(new URL('/robots.txt', target.origin).toString(), {
+      redirect: 'follow', signal: AbortSignal.timeout(8000), headers: { 'user-agent': UA },
+    });
+    if (!res.ok) return false;
+    const text = (await res.text()).slice(0, 100_000);
+    // Only the rules addressed to everybody, or to us by name.
+    const blocks = text.split(/^user-agent:/gim).slice(1);
+    for (const block of blocks) {
+      const who = block.split(/\r?\n/)[0].trim().toLowerCase();
+      if (who !== '*' && !who.includes('roam')) continue;
+      for (const [, path] of block.matchAll(/^\s*disallow:\s*(\S+)/gim)) {
+        if (path === '/') return true;
+        if (path && target.pathname.startsWith(path)) return true;
+      }
+    }
+    return false;
+  } catch { return false; }
+}
+
+async function grab(url, { as = UA } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       redirect: 'follow',
       signal: controller.signal,
-      headers: { 'user-agent': UA, accept: 'text/html,application/xhtml+xml,application/pdf,*/*' },
+      headers: { 'user-agent': as, accept: 'text/html,application/xhtml+xml,application/pdf,*/*' },
     });
     const type = (res.headers.get('content-type') || '').toLowerCase();
-    if (!res.ok) return { ok: false, url: res.url || url, type, status: res.status };
+    if (!res.ok) {
+      // Refused for being a robot rather than for asking for this page. Try
+      // once as an ordinary browser, and only where robots does not object.
+      if ((res.status === 403 || res.status === 406 || res.status === 429) && as === UA && !(await robotsForbids(url))) {
+        return grab(url, { as: BROWSER_UA });
+      }
+      return { ok: false, url: res.url || url, type, status: res.status };
+    }
     const buffer = Buffer.from(await res.arrayBuffer());
-    return { ok: true, url: res.url || url, type, buffer: buffer.subarray(0, MAX_BYTES) };
+    return { ok: true, url: res.url || url, type, buffer: buffer.subarray(0, MAX_BYTES), as };
   } finally {
     clearTimeout(timer);
   }
