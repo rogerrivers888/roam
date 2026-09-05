@@ -148,7 +148,11 @@ export async function menusDue(limit = 5) {
        from scout_places p
        join place_records r on r.venue_ref = p.venue_ref
        left join place_menus m on m.venue_ref = p.venue_ref
-      where r.enrich_state = 'done'
+      -- What a menu needs is an address to fetch, not a finished research pass.
+      -- Gating this on enrich_state = 'done' meant a Google 429 on the "what is
+      -- this place" step — which has nothing to do with menus — held up the
+      -- entire menu pipeline behind it (found 5 Sep 2026).
+      where coalesce(r.website, p.website) is not null
         and (m.venue_ref is null
              or (m.state not in ('read', 'found') and m.attempts < 4 and (m.next_attempt_at is null or m.next_attempt_at <= now())))
       order by p.rank limit $1`,
