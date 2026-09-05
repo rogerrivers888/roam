@@ -24,6 +24,8 @@
 //      when few people have spoken. A 5.0 from eleven diners is not better than
 //      a 4.6 from two thousand, and a raw sort says it is.
 
+import { CHAIN_WEIGHT } from './chains.js';
+
 /** Ratings barely move on a mature place, so this is where the mean sits. */
 const PRIOR = 4.15;
 /** Reviews needed before a rating speaks mostly for itself. */
@@ -106,7 +108,7 @@ function substanceOf({ menuItems = 0, cuisines = [], website = null, summary = n
  * `crowd` is passed as bands, not figures: the caller does the banding at the
  * moment of the fetch so the figures never travel further than that call.
  */
-export function score({ crowd = null, count = null, accolades = [], menuItems = 0, cuisines = [], website = null, summary = null, openingHours = null } = {}) {
+export function score({ crowd = null, count = null, accolades = [], menuItems = 0, cuisines = [], website = null, summary = null, openingHours = null, chainScale = 'independent' } = {}) {
   const substance = substanceOf({ menuItems, cuisines, website, summary, openingHours });
   // Accolades stack, with diminishing returns: two rosettes and a Bib is a very
   // good restaurant, not three times a good one.
@@ -122,6 +124,12 @@ export function score({ crowd = null, count = null, accolades = [], menuItems = 
     ? owned
     : (crowdPoints * 0.5 + accolade * 0.3 + substance * 0.2) * 10;
 
+  // Being a group is a weight on the end, not a filter at the start (owner,
+  // 5 Sep 2026). It multiplies rather than subtracts so that a chain people
+  // genuinely rate keeps most of what it earned, and a chain nobody rates has
+  // little to lose in the first place.
+  const w = CHAIN_WEIGHT[chainScale] ?? 1;
+
   const round = (x) => Math.round(x * 10) / 10;
-  return { roamScore: round(composite), ownedScore: round(owned), substance: round(substance), accolade: round(accolade) };
+  return { roamScore: round(composite * w), ownedScore: round(owned * w), substance: round(substance), accolade: round(accolade), chainWeight: w };
 }

@@ -170,6 +170,9 @@ areaRouter.get('/area/:code', async (req, res, next) => {
         // written down (migration 035).
         score: r.roam_score, standing: r.crowd_band, howMany: r.count_band,
         accolades: r.accolades ?? [], cuisines: r.cuisines ?? [],
+        // Kept and weighted rather than dropped: how big a group this belongs
+        // to, and how many of Roam's own areas hold one (migration 038).
+        chain: r.chain === true, chainScale: r.chain_scale ?? 'independent', sites: r.sites ?? 1,
         address: r.address, postcode: r.postcode, openingHours: r.opening_hours,
         summary: r.summary, website: r.website, menuUrl: r.menu_url,
         lat: r.lat, lng: r.lng,

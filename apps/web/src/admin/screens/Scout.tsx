@@ -79,6 +79,21 @@ const REASON: Record<string, string> = {
 };
 const reason = (why: string | null) => (why ? REASON[why] ?? why : 'No reason recorded');
 
+/**
+ * How big a group a place belongs to, in a word.
+ *
+ * A chain is shown rather than hidden (owner, 5 Sep 2026: "some people love
+ * chains… they could even just be 2 or 3 stores"). What the pill carries is the
+ * scale, because that is the thing that was missing from a boolean — and the
+ * score already has the weight in it, so the pill is an explanation and not a
+ * warning.
+ */
+const SCALE: Record<string, { label: string; tone: 'plain' | 'warn' }> = {
+  small: { label: '2–3 sites', tone: 'plain' },
+  regional: { label: 'Regional group', tone: 'plain' },
+  national: { label: 'National chain', tone: 'warn' },
+};
+
 export function Scout({ canManage }: { canManage: boolean }) {
   const { width } = useViewport();
   const wide = width >= WIDE;
@@ -139,7 +154,7 @@ export function Scout({ canManage }: { canManage: boolean }) {
 
       <TileRow>
         <Tile label="Areas swept" value={count(areas.filter((a) => a.sweeps > 0).length)} sub={`${areas.length} in the queue`} />
-        <Tile label="Places kept" value={count(totals.places)} sub="chains dropped at the gate" tone="accent" />
+        <Tile label="Places kept" value={count(totals.places)} sub="chains kept, weighted down" tone="accent" />
         <Tile label="Menus read" value={count(totals.menus)} sub={`${count(totals.missing)} still to open`} tone={totals.missing > totals.menus ? 'warn' : 'ok'} />
         <Tile label="Dishes" value={count(totals.dishes)} sub="names and prices, ours to keep" tone="ok" />
       </TileRow>
@@ -181,7 +196,8 @@ export function Scout({ canManage }: { canManage: boolean }) {
               </Row>
               <Text style={type.tiny}>
                 A sweep asks the open map for every restaurant, then the licensed search for what the crowd
-                thinks — about fourteen requests, twenty pence. The rating itself is never kept.
+                thinks — about fourteen requests, twenty pence. The rating itself is never kept. Chains are
+                kept and weighted down by how big they are, not dropped.
               </Text>
             </Panel>
           ) : null}
@@ -204,7 +220,7 @@ export function Scout({ canManage }: { canManage: boolean }) {
                   </Row>
                   <Text style={type.tiny}>
                     {a.sweeps > 0
-                      ? `${count(a.seen)} seen · ${count(a.chains)} chains dropped · ${count(a.kept)} kept · swept ${ago(a.swept_at)}`
+                      ? `${count(a.seen)} seen · ${count(a.kept)} kept, ${count(a.chains)} of them a group · swept ${ago(a.swept_at)}`
                       : 'Never swept'}
                   </Text>
                   <Text style={type.tiny}>
@@ -260,6 +276,7 @@ export function Scout({ canManage }: { canManage: boolean }) {
                       <Text style={type.body} numberOfLines={1}>{p.name ?? '—'}</Text>
                       {s ? <Pill label={s.label} tone={s.tone} /> : null}
                       {p.accolades.map((a) => <Pill key={a} label={ACCOLADE[a] ?? a} tone="ok" icon="favourite" />)}
+                      {SCALE[p.chainScale] ? <Pill label={SCALE[p.chainScale].label} tone={SCALE[p.chainScale].tone} /> : null}
                     </Row>
                     <Text style={type.tiny} numberOfLines={1}>
                       {[p.cuisines.slice(0, 3).join(', '), p.postcode].filter(Boolean).join(' · ') || '—'}

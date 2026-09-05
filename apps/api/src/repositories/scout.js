@@ -68,8 +68,8 @@ export async function finishSweep(code, { state, why = null, seen = 0, chains = 
 export async function putPlace(areaCode, p) {
   await query(
     `insert into scout_places (area_code, venue_ref, name, rank, roam_score, owned_score, crowd_band, count_band,
-                               accolades, cuisines, chain, website, lat, lng, last_seen, scored_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now(), now())
+                               accolades, cuisines, chain, website, lat, lng, chain_scale, sites, last_seen, scored_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, now(), now())
      on conflict (area_code, venue_ref) do update set
        name = coalesce(excluded.name, scout_places.name), rank = excluded.rank,
        roam_score = excluded.roam_score, owned_score = excluded.owned_score,
@@ -77,10 +77,11 @@ export async function putPlace(areaCode, p) {
        accolades = excluded.accolades, cuisines = excluded.cuisines, chain = excluded.chain,
        website = coalesce(excluded.website, scout_places.website),
        lat = coalesce(excluded.lat, scout_places.lat), lng = coalesce(excluded.lng, scout_places.lng),
+       chain_scale = excluded.chain_scale, sites = excluded.sites,
        last_seen = now(), scored_at = now()`,
     [areaCode, p.venueRef, p.name ?? null, p.rank, p.roamScore, p.ownedScore, p.crowdBand, p.countBand,
       JSON.stringify(p.accolades ?? []), JSON.stringify(p.cuisines ?? []), p.chain === true,
-      p.website ?? null, p.lat ?? null, p.lng ?? null],
+      p.website ?? null, p.lat ?? null, p.lng ?? null, p.chainScale ?? 'independent', p.sites ?? 1],
   );
   await query(
     `insert into scout_score_history (area_code, venue_ref, roam_score, owned_score, crowd_band, count_band, rank)
@@ -106,7 +107,7 @@ export async function placesIn(areaCode, limit = 50) {
        from scout_places p
        left join place_records r on r.venue_ref = p.venue_ref
        left join place_menus m on m.venue_ref = p.venue_ref
-      where p.area_code = $1 and p.chain = false
+      where p.area_code = $1
       order by p.rank limit $2`,
     [areaCode, limit],
   );
@@ -123,7 +124,7 @@ export async function coverage() {
             count(m.venue_ref) filter (where m.state <> 'read')::int            as menus_failed,
             coalesce(sum(m.item_count) filter (where m.state = 'read'), 0)::int as dishes
        from scout_areas a
-       left join scout_places p on p.area_code = a.code and p.chain = false
+       left join scout_places p on p.area_code = a.code
        left join place_records r on r.venue_ref = p.venue_ref
        left join place_menus m on m.venue_ref = p.venue_ref
       group by a.code, a.label, a.state, a.swept_at, a.next_sweep_at, a.seen, a.chains, a.kept, a.sweeps
@@ -147,8 +148,7 @@ export async function menusDue(limit = 5) {
        from scout_places p
        join place_records r on r.venue_ref = p.venue_ref
        left join place_menus m on m.venue_ref = p.venue_ref
-      where p.chain = false
-        and r.enrich_state = 'done'
+      where r.enrich_state = 'done'
         and (m.venue_ref is null
              or (m.state not in ('read', 'found') and m.attempts < 4 and (m.next_attempt_at is null or m.next_attempt_at <= now())))
       order by p.rank limit $1`,
@@ -263,5 +263,19 @@ export async function spend() {
       where purpose in ('scout.sweep', 'menu.read', 'menu.read.web', 'menu.dish', 'own.match', 'own.geocode')
       group by provider, purpose order by 5 desc, 3 desc`,
   );
+  return rows;
+}
+
+/**
+ * Every name Roam has kept, and which area it was in.
+ *
+ * Deliberately raw: how many sites a group has is decided in JavaScript, with
+ * the same `norm` that matches places across sources, because a count computed
+ * one way here and another way there is a count that disagrees with itself.
+ * Names only — this is a few tens of thousands of short strings even at
+ * national coverage, and it runs in the background.
+ */
+export async function nameAreas() {
+  const { rows } = await query('select distinct name, area_code from scout_places where name is not null');
   return rows;
 }

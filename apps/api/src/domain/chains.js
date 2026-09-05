@@ -31,3 +31,49 @@ export function detectChain(venue) {
   if (!n) return { chain: false, brand: null };
   return { chain: PATTERNS.some((p) => p.test(n)), brand: null };
 }
+
+/**
+ * How big a chain is, rather than whether it is one (owner, 5 Sep 2026).
+ *
+ * > "I'm not sure if we should deliberately kill all chains because some people
+ * > love chains… They could even just be 2 or 3 stores in a chain. Let's roll
+ * > back on my decision… but then we can just sort them… so that we're not
+ * > showing McDonald's on the best restaurants list."
+ *
+ * A boolean could not carry that. Two brothers with a second site in the next
+ * town and a global quick-service brand are both "a chain" and nothing useful
+ * follows from saying so. What follows from *scale* is a weight.
+ *
+ * Three signals, in order of how much they are worth trusting:
+ *
+ *   the known list  a name everybody would recognise as a group. Blunt, but it
+ *                   is right about the ones that matter most.
+ *   the OSM brand   a mapper has said this place belongs to a brand, which they
+ *                   do for groups rather than for a family's second restaurant.
+ *   our own count   how many of Roam's own areas hold a place of this name. This
+ *                   is the signal that needs no list and gets better as the
+ *                   sweep covers more of the country — the only one that will
+ *                   ever notice a nine-site regional group nobody has heard of.
+ */
+export function chainScale({ name, brand = null, sites = 1 } = {}) {
+  const n = norm(name);
+  const known = n ? PATTERNS.some((p) => p.test(n)) : false;
+  if (known || sites >= 10) return { chain: true, scale: 'national' };
+  // A mapper tags `brand` for a group, not for somebody's second restaurant.
+  if (brand) return { chain: true, scale: sites >= 4 ? 'national' : 'regional' };
+  if (sites >= 4) return { chain: true, scale: 'regional' };
+  if (sites >= 2) return { chain: true, scale: 'small' };
+  return { chain: false, scale: 'independent' };
+}
+
+/**
+ * What being that size is worth, as a multiplier on the score.
+ *
+ * Not a cut. A national group that people genuinely rate can still appear —
+ * the owner's objection was to McDonald's topping a list of the best, and
+ * McDonald's is held down by its own crowd band and by having nothing
+ * particular to say about its food, not by this line alone. Two or three sites
+ * is very nearly nothing, because that is a local success rather than a chain
+ * in the sense anybody minds about.
+ */
+export const CHAIN_WEIGHT = { independent: 1, small: 0.97, regional: 0.9, national: 0.72 };

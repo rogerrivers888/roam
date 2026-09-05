@@ -1290,6 +1290,10 @@ export type ScoutPlace = {
   howMany: string | null;
   accolades: string[];
   cuisines: string[];
+  /** Kept and weighted, never dropped: 'independent' | 'small' | 'regional' | 'national'. */
+  chain: boolean;
+  chainScale: string;
+  sites: number;
   address: string | null;
   postcode: string | null;
   openingHours: string | null;

@@ -34,7 +34,7 @@ import * as owned from '../repositories/ownedPlaces.js';
 import * as providerCalls from '../repositories/providerCalls.js';
 import { osmSource } from './osm.js';
 import { sweepArea as googleSweep } from './google.js';
-import { detectChain } from '../domain/chains.js';
+import { chainScale, detectChain } from '../domain/chains.js';
 import { score } from '../domain/scoring.js';
 import { queueEnrichment } from './own.js';
 import { accoladesFor } from './accolades.js';
@@ -160,22 +160,29 @@ export async function sweep(code, { dryRun = false, householdId = null } = {}) {
 
   const seen = candidates.length;
 
-  // Chains out at the gate.
+  // Chains are weighted, not dropped (owner, 5 Sep 2026). How many of our own
+  // areas already hold a place of this name is the honest measure of how big a
+  // group is, and it needs no list — so it is asked for here and refined by
+  // every later sweep through `rescore`.
+  const sitesOf = await siteCounts();
   let chains = 0;
   for (const c of candidates) {
-    const { chain } = detectChain({ name: c.name, brand: c.brand });
+    const { brand } = detectChain({ name: c.name, brand: c.brand });
+    const sites = sitesOf(c.name);
+    const { chain, scale } = chainScale({ name: c.name, brand: brand ?? c.brand, sites });
     c.chain = chain;
+    c.chainScale = scale;
+    c.sites = sites;
     if (chain) chains += 1;
   }
-  const independents = candidates.filter((c) => !c.chain);
 
   // Score with what this pass knows. Menus and accolades arrive later and are
   // free to fold in, which `rescore` does without asking anybody anything.
-  for (const c of independents) {
+  for (const c of candidates) {
     const s = score({
       crowd: c.crowdBand, count: c.countBand, accolades: [],
       menuItems: 0, cuisines: c.cuisines, website: c.website,
-      summary: null, openingHours: c.openingHours,
+      summary: null, openingHours: c.openingHours, chainScale: c.chainScale,
     });
     c.roamScore = s.roamScore;
     c.ownedScore = s.ownedScore;
@@ -184,8 +191,8 @@ export async function sweep(code, { dryRun = false, householdId = null } = {}) {
   // A place nobody has rated and nothing is known about is not "the top-rated
   // restaurant in this postcode", it is an unknown. Rank by the composite, and
   // keep the number the area asked for.
-  independents.sort((a, b) => (b.roamScore - a.roamScore) || (b.ownedScore - a.ownedScore) || a.name.localeCompare(b.name));
-  const kept = independents.slice(0, area.keep);
+  candidates.sort((a, b) => (b.roamScore - a.roamScore) || (b.ownedScore - a.ownedScore) || a.name.localeCompare(b.name));
+  const kept = candidates.slice(0, area.keep);
 
   if (dryRun) {
     return { code, dryRun: true, seen, chains, kept: kept.length, googleCalls, notes,
@@ -226,16 +233,24 @@ export async function sweep(code, { dryRun = false, householdId = null } = {}) {
  */
 export async function rescore(code) {
   const rows = await scout.placesIn(code, 500);
+  // How big each group is, from everything Roam has swept since. This is the
+  // number that improves on its own: a name that was in one area in September
+  // is in nine by Christmas, and the score follows without anyone editing a list.
+  const sitesOf = await siteCounts();
   const scored = [];
   for (const r of rows) {
+    const sites = sitesOf(r.name);
+    const { chain, scale } = chainScale({ name: r.name, sites });
     const s = score({
       crowd: r.crowd_band, count: r.count_band,
       accolades: r.accolades ?? [],
       menuItems: r.item_count ?? 0,
       cuisines: r.cuisines ?? [],
       website: r.website, summary: r.summary, openingHours: r.opening_hours,
+      chainScale: scale,
     });
-    scored.push({ ...r, venueRef: r.venue_ref, roamScore: s.roamScore, ownedScore: s.ownedScore, crowdBand: r.crowd_band, countBand: r.count_band });
+    scored.push({ ...r, venueRef: r.venue_ref, roamScore: s.roamScore, ownedScore: s.ownedScore,
+      crowdBand: r.crowd_band, countBand: r.count_band, chain, chainScale: scale, sites });
   }
   scored.sort((a, b) => (b.roamScore - a.roamScore) || (b.ownedScore - a.ownedScore));
   for (const [i, p] of scored.entries()) await scout.putPlace(code, { ...p, rank: i + 1 });
@@ -385,6 +400,23 @@ async function logSweepCalls(householdId, calls) {
   } catch (err) {
     console.warn(`scout: could not record ${calls} provider call(s): ${err.message}`);
   }
+}
+
+
+/**
+ * How many of Roam's own areas hold a place of each name, normalised the same
+ * way places are matched across sources.
+ */
+async function siteCounts() {
+  const rows = await scout.nameAreas();
+  const byName = new Map();
+  for (const r of rows) {
+    const key = norm(r.name);
+    if (!key) continue;
+    if (!byName.has(key)) byName.set(key, new Set());
+    byName.get(key).add(r.area_code);
+  }
+  return (name) => byName.get(norm(name))?.size ?? 1;
 }
 
 const backoff = (attempts) => new Date(Date.now() + (MENU_BACKOFF_H[Math.min(attempts, MENU_BACKOFF_H.length) - 1] ?? 720) * 3600_000);
