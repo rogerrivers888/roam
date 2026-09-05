@@ -24,6 +24,8 @@ import { getSpeakPref } from './SettingsScreen';
 import { SourceDataPanel } from '../components/SourceData';
 import { isAdmin } from '../admin';
 import { recallScreen, rememberScreen } from '../screenState';
+import { asOneOf, useQueryState, useRouter } from '../router';
+import { paths, type Route, type TripSection } from '../routes';
 import { accuracyWords, useHere } from '../hooks/useHere';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
@@ -31,9 +33,16 @@ const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLoca
 const fmtRange = (a?: string | null, b?: string | null) => (a && b ? (a === b ? fmtDate(a) : `${fmtDate(a)} – ${fmtDate(b)}`) : '');
 const SLOT_LABEL = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' } as const;
 
-export type TripPrefill = {
-  placeText?: string; place?: Place; countryCode?: string; openTripId?: string;
-  section?: 'find' | 'shortlist' | 'day' | 'group'; findRadiusKm?: number; findPrices?: string[]; findCat?: FindCat;
+/**
+ * What a new trip is being made *from*, when somebody arrived here by tapping
+ * "Create trip" or "Plan a trip here" somewhere else.
+ *
+ * This is the one thing that is deliberately not in the address. `/trips/new`
+ * is the form; a half-filled form is not a page, and the place and country do
+ * travel in the query because those are the question rather than the answer.
+ */
+export type TripSeed = {
+  placeText?: string; place?: Place; countryCode?: string;
   /** Which of the three shapes the form should open on. */
   kind?: 'trip' | 'outing' | 'now';
   /**
@@ -43,49 +52,42 @@ export type TripPrefill = {
    */
   seed?: { venueRef: string; name: string; category?: string | null; lat?: number | null; lng?: number | null; note?: string };
 };
-/** How a trip opened from elsewhere should start: which tab, how far Find looks. */
-type OpenWith = { section?: Section; findRadiusKm?: number; findPrices?: string[]; findCat?: FindCat };
 
 // ---------------------------------------------------------------------------
 // List
 // ---------------------------------------------------------------------------
 
-/** Where the Trips tab was: which trip was open, and whether the folds were down. */
-type TripsMemory = { openId: string | null; fold: 'later' | 'past' | null };
-/** And inside a trip: which of Find / Shortlist / The day you were on. */
+/** Inside a trip: which of Find / Shortlist / The day you were on, per trip. */
 type TripPageMemory = { section: Section };
 
-export function TripsScreen({ household, refreshHousehold, prefill, onPrefillConsumed }: {
-  household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; prefill?: TripPrefill | null; onPrefillConsumed?: () => void;
+export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUsed }: {
+  /** Which layer the address asks for: the list, the new-trip form, or one trip on one of its tabs. */
+  route: Extract<Route, { name: 'trips' }>;
+  household: HouseholdResponse | null; refreshHousehold: () => Promise<void>;
+  seed?: TripSeed | null; onSeedUsed?: () => void;
 }) {
   const { width } = useViewport();
   const wide = width >= 1000;
+  const { navigate, back } = useRouter();
   const [data, setData] = useState<Awaited<ReturnType<typeof api.trips>> | null>(null);
-  const [creating, setCreating] = useState(!!prefill);
-  // The trip you were in, kept for the day (owner, 4 Sep 2026: "same for any of
-  // the other tabs"). Only the identifier: the trip itself is fetched again, and
-  // it is our own data, so there is nothing here to go stale or to expire.
-  const heldTrips = useRef(recallScreen<TripsMemory>('trips')).current;
-  const [openId, setOpenId] = useState<string | null>(heldTrips?.data.openId ?? null);
-  const [openWith, setOpenWith] = useState<OpenWith | null>(null);
-  const [fold, setFold] = useState<'later' | 'past' | null>(heldTrips?.data.fold ?? null);
+  const creating = route.creating;
+  const openId = route.tripId;
+  // Which fold is down is how the list is set, so it is query rather than path.
+  const [fold, setFold] = useQueryState<'later' | 'past' | null>('fold', null, asOneOf(['later', 'past'] as const, null));
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { rememberScreen<TripsMemory>('trips', { openId, fold }); }, [openId, fold]);
-
-  useEffect(() => {
-    if (prefill?.openTripId) { setOpenWith({ section: prefill.section, findRadiusKm: prefill.findRadiusKm, findPrices: prefill.findPrices, findCat: prefill.findCat }); setOpenId(prefill.openTripId); setCreating(false); onPrefillConsumed?.(); }
-    else if (prefill) setCreating(true);
-  }, [prefill]);
-
+  // Which trip the address has open, for the loader — as a ref, so opening one
+  // does not count as a reason to go and fetch the list again.
+  const openNow = useRef(openId);
+  openNow.current = openId;
   const load = useCallback(async () => {
     try {
       const next = await api.trips();
       setData(next);
       // A trip deleted since you last looked should not reopen as an error page.
-      setOpenId((cur) => (cur && !next.trips.some((t) => t.id === cur) ? null : cur));
+      if (openNow.current && !next.trips.some((t) => t.id === openNow.current)) navigate(paths.trips(), { replace: true });
     } catch (e: any) { setError(e.message); }
-  }, []);
+  }, [navigate]);
   useEffect(() => { load(); }, [load]);
 
   // What is about to happen is in view; everything else is folded away (owner, 3 Sep 2026).
@@ -103,14 +105,27 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
     };
   }, [data]);
 
-  if (openId) return <TripPage id={openId} openWith={openWith} household={household} onBack={async () => { setOpenId(null); setOpenWith(null); await load(); }} refreshHousehold={refreshHousehold} wide={wide} />;
+  if (openId) {
+    return (
+      <TripPage
+        key={openId}
+        id={openId}
+        section={route.section}
+        dayId={route.dayId}
+        household={household}
+        onBack={async () => { back(paths.trips()); await load(); }}
+        refreshHousehold={refreshHousehold}
+        wide={wide}
+      />
+    );
+  }
 
   const daysAway = (t: TripSummary) => {
     const n = Math.round((+buckets.startOf(t) - +new Date(new Date().toDateString())) / 86400000);
     return n <= 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`;
   };
   const card = (t: TripSummary, hero: boolean) => (
-    <Pressable key={t.id} onPress={() => setOpenId(t.id)} accessibilityRole="button">
+    <Pressable key={t.id} onPress={() => navigate(paths.trip(t.id))} accessibilityRole="button">
       <Card style={[{ gap: 4 }, hero && { borderColor: colors.accent, borderWidth: 2 }]}>
         <Row style={{ justifyContent: 'space-between' }}>
           <Text style={[type.h3, { flex: 1 }]}>{t.title ?? t.place?.label ?? t.origin.label}</Text>
@@ -134,7 +149,7 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
   const foldRow = (key: 'later' | 'past', label: string, list: TripSummary[]) => (
     list.length ? (
       <View key={key} style={{ gap: spacing.sm }}>
-        <Pressable onPress={() => setFold((f) => (f === key ? null : key))} style={styles.fold} accessibilityRole="button">
+        <Pressable onPress={() => setFold(fold === key ? null : key)} style={styles.fold} accessibilityRole="button">
           <Text style={[type.small, { fontWeight: '700' }]}>{label}</Text>
           <Text style={[type.tiny, { flex: 1 }]} numberOfLines={1}>{list.slice(0, 3).map((t) => `${t.title ?? t.place?.label ?? t.origin.label}, ${fmtDate(t.startDate ?? t.departAt)}`).join(' · ')}{list.length > 3 ? ` · ${list.length - 3} more` : ''}</Text>
           <Icon name={fold === key ? 'collapse' : 'more'} size={16} color={colors.inkFaint} />
@@ -154,7 +169,12 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
           <Text style={type.title}>{creating ? 'New trip' : 'Trips'}</Text>
           <Text style={type.small}>{creating ? 'Where, when, and who — everything else can wait until it exists.' : "What's coming up in the next fortnight. Later and past trips are folded below."}</Text>
         </View>
-        <Button label={creating ? 'Close' : 'New trip'} icon={creating ? 'close' : 'add'} kind={creating ? 'ghost' : 'primary'} onPress={() => { setCreating((c) => !c); onPrefillConsumed?.(); }} />
+        <Button
+          label={creating ? 'Close' : 'New trip'}
+          icon={creating ? 'close' : 'add'}
+          kind={creating ? 'ghost' : 'primary'}
+          onPress={() => { onSeedUsed?.(); navigate(creating ? paths.trips() : paths.newTrip()); }}
+        />
       </View>
 
       {/* A new trip is its own page: the trips you already have are not part of
@@ -163,22 +183,22 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
         <>
           <NewTripForm
             household={household}
-            prefill={prefill ?? null}
+            startFrom={seed ?? null}
             onCreated={async (t) => {
               // A trip made from a place opens with that place already on it.
               // Failing to seed is not a reason to lose the trip they just
               // made, so it is tried and the trip opens either way.
-              const seed = prefill?.seed;
-              if (seed) {
+              const must = seed?.seed;
+              if (must) {
                 try {
                   await api.addToShortlist(t.trip.id, {
-                    venueRef: seed.venueRef, venueLabel: seed.name, category: seed.category ?? null,
-                    lat: seed.lat ?? null, lng: seed.lng ?? null, mustDo: true,
-                    note: seed.note ?? 'The reason for the trip',
+                    venueRef: must.venueRef, venueLabel: must.name, category: must.category ?? null,
+                    lat: must.lat ?? null, lng: must.lng ?? null, mustDo: true,
+                    note: must.note ?? 'The reason for the trip',
                   });
                 } catch { /* the trip is made; the shortlist can be added to by hand */ }
               }
-              setCreating(false); onPrefillConsumed?.(); await load(); setOpenId(t.trip.id);
+              onSeedUsed?.(); await load(); navigate(paths.trip(t.trip.id), { replace: true });
             }}
           />
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
@@ -248,7 +268,21 @@ function StartHere({ value, onPick }: { value: Place | null; onPick: (p: Place |
   );
 }
 
-function NewTripForm({ household, prefill, onCreated }: { household: HouseholdResponse; prefill: TripPrefill | null; onCreated: (t: TripDetail) => Promise<void> }) {
+function NewTripForm({ household, startFrom, onCreated }: { household: HouseholdResponse; startFrom: TripSeed | null; onCreated: (t: TripDetail) => Promise<void> }) {
+  // What the address says about the trip being made — the question, not the
+  // half-typed answer — so `/trips/new?place=Bath&kind=outing` opens the right
+  // form even for somebody who was sent the link.
+  const { query } = useRouter();
+  const prefill: TripSeed | null = useMemo(() => {
+    const kind = query.get('kind');
+    const asked: TripSeed = {
+      ...(startFrom ?? {}),
+      kind: kind === 'trip' || kind === 'outing' || kind === 'now' ? kind : startFrom?.kind,
+      placeText: startFrom?.placeText ?? query.get('place') ?? undefined,
+      countryCode: startFrom?.countryCode ?? query.get('country') ?? undefined,
+    };
+    return Object.values(asked).some((v) => v != null) ? asked : null;
+  }, [startFrom, query.get('kind'), query.get('place'), query.get('country')]);
   const home = household.household.home;
   // Three ways a trip begins (owner, 4 Sep 2026): somewhere else with dates, a
   // day out from home, or — the one that was missing — standing in the street
@@ -482,7 +516,8 @@ const MODE_WORD = { driving: 'Driving', transit: 'By train or bus', walking: 'Wa
 // Trip page
 // ---------------------------------------------------------------------------
 
-type Section = 'find' | 'shortlist' | 'day' | 'stay' | 'group' | 'data';
+/** The trip's own tabs. They are path segments — `/trips/<id>/shortlist` — so routes.ts owns the list. */
+type Section = TripSection;
 
 /** Two taps to delete a trip: its days, stops and shortlist go with it; visits and ratings stay (they lose the link). */
 function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<void> }) {
@@ -497,34 +532,53 @@ function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<vo
   );
 }
 
-function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: { id: string; openWith?: OpenWith | null; household: HouseholdResponse | null; onBack: () => Promise<void>; refreshHousehold: () => Promise<void>; wide: boolean }) {
+function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refreshHousehold, wide }: {
+  id: string;
+  /** Which of the trip's tabs the address names — `/trips/<id>/shortlist` — or null for "wherever this trip is up to". */
+  section: Section | null;
+  /** And which day, when the address names one — `/trips/<id>/day/<dayId>`. */
+  dayId: string | null;
+  household: HouseholdResponse | null; onBack: () => Promise<void>; refreshHousehold: () => Promise<void>; wide: boolean;
+}) {
+  const { query, navigate } = useRouter();
   const [d, setD] = useState<TripDetail | null>(null);
   // Which part of the trip you were on, per trip: the section a fortnight in
-  // Lisbon is on has nothing to do with Saturday's day out.
+  // Lisbon is on has nothing to do with Saturday's day out. It is remembered so
+  // that opening the trip from the list lands where you left it; the address
+  // always wins, so a link to one tab opens that tab.
   const sectionKey = `trip.${id}.section`;
-  // A trip that has just been made opens on Find and starts searching (owner,
-  // 4 Sep 2026: "I feel like it needs to take me to Find… it should just start
-  // searching"). Where you were last wins once there is a where-you-were.
-  const [section, setSection] = useState<Section>(recallScreen<TripPageMemory>(sectionKey)?.data.section ?? 'find');
-  useEffect(() => { rememberScreen<TripPageMemory>(sectionKey, { section }); }, [sectionKey, section]);
-  const [dayId, setDayId] = useState<string | null>(null);
+  const section: Section = asked ?? 'find';
+  const dayId = askedDay ?? d?.days[0]?.id ?? null;
+  const setSection = (next: Section) => navigate(paths.trip(id, next, next === 'day' ? dayId : null));
+  const setDayId = (next: string) => navigate(paths.trip(id, 'day', next));
+  useEffect(() => { if (asked) rememberScreen<TripPageMemory>(sectionKey, { section: asked }); }, [sectionKey, asked]);
   const [planning, setPlanning] = useState(false);
+  /**
+   * How Find was set when somebody was sent here — "things to do within 5 km,
+   * free" — which is part of the address too, so the link opens the same list.
+   */
+  const findRadiusKm = Number(query.get('km')) || undefined;
+  const findPrices = query.get('prices')?.split(',').filter(Boolean);
+  const findCat = (['things', 'food', 'events'] as const).find((c) => c === query.get('cat'));
   // What Find fetched lives with the trip page, so tabbing away and back shows the same list without another fetch.
-  const [find, setFind] = useState<FindState>(() => ({ ...emptyFind(), radiusKm: openWith?.findRadiusKm ?? emptyFind().radiusKm }));
+  const [find, setFind] = useState<FindState>(() => ({ ...emptyFind(), radiusKm: findRadiusKm ?? emptyFind().radiusKm }));
   const [error, setError] = useState<string | null>(null);
   const first = useRef(true);
   const load = useCallback(async () => {
     try {
       const t = await api.trip(id); setD(t);
-      setDayId((cur) => cur ?? t.days[0]?.id ?? null);
       // A saved day opens on the day; a shortlist in progress on the shortlist; an empty trip on Find (owner, 3 Sep 2026).
       if (first.current) {
         first.current = false;
-        const running = t.shortlist.some((s) => ['to_call', 'booked', 'no_booking'].includes(s.status));
-        // Being sent here from somewhere else wins; then where you were when you
-        // left; then the guess about what this trip is ready for.
-        const remembered = recallScreen<TripPageMemory>(sectionKey)?.data.section ?? null;
-        setSection(openWith?.section ?? remembered ?? (t.days[0]?.slots.some((sl) => sl.stops.length) ? 'day' : running ? 'shortlist' : 'find'));
+        if (!asked) {
+          const running = t.shortlist.some((s) => ['to_call', 'booked', 'no_booking'].includes(s.status));
+          // Where you were when you left, then the guess about what this trip
+          // is ready for — and either way the answer goes into the address, so
+          // the trip you are looking at can be sent to somebody.
+          const remembered = recallScreen<TripPageMemory>(sectionKey)?.data.section ?? null;
+          const start = remembered ?? (t.days[0]?.slots.some((sl) => sl.stops.length) ? 'day' : running ? 'shortlist' : 'find');
+          navigate(paths.trip(id, start, start === 'day' ? t.days[0]?.id ?? null : null), { replace: true });
+        }
       }
     } catch (e: any) { setError(e.message); }
   }, [id]);
@@ -592,7 +646,7 @@ function TripPage({ id, openWith, household, onBack, refreshHousehold, wide }: {
     <>
       {section === 'find' ? (
         <View style={{ gap: spacing.md }}>
-          <BrowseNear d={d} household={household} onChanged={load} find={find} setFind={setFind} initialPrices={openWith?.findPrices} initialCat={openWith?.findCat} onShortlist={() => setSection('shortlist')} />
+          <BrowseNear d={d} household={household} onChanged={load} find={find} setFind={setFind} initialPrices={findPrices} initialCat={findCat} onShortlist={() => setSection('shortlist')} />
           {household && day ? (
             <View style={{ gap: spacing.sm }}>
               <Button label={planning ? 'Hide the planner' : 'Plan it for me'} icon="plan" kind="ghost" onPress={() => setPlanning((v) => !v)} />

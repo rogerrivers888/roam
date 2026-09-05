@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { api, API_URL, HouseholdResponse } from './src/api';
@@ -6,15 +6,14 @@ import { colors, radius, spacing, TARGET, type } from './src/theme';
 import { useTheme } from './src/hooks/useTheme';
 import { getViewer, onViewerChange } from './src/viewer';
 import { Avatar } from './src/components/Faces';
-import { PlanScreen } from './src/screens/PlanScreen';
+import { OpenTripOptions, PlanScreen } from './src/screens/PlanScreen';
 import { InspireScreen } from './src/screens/InspireScreen';
-import { PlacesScreen, PlacesPrefill } from './src/screens/PlacesScreen';
-import { TripsScreen, TripPrefill } from './src/screens/TripsScreen';
+import { PlacesScreen } from './src/screens/PlacesScreen';
+import { TripsScreen, TripSeed } from './src/screens/TripsScreen';
 import { HouseholdScreen } from './src/screens/HouseholdScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { PrototypesScreen } from './src/screens/PrototypesScreen';
 import { JoinScreen } from './src/screens/JoinScreen';
-import { AccountsScreen } from './src/screens/AccountsScreen';
 import { AdminApp } from './src/admin/AdminApp';
 import { useActivity } from './src/hooks/useActivity';
 import { LockScreen } from './src/screens/LockScreen';
@@ -24,18 +23,19 @@ import { useOffline } from './src/hooks/useOffline';
 import { useOutbox } from './src/hooks/useOutbox';
 import { useSession } from './src/hooks/useSession';
 import { Icon, IconName } from './src/components/Icon';
+import { RouterProvider, rememberedAddress, useRememberedAddress, useRouter } from './src/router';
+import { legacyHref, parseRoute, paths, Route, splitHref, Tab, TripSection, tabOf, titleOf } from './src/routes';
 
-type Tab = 'inspire' | 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes';
 // Roam opens on Inspire (owner, 5 Sep 2026, "Supporting docs/Roam Inspire"):
 // what there is to do, with one search bar above it. The conversational planner
-// is still there and still has an address — ?tab=plan, and the door at the foot
+// is still there and still has an address — /plan, and the door at the foot
 // of the search screen — it is simply no longer the first thing Roam says.
-const TABS: { key: Tab; label: string; icon: IconName; owner?: true }[] = [
-  { key: 'inspire', label: 'Inspire', icon: 'inspire' },
-  { key: 'places', label: 'Places', icon: 'places' },
-  { key: 'trips', label: 'Trips', icon: 'trips' },
-  { key: 'household', label: 'Household', icon: 'household' },
-  { key: 'settings', label: 'Settings', icon: 'settings' },
+const TABS: { key: Tab; label: string; icon: IconName; href: string; owner?: true }[] = [
+  { key: 'inspire', label: 'Inspire', icon: 'inspire', href: paths.inspire() },
+  { key: 'places', label: 'Places', icon: 'places', href: paths.places() },
+  { key: 'trips', label: 'Trips', icon: 'trips', href: paths.trips() },
+  { key: 'household', label: 'Household', icon: 'household', href: paths.household() },
+  { key: 'settings', label: 'Settings', icon: 'settings', href: paths.settings() },
 ];
 
 // Mobile-first (V1 is the installed web app on a phone), but on a wide screen
@@ -47,18 +47,6 @@ const DESKTOP = 900;
 // frame so every screen shows how it will look on the phone. The choice sticks.
 type ViewMode = 'web' | 'mobile';
 const VIEW_KEY = 'roam.viewMode';
-/**
- * Which of Roam's two applications is open (owner, 4 Sep 2026: "2 profiles:
- * web client, web admin"). Remembered, because somebody working in the back
- * office for an afternoon should not land in the household app every reload.
- */
-const PROFILE_KEY = 'roam.profile';
-type Profile = 'client' | 'admin';
-const readProfile = (): Profile =>
-  (Platform.OS === 'web' && typeof localStorage !== 'undefined' && localStorage.getItem(PROFILE_KEY) === 'admin' ? 'admin' : 'client');
-const rememberProfile = (p: Profile) => {
-  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') localStorage.setItem(PROFILE_KEY, p);
-};
 const PHONE = { width: 390, height: 844 };
 const TOOLBAR = 44;
 const BEZEL = 10;
@@ -66,50 +54,28 @@ const readViewMode = (): ViewMode =>
   Platform.OS === 'web' && typeof localStorage !== 'undefined' && localStorage.getItem(VIEW_KEY) === 'mobile' ? 'mobile' : 'web';
 
 /**
- * An invite link (?join=<token>) is somebody else's door into one trip: the
- * checklist a group organiser asked them for, and none of the household's app.
- * It is read once, before anything else, so a participant never lands in Plan.
+ * Every screen has an address, and the address is what decides which screen is
+ * drawn (src/router.tsx, src/routes.ts) — so the router goes outside everything,
+ * including the phone frame, the passcode and the choice of profile.
  */
-const joinToken = () => {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
-  return new URLSearchParams(window.location.search).get('join');
-};
-
-/**
- * A magic link (?signin=<token>) is how everybody except the owner gets in.
- *
- * Read once, before anything else, and taken out of the address bar the moment
- * it has been used: a link left in the URL is a link that gets bookmarked, sent
- * on and pasted into a chat, and this one signs somebody in.
- */
-const signInToken = () => {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
-  return new URLSearchParams(window.location.search).get('signin');
-};
-
-function forgetSignInToken() {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
-  const q = new URLSearchParams(window.location.search);
-  if (!q.has('signin')) return;
-  q.delete('signin');
-  const rest = q.toString();
-  window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+export default function App() {
+  return (
+    <RouterProvider>
+      <Frame />
+    </RouterProvider>
+  );
 }
 
-export default function App() {
+function Frame() {
   const window = useWindowDimensions();
   const [mode, setMode] = useState<ViewMode>(readViewMode);
-  const join = useMemo(joinToken, []);
   const choose = (m: ViewMode) => {
     setMode(m);
     if (Platform.OS === 'web' && typeof localStorage !== 'undefined') localStorage.setItem(VIEW_KEY, m);
   };
 
+  const app = <Routed />;
   // A narrow window is a phone already: no toggle, no frame.
-  //
-  // An invite link is somebody else's door and is never behind the passcode:
-  // it opens one trip's checklist and the API treats it as public (auth.js).
-  const app = join ? <JoinScreen token={join} /> : <Gate />;
   if (window.width < DESKTOP) return app;
 
   const frameHeight = Math.min(PHONE.height, window.height - TOOLBAR - spacing.xl * 2 - BEZEL * 2);
@@ -156,6 +122,47 @@ export default function App() {
 }
 
 /**
+ * The address, read — and the two kinds of address that are answered before
+ * anything else is drawn.
+ *
+ * An invite link (`/join/<token>`) is somebody else's door into one trip: the
+ * checklist a group organiser asked them for, and none of the household's app.
+ * It is never behind the passcode, because the API treats it as public too
+ * (auth.js), and it is read here so a participant never lands in Plan.
+ *
+ * The addresses Roam used to have (`/?tab=trips&trip=…`, `/?join=…`) are
+ * answered once and replaced with the ones it has now: the owner keeps some of
+ * them on his phone, and invite links went to people who have never heard of us.
+ */
+function Routed() {
+  const { path, query, navigate } = useRouter();
+  const redirect = useMemo(() => {
+    const legacy = legacyHref(path, query);
+    if (legacy) return legacy;
+    if (path === '/' || path === '') {
+      // The query travels: `/?signin=…` is a magic link, and dropping it here
+      // would sign nobody in.
+      const q = query.toString();
+      return q ? `${paths.inspire()}?${q}` : paths.inspire();
+    }
+    return null;
+  }, [path, query]);
+  useEffect(() => { if (redirect) navigate(redirect, { replace: true }); }, [redirect, navigate]);
+
+  const route = useMemo(() => parseRoute(path), [path]);
+
+  // A window full of Roam is otherwise seven identical browser tabs.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    document.title = titleOf(route);
+  }, [route]);
+
+  if (redirect) return <View style={styles.waiting} />;
+  if (route.name === 'join') return <JoinScreen token={route.token} />;
+  return <Gate route={route} />;
+}
+
+/**
  * The passcode, then the app.
  *
  * Roam's API answered anybody until 4 Sep 2026; it now wants a session for
@@ -168,13 +175,17 @@ export default function App() {
  * train — one they cannot get past, because signing in needs the API — would
  * take away the one thing that still works.
  */
-function Gate() {
+function Gate({ route }: { route: Route }) {
+  const { query, setQuery, navigate } = useRouter();
   const { state, isOwner, access, recheck } = useSession();
-  const [profile, setProfile] = useState<Profile>(readProfile);
-  const choose = (p: Profile) => { setProfile(p); rememberProfile(p); };
-  // A link in the address is redeemed before the passcode screen can appear:
-  // the person holding it has never seen a Roam passcode and never will.
-  const link = useMemo(signInToken, []);
+  /**
+   * A magic link (?signin=<token>) is how everybody except the owner gets in.
+   *
+   * Read once, before anything else, and taken out of the address bar the moment
+   * it has been used: a link left in the URL is a link that gets bookmarked, sent
+   * on and pasted into a chat, and this one signs somebody in.
+   */
+  const [link] = useState(() => query.get('signin'));
   const [redeeming, setRedeeming] = useState(Boolean(link));
   const [linkFailed, setLinkFailed] = useState<string | null>(null);
 
@@ -191,89 +202,97 @@ function Gate() {
       } finally {
         // Whether it worked or not, the token comes out of the address bar: a
         // spent link in a URL is still a link somebody pastes into a chat.
-        if (!dropped) { forgetSignInToken(); setRedeeming(false); }
+        if (!dropped) { setQuery({ signin: null }, { replace: true }); setRedeeming(false); }
       }
     })();
     return () => { dropped = true; };
-  }, [link, recheck]);
+  }, [link, recheck, setQuery]);
 
   if (redeeming || state === 'checking') return <View style={styles.waiting} />;
   if (state === 'out' || state === 'unconfigured') {
     return <LockScreen onIn={recheck} configured={state !== 'unconfigured'} notice={linkFailed} />;
   }
 
-  // Two applications behind one sign-in. The back office is only reachable by a
-  // session holding the `admin` door — and if this app drew it anyway, every
-  // request it made would answer 404 (api/src/access.js).
+  // Two applications behind one sign-in, and the address says which you are in
+  // — so somebody who spent the afternoon in the back office comes back to it
+  // on reload, and can send a colleague the exact screen they were looking at.
+  //
+  // The back office is only reachable by a session holding the `admin` door —
+  // and if this app drew it anyway, every request it made would answer 404
+  // (api/src/access.js).
   const mayAdminister = Boolean(access?.doors?.includes('admin'));
-  if (profile === 'admin' && mayAdminister) {
-    return <AdminApp access={access} onLeave={() => choose('client')} />;
+  if (route.name === 'admin') {
+    if (!mayAdminister) return <NotHere title="That is not a page you can open" body="The back office needs an account with the admin door." href={paths.inspire()} />;
+    return <AdminApp access={access} screen={route.screen} onScreen={(s) => navigate(paths.admin(s))} onLeave={() => navigate(paths.inspire())} />;
   }
-  return <Shell isOwner={isOwner} mayAdminister={mayAdminister} onAdmin={() => choose('admin')} />;
+  return <Shell route={route} isOwner={isOwner} mayAdminister={mayAdminister} />;
 }
 
-function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; mayAdminister?: boolean; onAdmin?: () => void }) {
+/** An address that is not a page — mistyped, or one Roam used to have and no longer does. */
+function NotHere({ title, body, href }: { title: string; body: string; href: string }) {
+  const { navigate } = useRouter();
+  return (
+    <SafeAreaView style={[styles.root, { alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.sm }]}>
+      <Wordmark height={40} />
+      <Text style={type.h3}>{title}</Text>
+      <Text style={[type.small, { textAlign: 'center' }]}>{body}</Text>
+      <Pressable onPress={() => navigate(href, { replace: true })} accessibilityRole="button" style={styles.notHereBtn}>
+        <Icon name="inspire" size={16} color={colors.primaryFg} />
+        <Text style={{ color: colors.primaryFg, fontWeight: '700' }}>Take me home</Text>
+      </Pressable>
+    </SafeAreaView>
+  );
+}
+
+function Shell({ route, isOwner, mayAdminister = false }: { route: Route; isOwner: boolean; mayAdminister?: boolean }) {
   const { width } = useViewport();
+  const { href, navigate } = useRouter();
   const desktop = width >= DESKTOP;
+  const tab = tabOf(route);
+  /**
+   * Where each tab was left (owner, 4 Sep 2026: "I come back 10 minutes later
+   * after navigating off that tab, everything's disappeared").
+   *
+   * The tab in the rail carries that address; a typed `/places` still means the
+   * atlas list. An address that quietly turned into a different page would not
+   * be an address.
+   *
+   * Two things are left out of what is remembered: the magic-link token, which
+   * must never be written down anywhere, and an open drawer, which is something
+   * you were reading rather than somewhere you were.
+   */
+  const here = useMemo(() => {
+    const { path, query } = splitHref(href);
+    query.delete('signin');
+    query.delete('place');
+    const q = query.toString();
+    return q ? `${path}?${q}` : path;
+  }, [href]);
+  useRememberedAddress(tab ?? 'nowhere', here);
   // The admin module is the owner's. Everybody else's app is exactly what it
   // was before accounts existed.
-  const tabs = useMemo(() => TABS.filter((t) => !t.owner || isOwner), [isOwner]);
-  // A link can open a tab, and a trip, straight away (?tab=trips&trip=<id>): the address Roger keeps on his phone.
-  const fromUrl = useMemo(() => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') return { tab: null as Tab | null, trip: null as string | null };
-    const q = new URLSearchParams(window.location.search);
-    const t = q.get('tab');
-    const section = q.get('section');
-    return {
-      tab: TABS.some((x) => x.key === t && (!x.owner || isOwner)) || t === 'prototypes' || t === 'plan' ? (t as Tab) : null,
-      trip: q.get('trip'),
-      // ?section= opens the trip on one of its own tabs, so a group has an address too.
-      section: ['find', 'shortlist', 'day', 'group'].includes(section ?? '') ? (section as TripPrefill['section']) : undefined,
-    };
-  }, []);
-  const [tab, setTab] = useState<Tab>(fromUrl.tab ?? 'inspire');
+  const tabs = useMemo(
+    () => TABS.filter((t) => !t.owner || isOwner).map((t) => ({ ...t, href: t.key === tab ? t.href : rememberedAddress(t.key, t.href) })),
+    [isOwner, tab, here],
+  );
   const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking');
   const [household, setHousehold] = useState<HouseholdResponse | null>(null);
-  const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(fromUrl.trip ? { openTripId: fromUrl.trip, section: fromUrl.section } : null);
-  // Inspire's Food chip is a door into Places, not a filter on the home screen.
-  const [placesPrefill, setPlacesPrefill] = useState<PlacesPrefill | null>(null);
-  // Wherever you are has an address (owner, 4 Sep 2026: "we need a unique URL
-  // structure, so wherever I am, there is a unique URL"). The tab, and the trip
-  // when one is open, are written to the address bar as they change, so the
-  // page can be reloaded, bookmarked or sent to somebody and come back to the
-  // same place — and the browser's own back button walks the tabs.
-  const openTripId = tripPrefill?.openTripId ?? null;
-  const wroteUrl = useRef(false);
-  useEffect(() => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
-    const q = new URLSearchParams(window.location.search);
-    q.set('tab', tab);
-    if (openTripId) q.set('trip', openTripId); else q.delete('trip');
-    const next = `${window.location.pathname}?${q.toString()}`;
-    if (next === `${window.location.pathname}${window.location.search}`) return;
-    // The first write is the address the app was opened at getting its name;
-    // only a move afterwards is a step the back button should walk back over.
-    if (wroteUrl.current) window.history.pushState({ tab, trip: openTripId }, '', next);
-    else window.history.replaceState({ tab, trip: openTripId }, '', next);
-    wroteUrl.current = true;
-  }, [tab, openTripId]);
-  useEffect(() => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
-    const onPop = () => {
-      const q = new URLSearchParams(window.location.search);
-      const t = q.get('tab');
-      if (TABS.some((x) => x.key === t && (!x.owner || isOwner)) || t === 'prototypes' || t === 'plan') setTab(t as Tab);
-      const trip = q.get('trip');
-      if (trip) setTripPrefill({ openTripId: trip });
-    };
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
+  /**
+   * The place a new trip is *for* — the one somebody tapped "Create trip" on.
+   *
+   * This is the one thing the address deliberately does not carry. A half-filled
+   * form is not a page: `/trips/new` is the form, and what somebody had typed
+   * into it is theirs, not something to send to anybody. The place's name and
+   * country do travel in the query, because those are the question rather than
+   * the answer.
+   */
+  const [tripSeed, setTripSeed] = useState<TripSeed | null>(null);
   const offline = useOffline();
   const outbox = useOutbox();
   // Which screen, and that somebody is here. Two events, nothing identifying,
-  // and always written against this session's own household (useActivity).
-  useActivity(tab);
+  // and always written against this session's own household (useActivity). The
+  // tab, not the address: a trip's identifier is nobody's business but ours.
+  useActivity(tab ?? 'unknown');
   // Showing the saved copy: the browser says there is no connection, the app has
   // already had to fall back to the device, or the API cannot be reached at all
   // and there is something saved to fall back to.
@@ -306,23 +325,71 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
     return () => clearTimeout(t);
   }, []);
 
+  /** Somewhere to eat is Places' question, and it arrives there already asked. */
+  const openFood = () => navigate(`${paths.placesHome()}?kind=eat`);
+  /**
+   * Opening a trip from somewhere else — the planner's handoff, a taste table,
+   * an idea — carries how Find should be set, because that is part of the page
+   * being opened rather than a message passed behind the address bar.
+   */
+  const openTrip = (id: string, opts?: OpenTripOptions) => {
+    const q = new URLSearchParams();
+    if (opts?.findRadiusKm) q.set('km', String(opts.findRadiusKm));
+    if (opts?.findCat) q.set('cat', opts.findCat);
+    if (opts?.findPrices?.length) q.set('prices', opts.findPrices.join(','));
+    const href = paths.trip(id, (opts?.section as TripSection | undefined) ?? null);
+    navigate(q.toString() ? `${href}?${q}` : href);
+  };
+
   const screen = (
     <>
-      {tab === 'inspire' ? (
+      {route.name === 'inspire' ? (
         <InspireScreen
+          route={route}
           household={household}
-          onOpenTrip={(id, opts) => { setTripPrefill({ openTripId: id, ...(opts ?? {}) }); setTab('trips'); }}
-          onPlanner={() => setTab('plan')}
-          onFood={() => { setPlacesPrefill({ home: true, kind: 'eat' }); setTab('places'); }}
-          onCreateTrip={({ place, seed }) => { setTripPrefill({ place, seed, kind: 'outing' }); setTab('trips'); }}
+          onOpenTrip={openTrip}
+          onPlanner={() => navigate(paths.plan())}
+          onFood={openFood}
+          onCreateTrip={({ place, seed }) => {
+            setTripSeed({ place, seed, kind: 'outing' });
+            navigate(`${paths.newTrip()}?kind=outing&place=${encodeURIComponent(place.label ?? seed.name)}`);
+          }}
         />
       ) : null}
-      {tab === 'plan' ? <PlanScreen household={household} onOpenTrip={(id, opts) => { setTripPrefill({ openTripId: id, ...(opts ?? {}) }); setTab('trips'); }} /> : null}
-      {tab === 'places' ? <PlacesScreen household={household} refreshHousehold={refreshHousehold} prefill={placesPrefill} onPrefillConsumed={() => setPlacesPrefill(null)} onPlanTrip={(p) => { setTripPrefill(p); setTab('trips'); }} /> : null}
-      {tab === 'trips' ? <TripsScreen household={household} refreshHousehold={refreshHousehold} prefill={tripPrefill} onPrefillConsumed={() => setTripPrefill(null)} /> : null}
-      {tab === 'household' ? <HouseholdScreen data={household} refresh={refreshHousehold} /> : null}
-      {tab === 'settings' ? <SettingsScreen data={household} refresh={refreshHousehold} /> : null}
-      {tab === 'prototypes' ? <PrototypesScreen /> : null}
+      {route.name === 'plan' ? <PlanScreen household={household} onOpenTrip={openTrip} /> : null}
+      {route.name === 'places' ? (
+        <PlacesScreen
+          route={route}
+          household={household}
+          refreshHousehold={refreshHousehold}
+          onPlanTrip={(p) => {
+            setTripSeed(p);
+            const q = new URLSearchParams();
+            if (p.placeText) q.set('place', p.placeText);
+            if (p.countryCode) q.set('country', p.countryCode);
+            navigate(`${paths.newTrip()}${q.toString() ? `?${q}` : ''}`);
+          }}
+        />
+      ) : null}
+      {route.name === 'trips' ? (
+        <TripsScreen
+          route={route}
+          household={household}
+          refreshHousehold={refreshHousehold}
+          seed={tripSeed}
+          onSeedUsed={() => setTripSeed(null)}
+        />
+      ) : null}
+      {route.name === 'household' ? <HouseholdScreen data={household} refresh={refreshHousehold} route={route} /> : null}
+      {route.name === 'settings' ? <SettingsScreen data={household} refresh={refreshHousehold} route={route} /> : null}
+      {route.name === 'prototypes' ? <PrototypesScreen route={route} /> : null}
+      {route.name === 'unknown' ? (
+        <NotHere
+          title="There is no page at that address"
+          body={`Roam has nothing at ${route.path}. It may be a link from an older version of the app, or a typo.`}
+          href={paths.inspire()}
+        />
+      ) : null}
     </>
   );
 
@@ -385,39 +452,25 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
             <View style={styles.sideBrand}><Wordmark height={44} ground={colors.surface} /></View>
             <Text style={[type.tiny, { marginBottom: spacing.lg }]}>Remember every place you love</Text>
             {tabs.map((t) => (
-              <Pressable key={t.key} onPress={() => setTab(t.key)} style={[styles.navItem, tab === t.key && styles.navItemActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }}>
-                <View style={styles.navIcon}><Icon name={t.icon} size={18} color={tab === t.key ? colors.ink : colors.inkMuted} /></View>
-                <Text style={[styles.navLabel, tab === t.key && { color: colors.ink }]}>{t.label}</Text>
-              </Pressable>
+              <NavItem key={t.key} icon={t.icon} label={t.label} href={t.href} on={tab === t.key} />
             ))}
             {/* Not a tab any more, but not gone: the conversational planner, which
                 Inspire's search screen also opens. Named here so it is findable. */}
-            <Pressable onPress={() => setTab('plan')} style={[styles.navItem, tab === 'plan' && styles.navItemActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === 'plan' }}>
-              <View style={styles.navIcon}><Icon name="message" size={18} color={tab === 'plan' ? colors.ink : colors.inkMuted} /></View>
-              <Text style={[styles.navLabel, tab === 'plan' && { color: colors.ink }]}>Plan</Text>
-            </Pressable>
+            <NavItem icon="message" label="Plan" href={paths.plan()} on={tab === 'plan'} />
             {/* Desktop only: the served mock-up pages, for review — not part of the phone app. */}
-            <Pressable onPress={() => setTab('prototypes')} style={[styles.navItem, tab === 'prototypes' && styles.navItemActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === 'prototypes' }}>
-              <View style={styles.navIcon}><Icon name="list" size={18} color={tab === 'prototypes' ? colors.ink : colors.inkMuted} /></View>
-              <Text style={[styles.navLabel, tab === 'prototypes' && { color: colors.ink }]}>Prototypes</Text>
-            </Pressable>
+            <NavItem icon="list" label="Prototypes" href={tab === 'prototypes' ? paths.prototypes() : rememberedAddress('prototypes', paths.prototypes())} on={tab === 'prototypes'} />
             <View style={{ flex: 1 }} />
             {/* The other application, for whoever holds its door. Named rather
                 than hidden behind an icon: switching profile is a deliberate act. */}
-            {mayAdminister && onAdmin ? (
-              <Pressable onPress={onAdmin} style={[styles.navItem, styles.navItemQuiet]} accessibilityRole="button">
-                <View style={styles.navIcon}><Icon name="accounts" size={18} color={colors.inkMuted} /></View>
-                <Text style={styles.navLabel}>Back office</Text>
-              </Pressable>
-            ) : null}
+            {mayAdminister ? <NavItem icon="accounts" label="Back office" href={paths.admin('overview')} on={false} quiet /> : null}
             {/* The corner is who you are and how the app looks — not the API's address (owner, 4 Sep 2026). */}
-            <You household={household} onOpen={() => setTab('settings')} />
+            <You household={household} onOpen={() => navigate(paths.settings())} />
           </View>
         ) : (
           <View style={styles.header}>
             <Wordmark height={34} />
-            {mayAdminister && onAdmin ? (
-              <Pressable onPress={onAdmin} style={styles.headerAdmin} accessibilityRole="button" accessibilityLabel="Back office">
+            {mayAdminister ? (
+              <Pressable onPress={() => navigate(paths.admin('overview'))} style={styles.headerAdmin} accessibilityRole="link" accessibilityLabel="Back office">
                 <Icon name="accounts" size={16} color={colors.inkMuted} />
               </Pressable>
             ) : null}
@@ -433,7 +486,7 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
         {!desktop ? (
           <View style={styles.tabs} accessibilityRole="tablist">
             {tabs.map((t) => (
-              <Pressable key={t.key} onPress={() => setTab(t.key)} style={styles.tab} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }}>
+              <Pressable key={t.key} onPress={() => navigate(t.href)} style={styles.tab} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }}>
                 <Icon name={t.icon} size={20} color={tab === t.key ? colors.ink : colors.inkMuted} />
                 <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
               </Pressable>
@@ -442,6 +495,22 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
         ) : null}
       </View>
     </SafeAreaView>
+  );
+}
+
+/** One line of the rail. It carries an address rather than a screen name. */
+function NavItem({ icon, label, href, on, quiet }: { icon: IconName; label: string; href: string; on: boolean; quiet?: boolean }) {
+  const { navigate } = useRouter();
+  return (
+    <Pressable
+      onPress={() => navigate(href)}
+      style={[styles.navItem, on && styles.navItemActive, quiet && styles.navItemQuiet]}
+      accessibilityRole={quiet ? 'button' : 'tab'}
+      accessibilityState={{ selected: on }}
+    >
+      <View style={styles.navIcon}><Icon name={icon} size={18} color={on ? colors.ink : colors.inkMuted} /></View>
+      <Text style={[styles.navLabel, on && { color: colors.ink }]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -526,6 +595,7 @@ const styles = StyleSheet.create({
   // right edge rather than joining the column and pushing the mark off centre.
   headerAdmin: { position: 'absolute', right: spacing.md, top: spacing.md, padding: 6 },
   navItemQuiet: { opacity: 0.9 },
+  notHereBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md, paddingHorizontal: spacing.lg, minHeight: TARGET, borderRadius: radius.md, backgroundColor: colors.primary, justifyContent: 'center' },
   header: { alignItems: 'center', paddingVertical: spacing.md, backgroundColor: colors.headerBg, borderBottomWidth: 1, borderBottomColor: colors.line },
   sideBrand: { paddingVertical: spacing.sm },
   navItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET, paddingHorizontal: spacing.sm, borderRadius: 10 },

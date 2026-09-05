@@ -3,6 +3,8 @@ import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, V
 import { api, HouseholdResponse, Place } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Row, Segmented, SectionTitle, StatusLine, Stepper, minutes } from '../components/ui';
+import { useRouter } from '../router';
+import { paths, type Route, type SettingsSection } from '../routes';
 import { PlacePicker } from '../components/PlacePicker';
 import { ProvidersTable } from '../components/ProvidersTable';
 import { useTheme } from '../hooks/useTheme';
@@ -18,7 +20,7 @@ export const getSpeakPref = () => (Platform.OS === 'web' && typeof localStorage 
 // Settings is two different things: how Roam plans for this household
 // (preferences, the customer's) and how the app is wired and what it spends
 // (sources and usage, the owner's). They share a screen, not a page.
-type Section = 'preferences' | 'providers';
+type Section = SettingsSection;
 const SECTION_HINT: Record<Section, string> = {
   preferences: 'Home, pace, voice and your data: how Roam plans for this household.',
   providers: 'Every provider on one row: switch it on or off, what is free, what is paid, what it cost. Tap a row for the detail.',
@@ -61,8 +63,14 @@ function BuildCard() {
   );
 }
 
-export function SettingsScreen({ data, refresh }: { data: HouseholdResponse | null; refresh: () => Promise<void> }) {
-  const [section, setSection] = useState<Section>('preferences');
+export function SettingsScreen({ data, refresh, route }: {
+  data: HouseholdResponse | null; refresh: () => Promise<void>;
+  /** Settings' two halves are two pages: `/settings` and `/settings/providers`. */
+  route: Extract<Route, { name: 'settings' }>;
+}) {
+  const { navigate } = useRouter();
+  const section = route.section;
+  const setSection = (next: Section) => navigate(paths.settings(next));
   if (!data) return <View style={styles.page}><Text style={type.small}>Loading…</Text></View>;
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">

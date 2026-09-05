@@ -18,7 +18,7 @@ import { InspireMe } from '../components/InspireMe';
 import { Icon } from '../components/Icon';
 import { WhoLine, firstName } from '../components/Faces';
 import { getSpeakPref } from './SettingsScreen';
-import { recallScreen, rememberScreen } from '../screenState';
+import { asOneOf, useQueryState, useStickyQuery } from '../router';
 import { useHere } from '../hooks/useHere';
 
 const speak = (text: string) => { if (getSpeakPref()) speakRaw(text); };
@@ -76,8 +76,12 @@ export function PlanScreen({ household, onOpenTrip }: { household: HouseholdResp
   // Which half of Plan you were on, kept for the day (owner, 4 Sep 2026:
   // "everything's disappeared"). Coming back to a set of ideas you asked for
   // this morning should not land you on the empty form instead.
-  const [mode, setMode] = useState<Mode>(recallScreen<Mode>('plan.mode')?.data ?? 'tell');
-  useEffect(() => { rememberScreen<Mode>('plan.mode', mode); }, [mode]);
+  // Which half of Plan you are on is part of the address — `/plan?mode=inspire`
+  // — and remembered for the day besides (owner, 4 Sep 2026: "everything's
+  // disappeared"), so coming back to a set of ideas you asked for this morning
+  // does not land you on the empty form instead.
+  useStickyQuery('plan', ['mode']);
+  const [mode, setMode] = useQueryState<Mode>('mode', 'tell', asOneOf(['tell', 'inspire'] as const, 'tell'));
   const [inspireQuery, setInspireQuery] = useState('');
   // A tapped row opens in place; its own mic scopes the words to that row alone.
   const [editing, setEditing] = useState<PlanRowKey | null>(null);

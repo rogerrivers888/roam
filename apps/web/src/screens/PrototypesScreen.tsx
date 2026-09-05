@@ -5,10 +5,12 @@ import { colors, fonts, radius, spacing, type } from '../theme';
 import { Button, Card, Row, Wrap } from '../components/ui';
 import { Icon, IconName } from '../components/Icon';
 import { useViewport } from '../hooks/useViewport';
+import { asOneOf, useQueryState, useRouter } from '../router';
+import { paths, type PrototypeSection, type Route } from '../routes';
 
 // Prototypes are filed under the part of the app they belong to, in menu order,
 // so "Prototypes > Plan" shows only the Plan mock-ups (owner, 4 Sep 2026).
-type Section = 'plan' | 'places' | 'trips' | 'household' | 'settings';
+type Section = PrototypeSection;
 const SECTIONS: { key: Section; label: string; icon: IconName }[] = [
   { key: 'plan', label: 'Plan', icon: 'plan' },
   { key: 'places', label: 'Places', icon: 'places' },
@@ -64,12 +66,20 @@ const RAIL = 900; // Below this the left menu lies down as a row of pills above 
 
 type Review = { status: PrototypeStatus; note: string | null; updatedAt: string | null };
 
-export function PrototypesScreen() {
+export function PrototypesScreen({ route }: {
+  /** Which part of the app's mock-ups: `/prototypes` for all of them, `/prototypes/trips` for one. */
+  route: Extract<Route, { name: 'prototypes' }>;
+}) {
   const { width } = useViewport();
   const wide = width >= RAIL;
-  // null is "All": every section, one after another in menu order.
-  const [section, setSection] = useState<Section | null>(null);
-  const [status, setStatus] = useState<PrototypeStatus>('new');
+  // null is "All": every section, one after another in menu order. Which part
+  // of the app, and which verdict, are both in the address — `/prototypes/trips?status=approved`.
+  const { navigate } = useRouter();
+  const section = route.section;
+  const setSection = (next: Section | null) => navigate(paths.prototypes(next));
+  const [status, setStatus] = useQueryState<PrototypeStatus>(
+    'status', 'new', asOneOf(['new', 'approved', 'rejected', 'archived'] as const, 'new'),
+  );
   const [reviews, setReviews] = useState<Record<string, Review>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);

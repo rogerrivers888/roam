@@ -17,9 +17,10 @@
  * not doing a day's work.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Access } from '../api';
+import { AdminScreen } from '../routes';
 import { colors, radius, spacing, type } from '../theme';
 import { Icon, IconName } from '../components/Icon';
 import { Wordmark } from '../components/Wordmark';
@@ -37,7 +38,8 @@ import { Shelves } from './screens/Shelves';
 
 const DESKTOP = 900;
 
-type Screen = 'overview' | 'accounts' | 'households' | 'activity' | 'reporting' | 'library' | 'shelves' | 'scout' | 'roles' | 'plans' | 'audit';
+/** The back office's screens are `/admin/<screen>`; the list of them lives in routes.ts. */
+type Screen = AdminScreen;
 
 /**
  * The rail.
@@ -60,10 +62,16 @@ const NAV: { key: Screen; label: string; icon: IconName; needs?: string; sub: st
   { key: 'audit', label: 'Audit', icon: 'info', needs: 'view_audit', sub: 'Who did what to whom' },
 ];
 
-export function AdminApp({ access, onLeave }: { access: Access | null; onLeave: () => void }) {
+export function AdminApp({ access, screen, onScreen, onLeave }: {
+  access: Access | null;
+  /** Which screen the address asks for — `/admin/reporting` and so on. */
+  screen: Screen;
+  onScreen: (screen: Screen) => void;
+  onLeave: () => void;
+}) {
   const { width } = useViewport();
   const desktop = width >= DESKTOP;
-  const [screen, setScreen] = useState<Screen>('overview');
+  const setScreen = onScreen;
 
   const held = useMemo(() => new Set(access?.capabilities ?? []), [access]);
   const items = NAV.filter((n) => !n.needs || held.has(n.needs));

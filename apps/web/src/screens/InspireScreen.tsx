@@ -10,7 +10,8 @@ import { WhereSearch } from '../components/WhereSearch';
 import { VenueThumb } from '../components/VenueThumb';
 import { useViewport } from '../hooks/useViewport';
 import { firstName } from '../components/Faces';
-import { recallScreen, rememberScreen } from '../screenState';
+import { asList, asNumber, asOneOf, useQueryState, useRouter, useStickyQuery } from '../router';
+import { paths, MOODS, type Route } from '../routes';
 import type { OpenTripOptions } from './PlanScreen';
 
 /**
@@ -66,7 +67,7 @@ const PAGE = 36;
  * arrow rather than the others' selected state, because a chip that navigates
  * where its neighbours filter has to say so before it is tapped.
  */
-const MOOD_ORDER: MoodKey[] = ['fun', 'food', 'culture', 'adrenaline', 'relaxing', 'outdoors'];
+const MOOD_ORDER: MoodKey[] = MOODS;
 /** The ones that are shelves. Food is a door and never a shelf. */
 const SHELVES: MoodKey[] = MOOD_ORDER.filter((m) => m !== 'food') as MoodKey[];
 const MOOD_LABEL: Record<MoodKey, string> = {
@@ -104,15 +105,35 @@ const BUDGETS: { key: string; label: string; max: number | null }[] = [
 
 type Panel = null | 'travel' | 'kind' | 'who' | 'outing' | 'budget';
 
-type Held = {
-  where: Place | null;
-  mood: MoodKey;
-  cap: number | null;
-  outing: string;
-  budget: string;
-  kinds: string[];
-  attending: string[] | null;
+/**
+ * Every part of this screen that somebody chose, and therefore every part of it
+ * that has to survive being sent to somebody else (owner, 5 Sep 2026: "I should
+ * be able to share a URL … and they should be able to get to the exact point
+ * that I was on"). Where you are looking, what the day is about, how far, how
+ * long, what it costs, what kind of thing and who is coming.
+ *
+ * They are query, not path, because they are how the page is set rather than
+ * which page it is — and only what differs from the default is written down, so
+ * a screen nobody has touched stays at `/inspire`.
+ */
+const KEYS = ['at', 'where', 'locality', 'from', 'mood', 'travel', 'outing', 'budget', 'kinds', 'who'];
+
+/** "51.48160,-0.61130" — enough to look around the same town, and no more. */
+const placeFromQuery = (q: URLSearchParams): Place | null => {
+  const at = q.get('at');
+  if (!at) return null;
+  const [lat, lng] = at.split(',').map(Number);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng, label: q.get('where') ?? `${lat}, ${lng}`, locality: q.get('locality') };
 };
+const placeToQuery = (p: Place | null, from: 'here' | 'search' | null): Record<string, string | null> => (p
+  ? {
+    at: `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`,
+    where: p.label,
+    locality: p.locality && p.locality !== p.label ? p.locality : null,
+    from: from === 'here' ? 'here' : null,
+  }
+  : { at: null, where: null, locality: null, from: null });
 
 /**
  * "Fairways, Titlarks Hill, Ascot, SL5 0JD" is where somebody lives; "Ascot" is
@@ -146,7 +167,9 @@ function kindLine(item: InspireItem): string | null {
   return bits.length ? [...new Set(bits.map(cap1))].join(' · ') : null;
 }
 
-export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCreateTrip }: {
+export function InspireScreen({ route, household, onOpenTrip, onPlanner, onFood, onCreateTrip }: {
+  /** Which layer of Inspire the address asks for: the shelves, one shelf opened, or the search. */
+  route: Extract<Route, { name: 'inspire' }>;
   household: HouseholdResponse | null;
   onOpenTrip?: (tripId: string, opts?: OpenTripOptions) => void;
   /**
@@ -166,35 +189,47 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCrea
 }) {
   const { width } = useViewport();
   const wide = width >= 900;
-  const held = useRef(recallScreen<Held>('inspire.home')).current;
+  const { query, navigate, setQuery, back } = useRouter();
+  // How this screen was last set, filled in only when the address is silent.
+  useStickyQuery('inspire', KEYS);
 
   const home: Place | null = household?.household.home ?? null;
   const members = household?.members ?? [];
 
-  const [where, setWhere] = useState<Place | null>(held?.data.where ?? null);
-  const [searching, setSearching] = useState(false);
-  const [mood, setMood] = useState<MoodKey>(held?.data.mood === 'food' ? 'fun' : held?.data.mood ?? 'fun');
-  const [cap, setCap] = useState<number | null>(held?.data.cap === undefined ? 60 : held.data.cap);
-  const [outing, setOuting] = useState<string>(held?.data.outing ?? 'any');
-  const [budget, setBudget] = useState<string>(held?.data.budget ?? 'all');
-  const [kinds, setKinds] = useState<string[]>(held?.data.kinds ?? []);
-  const [attending, setAttending] = useState<Set<string> | null>(held?.data.attending ? new Set(held.data.attending) : null);
+  // Everything somebody chose is in the address, so the whole screen can be sent.
+  const searching = route.searching;
+  const openRow = route.shelf;
+  const chosen = placeFromQuery(query);
+  const fromHere = query.get('from') === 'here';
+  const setWhere = (p: Place | null, from: 'here' | 'search' | null) => setQuery(placeToQuery(p, from), { replace: false });
+
+  const [mood, setMood] = useQueryState<MoodKey>('mood', 'fun', asOneOf(SHELVES, 'fun'));
+  const [cap, setCap] = useQueryState<number | null>('travel', 60, asNumber(60));
+  const [outing, setOuting] = useQueryState('outing', 'any', asOneOf(OUTINGS.map((o) => o.key), 'any'));
+  const [budget, setBudget] = useQueryState('budget', 'all', asOneOf(BUDGETS.map((b) => b.key), 'all'));
+  const [kinds, setKinds] = useQueryState<string[]>('kinds', [], asList);
+  const [who, setWho] = useQueryState<string[]>('who', [], asList);
+  // Nobody named is everybody: "who" is only in the address once it excludes somebody.
+  const attending = who.length ? new Set(who) : null;
+  const setAttending = (next: Set<string> | null) => setWho(next && next.size !== members.length ? [...next] : []);
   const [panel, setPanel] = useState<Panel>(null);
-  const [openRow, setOpenRow] = useState<MoodKey | null>(null);
+  const setOpenRow = (m: MoodKey | null) => navigate((m ? paths.inspireShelf(m) : paths.inspire()) + hereQuery());
+  const hereQuery = () => { const q = query.toString(); return q ? `?${q}` : ''; };
+  /** One address out of a path and a change to the query, for the taps that do both at once. */
+  const withQuery = (base: string, patch: Record<string, string | null>) => {
+    const q = new URLSearchParams(query);
+    for (const [k, v] of Object.entries(patch)) { if (v == null || v === '') q.delete(k); else q.set(k, v); }
+    const rest = q.toString();
+    return rest ? `${base}?${rest}` : base;
+  };
 
   const [pool, setPool] = useState<InspireNear | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [drawer, setDrawer] = useState<BrowseItem | null>(null);
   // Hearts turn the moment they are tapped; the pool they came from is not rewritten.
   const [kept, setKept] = useState<Record<string, boolean>>({});
   // Why a heart sprang back: said once, under the shelves, never as a dialogue.
   const [notice, setNotice] = useState<string | null>(null);
-
-  // What the household chose, kept for when they come back — never the places.
-  useEffect(() => {
-    rememberScreen<Held>('inspire.home', { where, mood, cap, outing, budget, kinds, attending: attending ? [...attending] : null });
-  }, [where, mood, cap, outing, budget, kinds, attending]);
 
   // Where the phone is, when the browser will say without being asked.
   //
@@ -206,9 +241,13 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCrea
   // are standing; if it has not, the offer is one obvious tap under the search
   // bar. Nothing here ever triggers a prompt the household did not ask for.
   const me = useHere();
-  const [here, setHere] = useState<Place | null>(null);
   const [mayAsk, setMayAsk] = useState(false);
   const askedSilently = useRef(false);
+  // The browser answers a moment later than this screen draws, by which time
+  // the address may have gained a town — from the link, or from what this
+  // screen was last set to. Read it then, not now.
+  const chosenNow = useRef(chosen);
+  chosenNow.current = chosen;
   useEffect(() => {
     if (askedSilently.current || !me.supported) return;
     askedSilently.current = true;
@@ -216,17 +255,19 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCrea
     if (!permissions?.query) { setMayAsk(true); return; }
     permissions.query({ name: 'geolocation' })
       .then(async (status: any) => {
-        if (status.state === 'granted') { const p = await me.ask(); if (p) setHere(p); }
+        // Only when nobody has said where: a link that names a town means that
+        // town, whoever opens it and wherever they are standing.
+        if (status.state === 'granted') { if (!chosenNow.current) { const p = await me.ask(); if (p && !chosenNow.current) setWhere(p, 'here'); } }
         else if (status.state === 'prompt') setMayAsk(true);
       })
       .catch(() => setMayAsk(true));
   }, [me.supported]);
 
-  const useHereNow = async () => { const p = await me.ask(); if (p) { setHere(p); setWhere(null); setMayAsk(false); } };
+  const useHereNow = async () => { const p = await me.ask(); if (p) { setWhere(p, 'here'); setMayAsk(false); } };
 
-  // A place they searched wins over a fix, which wins over home: the most
-  // deliberate answer to "where" is the one on screen.
-  const centre = where ?? here ?? home;
+  // Where somebody said, which wins over home: the most deliberate answer to
+  // "where" is the one on screen, and it is in the address so it travels.
+  const centre = chosen ?? home;
   const load = useCallback(async () => {
     if (!centre) { setPool(null); setLoading(false); return; }
     setLoading(true);
@@ -333,18 +374,33 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCrea
    * with the picture at the size anybody would actually look at it, rather than
    * set in 10px grey under a thumbnail, and it is in the drawer's footer too.
    */
-  const open = (item: InspireItem) => setDrawer({
+  const asDrawerItem = (item: InspireItem) => ({
     id: item.venueRef, venueRef: item.venueRef, name: item.name, category: item.category,
     lat: item.lat, lng: item.lng, dwellMinutes: item.dwellMinutes, reasons: [], justification: null,
     startsAt: null, endsAt: null, pinned: false,
     rating: item.rating, ratingCount: item.ratingCount, priceLevel: item.priceLevel,
-    photos: item.image
-      ? [{ url: `${API_URL}/api/images/${item.image.id}/960`, attribution: item.image.credit ?? undefined }]
-      : item.photos,
+    // Ours travels as itself; the provider's travels as `photos`. Folding ours
+    // into `photos` was fine while every one of them was a Commons photograph,
+    // but a logo stretched across an 800px hero is a smear, so the drawer has
+    // to be able to tell them apart (5 Sep 2026).
+    image: item.image ?? null,
+    photos: item.photos,
     summary: item.summary ?? null, attribution: item.attribution.join(' · ') || null,
     distanceKm: item.distanceKm, travelFromBaseMinutes: item.travelMinutes,
     source: item.source,
   } as BrowseItem);
+  /**
+   * Opening a place is a step, so it is a step in the address too: `?place=…`
+   * over whichever shelf is showing. Send that to somebody and they open the
+   * same drawer, and Back closes it rather than leaving the screen.
+   */
+  const open = (item: InspireItem) => setQuery({ place: item.venueRef }, { replace: false });
+  const openedRef = query.get('place');
+  const drawer = useMemo(
+    () => { const it = openedRef ? (pool?.items ?? []).find((i) => i.venueRef === openedRef) : null; return it ? asDrawerItem(it) : null; },
+    [openedRef, pool],
+  );
+  const closeDrawer = () => setQuery({ place: null }, { replace: false });
 
   /**
    * The heart: keep this place, or take it back out. Taking it out removes it
@@ -376,8 +432,10 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCrea
     return (
       <WhereSearch
         home={home}
-        onClose={() => setSearching(false)}
-        onPick={(p) => { setWhere(p); setSearching(false); setOpenRow(null); }}
+        onClose={() => back(paths.inspire() + hereQuery())}
+        // One address: the town they picked, with the search screen out of the
+        // way behind them, so Back goes to where they were looking before.
+        onPick={(p) => navigate(withQuery(paths.inspire(), placeToQuery(p, 'search')), { replace: true })}
         onPlanner={onPlanner}
       />
     );
@@ -387,20 +445,20 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCrea
     <View style={styles.fill}>
       <ScrollView style={styles.fill} contentContainerStyle={styles.scroll} stickyHeaderIndices={[0]}>
         <View style={[styles.top, wide && styles.topWide]}>
-          <Pressable onPress={() => setSearching(true)} style={[styles.search, wide && styles.searchWide]} accessibilityRole="search" accessibilityLabel="Where should we go?">
+          <Pressable onPress={() => navigate(paths.inspireSearch() + hereQuery())} style={[styles.search, wide && styles.searchWide]} accessibilityRole="search" accessibilityLabel="Where should we go?">
             <Icon name="search" size={18} color={colors.ink} strokeWidth={2.2} />
             <Text style={styles.searchText} numberOfLines={1}>
-              {where ? shortPlace(where.locality ?? where.label) : here ? `Near ${shortPlace(here.locality ?? here.label)}` : 'Where should we go?'}
+              {chosen ? `${fromHere ? 'Near ' : ''}${shortPlace(chosen.locality ?? chosen.label)}` : 'Where should we go?'}
             </Text>
-            {where || here ? (
-              <Pressable onPress={() => { setWhere(null); setHere(null); setOpenRow(null); }} hitSlop={10} accessibilityLabel="Back to near home">
+            {chosen ? (
+              <Pressable onPress={() => setWhere(null, null)} hitSlop={10} accessibilityLabel="Back to near home">
                 <Icon name="close" size={16} color={colors.inkMuted} />
               </Pressable>
             ) : null}
           </Pressable>
           {/* Offered, never sprung: this only appears when the browser has not
               been asked yet, and tapping it is what asks. */}
-          {mayAsk && !where && !here ? (
+          {mayAsk && !chosen ? (
             <Pressable onPress={useHereNow} disabled={me.busy} style={styles.hereOffer} accessibilityRole="button">
               {me.busy ? <ActivityIndicator size="small" color={colors.icon} /> : <Icon name="here" size={14} color={colors.icon} />}
               <Text style={[type.small, { color: colors.ink, fontWeight: '600' }]}>
@@ -417,7 +475,9 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCrea
               {MOOD_ORDER.map((m) => (
                 m === 'food'
                   ? <FoodDoor key={m} onPress={() => onFood?.()} />
-                  : <Chip key={m} label={MOOD_LABEL[m]} selected={mood === m} onPress={() => { setMood(m); setOpenRow(null); }} />
+                  // What the day is about closes any opened shelf, so it is one
+                  // move and one address rather than two that race each other.
+                  : <Chip key={m} label={MOOD_LABEL[m]} selected={mood === m} onPress={() => navigate(withQuery(paths.inspire(), { mood: m === 'fun' ? null : m }))} />
               ))}
             </ScrollView>
           </View>
@@ -466,7 +526,7 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCrea
                     <View style={styles.wrap}>
                       {kindsHere.map((k) => (
                         <Chip key={k.key} label={`${cap1(k.key)} · ${k.count}`} selected={kinds.includes(k.key)}
-                          onPress={() => setKinds((cur) => (cur.includes(k.key) ? cur.filter((x) => x !== k.key) : [...cur, k.key]))} />
+                          onPress={() => setKinds(kinds.includes(k.key) ? kinds.filter((x) => x !== k.key) : [...kinds, k.key])} />
                       ))}
                     </View>
                     {kinds.length ? <Pressable onPress={() => setKinds([])} hitSlop={8}><Text style={type.small}>Show all kinds</Text></Pressable> : null}
@@ -483,11 +543,11 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCrea
                       const on = !attending || attending.has(m.id);
                       return (
                         <Chip key={m.id} label={firstName(m.name)} icon={on ? 'check' : undefined} selected={on}
-                          onPress={() => setAttending((cur) => {
-                            const next = new Set(cur ?? members.map((x) => x.id));
+                          onPress={() => {
+                            const next = new Set(attending ?? members.map((x) => x.id));
                             if (next.has(m.id)) next.delete(m.id); else next.add(m.id);
-                            return next.size === members.length ? null : next;
-                          })} />
+                            setAttending(next.size === members.length ? null : next);
+                          }} />
                       );
                     })}
                   </View>
@@ -558,11 +618,11 @@ export function InspireScreen({ household, onOpenTrip, onPlanner, onFood, onCrea
       <VenueDrawer
         item={drawer}
         baseLabel={placeName}
-        onClose={() => setDrawer(null)}
+        onClose={closeDrawer}
         addLabel="Create trip"
         addIcon="trips"
         onAdd={onCreateTrip ? (it) => {
-          setDrawer(null);
+          closeDrawer();
           onCreateTrip({
             place: { label: it.name, lat: it.lat as number, lng: it.lng as number },
             seed: { venueRef: it.venueRef, name: it.name, category: it.category, lat: it.lat, lng: it.lng },
@@ -704,7 +764,6 @@ function Card({ item, wide, onOpen, onKeep, kept }: {
           the line has to appear wherever the picture is large enough to be the
           point, which is the drawer. */}
       <VenueThumb
-        venueRef={item.venueRef}
         name={item.name}
         image={item.image}
         photos={item.photos}

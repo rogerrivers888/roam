@@ -46,6 +46,8 @@ import { Icon, IconName } from '../../components/Icon';
 import { Button, Chip, Row, Stepper, Wrap } from '../../components/ui';
 import { useViewport } from '../../hooks/useViewport';
 import { AdminPage, Banner, FilterChip, FilterRow, PageHead, Panel, Pill, Tile, TileRow, ago, count } from '../kit';
+import { asOneOf, useQueryState } from '../../router';
+import { MOODS } from '../../routes';
 
 const WIDE = 900;
 
@@ -91,8 +93,9 @@ export function Shelves({ canManage }: { canManage: boolean }) {
   const wide = width >= WIDE;
 
   const [vocab, setVocab] = useState<ShelfVocabulary | null>(null);
-  const [section, setSection] = useState<Section>('shelf');
-  const [mood, setMood] = useState<MoodKey>('adrenaline');
+  // Which view, and which shelf is being taught, are in the address.
+  const [section, setSection] = useQueryState<Section>('tab', 'shelf', asOneOf(['shelf', 'find', 'taught'] as const, 'shelf'));
+  const [mood, setMood] = useQueryState<MoodKey>('mood', 'adrenaline', asOneOf(MOODS, 'adrenaline'));
   const [items, setItems] = useState<ShelfPlace[]>([]);
   const [nearly, setNearly] = useState<ShelfPlace[]>([]);
   const [pool, setPool] = useState(0);

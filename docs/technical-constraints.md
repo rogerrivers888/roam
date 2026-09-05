@@ -562,6 +562,30 @@ That is not a mapping that can be re-guessed correctly. Watching sport and doing
 
 Files: `api/migrations/040_shelf_teaching.sql`, `api/src/domain/moods.js`, `api/src/domain/teaching.js`, `api/src/repositories/shelfRules.js`, `api/src/routes/shelves.js`, `web/src/admin/screens/Shelves.tsx`.
 
+### 13.14 Every page has an address — **built** (owner, 5 Sep 2026)
+
+> "Every page of our site needs a unique URL. When I go 1 layer in, that should also have a unique URL. Or, 2 layers in, I should be able to share a URL with someone, and they should be able to get to the exact point that I was on."
+
+**The address decides what is drawn, not the other way round.** Roam kept where you were in React state and wrote a summary of it (`?tab=trips&trip=…`) to the bar afterwards, so the address was a description of the app. Anything the description left out — which day of a trip, which place's drawer, how a list was filtered — could not be sent to anybody. `src/router.tsx` holds the address; `src/routes.ts` reads it into a route and writes a route back out; every screen takes its position as a prop and changes it by navigating.
+
+**Path is the page; query is how the page is set.** `/trips/<id>/day/<dayId>` is a page. `?kind=eat&status=been&sort=recent` is how a page is filtered, `?place=<venueRef>` is a drawer over it. That split is what stops one page having a dozen spellings, and it is why only values that differ from the default are written down: a screen nobody has touched keeps a clean `/inspire`.
+
+**A move is a push; a filter is a replace.** Opening a trip is a step the browser's Back should walk back over. Changing a sort order is not, or Back becomes a tour of every chip somebody tapped.
+
+**Back has to have somewhere to go.** Somebody who arrives on a shared link has nothing behind them in the browser's history, so `back(fallback)` goes one layer up instead of leaving the site. The depth is carried on the history entry (`roamDepth`) rather than counted, because a counter cannot tell Back from Forward.
+
+**Coming back to where you were is a separate mechanism, and it never redirects.** A typed `/places` is the atlas list, always. What the tab in the rail carries is the address that tab was last left at, and per-page filters are filled in only when the address is silent about them (`useRememberedAddress`, `useStickyQuery`). An address that quietly turned into a different page would not be an address.
+
+**Two things are deliberately absent from it.** A half-filled new-trip form (`/trips/new` is the form; what somebody typed into it is theirs), and a magic-link token, which is stripped from the bar the moment it is spent. What a *link* carries about a new trip is the question — `?place=Bath&kind=outing` — not the answer.
+
+**The old addresses still answer.** `?tab=…&trip=…&section=…` and `?join=…` are translated once, with a replace, because the owner keeps some on his phone and invite links went to people who have never heard of Roam. An invite is now its own page, `/join/<token>`, rather than a query on whatever page the organiser happened to be looking at when they copied it.
+
+**Anything that is not a page says so.** An unknown path draws "there is no page at that address" rather than silently becoming the home screen.
+
+This works in production because the web service is `serve dist -s`, which answers every unmatched path with `index.html`, and the service worker already falls back to the cached document for any navigation. On iOS and Android the same router drives an in-memory address, so screens never have to know which they are on.
+
+Files: `web/src/router.tsx`, `web/src/routes.ts`, `web/test/routes.test.ts`, and every screen.
+
 ### 13.5 Closed-vocabulary matching for voice
 
 Used twice, for the same reason: rating capture interprets against known attendees and known ordered items; trip assembly interprets against the stops on screen. Constraining to a small known set matters more than ASR vendor choice.

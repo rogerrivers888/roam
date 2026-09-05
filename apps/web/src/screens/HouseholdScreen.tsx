@@ -6,6 +6,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { api, Constraint, HouseholdResponse, Learned, Member, Suggestion } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, Wrap } from '../components/ui';
+import { asOneOf, useQueryState, useRouter } from '../router';
+import { paths, type Route } from '../routes';
 import { Avatar } from '../components/Faces';
 import { SuggestInput } from '../components/SuggestInput';
 import { TastePicker } from '../components/TastePicker';
@@ -29,14 +31,22 @@ type Notice = { section: Section; kind: Constraint['kind']; hint: string | null;
  * right (owner, 3 Sep 2026). Nothing here has a Save button — every change is
  * stored as it is made.
  */
-export function HouseholdScreen({ data, refresh }: { data: HouseholdResponse | null; refresh: () => Promise<void> }) {
+export function HouseholdScreen({ data, refresh, route }: {
+  data: HouseholdResponse | null; refresh: () => Promise<void>;
+  /** Whose tastes are open: `/household/<memberId>`, so one person is a page you can be sent to. */
+  route: Extract<Route, { name: 'household' }>;
+}) {
   const { width } = useViewport();
+  const { navigate } = useRouter();
   const sideBySide = width >= 900;
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedId = route.memberId;
+  const setSelectedId = (id: string | null) => navigate(paths.household(id), { replace: !id });
   const [adding, setAdding] = useState(false);
 
   const members = data?.members ?? [];
   const selected = members.find((m) => m.id === selectedId) ?? (sideBySide ? members[0] : undefined);
+  // On a wide screen somebody is always open, so the address says who — a link
+  // to the household is a link to a person, not to "whoever is first today".
   useEffect(() => { if (selected && selected.id !== selectedId && sideBySide) setSelectedId(selected.id); }, [selected?.id, sideBySide]);
 
   if (!data) return <View style={styles.page}><Text style={type.small}>Loading household…</Text></View>;
@@ -168,7 +178,9 @@ function MemberDetail({ member, index, managedBy, relationships, allergens, lear
 }) {
   const [browse, setBrowse] = useState<null | { section: Section; mode: Mode }>(null);
   const [detailFor, setDetailFor] = useState<Constraint | null>(null);
-  const [section, setSection] = useState<Section>('food');
+  // Food or things to do: part of the address, so a person's tastes open where
+  // the link says (`/household/<id>?tastes=activities`).
+  const [section, setSection] = useQueryState<Section>('tastes', 'food', asOneOf(['food', 'activities'] as const, 'food'));
   const [notice, setNotice] = useState<Notice | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
 

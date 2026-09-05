@@ -38,6 +38,7 @@ import { Icon } from '../../components/Icon';
 import { Button, Chip, Row, Wrap } from '../../components/ui';
 import { useViewport } from '../../hooks/useViewport';
 import { AdminPage, Banner, FilterChip, FilterRow, PageHead, Panel, Pill, Tile, TileRow, ago, count, plural } from '../kit';
+import { asOneOf, asText, useQueryState } from '../../router';
 
 const WIDE = 900;
 
@@ -70,10 +71,14 @@ const STATE_TONE: Record<string, 'plain' | 'ok' | 'warn' | 'crit' | 'accent'> = 
 export function Library({ canManage }: { canManage: boolean }) {
   const { width } = useViewport();
   const wide = width >= WIDE;
-  const [section, setSection] = useState<Section>('coverage');
+  // Which part of the atlas is in the address, so a colleague can be sent the
+  // exact page: /admin/library?tab=pictures&region=Somerset.
+  const [section, setSection] = useQueryState<Section>(
+    'tab', 'coverage', asOneOf(['coverage', 'attractions', 'pictures', 'uploads', 'types'] as const, 'coverage'),
+  );
   const [overview, setOverview] = useState<LibraryOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [region, setRegion] = useState<string | null>(null);
+  const [region, setRegion] = useQueryState<string | null>('region', null, asText);
 
   const load = useCallback(async () => {
     try { setOverview(await api.libraryOverview()); setError(null); }

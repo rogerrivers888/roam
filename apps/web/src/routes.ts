@@ -1,0 +1,306 @@
+/**
+ * Roam's addresses, in one place.
+ *
+ * Every page has one, every layer inside a page has one, and both directions —
+ * an address read into a route, a route written back into an address — live
+ * here so they cannot drift apart. `test/routes.test.ts` walks every shape both
+ * ways.
+ *
+ *   /                                  the home screen
+ *   /inspire                           what there is to do near you
+ *   /inspire/search                       …the where-search, open
+ *   /inspire/culture                      …one shelf, opened out
+ *   /inspire?place=<ref>                  …a place's drawer, over either
+ *   /plan                              the conversational planner
+ *   /places                            the atlas
+ *   /places/home                          …everything close to home
+ *   /places/GB/London                     …one city
+ *   /places/GB/London?place=<ref>         …a place's drawer
+ *   /trips                             the trips
+ *   /trips/new                            …the new-trip form
+ *   /trips/<id>                           …one trip
+ *   /trips/<id>/shortlist                 …on one of its tabs
+ *   /trips/<id>/day/<dayId>               …on one day of it
+ *   /household                         the family
+ *   /household/<memberId>                 …one person
+ *   /settings, /settings/providers     settings, and its two halves
+ *   /prototypes, /prototypes/trips     the mock-ups, filed by part of the app
+ *   /admin/<screen>                    the back office
+ *   /join/<token>                      somebody else's door into one trip
+ *
+ * The query string is never the page — it is how the page is set: which filter,
+ * which sort, which drawer is open over it. That split is what keeps one page
+ * from having a dozen spellings.
+ */
+
+import type { MoodKey } from './api';
+
+// ---------------------------------------------------------------------------
+// Addresses, as strings
+// ---------------------------------------------------------------------------
+// Pure, and here rather than in router.tsx, so that what an address means can
+// be tested without a React tree behind it (test/routes.test.ts).
+
+/** "/a/b?x=1" → "/a/b", ["a","b"], {x:1}. Segments come back decoded. */
+export function splitHref(href: string): { path: string; segments: string[]; query: URLSearchParams } {
+  const cut = href.indexOf('?');
+  const path = cut === -1 ? href : href.slice(0, cut);
+  const query = new URLSearchParams(cut === -1 ? '' : href.slice(cut + 1));
+  const segments = path.split('/').filter(Boolean).map((s) => {
+    try { return decodeURIComponent(s); } catch { return s; }
+  });
+  return { path, segments, query };
+}
+
+/** ["places","GB","Lake District"] + {kind:"eat"} → "/places/GB/Lake%20District?kind=eat". */
+export function buildHref(segments: (string | null | undefined)[], query?: URLSearchParams | Record<string, string | null | undefined>): string {
+  const path = `/${segments.filter((s): s is string => !!s).map((s) => encodeURIComponent(s)).join('/')}`;
+  const q = query instanceof URLSearchParams ? query : toParams(query ?? {});
+  const s = q.toString();
+  return s ? `${path}?${s}` : path;
+}
+
+function toParams(o: Record<string, string | null | undefined>): URLSearchParams {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(o)) if (v != null && v !== '') q.set(k, v);
+  return q;
+}
+
+
+export type Tab = 'inspire' | 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes';
+
+export const MOODS: MoodKey[] = ['fun', 'food', 'culture', 'adrenaline', 'relaxing', 'outdoors'];
+
+export type TripSection = 'find' | 'shortlist' | 'day' | 'stay' | 'group' | 'data';
+export const TRIP_SECTIONS: TripSection[] = ['find', 'shortlist', 'day', 'stay', 'group', 'data'];
+
+export type SettingsSection = 'preferences' | 'providers';
+export const SETTINGS_SECTIONS: SettingsSection[] = ['preferences', 'providers'];
+
+export type PrototypeSection = 'plan' | 'places' | 'trips' | 'household' | 'settings';
+export const PROTOTYPE_SECTIONS: PrototypeSection[] = ['plan', 'places', 'trips', 'household', 'settings'];
+
+export type AdminScreen =
+  | 'overview' | 'accounts' | 'households' | 'activity' | 'reporting'
+  | 'library' | 'shelves' | 'scout' | 'roles' | 'plans' | 'audit';
+export const ADMIN_SCREENS: AdminScreen[] = [
+  'overview', 'accounts', 'households', 'activity', 'reporting', 'library', 'shelves', 'scout', 'roles', 'plans', 'audit',
+];
+
+/** Where the atlas is pointed: nowhere yet, close to home, or one city. */
+export type PlacesScope = null | { home: true } | { country: string; city: string };
+
+export type Route =
+  | { name: 'inspire'; searching: boolean; shelf: MoodKey | null }
+  | { name: 'plan' }
+  | { name: 'places'; scope: PlacesScope }
+  | { name: 'trips'; creating: boolean; tripId: string | null; section: TripSection | null; dayId: string | null }
+  | { name: 'household'; memberId: string | null }
+  | { name: 'settings'; section: SettingsSection }
+  | { name: 'prototypes'; section: PrototypeSection | null }
+  | { name: 'admin'; screen: AdminScreen }
+  | { name: 'join'; token: string }
+  | { name: 'unknown'; path: string };
+
+const oneOf = <T extends string>(all: readonly T[], v: string | undefined): T | null =>
+  (v != null && (all as readonly string[]).includes(v) ? (v as T) : null);
+
+/**
+ * An address, read.
+ *
+ * Unknown paths come back as `unknown` rather than quietly becoming the home
+ * screen: a mistyped or dead link should say so, not pretend it worked.
+ */
+export function parseRoute(path: string): Route {
+  const { segments } = splitHref(path);
+  const [head, a, b, c] = segments;
+
+  if (!head) return { name: 'inspire', searching: false, shelf: null };
+
+  switch (head) {
+    case 'inspire': {
+      if (!a) return { name: 'inspire', searching: false, shelf: null };
+      if (a === 'search') return { name: 'inspire', searching: true, shelf: null };
+      const shelf = oneOf(MOODS, a);
+      // Food is a door into Places, never a shelf, so it has no address here.
+      return shelf && shelf !== 'food'
+        ? { name: 'inspire', searching: false, shelf }
+        : { name: 'unknown', path };
+    }
+
+    case 'plan':
+      return a ? { name: 'unknown', path } : { name: 'plan' };
+
+    case 'places': {
+      if (!a) return { name: 'places', scope: null };
+      if (a === 'home') return { name: 'places', scope: { home: true } };
+      // A country on its own has no page of its own — the atlas already shows
+      // every country — so it takes you back to the atlas with that one open.
+      if (!b) return { name: 'places', scope: null };
+      return { name: 'places', scope: { country: a.toUpperCase(), city: b } };
+    }
+
+    case 'trips': {
+      if (!a) return { name: 'trips', creating: false, tripId: null, section: null, dayId: null };
+      if (a === 'new') return { name: 'trips', creating: true, tripId: null, section: null, dayId: null };
+      const section = oneOf(TRIP_SECTIONS, b);
+      if (b && !section) return { name: 'unknown', path };
+      return { name: 'trips', creating: false, tripId: a, section, dayId: section === 'day' ? c ?? null : null };
+    }
+
+    case 'household':
+      return { name: 'household', memberId: a ?? null };
+
+    case 'settings': {
+      if (!a) return { name: 'settings', section: 'preferences' };
+      const section = oneOf(SETTINGS_SECTIONS, a);
+      return section ? { name: 'settings', section } : { name: 'unknown', path };
+    }
+
+    case 'prototypes': {
+      if (!a) return { name: 'prototypes', section: null };
+      const section = oneOf(PROTOTYPE_SECTIONS, a);
+      return section ? { name: 'prototypes', section } : { name: 'unknown', path };
+    }
+
+    case 'admin': {
+      const screen = oneOf(ADMIN_SCREENS, a ?? 'overview');
+      return screen ? { name: 'admin', screen } : { name: 'unknown', path };
+    }
+
+    case 'join':
+      return a ? { name: 'join', token: a } : { name: 'unknown', path };
+
+    default:
+      return { name: 'unknown', path };
+  }
+}
+
+/** A route, written. The inverse of `parseRoute`, and the only place hrefs are spelled. */
+export function hrefOf(route: Route): string {
+  switch (route.name) {
+    case 'inspire':
+      return route.searching ? '/inspire/search' : route.shelf ? buildHref(['inspire', route.shelf]) : '/inspire';
+    case 'plan': return '/plan';
+    case 'places':
+      return route.scope == null ? '/places'
+        : 'home' in route.scope ? '/places/home'
+          : buildHref(['places', route.scope.country, route.scope.city]);
+    case 'trips':
+      return route.creating ? '/trips/new'
+        : route.tripId == null ? '/trips'
+          : buildHref(['trips', route.tripId, route.section, route.section === 'day' ? route.dayId : null]);
+    case 'household': return buildHref(['household', route.memberId]);
+    case 'settings': return route.section === 'preferences' ? '/settings' : buildHref(['settings', route.section]);
+    case 'prototypes': return buildHref(['prototypes', route.section]);
+    case 'admin': return buildHref(['admin', route.screen]);
+    case 'join': return buildHref(['join', route.token]);
+    case 'unknown': return route.path;
+  }
+}
+
+/** The addresses screens link to, spelled once. */
+export const paths = {
+  inspire: () => '/inspire',
+  inspireSearch: () => '/inspire/search',
+  inspireShelf: (mood: MoodKey) => buildHref(['inspire', mood]),
+  plan: () => '/plan',
+  places: () => '/places',
+  placesHome: () => '/places/home',
+  placesCity: (country: string, city: string) => buildHref(['places', country, city]),
+  trips: () => '/trips',
+  newTrip: () => '/trips/new',
+  trip: (id: string, section?: TripSection | null, dayId?: string | null) =>
+    buildHref(['trips', id, section, section === 'day' ? dayId : null]),
+  household: (memberId?: string | null) => buildHref(['household', memberId]),
+  settings: (section?: SettingsSection) => (section && section !== 'preferences' ? buildHref(['settings', section]) : '/settings'),
+  prototypes: (section?: PrototypeSection | null) => buildHref(['prototypes', section]),
+  admin: (screen: AdminScreen) => buildHref(['admin', screen]),
+  join: (token: string) => buildHref(['join', token]),
+};
+
+/** Which tab in the shell a route belongs under, so the rail can light up. */
+export function tabOf(route: Route): Tab | null {
+  switch (route.name) {
+    case 'inspire': return 'inspire';
+    case 'plan': return 'plan';
+    case 'places': return 'places';
+    case 'trips': return 'trips';
+    case 'household': return 'household';
+    case 'settings': return 'settings';
+    case 'prototypes': return 'prototypes';
+    default: return null;
+  }
+}
+
+/** One layer up, for a Back that has no history behind it (a link somebody was sent). */
+export function parentOf(route: Route): string {
+  switch (route.name) {
+    case 'inspire': return route.searching || route.shelf ? '/inspire' : '/inspire';
+    case 'places': return route.scope ? '/places' : '/inspire';
+    case 'trips':
+      if (route.dayId) return paths.trip(route.tripId!, 'day');
+      if (route.section) return paths.trip(route.tripId!);
+      if (route.tripId || route.creating) return '/trips';
+      return '/inspire';
+    case 'household': return route.memberId ? '/household' : '/inspire';
+    case 'admin': return route.screen === 'overview' ? '/inspire' : '/admin/overview';
+    default: return '/inspire';
+  }
+}
+
+/**
+ * What the browser tab says. A window full of Roam tabs is otherwise seven
+ * identical ones, and the address is only half of being able to find your way
+ * back to a page.
+ */
+export function titleOf(route: Route): string {
+  const roam = (s?: string) => (s ? `${s} · Roam` : 'Roam');
+  switch (route.name) {
+    case 'inspire': return roam(route.searching ? 'Where should we go?' : route.shelf ? `${route.shelf[0].toUpperCase()}${route.shelf.slice(1)}` : 'Inspire');
+    case 'plan': return roam('Plan');
+    case 'places':
+      return roam(route.scope == null ? 'Places' : 'home' in route.scope ? 'Close to home' : route.scope.city);
+    case 'trips': return roam(route.creating ? 'A new trip' : route.tripId ? 'Trip' : 'Trips');
+    case 'household': return roam('Household');
+    case 'settings': return roam('Settings');
+    case 'prototypes': return roam('Prototypes');
+    case 'admin': return roam(`Back office — ${route.screen}`);
+    case 'join': return roam('Your trip');
+    case 'unknown': return roam('Not a page');
+  }
+}
+
+/**
+ * The addresses Roam used to have (`?tab=trips&trip=…&section=…`, `?join=…`),
+ * turned into the ones it has now.
+ *
+ * The owner keeps these on his phone and group invites went out to people who
+ * have never heard of Roam, so an old link has to keep working — it is answered
+ * once, with a replace, and the new address is what stays in the bar.
+ */
+export function legacyHref(path: string, query: URLSearchParams): string | null {
+  if (path !== '/' && path !== '') return null;
+  const join = query.get('join');
+  if (join) return paths.join(join);
+  const tab = query.get('tab');
+  if (!tab) return null;
+  const keep = new URLSearchParams();
+  // A magic link is redeemed by the Gate before any of this and is taken out of
+  // the bar there, so it travels across the redirect rather than being dropped.
+  const signin = query.get('signin');
+  if (signin) keep.set('signin', signin);
+  const q = keep.toString();
+  const withQuery = (href: string) => (q ? `${href}${href.includes('?') ? '&' : '?'}${q}` : href);
+
+  if (tab === 'trips') {
+    const trip = query.get('trip');
+    const section = oneOf(TRIP_SECTIONS, query.get('section') ?? undefined);
+    return withQuery(trip ? paths.trip(trip, section) : paths.trips());
+  }
+  const known: Record<string, string> = {
+    inspire: paths.inspire(), plan: paths.plan(), places: paths.places(),
+    household: paths.household(), settings: paths.settings(), prototypes: paths.prototypes(),
+  };
+  return known[tab] ? withQuery(known[tab]) : null;
+}

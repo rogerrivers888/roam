@@ -25,6 +25,7 @@ import {
   RangePicker, Tile, TileRow, Withheld, ago, count, day, duration, money, plural, pounds,
 } from '../kit';
 import { Columns, RankedBars, Sparkline } from '../charts';
+import { asText, useQueryState } from '../../router';
 
 const STATUS_TONE: Record<string, 'ok' | 'warn' | 'crit' | 'plain'> = {
   active: 'ok', invited: 'warn', suspended: 'crit',
@@ -40,7 +41,8 @@ export function People({ canManageRoles }: { canManageRoles: boolean }) {
   const [data, setData] = useState<AdminPeople | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  // Which household is opened out: /admin/households?open=<id>.
+  const [open, setOpen] = useQueryState<string | null>('open', null, asText);
 
   const load = useCallback(async () => {
     try { setData(await api.adminPeople(days)); setError(null); } catch (e: any) {

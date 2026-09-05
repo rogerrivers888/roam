@@ -9,6 +9,7 @@ import { DateRangePicker } from './DateRangePicker';
 import Svg, { Circle, ClipPath, Defs, G, Image as SvgImage, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { useViewport } from '../hooks/useViewport';
 import { getViewer } from '../viewer';
+import { paths } from '../routes';
 
 /**
  * The group, from the organiser's side.
@@ -613,9 +614,11 @@ function Invite({ group: g, settingUp, onChange, onAdd }: {
   const [contact, setContact] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // The invite is its own page (`/join/<token>`), not a query on whatever page
+  // the organiser happened to be on when they copied it.
   const link = useMemo(() => {
-    const base = Platform.OS === 'web' && typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : 'https://roam.app/';
-    return `${base}?join=${g.group.inviteToken}`;
+    const base = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : 'https://roam.app';
+    return `${base}${paths.join(g.group.inviteToken)}`;
   }, [g.group.inviteToken]);
   const message = `${g.group.name ?? 'A trip'} — say you're coming and see what's needed: ${link}`;
 

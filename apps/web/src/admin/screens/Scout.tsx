@@ -32,6 +32,7 @@ import { Icon } from '../../components/Icon';
 import { Button, Row, Wrap } from '../../components/ui';
 import { useViewport } from '../../hooks/useViewport';
 import { AdminPage, Banner, FilterChip, FilterRow, PageHead, Panel, Pill, Tile, TileRow, ago, count } from '../kit';
+import { asOneOf, asText, useQueryState } from '../../router';
 
 const WIDE = 900;
 
@@ -98,9 +99,10 @@ export function Scout({ canManage }: { canManage: boolean }) {
   const { width } = useViewport();
   const wide = width >= WIDE;
 
-  const [section, setSection] = useState<Section>('areas');
+  // The sweep's three views, and which area is open, are both in the address.
+  const [section, setSection] = useQueryState<Section>('tab', 'areas', asOneOf(['areas', 'places', 'menus'] as const, 'areas'));
   const [areas, setAreas] = useState<ScoutArea[]>([]);
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useQueryState<string | null>('area', null, asText);
   const [places, setPlaces] = useState<ScoutPlace[]>([]);
   const [misses, setMisses] = useState<ScoutMenuMiss[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -112,9 +114,10 @@ export function Scout({ canManage }: { canManage: boolean }) {
     try {
       const { areas: rows } = await api.scoutAreas();
       setAreas(rows);
-      setChosen((c) => c ?? rows[0]?.code ?? null);
+      // The address wins; the first area is only the default for a bare one.
+      if (!chosen && rows[0]?.code) setChosen(rows[0].code);
     } catch (err) { setNote(String((err as Error).message)); }
-  }, []);
+  }, [chosen]);
 
   useEffect(() => { void loadAreas(); }, [loadAreas]);
 

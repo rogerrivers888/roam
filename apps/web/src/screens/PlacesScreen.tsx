@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
-import { recallScreen, rememberScreen } from '../screenState';
 import { CategoryIcon, Icon } from '../components/Icon';
 import { api, AtlasCity, AtlasCountry, AtlasHome, AtlasPlace, BrowseItem, HouseholdResponse, Place, Venue, Visit } from '../api';
 import { MapView, MapPin } from '../components/MapView';
 import { VenueDrawer } from '../components/VenueDrawer';
-import type { TripPrefill } from './TripsScreen';
+import type { TripSeed } from './TripsScreen';
+import { asList, asOneOf, asText, useQueryState, useRouter, useStickyQuery } from '../router';
+import { paths, type Route } from '../routes';
 import { colors, radius, spacing, TARGET, type } from '../theme';
+
 import { Button, Card, Chip, Row, Segmented, StatusLine, Wrap } from '../components/ui';
 import { PlacePicker } from '../components/PlacePicker';
 import { SourcePicker } from '../components/SourcePicker';
@@ -135,73 +137,58 @@ function atlasToBrowseItem(p: AtlasPlace): BrowseItem {
   };
 }
 
-/** Where the Places tab was: the city being looked at, and which countries were open. */
-type PlacesMemory = { sel: { home: true } | { country: string; city: string } | null; openCodes: string[] };
-
-/** And inside a city: how the list was filtered and sorted, and whether it was a map. */
-type CityMemory = { kind: Kind; status: Status; typeF: string | null; sort: Sort; view: 'list' | 'map' };
+/** Inside a city: how the list is filtered and sorted, and whether it is a map. All of it is in the address. */
+const CITY_KEYS = ['kind', 'status', 'type', 'sort', 'view'];
 
 // ---------------------------------------------------------------------------
 // The screen
 // ---------------------------------------------------------------------------
 
-/** Arriving from somewhere else with the question already asked. */
-export type PlacesPrefill = { home?: true; kind?: Kind };
-
-export function PlacesScreen({ household, refreshHousehold, onPlanTrip, prefill, onPrefillConsumed }: {
-  household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; onPlanTrip?: (p: TripPrefill) => void;
+export function PlacesScreen({ route, household, refreshHousehold, onPlanTrip }: {
   /**
-   * Inspire sends somebody here when they tap Food (owner, 5 Sep 2026: "if I
-   * clicked on food, it would take me to the places tab and search for food").
-   * They arrive at close-to-home with the food segment already chosen, rather
-   * than at a country list they then have to navigate.
+   * Which layer the address asks for: the atlas (`/places`), everything close
+   * to home (`/places/home`) or one city (`/places/GB/London`). Inspire's Food
+   * chip lands on `/places/home?kind=eat` — the question already asked (owner,
+   * 5 Sep 2026: "if I clicked on food, it would take me to the places tab and
+   * search for food").
    */
-  prefill?: PlacesPrefill | null;
-  onPrefillConsumed?: () => void;
+  route: Extract<Route, { name: 'places' }>;
+  household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; onPlanTrip?: (p: TripSeed) => void;
 }) {
   const { width, height } = useViewport();
   const wide = width >= 1000;
+  const { query, navigate, setQuery } = useRouter();
   const [data, setData] = useState<{ countries: AtlasCountry[]; unplaced: number; home: AtlasHome | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Where this tab was left (owner, 4 Sep 2026: "same for any of the other
-  // tabs"). Only the choice of city and which countries were open — the places
-  // themselves are fetched again from the atlas, which is our own data and is
-  // on the device anyway.
-  const heldPlaces = useRef(recallScreen<PlacesMemory>('places')).current;
-  const [openCodes, setOpenCodes] = useState<Set<string>>(new Set(heldPlaces?.data.openCodes ?? []));
-  // Either a city in the atlas, or the standing "close to home" view.
-  const [sel, setSel] = useState<{ home: true } | { country: string; city: string } | null>(heldPlaces?.data.sel ?? null);
+  // Which countries are folded open is how the atlas list is set, so it is in
+  // the address too: `/places?open=GB,PT` is the list as somebody left it.
+  const [openList, setOpenList] = useQueryState<string[]>('open', [], asList);
+  const openCodes = useMemo(() => new Set(openList), [openList.join(',')]);
+  const setOpenCodes = (next: Set<string>) => setOpenList([...next]);
+  // Either a city in the atlas, or the standing "close to home" view — from the path.
+  const sel = route.scope;
   const atHome = !!sel && 'home' in sel;
   const [addingCity, setAddingCity] = useState(false);
   const [places, setPlaces] = useState<AtlasPlace[]>([]);
   const [wherePending, setWherePending] = useState(0);
-  const [open, setOpen] = useState<AtlasPlace | null>(null);
+  // Which place's drawer is open, over whichever city is showing.
+  const openRef = query.get('place');
+  const open = openRef ? places.find((p) => p.venueRef === openRef) ?? null : null;
+  const setOpen = (p: AtlasPlace | null) => setQuery({ place: p?.venueRef ?? null }, { replace: false });
   // A place found by searching, before it is anything of ours: the drawer shows
-  // its details so you can be sure it is the right one.
+  // its details so you can be sure it is the right one. It has no address of its
+  // own — it is not one of the household's places yet.
   const [newVenue, setNewVenue] = useState<Venue | null>(null);
   // A place the household has just added: close the search, show the segment it
   // is in, and mark the row (owner, 4 Sep 2026: "when I exit out of that screen,
   // I want to come back to my places… and see the place that I've just added").
   const [landed, setLanded] = useState<{ venueRef: string; kind: Kind } | null>(null);
-  // What an arriving link asked for, handed to the panel once it is open.
-  const [startKind, setStartKind] = useState<Kind | null>(null);
-  useEffect(() => {
-    if (!prefill) return;
-    if (prefill.home) setSel({ home: true });
-    if (prefill.kind) setStartKind(prefill.kind);
-    onPrefillConsumed?.();
-  }, [prefill]);
 
   const refills = useRef(0);
 
   const members = household?.members ?? [];
   const [viewer, setViewer] = useState<string | null>(null);
   useEffect(() => { setViewer(getViewer(members)); return onViewerChange(setViewer); }, [members.map((m) => m.id).join(',')]);
-
-  // Remember it as it changes, so coming back lands on the same city.
-  useEffect(() => {
-    rememberScreen<PlacesMemory>('places', { sel, openCodes: [...openCodes] });
-  }, [sel, openCodes]);
 
   const loadAtlas = useCallback(async () => { try { setData(await api.atlas()); } catch (e: any) { setError(e.message); } }, []);
   useEffect(() => { loadAtlas(); }, [loadAtlas]);
@@ -225,12 +212,19 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip, prefill,
     const t = setTimeout(() => { refills.current += 1; loadPlaces(); }, 5000);
     return () => clearTimeout(t);
   }, [wherePending, places]);
-  // Keep the open drawer on the same place after a change (a visit saved, a status set).
-  useEffect(() => { if (open) { const fresh = places.find((p) => p.venueRef === open.venueRef); if (fresh && fresh !== open) setOpen(fresh); } }, [places]);
+  // The drawer follows the row it is showing: `open` is looked up in `places`
+  // every render, so a visit saved or a status set is on screen straight away.
 
   const refreshAll = async () => { await loadAtlas(); await loadPlaces(); await refreshHousehold(); };
-  const pick = (c: AtlasCountry, ci: AtlasCity) => { setSel({ country: c.code, city: ci.name }); setOpen(null); setOpenCodes((s) => new Set(s).add(c.code)); };
-  const pickHome = () => { setSel({ home: true }); setOpen(null); };
+  const pick = (c: AtlasCountry, ci: AtlasCity) => {
+    // Two things at once — the city and the fold it came out of — so it is one
+    // address rather than two navigations racing each other.
+    const q = new URLSearchParams(query);
+    q.delete('place');
+    q.set('open', [...new Set([...openList, c.code])].join(','));
+    navigate(`${paths.placesCity(c.code, ci.name)}?${q}`);
+  };
+  const pickHome = () => navigate(paths.placesHome());
 
   const showAtlas = wide || !sel;
   const showCity = !!sel && (wide || true);
@@ -247,7 +241,7 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip, prefill,
             <Text style={[type.small, { color: colors.headerSub }]}>Where you've been and what you liked.</Text>
             {addingCity ? (
               <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
-                <PlacePicker kind="area" autoFocus value={null} onPick={async (p) => { if (!p) return; try { const r = await api.createAtlasCity({ place: p }); await loadAtlas(); setAddingCity(false); setSel({ country: r.city.countryCode, city: r.city.name }); setOpenCodes((s) => new Set(s).add(r.city.countryCode)); setError(null); } catch (e: any) { setError(e.message); } }} placeholder="Lisbon · Bath · the Lake District" />
+                <PlacePicker kind="area" autoFocus value={null} onPick={async (p) => { if (!p) return; try { const r = await api.createAtlasCity({ place: p }); await loadAtlas(); setAddingCity(false); pick({ code: r.city.countryCode } as AtlasCountry, { name: r.city.name } as AtlasCity); setError(null); } catch (e: any) { setError(e.message); } }} placeholder="Lisbon · Bath · the Lake District" />
               </View>
             ) : null}
             {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
@@ -281,7 +275,7 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip, prefill,
                   const total = c.cities.reduce((a, x) => a + x.places, 0);
                   return (
                     <View key={c.code}>
-                      <Pressable onPress={() => setOpenCodes((s) => { const n = new Set(s); n.has(c.code) ? n.delete(c.code) : n.add(c.code); return n; })} style={[styles.row, i > 0 && styles.rowLine]} accessibilityRole="button" accessibilityState={{ expanded: isOpen }}>
+                      <Pressable onPress={() => setOpenList(isOpen ? openList.filter((x) => x !== c.code) : [...openList, c.code])} style={[styles.row, i > 0 && styles.rowLine]} accessibilityRole="button" accessibilityState={{ expanded: isOpen }}>
                         <View style={{ width: 22, alignItems: 'center' }}><Icon name={isOpen ? 'expand' : 'more'} size={18} color={colors.inkMuted} /></View>
                         <View style={{ flex: 1, minWidth: 0 }}>
                           <Text style={type.h3} numberOfLines={1}>{c.name}</Text>
@@ -304,9 +298,8 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip, prefill,
         <CityPanel
           key={home ? 'home' : `${country!.code}/${city!.name}`}
           country={country} city={city} home={home} places={places} household={household} viewer={viewer} wide={wide} viewportHeight={height}
-          onBack={() => { setSel(null); setOpen(null); }} onOpen={setOpen} onOpenVenue={setNewVenue} openRef={open?.venueRef ?? null}
+          onBack={() => navigate(paths.places() + (openList.length ? `?open=${openList.join(',')}` : ''))} onOpen={setOpen} onOpenVenue={setNewVenue} openRef={open?.venueRef ?? null}
           landed={landed} onLandedShown={() => setLanded(null)}
-          startKind={startKind} onStartKindUsed={() => setStartKind(null)}
           onPlanTrip={() => onPlanTrip?.(home ? { placeText: home.label ?? 'home' } : { placeText: `${city!.name}, ${country!.name}`, countryCode: country!.code })}
           onChanged={refreshAll}
         />
@@ -366,32 +359,28 @@ const Count = ({ label, heart }: { label: string; heart?: boolean }) => (
 // Inside a city
 // ---------------------------------------------------------------------------
 
-function CityPanel({ country, city, home, places, household, viewer, wide, viewportHeight, onBack, onOpen, onOpenVenue, openRef, onPlanTrip, onChanged, landed, onLandedShown, startKind, onStartKindUsed }: {
+function CityPanel({ country, city, home, places, household, viewer, wide, viewportHeight, onBack, onOpen, onOpenVenue, openRef, onPlanTrip, onChanged, landed, onLandedShown }: {
   country: AtlasCountry | null; city: AtlasCity | null; home: AtlasHome | null; places: AtlasPlace[]; household: HouseholdResponse | null; viewer: string | null; wide: boolean; viewportHeight: number;
   onBack: () => void; onOpen: (p: AtlasPlace) => void; onOpenVenue: (v: Venue) => void; openRef: string | null; onPlanTrip: () => void; onChanged: () => Promise<void>;
   landed: { venueRef: string; kind: Kind } | null; onLandedShown: () => void;
-  /** The segment somebody arrived asking for, which beats what was left here last time. */
-  startKind?: Kind | null; onStartKindUsed?: () => void;
 }) {
-  // The filters are per city: coming back to London should not bring Lisbon's
-  // "food only, been" with it.
+  /**
+   * How this city's list is set — and all of it is in the address, so
+   * `/places/GB/London?kind=eat&status=been&sort=recent` is a page somebody can
+   * be sent (owner, 5 Sep 2026).
+   *
+   * What is *remembered* is per city, because coming back to London should not
+   * bring Lisbon's "food only, been" with it — and the address always wins, so
+   * arriving with the question already asked (Inspire's Food chip lands on
+   * `?kind=eat`) beats what was left here last time.
+   */
   const memoryKey = `places.city.${home ? 'home' : `${country?.code ?? '?'}.${city?.name ?? '?'}`}`;
-  const heldCity = useRef(recallScreen<CityMemory>(memoryKey)).current;
-  const [kind, setKind] = useState<Kind>(heldCity?.data.kind ?? 'all');
-  const [status, setStatus] = useState<Status>(heldCity?.data.status ?? 'any');
-  const [typeF, setTypeF] = useState<string | null>(heldCity?.data.typeF ?? null);
-  const [sort, setSort] = useState<Sort>(heldCity?.data.sort ?? 'name');
-  const [view, setView] = useState<'list' | 'map'>(heldCity?.data.view ?? 'list');
-  // Arriving with the question already asked beats the filters left here last
-  // time: somebody who tapped Food on the home screen means food, now.
-  useEffect(() => {
-    if (!startKind) return;
-    setKind(startKind); setTypeF(null); setStatus('any');
-    onStartKindUsed?.();
-  }, [startKind]);
-  useEffect(() => {
-    rememberScreen<CityMemory>(memoryKey, { kind, status, typeF, sort, view });
-  }, [memoryKey, kind, status, typeF, sort, view]);
+  useStickyQuery(memoryKey, CITY_KEYS);
+  const [kind, setKind] = useQueryState<Kind>('kind', 'all', asOneOf(['all', 'do', 'eat'] as const, 'all'));
+  const [status, setStatus] = useQueryState<Status>('status', 'any', asOneOf(['any', 'been', 'try', 'special'] as const, 'any'));
+  const [typeF, setTypeF] = useQueryState<string | null>('type', null, asText);
+  const [sort, setSort] = useQueryState<Sort>('sort', 'name', asOneOf(['name', 'mine', 'recent'] as const, 'name'));
+  const [view, setView] = useQueryState<'list' | 'map'>('view', 'list', asOneOf(['list', 'map'] as const, 'list'));
   const [sheet, setSheet] = useState<'status' | 'type' | 'sort' | null>(null);
   const [adding, setAdding] = useState(false);
   const [selPin, setSelPin] = useState<string | null>(null);
