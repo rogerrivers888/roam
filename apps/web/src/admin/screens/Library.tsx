@@ -366,7 +366,14 @@ function Attractions({ regions, region, onRegion, canManage, wide }: {
 
       {!rows.length ? (
         <View style={{ padding: spacing.lg }}>
-          <Text style={type.small}>{busy ? 'Looking…' : 'Nothing here yet — harvest a region on Coverage.'}</Text>
+          {/* A search that found nothing and a region nobody has harvested are
+              two different answers, and telling a colleague to go and harvest
+              Berkshire because he mistyped "Thorpe" wastes his afternoon. */}
+          <Text style={type.small}>
+            {busy ? 'Looking…'
+              : q ? `Nothing matching “${q}”. Every word has to appear in the name — try fewer of them.`
+                : 'Nothing here yet — harvest a region on Coverage.'}
+          </Text>
         </View>
       ) : null}
 

@@ -364,12 +364,45 @@ export async function rankRegion(slug) {
   return regionBySlug(slug);
 }
 
+/**
+ * The ranked list for a region, and the search over it.
+ *
+ * The search is a word at a time rather than one `ilike` over the whole box.
+ * Typed as one string, "thorp park" finds nothing at all — there is no such
+ * substring in "Thorpe Park" — so a missing letter reads on screen exactly like
+ * a place we do not hold (owner, 5 Sep 2026, searching for Thorpe Park and
+ * getting "Nothing here yet"). Every word has to appear somewhere in the name,
+ * which is what anybody typing two words means.
+ *
+ * And the order has to answer the search rather than the county. Plain
+ * `ilike '%thorpe%'` matched Gawthorpe Hall, Woolsthorpe Manor and Grimsthorpe
+ * Castle before it reached Thorpe Park, because the rank within the region was
+ * the only thing sorting them. A name that *is* the search comes first, then one
+ * that starts with it, then one where it starts a word, then the rest.
+ */
 export async function listAttractions({ region, state, q, category, limit = 200, offset = 0 } = {}) {
   const where = []; const args = [];
   if (region) { args.push(region); where.push(`a.region_slug = $${args.length}`); }
   if (state) { args.push(state); where.push(`a.state = $${args.length}`); }
   if (category) { args.push(category); where.push(`a.category = $${args.length}`); }
-  if (q) { args.push(`%${q}%`); where.push(`a.name ilike $${args.length}`); }
+
+  const words = String(q ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 6);
+  for (const word of words) {
+    args.push(`%${word}%`);
+    where.push(`a.name ilike $${args.length}`);
+  }
+  // The whole phrase, for ranking only — it is not required to match.
+  let rank = 'a.region_slug, a.rank nulls last, a.score desc';
+  if (words.length) {
+    args.push(String(q).trim());
+    const phrase = `$${args.length}`;
+    rank = `case
+              when lower(a.name) = lower(${phrase}) then 0
+              when a.name ilike ${phrase} || '%' then 1
+              when a.name ilike '% ' || ${phrase} || '%' then 2
+              else 3 end,
+            length(a.name), a.rank nulls last, a.score desc`;
+  }
   args.push(limit, offset);
   const { rows } = await query(
     `select a.*, r.name as region_name, r.nation,
@@ -380,7 +413,7 @@ export async function listAttractions({ region, state, q, category, limit = 200,
               where l.subject_type = 'attraction' and l.subject_id = a.id::text and l.role = 'hero' limit 1) as hero_lqip
        from attractions a join regions r on r.slug = a.region_slug
       ${where.length ? `where ${where.join(' and ')}` : ''}
-      order by a.region_slug, a.rank nulls last, a.score desc
+      order by ${rank}
       limit $${args.length - 1} offset $${args.length}`, args);
   return rows;
 }
