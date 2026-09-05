@@ -22,6 +22,9 @@
 //     what we rent, we lose when the signal goes.
 //   • It is only asked for a place we have nothing of our own for. The day the
 //     ladder finds a mark for this restaurant, this stops being called for it.
+//   • It prefers a search already paid for. A place the household searched up in
+//     the last twelve hours is still in the pool (cache.js), references and all,
+//     so the usual way a tile fills costs nothing at all.
 //
 // The reference is not the photograph. What is held is a name Google will
 // exchange for bytes; the bytes are fetched separately through
@@ -29,7 +32,7 @@
 
 import * as providerCalls from '../repositories/providerCalls.js';
 import { googleSource } from './google.js';
-import { recallVenue } from './index.js';
+import { venueFromKept } from './cache.js';
 
 // Twelve hours, not the seven days taxonomy.js keeps. A kind of place ("Italian")
 // is true for years; a photo reference is a handle the provider reissues, and a
@@ -77,12 +80,14 @@ export async function photosFor(venueRef, { householdId = null } = {}) {
   const cached = photosKept(venueRef);
   if (cached) return cached;
 
-  // A search that ran this session already carried the references, and asking
-  // again for what is in our hands is a billed call for nothing.
-  const recalled = recallVenue(venueRef);
-  if (recalled?.photos?.length) {
-    remember(venueRef, recalled.photos);
-    return recalled.photos;
+  // A search that ran in the last twelve hours already carried the references,
+  // and asking again for what is in our hands is a billed call for nothing.
+  // This is the path that usually answers: somebody looks at Places, then opens
+  // the atlas, and the pool that filled the first screen fills the second.
+  const searched = venueFromKept(venueRef);
+  if (searched?.photos?.length) {
+    remember(venueRef, searched.photos);
+    return searched.photos;
   }
 
   const [source, ...rest] = String(venueRef).split(':');

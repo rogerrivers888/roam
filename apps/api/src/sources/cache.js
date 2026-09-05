@@ -34,6 +34,35 @@ export function searchKey(p) {
   ].join('|');
 }
 
+/**
+ * A venue this session has already searched up, wherever it was found.
+ *
+ * The searches held here carry the provider's whole answer — including the
+ * photo references — and they were paid for once already. So a screen that
+ * wants a picture for a place a search has just returned must read it from
+ * here rather than buy the same place again as a Details call: "options are
+ * composed from one retrieved pool; adding an option must not add a provider
+ * call" (CLAUDE.md), and a picture is an option like any other.
+ *
+ * Scanning every held search sounds expensive and is not: three hundred
+ * searches of about sixty venues is eighteen thousand string comparisons
+ * against an in-memory map, and it happens instead of a network round trip.
+ *
+ * `sources/index.js` cannot do this job — `recallVenue` deliberately retains
+ * only the open sources, because those are the ones we are allowed to keep.
+ * This is the rented pool, in memory, expiring on the same twelve-hour clock as
+ * the search it came from, and nothing here is ever written down.
+ */
+export function venueFromKept(venueRef) {
+  for (const hit of kept.values()) {
+    if (!fresh(hit)) continue;
+    const found = hit.result.venues?.find((v) => v.venueRef === venueRef
+      || `${v.source}:${v.sourcePlaceId}` === venueRef);
+    if (found) return found;
+  }
+  return null;
+}
+
 /** What is already known for these parameters, or null. */
 export function searchKept(params) {
   const hit = kept.get(searchKey(params));
