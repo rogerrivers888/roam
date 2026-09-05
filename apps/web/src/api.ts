@@ -1174,7 +1174,7 @@ export const api = {
     request<{ attractions: LibraryAttraction[] }>(`/api/admin/library/attractions${qs(p)}`),
   libraryCurate: (id: string, body: { state?: string; pinned?: boolean; note?: string }) =>
     patch<{ attraction: LibraryAttraction }>(`/api/admin/library/attractions/${id}`, body),
-  libraryImages: (p: { q?: string; source?: string; licence?: string; region?: string; subjectType?: string; subjectId?: string; moderation?: string; unlinked?: boolean; credit?: boolean; limit?: number; offset?: number }) =>
+  libraryImages: (p: { q?: string; source?: string; licence?: string; region?: string; category?: string; subjectType?: string; subjectId?: string; moderation?: string; unlinked?: boolean; credit?: boolean; limit?: number; offset?: number }) =>
     request<{ images: LibraryImage[]; total: number }>(`/api/admin/library/images${qs(p)}`),
   libraryImage: (id: string) => request<{ image: LibraryImage & { variants: { width: number; actualWidth: number; bytes: number }[] }; links: any[] }>(`/api/admin/library/images/${id}`),
   libraryModerate: (id: string, body: { moderation?: string; note?: string; points?: number }) =>
@@ -1275,6 +1275,8 @@ export type LibraryImage = {
   lqip: string | null; moderation: 'approved' | 'pending' | 'rejected'; moderation_note: string | null;
   reward_points: number; fetched_at: string; contributor_account_id: string | null;
   widths: number[] | null; held_bytes: string | number;
+  /** What Roam files the place under: heritage, outdoors, family, museum, arts, animals, active, landmark. */
+  categories: string | null;
   links: { type: string; id: string; role: string; label: string | null }[] | null;
   relevance?: number;
 };

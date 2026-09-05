@@ -112,6 +112,68 @@ export async function setKind(qid, { admit, category, by }) {
   return rows[0] ?? null;
 }
 
+/** The types that still read as a bare Q-number, worst offenders first. */
+export async function unlabelledKinds(limit = 400) {
+  const { rows } = await query(
+    `select qid from place_kinds where label is null or label = ''
+      order by seen_count desc, qid limit $1`, [limit]);
+  return rows.map((r) => r.qid);
+}
+
+/** Give them their English names. */
+export async function nameKinds(labels) {
+  const entries = [...labels.entries()];
+  if (!entries.length) return 0;
+  const { rowCount } = await query(
+    `update place_kinds set label = c.label, updated_at = now()
+       from (select unnest($1::text[]) as qid, unnest($2::text[]) as label) c
+      where place_kinds.qid = c.qid`,
+    [entries.map(([q]) => q), entries.map(([, l]) => l)]);
+  return rowCount;
+}
+
+/** What Roam calls these types, for a screen that has to name them. */
+export async function kindsByQid(qids) {
+  if (!qids.length) return new Map();
+  const { rows } = await query('select qid, label, category, admit from place_kinds where qid = any($1)', [qids]);
+  return new Map(rows.map((r) => [r.qid, r]));
+}
+
+/**
+ * Recompute every attraction's category from the current classifier.
+ *
+ * The category is written when a region is listed, so correcting `place_kinds`
+ * afterwards changes nothing that already exists — twenty-two kinds of English
+ * country house went on being Outdoors until this ran. It applies the same rule
+ * the harvest does (the first admitted kind, in the order Wikidata stated them)
+ * and touches only rows whose answer actually changes, so it is safe to run
+ * whenever the classifier moves.
+ *
+ * It cannot conjure places the old classifier never admitted — a lake is only
+ * listed once its region is listed again. This fixes what is filed wrongly, not
+ * what is missing.
+ */
+export async function reclassifyAttractions() {
+  const { rows } = await query(
+    `update attractions a
+        set category = sub.category, updated_at = now()
+       from (
+         select a2.id,
+                (select k.category
+                   from unnest(a2.kinds) with ordinality as u(qid, ord)
+                   join place_kinds k on k.qid = u.qid
+                  where k.admit
+                  order by u.ord
+                  limit 1) as category
+           from attractions a2
+       ) sub
+      where a.id = sub.id
+        and sub.category is not null
+        and a.category is distinct from sub.category
+      returning a.id, a.name, a.category`);
+  return rows;
+}
+
 /** How often each type has come back, so the noisy ones are easy to find. */
 export async function bumpKindsSeen(qids) {
   if (!qids.length) return;
@@ -342,7 +404,7 @@ export async function publishedNear({ lat, lng, km = 25, limit = 60, illustrated
   const dLng = km / Math.max(1, 111 * Math.cos((lat * Math.PI) / 180));
   const { rows } = await query(
     `with candidates as (
-       select a.id, a.name, a.slug, a.summary, a.category, a.lat, a.lng, a.rank, a.region_slug,
+       select a.id, a.name, a.slug, a.summary, a.category, a.kinds, a.lat, a.lng, a.rank, a.region_slug,
               a.website, a.wikipedia_url, a.wikidata_id, a.osm_ref, a.heritage, a.venue_ref,
               a.attribution, a.score, r.name as region_name,
               i.id as image_id, i.lqip, i.credit_line, i.licence, i.licence_url,
@@ -452,7 +514,7 @@ export const unlinkImage = (imageId, subjectType, subjectId) =>
  * everywhere else and this is the only screen that can find it.
  */
 export async function searchImages({
-  q, source, licence, region, subjectType, subjectId, moderation, unlinked, attributionRequired,
+  q, source, licence, region, category, subjectType, subjectId, moderation, unlinked, attributionRequired,
   limit = 60, offset = 0,
 } = {}) {
   const where = []; const args = [];
@@ -475,6 +537,15 @@ export async function searchImages({
     args.push(subjectType, subjectId);
     where.push(`exists (select 1 from image_links l where l.image_id = i.id and l.subject_type = $${args.length - 1} and l.subject_id = $${args.length})`);
   }
+  // What Roam decided this is a picture of — heritage, outdoors, family… The
+  // category lives on the attraction rather than on the image, because the same
+  // photograph can illustrate two places; this asks whether any of them is of
+  // this kind.
+  if (category) {
+    args.push(category);
+    where.push(`exists (select 1 from image_links l join attractions a on l.subject_type = 'attraction' and a.id::text = l.subject_id
+                         where l.image_id = i.id and a.category = $${args.length})`);
+  }
   if (unlinked) where.push('not exists (select 1 from image_links l where l.image_id = i.id)');
   args.push(limit, offset);
 
@@ -486,6 +557,9 @@ export async function searchImages({
            ${rank} as relevance,
            (select array_agg(v.width order by v.width) from image_variants v where v.image_id = i.id) as widths,
            (select coalesce(sum(v.bytes), 0) from image_variants v where v.image_id = i.id) as held_bytes,
+           (select string_agg(distinct a.category, ', ')
+              from image_links l join attractions a on l.subject_type = 'attraction' and a.id::text = l.subject_id
+             where l.image_id = i.id) as categories,
            (select json_agg(json_build_object('type', l.subject_type, 'id', l.subject_id, 'role', l.role,
                                               'label', coalesce(a.name, r.name)))
               from image_links l

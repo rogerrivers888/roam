@@ -238,7 +238,8 @@ adminRouter.get('/images', requires('view_library'), async (req, res, next) => {
   try {
     const out = await lib.searchImages({
       q: req.query.q, source: req.query.source, licence: req.query.licence,
-      region: req.query.region, subjectType: req.query.subjectType, subjectId: req.query.subjectId,
+      region: req.query.region, category: req.query.category,
+      subjectType: req.query.subjectType, subjectId: req.query.subjectId,
       moderation: req.query.moderation,
       unlinked: req.query.unlinked === 'true',
       attributionRequired: req.query.credit == null ? null : req.query.credit === 'true',
@@ -394,6 +395,22 @@ adminRouter.post('/harvest/:id/cancel', requires('manage_library'), async (req, 
   } catch (err) { next(err); }
 });
 
-adminRouter.post('/kinds/refresh', requires('manage_library'), async (_req, res, next) => {
-  try { res.json({ types: await refreshKinds({}) }); } catch (err) { next(err); }
+/**
+ * Re-ask Wikidata what counts as somewhere to go, then re-file everything we
+ * already hold against the answer.
+ *
+ * The second half is the point. Correcting the classifier does nothing to rows
+ * that were written under the old one, and for a month that meant the Outdoors
+ * shelf was full of private country houses.
+ */
+adminRouter.post('/kinds/refresh', requires('manage_library'), async (req, res, next) => {
+  try {
+    const types = await refreshKinds({});
+    const moved = await lib.reclassifyAttractions();
+    await query(
+      `insert into admin_audit (actor_id, actor_label, action, subject_type, after)
+       values ($1,$2,'library.kinds.refresh','kinds',$3)`,
+      [req.account?.id ?? null, actorOf(req), JSON.stringify({ types, reclassified: moved.length })]);
+    res.json({ types, reclassified: moved.length, moved: moved.slice(0, 50) });
+  } catch (err) { next(err); }
 });

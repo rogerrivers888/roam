@@ -60,6 +60,9 @@ const size = (bytes: number | string | null | undefined) => {
   return `${n} B`;
 };
 
+/** Roam's own eight words for what a place is (sources/wikimedia.js). */
+const CATEGORIES = ['heritage', 'outdoors', 'museum', 'family', 'arts', 'animals', 'active', 'landmark'];
+
 const STATE_TONE: Record<string, 'plain' | 'ok' | 'warn' | 'crit' | 'accent'> = {
   never: 'plain', queued: 'accent', running: 'accent', done: 'ok', failed: 'crit',
 };
@@ -441,6 +444,7 @@ function Pictures({ regions, canManage, wide }: { regions: LibraryRegion[]; canM
   const [q, setQ] = useState('');
   const [source, setSource] = useState<string | null>(null);
   const [region, setRegion] = useState<string | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
   const [credit, setCredit] = useState<boolean | null>(null);
   const [unlinked, setUnlinked] = useState(false);
   const [images, setImages] = useState<LibraryImage[]>([]);
@@ -455,6 +459,7 @@ function Pictures({ regions, canManage, wide }: { regions: LibraryRegion[]; canM
     try {
       const r = await api.libraryImages({
         q: q || undefined, source: source ?? undefined, region: region ?? undefined,
+        category: category ?? undefined,
         credit: credit ?? undefined, unlinked: unlinked || undefined, limit: 60,
       });
       // A slow answer to an old query must not overwrite a fast answer to the
@@ -462,7 +467,7 @@ function Pictures({ regions, canManage, wide }: { regions: LibraryRegion[]; canM
       if (mine !== seq.current) return;
       setImages(r.images); setTotal(r.total);
     } finally { if (mine === seq.current) setBusy(false); }
-  }, [q, source, region, credit, unlinked]);
+  }, [q, source, region, category, credit, unlinked]);
   useEffect(() => { const t = setTimeout(load, q ? 250 : 0); return () => clearTimeout(t); }, [load, q]);
 
   return (
@@ -480,14 +485,23 @@ function Pictures({ regions, canManage, wide }: { regions: LibraryRegion[]; canM
           ) : null}
         </View>
         <FilterRow>
-          <FilterChip label="Everything" on={!source && credit == null && !unlinked && !region}
-                      onPress={() => { setSource(null); setCredit(null); setUnlinked(false); setRegion(null); }} />
+          <FilterChip label="Everything" on={!source && credit == null && !unlinked && !region && !category}
+                      onPress={() => { setSource(null); setCredit(null); setUnlinked(false); setRegion(null); setCategory(null); }} />
           <FilterChip label="Wikimedia" on={source === 'wikimedia'} onPress={() => setSource(source === 'wikimedia' ? null : 'wikimedia')} />
           <FilterChip label="From households" on={source === 'household'} onPress={() => setSource(source === 'household' ? null : 'household')} />
           <FilterChip label="Needs a credit" on={credit === true} onPress={() => setCredit(credit === true ? null : true)} />
           <FilterChip label="Free of conditions" on={credit === false} onPress={() => setCredit(credit === false ? null : false)} />
           <FilterChip label="Attached to nothing" on={unlinked} onPress={() => setUnlinked(!unlinked)} />
         </FilterRow>
+        {/* What Roam files the place under. Stacked under the region chips on
+            purpose: "kids' things in Berkshire" is two taps, and the pair
+            together is the question the owner actually asks of this screen. */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
+          {CATEGORIES.map((c) => (
+            <FilterChip key={c} label={c[0].toUpperCase() + c.slice(1)} on={category === c}
+                        onPress={() => setCategory(category === c ? null : c)} />
+          ))}
+        </ScrollView>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs }}>
           {regions.filter((r) => r.image_count > 0).map((r) => (
             <FilterChip key={r.slug} label={r.name} on={region === r.slug}
@@ -516,6 +530,9 @@ function Pictures({ regions, canManage, wide }: { regions: LibraryRegion[]; canM
             </View>
             <Text style={styles.cellTitle} numberOfLines={1}>{img.title ?? img.source_ref}</Text>
             <Row style={{ gap: 4, flexWrap: 'wrap' }}>
+              {/* The calculated category, on the tile — the owner asked to see
+                  what each picture had been filed as without opening it. */}
+              {img.categories ? <Pill label={img.categories} tone="accent" /> : null}
               <Pill label={img.licence} tone={img.attribution_required ? 'plain' : 'ok'} />
               {img.moderation !== 'approved' ? <Pill label={img.moderation} tone="warn" /> : null}
             </Row>

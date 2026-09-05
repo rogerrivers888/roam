@@ -143,31 +143,49 @@ export const ATTRACTION_ROOTS = {
   Q570116: 'landmark',   // tourist attraction
   Q33506: 'museum',      // museum
   Q207694: 'arts',       // art museum
+  // --- outdoors -----------------------------------------------------------
+  // Everything a family calls "getting outside". Lakes, forests, hills and
+  // country parks were all missing, which is why Virginia Water — one of the
+  // best-known days out in the owner's own postcode — could never appear: it is
+  // `instance of lake`, and lake descended from nothing we admitted.
   Q22698: 'outdoors',    // park
+  Q350723: 'outdoors',   // country park
   Q1107656: 'outdoors',  // garden
   Q167346: 'outdoors',   // botanical garden
+  Q272231: 'outdoors',   // arboretum
   Q473972: 'outdoors',   // protected area
   Q179049: 'outdoors',   // nature reserve
-  Q1802963: 'outdoors',  // beach
+  Q40080: 'outdoors',    // beach
+  Q23397: 'outdoors',    // lake
+  Q131681: 'outdoors',   // reservoir
+  Q4421: 'outdoors',     // forest
+  Q54050: 'outdoors',    // hill
+  Q2259176: 'outdoors',  // common land
   Q35509: 'outdoors',    // cave
   Q34038: 'outdoors',    // waterfall
+  Q13405588: 'outdoors', // long-distance trail
+  Q1757063: 'active',    // lido
+  Q11875349: 'family',   // playground
+  // --- heritage -----------------------------------------------------------
   Q23413: 'heritage',    // castle
   Q16560: 'heritage',    // palace
   Q2087181: 'heritage',  // historic house museum
+  // A mansion is a building, not a walk. This root said 'outdoors' for a month
+  // because the list was written from memory and Q1802963 was noted down as
+  // "beach"; twenty-two kinds of English country house inherited it, and the
+  // Outdoors shelf near Ascot filled with private estates and wedding venues.
+  // Every root in this table has since been read back from Wikidata and checked
+  // against its own label — three of thirty-five were wrong.
+  Q1802963: 'heritage',  // mansion
   Q839954: 'heritage',   // archaeological site
   Q4989906: 'heritage',  // monument
   Q38720: 'heritage',    // windmill
-  // Churches were the largest hole in the first version of this list: nothing
-  // in the tree above put Canterbury Cathedral in Kent, which is the county's
-  // best-known place to go. Parish churches come in with them and stay out of
-  // the published set on their score rather than by being unlisted, which is
-  // the right way round — a village church that people actually visit should be
-  // able to earn its place.
   Q16970: 'heritage',    // church building (cathedrals and abbeys are under it)
   Q2977: 'heritage',     // cathedral
   Q44613: 'heritage',    // monastery
   Q4663971: 'heritage',  // abbey
-  Q1497375: 'heritage',  // pilgrimage site
+  Q15135589: 'heritage', // pilgrimage site
+  // --- landmarks, arts, days out ------------------------------------------
   Q39715: 'landmark',    // lighthouse
   Q12280: 'landmark',    // bridge
   Q15897166: 'landmark', // pier
@@ -175,7 +193,7 @@ export const ATTRACTION_ROOTS = {
   Q24354: 'arts',        // theatre building
   Q1060829: 'arts',      // concert hall
   Q43501: 'animals',     // zoo
-  Q2281788: 'animals',   // aquarium
+  Q2281788: 'animals',   // public aquarium
   Q194195: 'family',     // amusement park
   Q420962: 'family',     // heritage railway
   Q1251750: 'family',    // distillery (and by subclass, breweries with a tour)
@@ -198,15 +216,50 @@ export async function attractionKinds() {
       VALUES ?root { ${roots} }
       ?type wdt:P279* ?root .
     }`);
+  // A type under two roots takes the one declared first in ATTRACTION_ROOTS.
+  // This used to take whichever row the query service happened to return first,
+  // which is not an order at all — so which category a type ended up in was
+  // effectively arbitrary and changed between refreshes.
+  const priority = new Map(Object.keys(ATTRACTION_ROOTS).map((q, i) => [q, i]));
   const byType = new Map();
   for (const r of rows) {
     const t = qid(r.type); const root = qid(r.root);
-    // A type under two roots takes the first, which is the order above: the
-    // specific roots come before the general ones so a zoo stays an animals
-    // place rather than becoming a generic landmark.
-    if (!byType.has(t)) byType.set(t, { qid: t, rootQid: root, category: ATTRACTION_ROOTS[root] ?? 'landmark' });
+    const rank = priority.get(root);
+    if (rank == null) continue;
+    const held = byType.get(t);
+    if (held && priority.get(held.rootQid) <= rank) continue;
+    byType.set(t, { qid: t, rootQid: root, category: ATTRACTION_ROOTS[root] });
   }
   return [...byType.values()];
+}
+
+/**
+ * What each of those types is called, in English.
+ *
+ * `place_kinds` is filled from a subclass walk that returns identifiers and
+ * nothing else, so the classifier reads as a column of Q-numbers — which is
+ * fine for a pipeline and useless for a person. Nobody can decide whether
+ * "Q1154710" belongs on the Adrenaline shelf; everybody can decide whether an
+ * association football venue does. Asked in batches, because a VALUES clause
+ * of five thousand is a query nothing answers.
+ */
+export async function kindLabels(qids, { batch = 300 } = {}) {
+  const out = new Map();
+  for (let i = 0; i < qids.length; i += batch) {
+    const slice = qids.slice(i, i + batch);
+    const rows = await sparql(`
+      SELECT ?type ?typeLabel WHERE {
+        VALUES ?type { ${slice.map((q) => `wd:${q}`).join(' ')} }
+        SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
+      }`);
+    for (const r of rows) {
+      const q = qid(r.type);
+      // The label service answers with the Q-number itself when there is no
+      // English label; that is not a name and is worse than none.
+      if (q && r.typeLabel && r.typeLabel !== q) out.set(q, r.typeLabel);
+    }
+  }
+  return out;
 }
 
 /**
