@@ -34,6 +34,19 @@ import { fetchHtml, fetchPicture } from './pictureBytes.js';
 // a blurred smear at the size the home screen draws. 64px is the smallest that
 // survives a 56px tile on a 2× screen.
 const MIN_PX = 64;
+
+/**
+ * Hosts whose icon is theirs, not the restaurant's.
+ *
+ * `place_records.website` is often a profile rather than a site — plenty of
+ * small restaurants publish an Instagram page and nothing else — and the icon
+ * on instagram.com is Instagram's. Two Windsor restaurants came back with
+ * byte-identical 5038-byte marks because of this, which is precisely the
+ * "generic images mixed and matched across restaurants" the owner did not want
+ * (5 Sep 2026). A place whose only web presence is a profile gets no logo and
+ * falls through to the next rung, which is the honest answer.
+ */
+const PLATFORM = /(^|\.)(instagram|facebook|fb|twitter|x|tiktok|linktr\.ee|linktree|youtube|pinterest|tripadvisor|yelp|google|goo\.gl|deliveroo|ubereats|just-?eat|opentable|resdiary|sevenrooms|thefork|bookatable|square\.site|linkin\.bio|beacons\.ai|carrd\.co|wixsite|squarespace|godaddysites|business\.site)\./i;
 // A logo is square or nearly so. A 1200×630 sharing card is not a logo, and
 // this ratio is what keeps `og:image` out by the back door.
 const MAX_RATIO = 1.6;
@@ -143,6 +156,9 @@ function fromIcons(html, base) {
 export async function findLogo({ website } = {}) {
   const url = String(website ?? '').trim();
   if (!/^https?:\/\//i.test(url)) return null;
+  // Their profile on somebody else's platform is not their website, and the
+  // icon on it is not their mark.
+  try { if (PLATFORM.test(new URL(url).hostname)) return null; } catch { return null; }
 
   const page = await fetchHtml(url);
   // A site that will not serve its home page can still be serving the icon at

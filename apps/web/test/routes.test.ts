@@ -39,9 +39,10 @@ test('Food is a door into Places, so it is not a shelf and has no address', () =
   assert.equal(parseRoute('/inspire/food').name, 'unknown');
 });
 
-test('Places: the atlas, close to home, and one city', () => {
+test('Places: the atlas, close to home, one country, and one area in it', () => {
   assert.deepEqual(roundTrip('/places'), { name: 'places', scope: null });
   assert.deepEqual(roundTrip('/places/home'), { name: 'places', scope: { home: true } });
+  assert.deepEqual(roundTrip('/places/IT'), { name: 'places', scope: { country: 'IT', city: null } });
   assert.deepEqual(roundTrip('/places/GB/London'), { name: 'places', scope: { country: 'GB', city: 'London' } });
 });
 
@@ -52,8 +53,11 @@ test('a city with a space in its name survives the round trip', () => {
   assert.equal(hrefOf(parseRoute(href)), href);
 });
 
-test('a country on its own is the atlas, not a page of its own', () => {
-  assert.deepEqual(parseRoute('/places/GB'), { name: 'places', scope: null });
+test('a country is a page of its own: its areas and its trips (handover, 5 Sep 2026)', () => {
+  assert.deepEqual(parseRoute('/places/GB'), { name: 'places', scope: { country: 'GB', city: null } });
+  assert.equal(paths.placesCountry('IT'), '/places/IT');
+  // Lower case in the bar still means the same country.
+  assert.deepEqual(parseRoute('/places/it'), { name: 'places', scope: { country: 'IT', city: null } });
 });
 
 test('Trips: the list, the form, a trip, a trip’s tab, and one day of it', () => {
@@ -61,6 +65,9 @@ test('Trips: the list, the form, a trip, a trip’s tab, and one day of it', () 
   assert.deepEqual(roundTrip('/trips/new'), { name: 'trips', creating: true, tripId: null, section: null, dayId: null });
   assert.deepEqual(roundTrip('/trips/abc'), { name: 'trips', creating: false, tripId: 'abc', section: null, dayId: null });
   assert.deepEqual(roundTrip('/trips/abc/shortlist'), { name: 'trips', creating: false, tripId: 'abc', section: 'shortlist', dayId: null });
+  assert.deepEqual(roundTrip('/trips/abc/itinerary'), { name: 'trips', creating: false, tripId: 'abc', section: 'itinerary', dayId: null });
+  assert.deepEqual(roundTrip('/trips/abc/places'), { name: 'trips', creating: false, tripId: 'abc', section: 'places', dayId: null });
+  assert.deepEqual(roundTrip('/trips/abc/map'), { name: 'trips', creating: false, tripId: 'abc', section: 'map', dayId: null });
   assert.deepEqual(roundTrip('/trips/abc/day/d1'), { name: 'trips', creating: false, tripId: 'abc', section: 'day', dayId: 'd1' });
 });
 
@@ -139,13 +146,16 @@ test('Back has somewhere to go for somebody who arrived on a shared link', () =>
   assert.equal(parentOf(parseRoute('/trips/abc/day/d1')), '/trips/abc/day');
   assert.equal(parentOf(parseRoute('/trips/abc/shortlist')), '/trips/abc');
   assert.equal(parentOf(parseRoute('/trips/abc')), '/trips');
-  assert.equal(parentOf(parseRoute('/places/GB/London')), '/places');
+  assert.equal(parentOf(parseRoute('/places/GB/London')), '/places/GB');
+  assert.equal(parentOf(parseRoute('/places/GB')), '/places');
+  assert.equal(parentOf(parseRoute('/places/home')), '/places');
   assert.equal(parentOf(parseRoute('/household/m1')), '/household');
   assert.equal(parentOf(parseRoute('/admin/audit')), '/admin/overview');
 });
 
 test('a window of Roam tabs is not seven identical ones', () => {
   assert.equal(titleOf(parseRoute('/places/GB/London')), 'London · Roam');
+  assert.equal(titleOf(parseRoute('/places/IT')), 'IT · Roam');
   assert.equal(titleOf(parseRoute('/inspire/culture')), 'Culture · Roam');
   assert.equal(titleOf(parseRoute('/nowhere')), 'Not a page · Roam');
 });

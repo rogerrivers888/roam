@@ -12,14 +12,15 @@
  *   /inspire/culture                      …one shelf, opened out
  *   /inspire?place=<ref>                  …a place's drawer, over either
  *   /plan                              the conversational planner
- *   /places                            the atlas
+ *   /places                            the atlas: near home, the UK, abroad
  *   /places/home                          …everything close to home
- *   /places/GB/London                     …one city
+ *   /places/GB                            …one country: its areas, its trips
+ *   /places/GB/London                     …one area
  *   /places/GB/London?place=<ref>         …a place's drawer
  *   /trips                             the trips
  *   /trips/new                            …the new-trip form
  *   /trips/<id>                           …one trip
- *   /trips/<id>/shortlist                 …on one of its tabs
+ *   /trips/<id>/places                    …on one of its tabs
  *   /trips/<id>/day/<dayId>               …on one day of it
  *   /household                         the family
  *   /household/<memberId>                 …one person
@@ -71,8 +72,15 @@ export type Tab = 'inspire' | 'plan' | 'places' | 'trips' | 'household' | 'setti
 
 export const MOODS: MoodKey[] = ['fun', 'food', 'culture', 'adrenaline', 'relaxing', 'outdoors'];
 
-export type TripSection = 'find' | 'shortlist' | 'day' | 'stay' | 'group' | 'data';
-export const TRIP_SECTIONS: TripSection[] = ['find', 'shortlist', 'day', 'stay', 'group', 'data'];
+/**
+ * A trip's tabs. The first three are the ones on the segmented control
+ * (handover, 5 Sep 2026: "Itinerary | Places · n | Map"); the rest are the
+ * working surfaces, which moved into the ⋯ menu rather than being taken away.
+ */
+export type TripSection = 'itinerary' | 'places' | 'map' | 'find' | 'shortlist' | 'day' | 'stay' | 'group' | 'data';
+export const TRIP_SECTIONS: TripSection[] = ['itinerary', 'places', 'map', 'find', 'shortlist', 'day', 'stay', 'group', 'data'];
+/** The three the segmented control draws; the others are reached from the menu. */
+export const TRIP_TABS: TripSection[] = ['itinerary', 'places', 'map'];
 
 export type SettingsSection = 'preferences' | 'providers';
 export const SETTINGS_SECTIONS: SettingsSection[] = ['preferences', 'providers'];
@@ -87,8 +95,12 @@ export const ADMIN_SCREENS: AdminScreen[] = [
   'overview', 'accounts', 'households', 'activity', 'reporting', 'library', 'shelves', 'scout', 'roles', 'plans', 'audit',
 ];
 
-/** Where the atlas is pointed: nowhere yet, close to home, or one city. */
-export type PlacesScope = null | { home: true } | { country: string; city: string };
+/**
+ * Where the atlas is pointed: nowhere yet, close to home, one country, or one
+ * area inside it. A country is a page now — its areas and its trips (handover,
+ * 5 Sep 2026) — so it has an address of its own.
+ */
+export type PlacesScope = null | { home: true } | { country: string; city: string | null };
 
 export type Route =
   | { name: 'inspire'; searching: boolean; shelf: MoodKey | null }
@@ -134,9 +146,8 @@ export function parseRoute(path: string): Route {
     case 'places': {
       if (!a) return { name: 'places', scope: null };
       if (a === 'home') return { name: 'places', scope: { home: true } };
-      // A country on its own has no page of its own — the atlas already shows
-      // every country — so it takes you back to the atlas with that one open.
-      if (!b) return { name: 'places', scope: null };
+      // A country is a page: the areas in it, and the trips that went there.
+      if (!b) return { name: 'places', scope: { country: a.toUpperCase(), city: null } };
       return { name: 'places', scope: { country: a.toUpperCase(), city: b } };
     }
 
@@ -207,6 +218,7 @@ export const paths = {
   plan: () => '/plan',
   places: () => '/places',
   placesHome: () => '/places/home',
+  placesCountry: (country: string) => buildHref(['places', country]),
   placesCity: (country: string, city: string) => buildHref(['places', country, city]),
   trips: () => '/trips',
   newTrip: () => '/trips/new',
@@ -237,7 +249,10 @@ export function tabOf(route: Route): Tab | null {
 export function parentOf(route: Route): string {
   switch (route.name) {
     case 'inspire': return route.searching || route.shelf ? '/inspire' : '/inspire';
-    case 'places': return route.scope ? '/places' : '/inspire';
+    case 'places':
+      if (!route.scope) return '/inspire';
+      if ('home' in route.scope) return '/places';
+      return route.scope.city ? paths.placesCountry(route.scope.country) : '/places';
     case 'trips':
       if (route.dayId) return paths.trip(route.tripId!, 'day');
       if (route.section) return paths.trip(route.tripId!);
@@ -260,7 +275,7 @@ export function titleOf(route: Route): string {
     case 'inspire': return roam(route.searching ? 'Where should we go?' : route.shelf ? `${route.shelf[0].toUpperCase()}${route.shelf.slice(1)}` : 'Inspire');
     case 'plan': return roam('Plan');
     case 'places':
-      return roam(route.scope == null ? 'Places' : 'home' in route.scope ? 'Close to home' : route.scope.city);
+      return roam(route.scope == null ? 'Places' : 'home' in route.scope ? 'Close to home' : route.scope.city ?? route.scope.country);
     case 'trips': return roam(route.creating ? 'A new trip' : route.tripId ? 'Trip' : 'Trips');
     case 'household': return roam('Household');
     case 'settings': return roam('Settings');

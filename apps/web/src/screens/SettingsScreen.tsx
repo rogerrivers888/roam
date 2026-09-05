@@ -155,7 +155,14 @@ function Preferences({ data, refresh }: { data: HouseholdResponse; refresh: () =
 
       <SectionTitle hint="A place's row in Places shows one score: this person's. Everyone's are in the drawer. Kept on this device.">Ratings shown as</SectionTitle>
       <Card>
-        <Segmented value={viewer ?? ''} options={data.members.map((m) => ({ value: m.id, label: m.name.split(' ')[0] }))} onChange={(id) => { setViewer(id); setViewerState(id); }} />
+        {/* "Anyone" is a real answer, and the Places redesign's Anyone ▾ chip sets
+            the same thing: a row then shows what the household said between them
+            rather than one person's mark. */}
+        <Segmented
+          value={viewer ?? ''}
+          options={[{ value: '', label: 'Anyone' }, ...data.members.map((m) => ({ value: m.id, label: m.name.split(' ')[0] }))]}
+          onChange={(id) => { setViewer(id || null); setViewerState(id || null); }}
+        />
       </Card>
 
       <SectionTitle>Voice</SectionTitle>

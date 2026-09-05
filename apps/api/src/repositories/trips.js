@@ -47,7 +47,18 @@ export async function tripsFor(householdId, { country, kind, when, q } = {}) {
             (select count(*)::int from trip_shortlist s where s.trip_id = t.id) as shortlist_count,
             (select count(*)::int from visits v where v.trip_id = t.id) as visit_count,
             (select count(*)::int from ratings r join visits v on v.id = r.visit_id where v.trip_id = t.id) as rating_count,
-            (select json_agg(m.name order by m.name) from trip_attendees ta join members m on m.id = ta.member_id where ta.trip_id = t.id) as attendees
+            -- How many places this trip touched, and how many of them nobody
+            -- has said anything about yet: a past trip's card leads with the
+            -- rating it is still owed (handover, 5 Sep 2026: "rate 3").
+            (select count(distinct venue_ref)::int from (
+               select venue_ref from trip_stops where trip_id = t.id
+               union select venue_ref from trip_shortlist where trip_id = t.id
+               union select venue_ref from visits where trip_id = t.id) x) as place_count,
+            (select count(*)::int from visits v
+              where v.trip_id = t.id
+                and not exists (select 1 from ratings r where r.visit_id = v.id and r.subject = 'visit')) as unrated_count,
+            (select json_agg(json_build_object('id', m.id, 'name', m.name) order by m.name)
+               from trip_attendees ta join members m on m.id = ta.member_id where ta.trip_id = t.id) as attendees
        from trips t where ${where.join(' and ')}
       order by coalesce(t.start_date, t.depart_at::date) desc`,
     params,
@@ -704,4 +715,65 @@ export async function dayRow(dayId) {
 export async function tripOfHouseholdFull(tripId, householdId) {
   const { rows } = await query('select * from trips where id = $1 and household_id = $2', [tripId, householdId]);
   return rows[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// every place a trip touched
+// ---------------------------------------------------------------------------
+
+/**
+ * Every place this trip touched, once each, whichever way it got here — booked
+ * onto a day, kept on the shortlist, visited, or slept in.
+ *
+ * The handover, 5 Sep 2026: "Places = every place the trip touched, grouped
+ * Hotels / Activities / Food & drink … each row shows the day, star rating or
+ * red Rate nudge." So this is a union rather than a read of one table: a
+ * restaurant they walked into is a visit with no stop, the masseria is the
+ * trip's base, and the gallery they never got to is still on the shortlist.
+ *
+ * The household's own name is what a row says, because the household wrote it
+ * (Technical Constraints §13.10) — a provider's name for a place is rented and
+ * never stored, so it is never what comes back from here.
+ */
+export async function placesOfTrip(tripId) {
+  const { rows } = await query(
+    `with touched as (
+       select s.venue_ref, s.venue_name as label, null::text as category, s.lat, s.lng,
+              d.date as on_date, s.dwell_minutes, 'stop' as via, s.booking_status
+         from trip_stops s left join trip_days d on d.id = s.day_id
+        where s.trip_id = $1
+       union all
+       select sl.venue_ref, sl.venue_label, sl.category, sl.lat, sl.lng,
+              d.date, sl.dwell_minutes, 'shortlist', sl.status
+         from trip_shortlist sl left join trip_days d on d.id = sl.day_id
+        where sl.trip_id = $1
+       union all
+       select v.venue_ref, v.venue_label, v.category, v.lat, v.lng,
+              v.visited_on, null::integer, 'visit', null::text
+         from visits v where v.trip_id = $1
+     )
+     select t.venue_ref,
+            (array_agg(t.label order by (t.label <> t.venue_ref) desc))[1] as label,
+            (array_agg(t.category order by (t.category is not null) desc))[1] as category,
+            (array_agg(t.lat order by (t.lat is not null) desc))[1] as lat,
+            (array_agg(t.lng order by (t.lng is not null) desc))[1] as lng,
+            min(t.on_date) as first_on,
+            max(t.on_date) as last_on,
+            max(t.dwell_minutes) as dwell_minutes,
+            bool_or(t.via = 'visit') as visited,
+            bool_or(t.via = 'stop') as scheduled,
+            bool_or(t.via = 'shortlist') as shortlisted,
+            (array_agg(t.booking_status order by (t.booking_status is not null) desc))[1] as booking_status,
+            hp.category as atlas_category, hp.kind as atlas_kind,
+            (select json_agg(json_build_object('memberId', r.member_id, 'member', m.name, 'score', r.score))
+               from ratings r join visits v2 on v2.id = r.visit_id join members m on m.id = r.member_id
+              where v2.trip_id = $1 and v2.venue_ref = t.venue_ref and r.subject = 'visit' and r.score is not null) as scores
+       from touched t
+       left join trips tr on tr.id = $1
+       left join household_places hp on hp.household_id = tr.household_id and hp.venue_ref = t.venue_ref
+      group by t.venue_ref, hp.category, hp.kind
+      order by min(t.on_date) nulls last, label`,
+    [tripId],
+  );
+  return rows;
 }

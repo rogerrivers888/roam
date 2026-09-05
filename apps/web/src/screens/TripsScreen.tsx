@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import { GroupPanel } from '../components/GroupPanel';
-import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, Stay, TripDay, TripDetail, TripSummary, Venue, DayStop } from '../api';
-import { colors, memberColors, radius, spacing, TARGET, type } from '../theme';
+import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, Stay, TripDay, TripDetail, TripPlace, TripSummary, Venue, DayStop } from '../api';
+import { colors, fonts, memberColors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, FoldLine, Row, Segmented, StatusLine, Wrap, clock, minutes } from '../components/ui';
 import { SourcePicker, TripSpendLine } from '../components/SourcePicker';
 import { TimeBar } from '../components/TimeBar';
-import { WhoLine } from '../components/Faces';
+import { Avatar, WhoLine } from '../components/Faces';
 import { PlacePicker } from '../components/PlacePicker';
 import { DateRangePicker, monthSpanLabel } from '../components/DateRangePicker';
 import { TimeRangePicker, timeLabel } from '../components/TimePicker';
@@ -15,17 +15,20 @@ import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { BrowsePool } from '../components/BrowsePool';
 import { MapView, MapPin } from '../components/MapView';
 import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
+import { VenueThumb } from '../components/VenueThumb';
+import { PickSheet } from '../components/PickSheet';
+import { TripCard } from '../components/TripCard';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
-import { CategoryIcon, Icon, Rating } from '../components/Icon';
+import { CategoryIcon, Icon, IconName, Rating, Stars } from '../components/Icon';
 import { ShortlistJourney, TripJourneyDay } from '../components/Journey';
 import { BrowseNear, FindCat, FindState, emptyFind } from '../components/BrowseNear';
 import { getSpeakPref } from './SettingsScreen';
 import { SourceDataPanel } from '../components/SourceData';
 import { isAdmin } from '../admin';
 import { recallScreen, rememberScreen } from '../screenState';
-import { asOneOf, useQueryState, useRouter } from '../router';
-import { paths, type Route, type TripSection } from '../routes';
+import { asOneOf, asText, useQueryState, useRouter } from '../router';
+import { paths, TRIP_TABS, type Route, type TripSection } from '../routes';
 import { accuracyWords, useHere } from '../hooks/useHere';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
@@ -72,8 +75,17 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
   const [data, setData] = useState<Awaited<ReturnType<typeof api.trips>> | null>(null);
   const creating = route.creating;
   const openId = route.tripId;
-  // Which fold is down is how the list is set, so it is query rather than path.
-  const [fold, setFold] = useQueryState<'later' | 'past' | null>('fold', null, asOneOf(['later', 'past'] as const, null));
+  /**
+   * How the list is set (handover, 5 Sep 2026, screen 2a): "Day trips /
+   * Holidays segmented. Filters: area (All areas · UK · Abroad), when (defaults
+   * Upcoming), who." All of it is query, because it is how the page is set and
+   * not which page it is (CLAUDE.md).
+   */
+  const [span, setSpan] = useQueryState<'day' | 'holiday'>('span', 'day', asOneOf(['day', 'holiday'] as const, 'day'));
+  const [when, setWhen] = useQueryState<'upcoming' | 'past'>('when', 'upcoming', asOneOf(['upcoming', 'past'] as const, 'upcoming'));
+  const [area, setArea] = useQueryState<string | null>('area', null, asText);
+  const [who, setWho] = useQueryState<string | null>('who', null, asText);
+  const [sheet, setSheet] = useState<'area' | 'when' | 'who' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Which trip the address has open, for the loader — as a ref, so opening one
@@ -90,21 +102,6 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
   }, [navigate]);
   useEffect(() => { load(); }, [load]);
 
-  // What is about to happen is in view; everything else is folded away (owner, 3 Sep 2026).
-  const buckets = useMemo(() => {
-    const all = data?.trips ?? [];
-    const today = new Date(new Date().toDateString());
-    const soon = new Date(today.getTime() + 14 * 86400000);
-    const startOf = (t: TripSummary) => new Date(t.startDate ? `${t.startDate}T12:00:00` : t.departAt);
-    const asc = (a: TripSummary, b: TripSummary) => +startOf(a) - +startOf(b);
-    return {
-      up: all.filter((t) => !t.isPast && startOf(t) <= soon).sort(asc),
-      later: all.filter((t) => !t.isPast && startOf(t) > soon).sort(asc),
-      past: all.filter((t) => t.isPast).sort((a, b) => asc(b, a)),
-      startOf,
-    };
-  }, [data]);
-
   if (openId) {
     return (
       <TripPage
@@ -120,61 +117,76 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
     );
   }
 
-  const daysAway = (t: TripSummary) => {
-    const n = Math.round((+buckets.startOf(t) - +new Date(new Date().toDateString())) / 86400000);
-    return n <= 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`;
+  const all = data?.trips ?? [];
+  const homeCode = data?.countries?.[0]?.code ?? null;
+  const startOf = (t: TripSummary) => new Date(t.startDate ? `${t.startDate}T12:00:00` : t.departAt);
+
+  /** A night away is a holiday; everything else is a day out, whatever it calls itself. */
+  const inSpan = (t: TripSummary) => (span === 'holiday' ? t.nights > 0 : t.nights === 0);
+  const inArea = (t: TripSummary) => {
+    if (!area) return true;
+    if (area === 'uk') return t.countryCode === homeCode;
+    if (area === 'abroad') return !!t.countryCode && t.countryCode !== homeCode;
+    return t.countryCode === area;
   };
-  const card = (t: TripSummary, hero: boolean) => (
-    <Pressable key={t.id} onPress={() => navigate(paths.trip(t.id))} accessibilityRole="button">
-      <Card style={[{ gap: 4 }, hero && { borderColor: colors.accent, borderWidth: 2 }]}>
-        <Row style={{ justifyContent: 'space-between' }}>
-          <Text style={[type.h3, { flex: 1 }]}>{t.title ?? t.place?.label ?? t.origin.label}</Text>
-          <Text style={type.tiny}>{t.isPast ? 'past' : daysAway(t)}</Text>
-        </Row>
-        <Text style={type.small}>
-          {t.kind === 'trip' ? fmtRange(t.startDate, t.endDate) : `${fmtDate(t.departAt)} · ${clock(t.departAt)}–${clock(t.returnAt)}`}
-          {t.locality ? ` · ${t.locality}` : t.country ? ` · ${t.country}` : ''}{t.base?.label && t.kind === 'trip' ? ` · staying ${t.base.label}` : ''}
-        </Text>
-        <Wrap>
-          {t.kind === 'trip' ? <Chip label={`${t.dayCount} day${t.dayCount === 1 ? '' : 's'}`} /> : null}
-          {t.stopCount ? <Chip label={`${t.stopCount} on the day`} icon="booked" tone="like" /> : <Chip label={t.shortlistCount ? `Shortlist · ${t.shortlistCount}` : 'Nothing shortlisted yet'} icon="list" tone={t.shortlistCount ? 'want' : 'neutral'} />}
-          {t.stopCount && t.shortlistCount > t.stopCount ? <Chip label={`${t.shortlistCount - t.stopCount} kept for later`} icon="shortlist" /> : null}
-          {t.visitCount ? <Chip label={`${t.visitCount} visited`} tone="accent" /> : null}
-          {t.attendees.length ? <Chip label={t.attendees.join(', ')} /> : null}
-          <DeleteTrip id={t.id} onDeleted={load} />
-        </Wrap>
-      </Card>
-    </Pressable>
-  );
-  const foldRow = (key: 'later' | 'past', label: string, list: TripSummary[]) => (
-    list.length ? (
-      <View key={key} style={{ gap: spacing.sm }}>
-        <Pressable onPress={() => setFold(fold === key ? null : key)} style={styles.fold} accessibilityRole="button">
-          <Text style={[type.small, { fontWeight: '700' }]}>{label}</Text>
-          <Text style={[type.tiny, { flex: 1 }]} numberOfLines={1}>{list.slice(0, 3).map((t) => `${t.title ?? t.place?.label ?? t.origin.label}, ${fmtDate(t.startDate ?? t.departAt)}`).join(' · ')}{list.length > 3 ? ` · ${list.length - 3} more` : ''}</Text>
-          <Icon name={fold === key ? 'collapse' : 'more'} size={16} color={colors.inkFaint} />
-        </Pressable>
-        {fold === key ? list.map((t) => card(t, false)) : null}
-      </View>
-    ) : null
-  );
-  const sameDay = new Map<string, number>();
-  for (const t of buckets.up) { const k = t.startDate ?? t.departAt.slice(0, 10); sameDay.set(k, (sameDay.get(k) ?? 0) + 1); }
-  const clashes = [...sameDay.entries()].filter(([, n]) => n > 1);
+  const inWho = (t: TripSummary) => !who || t.attendees.some((a) => a.id === who);
+  const shown = all.filter((t) => inSpan(t) && inArea(t) && inWho(t) && (when === 'past' ? t.isPast : !t.isPast));
+  const pastCount = all.filter((t) => inSpan(t) && inArea(t) && inWho(t) && t.isPast).length;
+
+  /**
+   * Upcoming is grouped by month and past by year (handover 2a/2b): what is
+   * coming needs "which weekend"; what is gone needs "which year we did that".
+   */
+  const groups = (() => {
+    const now = new Date();
+    const key = (t: TripSummary) => {
+      const d = startOf(t);
+      if (when === 'past') return String(d.getFullYear());
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+        ? 'This month'
+        : d.toLocaleDateString([], { month: 'long', ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) });
+    };
+    const asc = (a: TripSummary, b: TripSummary) => +startOf(a) - +startOf(b);
+    const sorted = [...shown].sort(when === 'past' ? (a, b) => asc(b, a) : asc);
+    const out: { label: string; trips: TripSummary[] }[] = [];
+    for (const t of sorted) {
+      const k = key(t);
+      const g = out.find((x) => x.label === k) ?? (out.push({ label: k, trips: [] }), out[out.length - 1]);
+      g.trips.push(t);
+    }
+    return out;
+  })();
+
+  const countries = data?.countries ?? [];
+  const areaOptions = [
+    { value: '', label: 'All areas', count: all.filter(inSpan).length },
+    ...(homeCode ? [{ value: 'uk', label: countries.find((c) => c.code === homeCode)?.name ?? 'Home', count: all.filter((t) => inSpan(t) && t.countryCode === homeCode).length }] : []),
+    { value: 'abroad', label: 'Abroad', count: all.filter((t) => inSpan(t) && !!t.countryCode && t.countryCode !== homeCode).length },
+    ...countries.filter((c) => c.code !== homeCode).map((c) => ({ value: c.code, label: c.name, count: c.trips })),
+  ];
+  const whenOptions = [
+    { value: 'upcoming', label: 'Upcoming', count: all.filter((t) => inSpan(t) && !t.isPast).length },
+    { value: 'past', label: 'Past', count: all.filter((t) => inSpan(t) && t.isPast).length },
+  ];
+  const whoOptions = [{ value: '', label: 'Anyone' }, ...(household?.members ?? []).map((m) => ({ value: m.id, label: m.name }))];
+  const areaLabel = areaOptions.find((o) => o.value === (area ?? ''))?.label ?? 'All areas';
+  const whoLabel = whoOptions.find((o) => o.value === (who ?? ''))?.label ?? 'Anyone';
 
   return (
-    <ScrollView contentContainerStyle={[styles.page, wide && { maxWidth: 760 }]} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={[styles.page, wide && { maxWidth: 860, alignSelf: 'center', width: '100%' }]} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={type.title}>{creating ? 'New trip' : 'Trips'}</Text>
-          <Text style={type.small}>{creating ? 'Where, when, and who — everything else can wait until it exists.' : "What's coming up in the next fortnight. Later and past trips are folded below."}</Text>
+          {creating ? <Text style={type.small}>Where, when, and who — everything else can wait until it exists.</Text> : null}
         </View>
-        <Button
-          label={creating ? 'Close' : 'New trip'}
-          icon={creating ? 'close' : 'add'}
-          kind={creating ? 'ghost' : 'primary'}
+        <Pressable
           onPress={() => { onSeedUsed?.(); navigate(creating ? paths.trips() : paths.newTrip()); }}
-        />
+          style={[styles.roundBtn, !creating && styles.roundBtnInk]}
+          accessibilityRole="button"
+          accessibilityLabel={creating ? 'Close' : 'New trip'}
+        >
+          <Icon name={creating ? 'close' : 'add'} size={20} color={creating ? colors.ink : colors.primaryFg} strokeWidth={2.2} />
+        </Pressable>
       </View>
 
       {/* A new trip is its own page: the trips you already have are not part of
@@ -205,18 +217,69 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
         </>
       ) : (
         <>
+          <Segmented
+            value={span}
+            options={[{ value: 'day' as const, label: 'Day trips' }, { value: 'holiday' as const, label: 'Holidays' }]}
+            onChange={setSpan}
+          />
+          <View style={styles.filters}>
+            <FilterChip label={areaLabel} on={!!area} onPress={() => setSheet('area')} />
+            <FilterChip label={when === 'past' ? 'Past' : 'Upcoming'} on={when === 'past'} onPress={() => setSheet('when')} />
+            <FilterChip label={whoLabel} on={!!who} onPress={() => setSheet('who')} />
+          </View>
+
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-          {data && !data.trips.length ? <Card><Text style={type.small}>No trips yet. Create one above, or open a city in Places and tap "Plan a trip here".</Text></Card> : null}
-          {buckets.up.length ? <Text style={[type.tiny, { letterSpacing: 0.4 }]}>UP NEXT · 14 DAYS</Text> : data && data.trips.length ? <Card><Text style={type.small}>Nothing in the next fortnight.</Text></Card> : null}
-          {buckets.up.map((t, i) => card(t, i === 0))}
-          {clashes.length ? <StatusLine tone="warn">{clashes.map(([k, n]) => `${n} trips on ${fmtDate(k)}`).join(' · ')}. Keep them all?</StatusLine> : null}
-          {foldRow('later', `Later · ${buckets.later.length}`, buckets.later)}
-          {foldRow('past', `Past · ${buckets.past.length}`, buckets.past)}
+          {!data ? <Text style={type.small}>Loading…</Text> : null}
+          {data && !all.length ? <Card><Text style={type.small}>No trips yet. Tap + above, or open an area in Places and tap "Plan a trip here".</Text></Card> : null}
+          {data && all.length && !shown.length ? (
+            <Card><Text style={type.small}>Nothing {when === 'past' ? 'behind you' : 'coming up'} that matches. Change a filter, or look at {span === 'day' ? 'Holidays' : 'Day trips'}.</Text></Card>
+          ) : null}
+
+          {groups.map((g) => (
+            <View key={g.label} style={{ gap: spacing.sm }}>
+              <Text style={type.label}>{g.label}</Text>
+              {g.trips.map((t) => <TripCard key={t.id} trip={t} members={household?.members ?? []} onPress={() => navigate(paths.trip(t.id))} />)}
+            </View>
+          ))}
+
+          {/* Past is a filter, not a fold: the link sets the When chip. */}
+          {when === 'upcoming' && pastCount ? (
+            <Pressable onPress={() => setWhen('past')} accessibilityRole="button" style={{ paddingVertical: spacing.sm }}>
+              <Row style={{ gap: 4 }}>
+                <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>Past trips · {pastCount}</Text>
+                <Icon name="forward" size={14} color={colors.accent} />
+              </Row>
+            </Pressable>
+          ) : null}
+          {when === 'past' ? (
+            <Pressable onPress={() => setWhen('upcoming')} accessibilityRole="button" style={{ paddingVertical: spacing.sm }}>
+              <Row style={{ gap: 4 }}>
+                <Icon name="back" size={14} color={colors.accent} />
+                <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>What's coming up</Text>
+              </Row>
+            </Pressable>
+          ) : null}
+
+          <PickSheet visible={sheet === 'area'} title="Where" options={areaOptions} value={area ?? ''} onPick={(v) => { setArea(v || null); setSheet(null); }} onClose={() => setSheet(null)} />
+          <PickSheet visible={sheet === 'when'} title="When" options={whenOptions} value={when} onPick={(v) => { setWhen(v as any); setSheet(null); }} onClose={() => setSheet(null)} />
+          <PickSheet visible={sheet === 'who'} title="Who's coming" options={whoOptions} value={who ?? ''} onPick={(v) => { setWho(v || null); setSheet(null); }} onClose={() => setSheet(null)} />
         </>
       )}
     </ScrollView>
   );
 }
+
+
+/** A dropdown, as a chip that opens a sheet. Same control as Places. */
+function FilterChip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.fchip, on && styles.fchipOn]} accessibilityRole="button">
+      <Text style={[styles.fchipText, on && { color: colors.primaryFg }]} numberOfLines={1}>{label}</Text>
+      <Icon name="expand" size={13} color={on ? colors.primaryFg : colors.ink} />
+    </Pressable>
+  );
+}
+
 
 // ---------------------------------------------------------------------------
 // New trip
@@ -532,9 +595,16 @@ function DeleteTrip({ id, onDeleted }: { id: string; onDeleted: () => Promise<vo
   );
 }
 
+/**
+ * One trip (handover 4a/4b): **Itinerary | Places · n | Map** across the top,
+ * and everything that is working rather than looking — Find, the shortlist, the
+ * day planner, Stay, Group — behind the ⋯ menu, which is where the handover
+ * puts them ("Shortlist / Group move to the ⋯ menu"). Nothing was taken away:
+ * every one of those tabs still has its own address and still opens.
+ */
 function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refreshHousehold, wide }: {
   id: string;
-  /** Which of the trip's tabs the address names — `/trips/<id>/shortlist` — or null for "wherever this trip is up to". */
+  /** Which of the trip's tabs the address names — `/trips/<id>/places` — or null for "wherever this trip is up to". */
   section: Section | null;
   /** And which day, when the address names one — `/trips/<id>/day/<dayId>`. */
   dayId: string | null;
@@ -547,12 +617,13 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
   // that opening the trip from the list lands where you left it; the address
   // always wins, so a link to one tab opens that tab.
   const sectionKey = `trip.${id}.section`;
-  const section: Section = asked ?? 'find';
+  const section: Section = asked ?? 'itinerary';
   const dayId = askedDay ?? d?.days[0]?.id ?? null;
   const setSection = (next: Section) => navigate(paths.trip(id, next, next === 'day' ? dayId : null));
   const setDayId = (next: string) => navigate(paths.trip(id, 'day', next));
   useEffect(() => { if (asked) rememberScreen<TripPageMemory>(sectionKey, { section: asked }); }, [sectionKey, asked]);
   const [planning, setPlanning] = useState(false);
+  const [menu, setMenu] = useState(false);
   /**
    * How Find was set when somebody was sent here — "things to do within 5 km,
    * free" — which is part of the address too, so the link opens the same list.
@@ -567,16 +638,14 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
   const load = useCallback(async () => {
     try {
       const t = await api.trip(id); setD(t);
-      // A saved day opens on the day; a shortlist in progress on the shortlist; an empty trip on Find (owner, 3 Sep 2026).
+      // Where you were when you left, then the trip's own front page — and
+      // either way the answer goes into the address, so the trip you are
+      // looking at can be sent to somebody.
       if (first.current) {
         first.current = false;
         if (!asked) {
-          const running = t.shortlist.some((s) => ['to_call', 'booked', 'no_booking'].includes(s.status));
-          // Where you were when you left, then the guess about what this trip
-          // is ready for — and either way the answer goes into the address, so
-          // the trip you are looking at can be sent to somebody.
           const remembered = recallScreen<TripPageMemory>(sectionKey)?.data.section ?? null;
-          const start = remembered ?? (t.days[0]?.slots.some((sl) => sl.stops.length) ? 'day' : running ? 'shortlist' : 'find');
+          const start = remembered ?? 'itinerary';
           navigate(paths.trip(id, start, start === 'day' ? t.days[0]?.id ?? null : null), { replace: true });
         }
       }
@@ -584,9 +653,18 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
+  // Every place this trip touched, for the Places tab and for the Map. Fetched
+  // once the trip is open, because both tabs draw the same list.
+  const [tripPlaces, setTripPlaces] = useState<{ places: TripPlace[]; counts: { all: number; do: number; eat: number; stay: number } } | null>(null);
+  const loadPlaces = useCallback(async () => {
+    try { setTripPlaces(await api.tripPlaces(id)); } catch { /* the itinerary still draws */ }
+  }, [id]);
+  useEffect(() => { loadPlaces(); }, [loadPlaces, d?.shortlist.length, d?.days.length]);
+
   if (!d) return <ScrollView contentContainerStyle={styles.page}><Button label="Trips" icon="back" kind="ghost" onPress={onBack} style={{ alignSelf: 'flex-start' }} />{error ? <StatusLine tone="warn">{error}</StatusLine> : <Text style={type.small}>Loading…</Text>}</ScrollView>;
   const { trip, days, shortlist, attendees } = d;
   const isTrip = trip.kind === 'trip';
+  const isPast = new Date(trip.endDate ?? trip.returnAt) < new Date(new Date().toDateString());
   // The middle of the city is where a trip searches from before anywhere is
   // booked; it is not somewhere they are staying (routes/trips.js marks it).
   const booked = trip.base && trip.base.kind !== 'centre' && trip.base.kind !== 'home' ? trip.base : null;
@@ -596,34 +674,59 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
   // Where and when, big; then one short sentence (owner, 4 Sep 2026: "'Bath,
   // 4th of September to 6th of September' in big, bold, and then just 1
   // sentence… it could just say '4 people' or 'the whole family'").
-  const whereWhen = [trip.locality ?? trip.place?.label ?? trip.title ?? trip.origin.label,
-    isTrip ? fmtRange(trip.startDate, trip.endDate) : fmtDate(trip.departAt)].filter(Boolean).join(' · ');
+  const where = trip.locality ?? trip.place?.label ?? trip.title ?? trip.origin.label;
   const everyone = household ? attendees.length >= household.members.length : false;
   const who = !attendees.length ? null
     : everyone ? 'The whole family'
     : attendees.length > 3 ? `${attendees.length} of you`
     : attendees.map((a) => a.name.split(' ')[0]).join(', ');
+  const dates = isTrip ? fmtRange(trip.startDate, trip.endDate) : fmtDate(trip.departAt);
+  const nights = isTrip && trip.startDate && trip.endDate
+    ? Math.max(0, Math.round((+new Date(`${trip.endDate}T12:00:00`) - +new Date(`${trip.startDate}T12:00:00`)) / 86400000))
+    : 0;
+
   const header = (
-    <View style={{ gap: 2 }}>
-      <Button label="Trips" icon="back" kind="ghost" onPress={onBack} style={{ alignSelf: 'flex-start' }} />
-      <Text style={type.title}>{whereWhen}</Text>
-      <Text style={type.small}>
-        {[who, isTrip && booked ? `staying at ${booked.label.split(',')[0]}` : null,
-          isTrip && !booked ? 'nowhere to stay yet' : null].filter(Boolean).join(' · ')}
+    <View style={{ gap: 6 }}>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Pressable onPress={onBack} style={styles.roundBtn} accessibilityRole="button" accessibilityLabel="Trips"><Icon name="back" size={19} color={colors.ink} /></Pressable>
+        <Row style={{ gap: spacing.sm }}>
+          <Pressable onPress={() => setSection('map')} style={styles.roundBtn} accessibilityRole="button" accessibilityLabel="Map"><Icon name="map" size={18} color={colors.ink} /></Pressable>
+          <Pressable onPress={() => setMenu((m) => !m)} style={styles.roundBtn} accessibilityRole="button" accessibilityLabel="More" accessibilityState={{ expanded: menu }}>
+            <Icon name={menu ? 'close' : 'menu'} size={18} color={colors.ink} />
+          </Pressable>
+        </Row>
+      </Row>
+      <Text style={type.title} numberOfLines={2}>{where}</Text>
+      <Text style={type.small} numberOfLines={2}>
+        {[dates, nights ? `${nights + 1} days` : null, who,
+          isTrip && booked ? `staying at ${booked.label.split(',')[0]}` : null,
+          isTrip && !booked && !isPast ? 'nowhere to stay yet' : null].filter(Boolean).join(' · ')}
       </Text>
     </View>
   );
 
-  // A day out has no Stay: it starts and ends at home.
-  const sections: { value: Section; label: string }[] = [
-    { value: 'find', label: 'Find' }, { value: 'shortlist', label: `Shortlist (${shortlist.length})` }, { value: 'day', label: isTrip ? `Days (${days.length})` : 'The day' },
-    ...(isTrip ? [{ value: 'stay' as Section, label: 'Stay' }] : []),
+  /**
+   * The working surfaces. They are not gone — they are one tap away, which is
+   * what the handover asks for on a past trip and is no worse on an upcoming
+   * one, because the trip's own three tabs are what somebody opens a trip for.
+   */
+  const menuItems: { value: Section; label: string; icon: IconName; hint?: string }[] = [
+    { value: 'find', label: 'Find things to do', icon: 'search', hint: 'Search around this trip' },
+    { value: 'shortlist', label: `Shortlist · ${shortlist.length}`, icon: 'shortlist', hint: 'What is still to call and book' },
+    { value: 'day', label: isTrip ? `Plan a day · ${days.length}` : 'Plan the day', icon: 'calendar', hint: 'Order the day and see if it fits' },
+    ...(isTrip ? [{ value: 'stay' as Section, label: 'Stay', icon: 'hotel' as IconName, hint: booked ? booked.label.split(',')[0] : 'Nowhere booked yet' }] : []),
     // Who else is coming, and what is still wanted from them (owner, 4 Sep 2026).
-    { value: 'group' as Section, label: 'Group' },
+    { value: 'group', label: 'Group', icon: 'household', hint: 'Who else is coming, and what they owe' },
     // What every source returned for a day, and where the plan lost it (owner,
     // 4 Sep 2026: "I'd like to be able to see the data for each one of these
     // APIs, to see how rich it is"). Admin only: it re-runs the retrieval.
-    ...(isAdmin() ? [{ value: 'data' as Section, label: 'Data' }] : []),
+    ...(isAdmin() ? [{ value: 'data' as Section, label: 'Data', icon: 'owned' as IconName }] : []),
+  ];
+
+  const tabs: { value: Section; label: string }[] = [
+    { value: 'itinerary', label: 'Itinerary' },
+    { value: 'places', label: `Places${tripPlaces ? ` · ${tripPlaces.counts.all}` : ''}` },
+    { value: 'map', label: 'Map' },
   ];
 
   const dayChips = isTrip ? (
@@ -644,6 +747,13 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
 
   const body = (
     <>
+      {section === 'itinerary' ? (
+        <Itinerary d={d} isPast={isPast} onPlan={() => setSection('find')} onDay={(dd) => setDayId(dd)} />
+      ) : null}
+      {section === 'places' ? (
+        <TripPlaces data={tripPlaces} isPast={isPast} onOpen={(p) => { if (p.lat != null && p.lng != null) setSection('map'); }} />
+      ) : null}
+      {section === 'map' ? <TripMap d={d} places={tripPlaces?.places ?? []} wide={wide} /> : null}
       {section === 'find' ? (
         <View style={{ gap: spacing.md }}>
           <BrowseNear d={d} household={household} onChanged={load} find={find} setFind={setFind} initialPrices={findPrices} initialCat={findCat} onShortlist={() => setSection('shortlist')} />
@@ -675,7 +785,7 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
               <Button label="Find somewhere near our plans" icon="hotel" onPress={() => setSection('stay')} />
             </Card>
           ) : null}
-          <ShortlistJourney d={d} day={day} household={household} wide={wide} onChanged={load} onFind={() => setSection('find')} onSaved={async () => { await load(); await refreshHousehold(); setSection('day'); }} />
+          <ShortlistJourney d={d} day={day} household={household} wide={wide} onChanged={load} onFind={() => setSection('find')} onSaved={async () => { await load(); await refreshHousehold(); setSection('itinerary'); }} />
         </View>
       ) : null}
       {section === 'day' && day ? (
@@ -691,13 +801,225 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
   );
 
   return (
-    <ScrollView contentContainerStyle={[styles.page, wide && { maxWidth: 820 }]} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={[styles.page, wide && { maxWidth: 860, alignSelf: 'center', width: '100%' }]} keyboardShouldPersistTaps="handled">
       {header}
-      <Segmented value={section} options={sections} onChange={setSection} />
+      <Segmented value={section} options={tabs} onChange={setSection} />
+      {menu ? (
+        <View style={styles.menu}>
+          {menuItems.map((m) => (
+            <Pressable key={m.value} onPress={() => { setMenu(false); setSection(m.value); }} style={styles.menuRow} accessibilityRole="button">
+              <Icon name={m.icon} size={17} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={type.h3} numberOfLines={1}>{m.label}</Text>
+                {m.hint ? <Text style={type.tiny} numberOfLines={1}>{m.hint}</Text> : null}
+              </View>
+              <Icon name="more" size={16} color={colors.inkMuted} />
+            </Pressable>
+          ))}
+          <View style={styles.menuRow}><DeleteTrip id={id} onDeleted={onBack} /></View>
+        </View>
+      ) : null}
+      {/* A tab reached from the menu says which one it is, because the segmented
+          control above it is showing none of the three. */}
+      {!TRIP_TABS.includes(section) ? (
+        <Row style={{ gap: 6 }}>
+          <Icon name={menuItems.find((m) => m.value === section)?.icon ?? 'list'} size={15} />
+          <Text style={[type.h3, { flex: 1 }]}>{menuItems.find((m) => m.value === section)?.label ?? section}</Text>
+          <Chip label="Back to the trip" icon="back" onPress={() => setSection('itinerary')} />
+        </Row>
+      ) : null}
       {body}
     </ScrollView>
   );
 }
+
+// ---------------------------------------------------------------------------
+// The itinerary
+// ---------------------------------------------------------------------------
+
+/** One line on the spine: a time, an icon, what it is, and the detail under it. */
+type Beat = { time: string | null; icon: IconName; title: string; detail: string | null; dayId: string | null };
+
+/**
+ * The trip as a timed spine, day by day (handover 4a: "TripIt-style timed
+ * spine"). It is built from what the trip already holds — the days, the stops
+ * saved into them, and the base with its check-in — so it costs nothing to draw
+ * and says nothing that is not already true.
+ */
+function Itinerary({ d, isPast, onPlan, onDay }: { d: TripDetail; isPast: boolean; onPlan: () => void; onDay: (dayId: string) => void }) {
+  const { trip, days } = d;
+  const isTrip = trip.kind === 'trip';
+  const base = trip.base && trip.base.kind !== 'centre' && trip.base.kind !== 'home' ? trip.base : null;
+  const checkIn = base?.checkIn ?? (isTrip ? trip.startDate : null);
+  const checkOut = base?.checkOut ?? (isTrip ? trip.endDate : null);
+
+  const spine = days.map((day, i) => {
+    const beats: Beat[] = [];
+    // Leaving home is the first thing that happens, and it is a fact of the
+    // trip rather than a stop somebody saved.
+    if (i === 0) {
+      beats.push({
+        time: isTrip ? trip.dayStart ?? null : clock24(trip.departAt),
+        icon: trip.travelMode === 'transit' ? 'transit' : trip.travelMode === 'walking' ? 'walking' : 'driving',
+        title: 'Leave home',
+        detail: [trip.origin.label?.split(',')[0], trip.destination?.label?.split(',')[0]].filter(Boolean).join(' → ') || null,
+        dayId: day.id,
+      });
+    }
+    if (base && checkIn && String(checkIn).slice(0, 10) === day.date) {
+      beats.push({ time: null, icon: 'hotel', title: base.label.split(',')[0], detail: `Check in${checkOut ? ` · until ${fmtDate(String(checkOut))}` : ''}`, dayId: day.id });
+    }
+    for (const slot of day.slots) {
+      for (const stop of slot.stops) {
+        beats.push({
+          time: stop.startTime,
+          icon: 'place',
+          title: stop.name,
+          detail: [SLOT_LABEL[slot.slot], stop.dwellMinutes ? minutes(stop.dwellMinutes) : null,
+            stop.bookingStatus === 'booked' ? 'booked' : null,
+            stop.visit ? 'been' : null].filter(Boolean).join(' · ') || null,
+          dayId: day.id,
+        });
+      }
+    }
+    if (base && checkOut && String(checkOut).slice(0, 10) === day.date && beats.length) {
+      beats.push({ time: null, icon: 'hotel', title: `Check out · ${base.label.split(',')[0]}`, detail: null, dayId: day.id });
+    }
+    if (i === days.length - 1) {
+      beats.push({ time: isTrip ? trip.dayEnd ?? null : clock24(trip.returnAt), icon: 'home', title: 'Home', detail: null, dayId: day.id });
+    }
+    return { day, beats };
+  });
+
+  const anything = spine.some((s) => s.beats.some((b) => b.icon === 'place'));
+
+  return (
+    <View style={{ gap: spacing.md }}>
+      {!anything ? (
+        <Card>
+          <Text style={type.h3}>Nothing on the days yet</Text>
+          <Text style={type.small}>{isPast ? 'This trip has no stops saved against its days. Anything you did is still under Places.' : 'Find things to do, shortlist them, and the day you save comes back here as the itinerary.'}</Text>
+          {!isPast ? <Button label="Find things to do" icon="search" onPress={onPlan} style={{ alignSelf: 'flex-start' }} /> : null}
+        </Card>
+      ) : null}
+      {spine.map(({ day, beats }) => (
+        <View key={day.id} style={{ gap: 2 }}>
+          <Pressable onPress={() => onDay(day.id)} style={styles.dayHead} accessibilityRole="button">
+            <Text style={[type.label, { marginBottom: 0, marginTop: 0, color: colors.ink }]}>
+              {new Date(`${day.date}T12:00:00`).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}
+            </Text>
+            <View style={styles.rule} />
+          </Pressable>
+          {beats.map((b, i) => (
+            <View key={`${day.id}-${i}`} style={styles.beat}>
+              <Text style={styles.beatTime}>{b.time ?? ''}</Text>
+              <View style={{ alignItems: 'center' }}>
+                <View style={styles.beatDot}><Icon name={b.icon} size={16} color={colors.accent} /></View>
+                {i < beats.length - 1 ? <View style={styles.beatLine} /> : null}
+              </View>
+              <View style={{ flex: 1, minWidth: 0, paddingBottom: spacing.md, paddingTop: 6, gap: 2 }}>
+                <Text style={[type.h3, { fontWeight: '700' }]} numberOfLines={2}>{b.title}</Text>
+                {b.detail ? <Text style={type.small} numberOfLines={2}>{b.detail}</Text> : null}
+              </View>
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Every place a trip touched
+// ---------------------------------------------------------------------------
+
+const GROUP_LABEL: Record<TripPlace['group'], string> = { stay: 'Hotels', do: 'Activities', eat: 'Food & drink' };
+const GROUP_ORDER: TripPlace['group'][] = ['stay', 'do', 'eat'];
+
+/**
+ * Handover 4b: "Every place this trip touched, grouped Hotels / Activities /
+ * Food & drink with count chips to filter. Each carries the day it happened and
+ * your rating; unrated ones show the red Rate nudge."
+ */
+function TripPlaces({ data, isPast, onOpen }: { data: { places: TripPlace[]; counts: { all: number; do: number; eat: number; stay: number } } | null; isPast: boolean; onOpen: (p: TripPlace) => void }) {
+  const [only, setOnly] = useState<TripPlace['group'] | null>(null);
+  if (!data) return <Text style={type.small}>Loading…</Text>;
+  if (!data.places.length) return <Card><Text style={type.small}>This trip has not touched any places yet. Shortlist something, or say you have been somewhere.</Text></Card>;
+  const groups = GROUP_ORDER.map((g) => ({ g, list: data.places.filter((p) => p.group === g) })).filter((x) => x.list.length && (!only || only === x.g));
+  return (
+    <View style={{ gap: spacing.md }}>
+      <Wrap>
+        <Chip label={`All · ${data.counts.all}`} selected={!only} onPress={() => setOnly(null)} />
+        {GROUP_ORDER.filter((g) => data.counts[g]).map((g) => (
+          <Chip key={g} label={`${GROUP_LABEL[g]} · ${data.counts[g]}`} selected={only === g} onPress={() => setOnly(only === g ? null : g)} />
+        ))}
+      </Wrap>
+      {groups.map(({ g, list }) => (
+        <View key={g} style={{ gap: spacing.sm }}>
+          <Text style={type.label}>{GROUP_LABEL[g]}</Text>
+          <View style={styles.list}>
+            {list.map((p, i) => <TripPlaceRow key={p.venueRef} place={p} first={i === 0} isPast={isPast} onPress={() => onOpen(p)} />)}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function TripPlaceRow({ place: p, first, isPast, onPress }: { place: TripPlace; first?: boolean; isPast: boolean; onPress: () => void }) {
+  const meta = [
+    p.day,
+    p.dwellMinutes ? minutes(p.dwellMinutes) : null,
+    p.bookingStatus === 'booked' ? 'booked' : null,
+    // Somewhere kept but never put on a day still says what it is doing here,
+    // rather than leaving the row with nothing under its name.
+    !p.day && !p.scheduled && p.shortlisted ? 'On the shortlist' : null,
+    p.visited && !p.day ? 'Been' : null,
+  ].filter(Boolean).join(' · ');
+  const said = p.scores.length ? p.scores.map((s) => `${s.member.split(' ')[0]} ${s.score}`).join(' · ') : null;
+  return (
+    <Pressable onPress={onPress} style={[styles.prow, !first && styles.rowLine]} accessibilityRole="button">
+      <VenueThumb name={p.name} image={p.image} category={p.category} width={56} height={56} rounded={radius.md} credit={false} />
+      <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+        <Text style={type.h3} numberOfLines={1}>{p.name ?? 'A place'}</Text>
+        {meta ? <Text style={type.small} numberOfLines={1}>{meta}</Text> : null}
+        {said ? <Text style={styles.green} numberOfLines={1}>{said}</Text> : null}
+      </View>
+      {p.score != null ? <Stars value={p.score} size={13} />
+        // The one red thing on this screen, and only where it is owed: they went
+        // and nobody has said what they thought (handover 4b).
+        : p.visited && isPast ? <Text style={styles.rate}>Rate</Text>
+          : <Icon name="more" size={16} color={colors.inkMuted} />}
+    </Pressable>
+  );
+}
+
+/** Everywhere this trip touched, on one map. */
+function TripMap({ d, places, wide }: { d: TripDetail; places: TripPlace[]; wide: boolean }) {
+  const { height } = useViewport();
+  const [sel, setSel] = useState<string | null>(null);
+  const base = d.trip.base;
+  const pins: MapPin[] = [
+    ...(base && base.lat != null ? [{ id: 'base', lat: base.lat, lng: base.lng, label: base.label, number: '', tone: 'base' as const, onPress: () => setSel('base') }] : []),
+    ...places.filter((p) => p.lat != null && p.lng != null && p.venueRef !== 'base').map((p) => ({
+      id: p.venueRef, lat: p.lat as number, lng: p.lng as number, label: p.name ?? '', number: '',
+      tone: (p.visited ? 'base' : 'hollow') as 'base' | 'hollow', onPress: () => setSel(p.venueRef),
+    })),
+  ];
+  const chosen = places.find((p) => p.venueRef === sel) ?? null;
+  if (!pins.length) return <Card><Text style={type.small}>Nothing on this trip has a position yet, so there is no map to draw.</Text></Card>;
+  return (
+    <View style={styles.mapWrap}>
+      <MapView pins={pins} height={wide ? 620 : Math.max(360, height - 380)} focusId={sel} />
+      {chosen ? (
+        <View style={styles.pinCard}>
+          <TripPlaceRow place={chosen} first isPast={false} onPress={() => setSel(null)} />
+        </View>
+      ) : <Text style={[type.tiny, styles.mapHint]}>{pins.length} pins · filled been · hollow planned</Text>}
+    </View>
+  );
+}
+
 
 // ---------------------------------------------------------------------------
 // Day planner
@@ -1070,6 +1392,35 @@ function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
 const styles = StyleSheet.create({
   page: { padding: spacing.lg, gap: spacing.md, width: '100%', maxWidth: 1180, alignSelf: 'center' },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  // The header's round controls: an ink + for a new trip, an outlined circle for the rest.
+  roundBtn: { width: 40, height: 40, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  roundBtnInk: { backgroundColor: colors.primary, borderColor: colors.primary },
+  filters: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  fchip: { flexDirection: 'row', alignItems: 'center', gap: 2, height: 32, paddingLeft: 10, paddingRight: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, maxWidth: 170 },
+  fchipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  fchipText: { fontSize: 12, fontWeight: '600', color: colors.ink, flexShrink: 1 },
+  // A trip on the list: the picture, the name, the dates, the people.
+  tripCard: { flexDirection: 'row', gap: spacing.md, padding: spacing.md, borderWidth: 1, borderColor: colors.line, borderRadius: radius.lg, backgroundColor: colors.surface },
+  // The working surfaces, one tap behind the ⋯.
+  menu: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, backgroundColor: colors.surface, overflow: 'hidden' },
+  menuRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: TARGET, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
+  // The itinerary's timed spine.
+  dayHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.sm },
+  rule: { flex: 1, height: 1, backgroundColor: colors.line },
+  beat: { flexDirection: 'row', gap: spacing.md, alignItems: 'stretch' },
+  beatTime: { width: 46, textAlign: 'right', paddingTop: 12, fontFamily: fonts.body, fontSize: 12, fontWeight: '600', color: colors.ink },
+  beatDot: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
+  beatLine: { flex: 1, width: 2, minHeight: 14, backgroundColor: colors.line },
+  // Rows shared with Places: one anatomy across the app (handover §6).
+  list: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
+  prow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 10, paddingHorizontal: spacing.md, minHeight: TARGET },
+  rowLine: { borderTopWidth: 1, borderTopColor: colors.line },
+  green: { fontFamily: fonts.body, fontSize: 12, fontWeight: '600', color: colors.accent },
+  // The one red thing on a past trip: somewhere they went and nobody has said what they thought.
+  rate: { fontFamily: fonts.body, fontSize: 12, fontWeight: '700', color: colors.red },
+  mapWrap: { position: 'relative' },
+  pinCard: { position: 'absolute', left: spacing.sm, right: spacing.sm, bottom: spacing.sm, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, overflow: 'hidden' },
+  mapHint: { position: 'absolute', left: spacing.sm, bottom: spacing.sm, backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.md, overflow: 'hidden' },
   split: { gap: spacing.md },
   input: { minHeight: TARGET, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink },
   statRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },

@@ -85,11 +85,16 @@ export async function removePlace(client, householdId, venueRef) {
 // reading it back
 // ---------------------------------------------------------------------------
 
-/** Countries and cities, with counts of places, visits, specials and trips. */
+/**
+ * Countries and cities, with counts of places, visits, specials and trips, and
+ * the three the area screen is divided into: things to do, food & drink, and
+ * somewhere to stay (handover, 5 Sep 2026 — an area's tabs are Activities |
+ * Food & drink | Hotels, and the Hotels tab only appears where there is one).
+ */
 export async function countryCityCounts(householdId) {
   const { rows } = await query(
     `with p as (
-       select hp.country_code, hp.country, hp.locality, hp.venue_ref, hp.last_seen,
+       select hp.country_code, hp.country, hp.locality, hp.venue_ref, hp.last_seen, hp.category,
               exists (select 1 from visits v where v.household_id = hp.household_id and v.venue_ref = hp.venue_ref) as been,
               exists (select 1 from place_ledger l where l.household_id = hp.household_id and l.source || ':' || l.source_place_id = hp.venue_ref and l.status = 'special') as special
          from household_places hp where hp.household_id = $1 and hp.country_code is not null)
@@ -97,6 +102,9 @@ export async function countryCityCounts(householdId) {
             count(*)::int as places,
             count(*) filter (where p.been)::int as been,
             count(*) filter (where p.special)::int as special,
+            count(*) filter (where p.category in ('restaurant','cafe','pub','bar'))::int as food,
+            count(*) filter (where p.category in ('hotel','lodging'))::int as hotels,
+            count(*) filter (where p.category is null or p.category not in ('restaurant','cafe','pub','bar','hotel','lodging'))::int as activities,
             (select count(*)::int from trips t where t.household_id = $1 and t.country_code = p.country_code and coalesce(t.locality, '') = coalesce(p.locality, '')) as trips,
             max(p.last_seen) as last_seen
        from p
@@ -105,6 +113,73 @@ export async function countryCityCounts(householdId) {
     [householdId],
   );
   return rows;
+}
+
+/**
+ * Every trip, thinly, filed by where it went — so a country row can say "Last:
+ * Puglia · Aug 2025" and an area row can say when they were last there.
+ *
+ * The whole list rather than an aggregate, because "last" and "next" are two
+ * different rows and the country's answer is not the sum of its areas'.
+ */
+export async function tripsByArea(householdId) {
+  const { rows } = await query(
+    `select t.id, t.title, t.place_label, t.locality, t.country, t.country_code, t.kind,
+            coalesce(t.start_date, t.depart_at::date) as starts_on,
+            coalesce(t.end_date, t.return_at::date) as ends_on
+       from trips t
+      where t.household_id = $1 and t.country_code is not null
+      order by starts_on desc`,
+    [householdId],
+  );
+  return rows;
+}
+
+/**
+ * A few candidate places per area, so an area, a country's area list and a trip
+ * card can each carry a picture of somewhere the household actually went.
+ *
+ * Several rather than one: most places have no picture we may hold, and asking
+ * for the single most recent would leave most areas blank when the third row
+ * down has a photograph sitting in the library.
+ */
+export async function areaPictureRefs(householdId, per = 10) {
+  const { rows } = await query(
+    `with ranked as (
+       select hp.country_code, coalesce(hp.locality, 'Elsewhere') as locality, hp.venue_ref,
+              row_number() over (
+                partition by hp.country_code, coalesce(hp.locality, 'Elsewhere')
+                order by (hp.category is null or hp.category not in ('restaurant','cafe','pub','bar','hotel','lodging')) desc,
+                         hp.last_seen desc nulls last, hp.venue_ref) as n
+         from household_places hp
+        where hp.household_id = $1 and hp.country_code is not null)
+     select country_code, locality, venue_ref, n from ranked where n <= $2 order by country_code, locality, n`,
+    [householdId, per],
+  );
+  return rows;
+}
+
+/** Which country the front door is in, read from the places around it. */
+export async function homeCountryCode(householdId, lat, lng, radiusMiles) {
+  const { rows } = await query(
+    `select hp.country_code, count(*)::int as n from household_places hp
+      where hp.household_id = $1 and hp.country_code is not null and hp.lat is not null and hp.lng is not null
+        and ${MILES_FROM('$2', '$3')} <= $4
+      group by hp.country_code order by n desc limit 1`,
+    [householdId, lat, lng, radiusMiles],
+  );
+  return rows[0]?.country_code ?? null;
+}
+
+/** The same, for the standing "close to home" view, which is not an area. */
+export async function nearHomePictureRefs(householdId, lat, lng, radiusMiles, limit = 10) {
+  const { rows } = await query(
+    `select hp.venue_ref from household_places hp
+      where hp.household_id = $1 and hp.lat is not null and hp.lng is not null and ${MILES_FROM('$2', '$3')} <= $4
+      order by hp.last_seen desc nulls last limit $5`,
+    [householdId, lat, lng, radiusMiles, limit],
+  );
+  return rows.map((r) => r.venue_ref);
 }
 
 /** Cities the household made on purpose, and the cities their trips are in. */
@@ -186,7 +261,10 @@ export async function placesIn(householdId, f = {}, home = null) {
             (select l.status from place_ledger l where l.household_id = hp.household_id and l.source || ':' || l.source_place_id = hp.venue_ref
               and l.status in ('special','saved','dismissed')
               order by case l.status when 'special' then 0 when 'saved' then 1 else 2 end, l.created_at desc limit 1) as ledger,
-            (select json_agg(distinct t.title) from trip_shortlist s join trips t on t.id = s.trip_id where s.venue_ref = hp.venue_ref and t.household_id = hp.household_id) as on_trips,
+            (select json_agg(distinct jsonb_build_object('id', t.id, 'title', coalesce(t.title, t.place_label, t.locality),
+                                                          'on', to_char(coalesce(t.start_date, t.depart_at::date), 'Mon YYYY')))
+               from trip_shortlist s join trips t on t.id = s.trip_id
+              where s.venue_ref = hp.venue_ref and t.household_id = hp.household_id) as on_trips,
             (select json_agg(json_build_object('memberId', s.member_id, 'member', s.name, 'score', s.score, 'on', s.visited_on)) from (
                select distinct on (r.member_id) r.member_id, m.name, r.score, v.visited_on
                  from ratings r join visits v on v.id = r.visit_id join members m on m.id = r.member_id

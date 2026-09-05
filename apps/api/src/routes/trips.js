@@ -17,14 +17,34 @@ import { rankStays, middleOf } from '../domain/stays.js';
 import { kmBetween } from '../domain/travel.js';
 import { currentHousehold } from './household.js';
 import { visitPayload, householdStatus } from './places.js';
-import { upsertHouseholdPlace } from './atlas.js';
+import { upsertHouseholdPlace, ownedImage } from './atlas.js';
+import * as atlasRepo from '../repositories/atlas.js';
+import { heroesForPlaces } from '../repositories/library.js';
 import { claimPlace } from '../sources/own.js';
 
 const router = Router();
 const SLOTS = ['morning', 'afternoon', 'evening'];
+const EATING = ['restaurant', 'cafe', 'pub', 'bar'];
+const SLEEPING = ['hotel', 'lodging'];
+/** Which of an area's three lists a place belongs in: somewhere to stay, somewhere to eat, or something to do. */
+export const GROUP_OF = (category, atlasKind) =>
+  (SLEEPING.includes(category) || atlasKind === 'stay' ? 'stay'
+    : EATING.includes(category) || (!category && atlasKind === 'food') ? 'eat'
+      : 'do');
 const KINDS = ['food', 'activity', 'other'];
 export const SHORTLIST_STATUSES = ['to_call', 'booked', 'no_booking', 'full', 'set_aside'];
 export const LEG_MODES = ['walking', 'transit', 'driving', 'taxi'];
+
+/**
+ * How many nights a trip is away for. A day out is 0 whatever it calls itself,
+ * and that is the line the Trips list is divided on: Day trips | Holidays.
+ */
+export function nightsOf(t) {
+  if (!t.start_date || !t.end_date) return 0;
+  const a = new Date(`${String(t.start_date).slice(0, 10)}T12:00:00Z`);
+  const b = new Date(`${String(t.end_date).slice(0, 10)}T12:00:00Z`);
+  return Math.max(0, Math.round((+b - +a) / 86400000));
+}
 
 async function loadTrip(tripId) {
   const trip = await trips.tripById(tripId);
@@ -139,10 +159,35 @@ router.get('/', async (req, res, next) => {
 
     const rows = await trips.tripsFor(household.id, { country, kind, when, q });
     const facets = await trips.tripCountries(household.id);
+
+    // A picture of somewhere this trip actually went, from the pictures we own.
+    // One statement for the whole list: the atlas already knows a representative
+    // place per area, and a trip is a date range in one of those areas.
+    const areaRefs = await atlasRepo.areaPictureRefs(household.id);
+    const heroes = await heroesForPlaces(areaRefs.map((r) => r.venue_ref));
+    const heroFor = (t) => {
+      const here = areaRefs.filter((r) => r.country_code === t.country_code && r.locality === (t.locality ?? 'Elsewhere'));
+      // A photograph before a mark: a trip card wants a picture of where they
+      // went, and a restaurant's logo is not one.
+      const found = here.map((r) => heroes.get(r.venue_ref)).filter(Boolean);
+      const row = found.find((h) => h.source !== 'logo') ?? found[0]
+        // Nothing saved in that town yet: anywhere in the same country beats a blank tile.
+        ?? areaRefs.filter((r) => r.country_code === t.country_code).map((r) => heroes.get(r.venue_ref)).filter(Boolean).find((h) => h.source !== 'logo');
+      return ownedImage(row ?? null);
+    };
+
     res.json({
       trips: rows.map((t) => ({
         ...publicTrip(t), dayCount: t.day_count, stopCount: t.stop_count, shortlistCount: t.shortlist_count, visitCount: t.visit_count, ratingCount: t.rating_count,
+        placeCount: t.place_count ?? 0, unratedCount: t.unrated_count ?? 0,
         attendees: t.attendees ?? [], isPast: new Date(t.end_date ?? t.return_at) < new Date(new Date().toDateString()),
+        // A night away is what makes a holiday a holiday rather than a day out
+        // (the rule the handover left open; stated here so it can be changed in
+        // one place). `nights` is 0 for a day out, whatever its `kind` says.
+        nights: nightsOf(t),
+        // The one red thing on the list: a trip with dates and nowhere to sleep.
+        needsStay: t.kind === 'trip' && nightsOf(t) > 0 && (!t.base_lat || t.base_kind === 'centre'),
+        image: heroFor(t),
       })),
       countries: facets.map((f) => ({ code: f.country_code, name: f.country, trips: f.trips })),
     });
@@ -240,6 +285,68 @@ router.post('/', async (req, res, next) => {
 });
 
 router.get('/:id', async (req, res, next) => { try { res.json(await tripPayload(req.params.id)); } catch (err) { next(err); } });
+/**
+ * GET /api/trips/:id/places — every place this trip touched.
+ *
+ * Grouped the way the handover asks (5 Sep 2026): Hotels, Activities, Food &
+ * drink, each row carrying the day it happened and what the household thought
+ * of it — or the red Rate nudge where nobody has said yet.
+ *
+ * One read, no provider call: a place is here because the household put it on
+ * this trip, and its name is the household's own.
+ */
+router.get('/:id/places', async (req, res, next) => {
+  try {
+    const trip = await loadTrip(req.params.id);
+    const rows = await trips.placesOfTrip(trip.id);
+    const heroes = await heroesForPlaces(rows.map((r) => r.venue_ref));
+    const fmtDay = (d) => (d ? new Date(`${String(d).slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' }) : null);
+
+    const places = rows.map((r) => {
+      const category = r.category ?? r.atlas_category ?? null;
+      const scores = (r.scores ?? []).filter((x) => x.score != null);
+      return {
+        venueRef: r.venue_ref,
+        name: r.label === r.venue_ref ? null : r.label,
+        category,
+        group: GROUP_OF(category, r.atlas_kind),
+        lat: r.lat, lng: r.lng,
+        firstOn: r.first_on, lastOn: r.last_on,
+        day: fmtDay(r.first_on),
+        dwellMinutes: r.dwell_minutes ?? null,
+        visited: r.visited, scheduled: r.scheduled, shortlisted: r.shortlisted,
+        bookingStatus: r.booking_status ?? null,
+        scores,
+        // The household's own mark out of five: the average of what everybody
+        // who scored it said. Null is not "nought" — it is nobody has said, and
+        // that is what the red Rate nudge is for.
+        score: scores.length ? Math.round((scores.reduce((n, x) => n + Number(x.score), 0) / scores.length) * 10) / 10 : null,
+        image: ownedImage(heroes.get(r.venue_ref) ?? null),
+      };
+    });
+
+    // The base is a place this trip touched even when nobody put it on a day.
+    if (trip.base_lat != null && trip.base_kind !== 'centre' && trip.base_kind !== 'home' && !places.some((p) => p.name === trip.base_label)) {
+      places.unshift({
+        venueRef: `base:${trip.id}`, name: trip.base_label, category: 'hotel', group: 'stay',
+        lat: trip.base_lat, lng: trip.base_lng, firstOn: trip.base_check_in ?? trip.start_date, lastOn: trip.base_check_out ?? trip.end_date,
+        day: fmtDay(trip.base_check_in ?? trip.start_date), dwellMinutes: null,
+        visited: false, scheduled: false, shortlisted: false, bookingStatus: 'booked', scores: [], score: null, image: null,
+      });
+    }
+
+    res.json({
+      places,
+      counts: {
+        all: places.length,
+        do: places.filter((p) => p.group === 'do').length,
+        eat: places.filter((p) => p.group === 'eat').length,
+        stay: places.filter((p) => p.group === 'stay').length,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 /** What this trip's searches and plans have cost, by provider, so the picker can show the bill it is running up. */
 router.get('/:id/spend', async (req, res, next) => {
   try {

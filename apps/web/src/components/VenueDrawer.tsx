@@ -10,6 +10,7 @@ import { OwnedFacts } from './OwnedFacts';
 import { useOffline } from '../hooks/useOffline';
 import { savedRecord } from '../offline/cache';
 import { SOURCE_LABEL, priceMarks, typeLine } from './StopCard';
+import { VenueThumb } from './VenueThumb';
 
 /**
  * The click-through on a place (owner, 3 Sep 2026): a side drawer on a wide
@@ -288,7 +289,8 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, addLabel, addIcon
     if (!item.venueRef) { setVenue(null); return () => { live = false; }; }
     // Nothing to ask about a place that is ours. `wikidata:` is not a provider
     // and no source holds that identifier, so the round trip could only ever
-    // come back empty — and empty is what the screen was reading as "no signal".
+    // come back empty — and an empty answer is what the screen was reading as
+    // "no signal".
     if (item.venueRef.startsWith('wikidata:')) { setVenue(null); return () => { live = false; }; }
     api.place(item.venueRef)
       .then((d) => {
@@ -332,7 +334,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, addLabel, addIcon
   const ratingCount = v?.ratingCount ?? item.ratingCount;
   const source = item.source ?? item.venueRef.split(':')[0];
   /** Ours outright: the atlas researched it, and there is no provider behind it. */
-  const weResearchedIt = source === 'atlas' || item.venueRef.startsWith('wikidata:');
+  const ours0wn = source === 'atlas' || item.venueRef.startsWith('wikidata:');
   const sourceName = SOURCE_LABEL[source] ?? source;
   const photoUri = (p: { ref?: string; url?: string }, w: number) => p.url ?? (p.ref ? `${API_URL}/api/photos/google?name=${encodeURIComponent(p.ref)}&w=${w}` : null);
 
@@ -417,14 +419,13 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, addLabel, addIcon
                   {item.reasons.length ? <Wrap>{item.reasons.filter((r) => r.kind !== 'chain').map((r, i) => <Chip key={i} label={r.text} tone={r.kind === 'dislike' || r.kind === 'diet' ? 'dislike' : r.kind === 'note' ? 'neutral' : 'like'} />)}</Wrap> : null}
                   {v?.address ?? item.address ? <IconText name="address">{v?.address ?? item.address}</IconText> : null}
                   {venue === null && !error ? (
-                    weResearchedIt ? (
+                    ours0wn ? (
                       // An atlas place has no provider record to be missing. It
                       // was researched by us from Wikidata, Wikipedia and
                       // Wikimedia, and everything on this screen is that
                       // research — so saying "no signal" would be inventing a
-                      // network fault to explain the absence of something that
-                      // was never going to be there, under a summary that
-                      // loaded perfectly.
+                      // fault to explain the absence of something that was
+                      // never going to be there.
                       <IconText name="owned" color={colors.inkMuted}>Roam&#39;s own record — open data we hold outright, so it reads the same with no signal.</IconText>
                     ) : (
                       <IconText name="offline" color={colors.inkMuted}>No signal — showing what is saved on this device.</IconText>
@@ -460,6 +461,29 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, addLabel, addIcon
                         </>
                       ) : <Text style={type.small}>{venue === undefined ? '' : `No opening hours from ${sourceName}.`}</Text>}
                   </View>
+
+                  {/* Ours first, and full size, because the drawer is where a
+                      picture is large enough to be the point — and so where the
+                      licence line has to appear. A mark is not blown up to 800
+                      wide: it is shown at the size it was drawn, on its ground,
+                      captioned with where it came from. */}
+                  {item.image ? (
+                    <View style={{ gap: 4 }}>
+                      <VenueThumb
+                                        name={title}
+                        image={item.image}
+                        category={item.category}
+                        experiences={experiences}
+                        width={item.image.source === 'logo' ? 140 : 320}
+                        height={item.image.source === 'logo' ? 140 : 200}
+                      />
+                      {item.image.source === 'logo' ? (
+                        <Text style={type.tiny}>Their own mark, from their website. Shown to identify them; the mark is theirs.</Text>
+                      ) : item.image.sourceUrl ? (
+                        <Text style={type.tiny}>{item.image.licence} · <Text onPress={() => Linking.openURL(item.image!.sourceUrl!)} style={{ textDecorationLine: 'underline' }}>source</Text></Text>
+                      ) : <Text style={type.tiny}>{item.image.licence}</Text>}
+                    </View>
+                  ) : null}
 
                   {photos.length ? (
                     <View style={{ gap: spacing.sm }}>

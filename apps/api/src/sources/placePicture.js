@@ -139,6 +139,12 @@ async function fromWikimedia({ wikidataId, wikipediaUrl }) {
 async function fromLogo({ venueRef, name, website }) {
   const logo = await findLogo({ website });
   if (!logo) return null;
+  // These exact bytes already being another site's mark means they are not a
+  // mark at all — they are a platform's icon or a template's placeholder, and
+  // showing them here would put somebody else's picture on this restaurant.
+  const origin = (() => { try { return new URL(logo.sitePage).origin; } catch { return null; } })();
+  const sha = crypto.createHash('sha256').update(logo.body).digest('hex');
+  if (await lib.logoBelongsElsewhere(sha, origin)) return null;
   return {
     rung: 'logo',
     variants: [{ width: logo.width ?? 180, actualWidth: logo.width, actualHeight: logo.height, mime: logo.mime, bytes: logo.bytes, body: logo.body }],

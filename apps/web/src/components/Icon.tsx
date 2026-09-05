@@ -5,7 +5,7 @@ import {
   Bird, Fish,
   Clock, CloudOff, Coffee, Compass, Database, Download, ExternalLink, Footprints, GripVertical, Heart, House, Info, Landmark, List, LocateFixed, Lock, Map, MapPin, Mic, Minus, Monitor, Navigation, Pencil, Phone, Pin, Plus, Route, Search, Settings, Smartphone,
   MessageSquare, Moon, PoundSterling, RefreshCw, Sparkles, Square, Star, StarHalf, Sun, Ticket, TrainFront, TriangleAlert, User, Users, Utensils, Wine, X,
-  Copy, Mail, Send, UserCog,
+  Copy, Mail, Send, UserCog, Ellipsis,
   Bike, Binoculars, Blocks, BookOpen, Castle, Clapperboard, Drama, Droplets, Dumbbell, FerrisWheel, Gamepad2,
   Mountain, Music, Palette, PartyPopper, Popcorn, Puzzle, Ship, ShoppingBag, Snowflake, Store, Tractor, TreePine, Trophy,
 } from 'lucide-react-native';
@@ -27,6 +27,10 @@ const ICONS = {
   mic: Mic, stop: Square, check: Check, close: X, add: Plus, minus: Minus,
   back: ArrowLeft, forward: ArrowRight, external: ExternalLink,
   expand: ChevronDown, collapse: ChevronUp, more: ChevronRight,
+  // The ⋯ that opens the rest of a screen's controls. `more` is the chevron a
+  // row ends in and means "there is a page behind this"; this one means "there
+  // is a menu here", and drawing one as the other reads as a broken link.
+  menu: Ellipsis,
   keep: Heart, favourite: Star, halfStar: StarHalf, shortlist: Bookmark, shortlisted: BookmarkCheck, pinned: Pin,
   allergen: TriangleAlert, archived: Archive, refresh: RefreshCw,
   // the device's own copy: no signal, saving it, and what Roam owns outright

@@ -18,6 +18,21 @@ import { currentHousehold } from './household.js';
 import { fillWhere } from '../sources/where.js';
 import { fillTaxonomy, needsTaxonomy, taxonomyKept } from '../sources/taxonomy.js';
 import { countryOutline, sketchFor, SKETCH_ATTRIBUTION } from '../sources/sketch.js';
+import { heroesForPlaces } from '../repositories/library.js';
+import { shelvesForVenue } from '../domain/moods.js';
+import { rules as shelfRules } from '../repositories/shelfRules.js';
+
+/**
+ * A stored picture in the shape a card draws. `credit` travels with it because
+ * for every licence but CC0 and public domain the picture without the line is
+ * the licence broken; `source` travels with it because a mark is not a
+ * photograph and must not be drawn like one.
+ */
+export const ownedImage = (row) => (row ? {
+  id: row.id, source: row.source, lqip: row.lqip, credit: row.credit_line,
+  licence: row.licence, licenceUrl: row.licence_url, sourceUrl: row.source_page_url,
+  creditRequired: row.attribution_required,
+} : null);
 
 export const atlas = Router();
 
@@ -69,7 +84,33 @@ export async function upsertHouseholdPlace(client, householdId, p) {
   });
 }
 
-/** GET /api/atlas — countries → cities with counts of places, visits and trips. */
+/**
+ * A trip in the two words a row shows: where it was, and when.
+ *
+ * `label` is the trip's own name if it has one, then the place — a card that
+ * says "Last: Puglia · Aug 2025" is saying which trip, not describing a region.
+ */
+const tripBrief = (t) => (t ? {
+  id: t.id,
+  label: t.title || t.place_label || t.locality || t.country,
+  startsOn: t.starts_on, endsOn: t.ends_on,
+  /** "Aug 2025" — the month is as precise as a row has room to be. */
+  on: t.starts_on ? new Date(`${String(t.starts_on).slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : null,
+} : null);
+
+/** The last one that has happened and the next one that has not, from a list already sorted newest first. */
+function lastAndNext(list) {
+  const today = new Date().toISOString().slice(0, 10);
+  const past = list.filter((t) => String(t.ends_on ?? '') < today);
+  const ahead = list.filter((t) => String(t.ends_on ?? '') >= today);
+  return {
+    lastTrip: tripBrief(past[0] ?? null),
+    // Sorted newest first, so the soonest still to come is the last of them.
+    nextTrip: tripBrief(ahead[ahead.length - 1] ?? null),
+  };
+}
+
+/** GET /api/atlas — countries → areas, with the counts and the trips each carries. */
 atlas.get('/', async (_req, res, next) => {
   try {
     const household = await currentHousehold();
@@ -79,11 +120,22 @@ atlas.get('/', async (_req, res, next) => {
     const { created, tripCities } = await atlasRepo.citiesWithoutPlaces(household.id);
     const countries = new Map();
     const ensure = (code, name) => { if (!countries.has(code)) countries.set(code, { code, name, places: 0, been: 0, cities: [] }); return countries.get(code); };
-    const cityOf = (c, name) => { let ci = c.cities.find((x) => x.name === name); if (!ci) { ci = { name, places: 0, been: 0, special: 0, trips: 0, lastSeen: null, lat: null, lng: null, created: false }; c.cities.push(ci); } return ci; };
+    const cityOf = (c, name) => {
+      let ci = c.cities.find((x) => x.name === name);
+      if (!ci) { ci = { name, places: 0, been: 0, special: 0, trips: 0, activities: 0, food: 0, hotels: 0, lastSeen: null, lat: null, lng: null, created: false, image: null, lastTrip: null, nextTrip: null }; c.cities.push(ci); }
+      return ci;
+    };
     for (const r of rows) {
       const c = ensure(r.country_code, r.country);
       c.places += r.places; c.been += r.been;
-      Object.assign(cityOf(c, r.locality ?? 'Elsewhere'), { places: r.places, been: r.been, special: r.special, trips: r.trips, lastSeen: r.last_seen });
+      // Added to, not overwritten. The same town can come back on more than one
+      // row — the country's *name* is part of the grouping and two rows can
+      // spell it differently, or not at all — and assigning made London say 9
+      // when it had 23 in it.
+      const ci = cityOf(c, r.locality ?? 'Elsewhere');
+      ci.places += r.places; ci.been += r.been; ci.special += r.special;
+      ci.activities += r.activities; ci.food += r.food; ci.hotels += r.hotels;
+      if (!ci.lastSeen || (r.last_seen && r.last_seen > ci.lastSeen)) ci.lastSeen = r.last_seen;
     }
     for (const r of created) { const ci = cityOf(ensure(r.country_code, r.country), r.locality); ci.created = true; ci.lat ??= r.lat; ci.lng ??= r.lng; }
     for (const r of tripCities) { const ci = cityOf(ensure(r.country_code, r.country), r.locality ?? 'Elsewhere'); ci.trips = Math.max(ci.trips, r.trips); ci.lat ??= r.lat; ci.lng ??= r.lng; }
@@ -92,15 +144,74 @@ atlas.get('/', async (_req, res, next) => {
     for (const r of centres) { const c = countries.get(r.country_code); const ci = c?.cities.find((x) => x.name === r.locality); if (ci) { ci.lat ??= Number(r.lat); ci.lng ??= Number(r.lng); } }
     const unplaced = await atlasRepo.unplacedCount(household.id);
 
+    // Which trip went where, so a country says when they were last there and an
+    // area says which trip it was. One read for the whole atlas.
+    const tripRows = await atlasRepo.tripsByArea(household.id);
+    const nights = (t) => (t.starts_on && t.ends_on
+      ? Math.max(0, Math.round((+new Date(`${String(t.ends_on).slice(0, 10)}T12:00:00Z`) - +new Date(`${String(t.starts_on).slice(0, 10)}T12:00:00Z`)) / 86400000))
+      : 0);
+    for (const [code, c] of countries) {
+      const mine = tripRows.filter((t) => t.country_code === code);
+      Object.assign(c, lastAndNext(mine), { trips: mine.length, areas: c.cities.length });
+      for (const ci of c.cities) {
+        const here = mine.filter((t) => (t.locality ?? 'Elsewhere') === ci.name);
+        Object.assign(ci, lastAndNext(here));
+        ci.trips = Math.max(ci.trips, here.length);
+        /**
+         * Whether this area gets a Hotels tab. The handover left the rule open
+         * ("distance vs overnight stay"); it is answered here by the fact
+         * rather than by a guess about distance — somewhere is a holiday area
+         * if the household has kept somewhere to stay there, or has ever slept
+         * a night there. Reading & around never will be; Puglia was on the
+         * first trip. One line to change if the owner wants distance instead.
+         */
+        ci.holiday = ci.hotels > 0 || here.some((t) => nights(t) > 0);
+      }
+    }
+    // A country a trip went to but where nothing has been saved yet is still a
+    // country the household has been to, so it gets its row.
+    for (const t of tripRows) {
+      const c = ensure(t.country_code, t.country);
+      if (c.areas == null) { Object.assign(c, lastAndNext(tripRows.filter((x) => x.country_code === t.country_code)), { trips: 0, areas: c.cities.length }); }
+    }
+
+    // The picture each area carries, from somewhere the household actually put
+    // there. Ours: the library only ever holds what we may keep.
+    const refRows = await atlasRepo.areaPictureRefs(household.id);
+    const heroes = await heroesForPlaces(refRows.map((r) => r.venue_ref));
+    for (const r of refRows) {
+      const hero = heroes.get(r.venue_ref);
+      if (!hero) continue;
+      const ci = countries.get(r.country_code)?.cities.find((x) => x.name === r.locality);
+      if (!ci) continue;
+      // A photograph, not a mark. A logo is the right picture for the business
+      // it belongs to and the wrong one for a county: "Puglia" drawn as a
+      // restaurant's blue square says nothing about Puglia. A mark is taken
+      // only when there is no photograph in the area at all.
+      if (!ci.image || (ci.image.source === 'logo' && hero.source !== 'logo')) ci.image = ownedImage(hero);
+    }
+
     // Close to home: everything within the household's radius of the front
     // door, whichever city it files under. Not a city — a standing view.
     let home = null;
     if (household.home_lat != null && household.home_lng != null) {
       const radiusMiles = household.home_radius_miles ?? 10;
       const near = await atlasRepo.nearHomeCounts(household.id, household.home_lat, household.home_lng, radiusMiles);
-      home = { label: household.home_label, lat: household.home_lat, lng: household.home_lng, radiusMiles, ...near };
+      const nearRefs = await atlasRepo.nearHomePictureRefs(household.id, household.home_lat, household.home_lng, radiusMiles);
+      const nearHeroes = await heroesForPlaces(nearRefs);
+      const nearFound = nearRefs.map((ref) => nearHeroes.get(ref)).filter(Boolean);
+      const firstHero = nearFound.find((h) => h.source !== 'logo') ?? nearFound[0] ?? null;
+      // Which country the front door is in, so the atlas can say "the UK" and
+      // "Abroad" rather than listing home among the foreign ones. Taken from
+      // where the household's own places actually are, not from a setting
+      // nobody filled in.
+      const homeCountry = await atlasRepo.homeCountryCode(household.id, household.home_lat, household.home_lng, radiusMiles);
+      home = { label: household.home_label, lat: household.home_lat, lng: household.home_lng, radiusMiles, ...near, image: ownedImage(firstHero), countryCode: homeCountry };
     }
-    res.json({ countries: [...countries.values()].sort((a, b) => b.places - a.places), unplaced, home });
+    // Cities are drawn in the order an area list reads best: the ones with the
+    // most in them first, then alphabetically, so "Elsewhere" does not lead.
+    for (const c of countries.values()) c.cities.sort((a, b) => b.places - a.places || a.name.localeCompare(b.name));
+    res.json({ countries: [...countries.values()].sort((a, b) => b.places - a.places || a.name.localeCompare(b.name)), unplaced, home });
   } catch (err) { next(err); }
 });
 
@@ -134,6 +245,24 @@ atlas.get('/places', async (req, res, next) => {
       const kinds = taxonomyKept(p.venueRef);
       return kinds ? { ...p, venue: { ...(p.venue ?? {}), cuisines: kinds.cuisines, experiences: kinds.experiences } } : p;
     });
+    // The picture we own for each of these, in one statement. A row without one
+    // still draws its category icon; a row with one draws the mark or the
+    // photograph the ladder found (sources/placePicture.js). Never a photograph
+    // of somebody's food that we did not take.
+    const ourPictures = await heroesForPlaces(places.map((p) => p.venueRef));
+    // What a day here is like, over the closed set of six (domain/moods.js), so
+    // the area screen's Mood dropdown is the same vocabulary as the home
+    // screen's shelves. Nothing here fetches: it reads the experiences and the
+    // category a search already returned.
+    const rules = await shelfRules();
+    places = places.map((p) => ({
+      ...p,
+      image: ownedImage(ourPictures.get(p.venueRef) ?? null),
+      moods: shelvesForVenue({
+        source: p.venueRef.split(':')[0], sourcePlaceId: p.venueRef.split(':').slice(1).join(':'),
+        category: p.category ?? p.venue?.category ?? null, experiences: p.venue?.experiences ?? [],
+      }, rules).shelves,
+    }));
     if (status) places = places.filter((p) => (status === 'special' ? p.special : p.status === status));
     // Where a place is, and what kind of place it is, are looked up lazily a few
     // rows per read, after the response has gone; the web asks again shortly

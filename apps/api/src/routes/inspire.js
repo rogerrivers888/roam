@@ -58,8 +58,28 @@ import { estimateTravelMinutes, kmBetween, TRAVEL_MODES } from '../domain/travel
 import { dwellFor } from '../domain/options.js';
 import { MOODS, moodsFor, moodsForAtlas } from '../domain/moods.js';
 import { rules as shelfRules } from '../repositories/shelfRules.js';
-import { publishedNear } from '../repositories/library.js';
+import { publishedNear, heroesForPlaces } from '../repositories/library.js';
 import { enabledSources } from '../sources/index.js';
+
+/**
+ * A stored picture, in the shape a card draws.
+ *
+ * `credit` travels with the image and nothing else may drop it: for every
+ * licence except CC0 and public domain, showing the picture without the line is
+ * the licence broken. `source` is on it because a logo is not a photograph and
+ * must not be drawn like one — a mark is contained on its ground, a photograph
+ * fills the tile.
+ */
+const ownedImage = (row) => (row ? {
+  id: row.id,
+  source: row.source,
+  lqip: row.lqip,
+  credit: row.credit_line,
+  licence: row.licence,
+  licenceUrl: row.licence_url,
+  sourceUrl: row.source_page_url,
+  creditRequired: row.attribution_required,
+} : null);
 
 export const inspire = Router();
 
@@ -178,6 +198,14 @@ inspire.get('/near', async (req, res, next) => {
     const attendees = toAttendees(members);
     // A source states its credit either as a line or as { text, … }; the card only wants the line.
     const lines = Object.fromEntries(enabledSources({ includeOptIn: true }).map((s) => [s.key, typeof s.attribution === 'string' ? s.attribution : s.attribution?.text ?? null]));
+    // The pictures we own for these places, in one statement rather than one a
+    // card. A restaurant's picture is never a photograph of its food — it is
+    // the mark it publishes, a Commons photograph of the building, or a
+    // street-level frame of the front door (sources/placePicture.js). Anything
+    // the ladder has found is here; anything it has not falls through to the
+    // provider's photo and then to the card drawing its own identity.
+    const ourPictures = await heroesForPlaces(around.map((v) => `${v.source}:${v.sourcePlaceId}`));
+
     const items = around.map((v) => ({
       venueRef: `${v.source}:${v.sourcePlaceId}`,
       source: v.source,
@@ -191,10 +219,10 @@ inspire.get('/near', async (req, res, next) => {
       priceLevel: v.priceLevel ?? null,
       goodForChildren: v.goodForChildren ?? null,
       photos: (v.photos ?? []).slice(0, 1),
-      // Only the atlas has a picture we own. A provider's photo still travels
-      // on `photos` and is fetched at display time; this key is always present
-      // so the card has one shape to draw rather than two.
-      image: null,
+      // Ours if we have one. A provider's photo still travels on `photos` and is
+      // fetched at display time; this key is always present so the card has one
+      // shape to draw rather than two.
+      image: ownedImage(ourPictures.get(`${v.source}:${v.sourcePlaceId}`)),
       attribution: attributionOf(v, lines),
       lat: v.lat,
       lng: v.lng,
@@ -260,7 +288,7 @@ inspire.get('/near', async (req, res, next) => {
         // decoration: for everything but CC0 and public domain, showing the
         // photograph without it is the licence broken (L17).
         image: a.image_id ? {
-          id: a.image_id, lqip: a.lqip, credit: a.credit_line,
+          id: a.image_id, source: 'wikimedia', lqip: a.lqip, credit: a.credit_line,
           licence: a.licence, licenceUrl: a.licence_url, sourceUrl: a.source_page_url,
           creditRequired: a.attribution_required,
         } : null,

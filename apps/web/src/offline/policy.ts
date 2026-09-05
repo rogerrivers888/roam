@@ -24,6 +24,7 @@ export const isOpenSource = (venueRef?: string | null) => OPEN.has(String(venueR
 
 const path = (full: string) => full.split('?')[0];
 const isTripDetail = (p: string) => /^\/api\/trips\/[^/]+$/.test(p);
+const isTripPlaces = (p: string) => /^\/api\/trips\/[^/]+\/places$/.test(p);
 const isJourney = (p: string) => /^\/api\/trips\/[^/]+\/journey$/.test(p);
 const isDirections = (p: string) => /^\/api\/trips\/[^/]+\/directions$/.test(p);
 const isVisit = (p: string) => /^\/api\/visits\/[^/]+$/.test(p);
@@ -35,6 +36,12 @@ const isJoin = (p: string) => /^\/api\/join\/[^/]+$/.test(p);
  * session (routes/atlas.js `taxonomyKept`), and that must not be written down.
  */
 function cleanPlaceRow<T extends { venueRef?: string; venue?: unknown }>(row: T): T {
+  // `image` deliberately survives this. It is not a provider's photograph: it is
+  // an id into our own library, and every row in there is something we are
+  // allowed to keep — a Commons photograph, a CC BY-SA street-level frame, or a
+  // business's own mark (sources/placePicture.js). The bytes are not in this
+  // body anyway; they are `/api/images/…`, which the service worker holds as the
+  // ordinary immutable files they are.
   return isOpenSource(row.venueRef) ? row : { ...row, venue: null };
 }
 
@@ -92,6 +99,12 @@ export function storable(fullPath: string, body: any): any | null {
       shortlist: (body.shortlist ?? []).map(cleanPlaceRow),
     };
   }
+  // Every place a trip touched. Each row is a place the household put on this
+  // trip and a name the household wrote (repositories/trips.js placesOfTrip);
+  // no provider's record is carried, so there is nothing here to strip. It goes
+  // to the device because a trip you are on is exactly the thing to be looking
+  // at with no signal.
+  if (isTripPlaces(p)) return body;
 
   // --- a group trip: the participant's own list, and never the roster ----
   // Someone in a group is often the person with the worst signal — a car park,
