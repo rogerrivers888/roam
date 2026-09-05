@@ -145,8 +145,10 @@ export async function findMenuUrl({ website, name = '', locality = null, address
 
   // The words that say which restaurant this is: two branches of one group
   // share a website, so the town is part of the question and part of the key.
-  const words = [...new Set(`${locality ?? ''} ${address ?? ''}`.toLowerCase().match(/[a-z]{4,}/g) ?? [])]
-    .filter((w) => !['road', 'street', 'lane', 'unit', 'high', 'avenue', 'close', 'place', 'square', 'united', 'kingdom'].includes(w));
+  // The venue's own name is in here too — Megan's Windsor is "megans-by-the-
+  // crown", with no Windsor in it anywhere (owner, 5 Sep 2026).
+  const words = [...new Set(`${name ?? ''} ${locality ?? ''} ${address ?? ''}`.toLowerCase().match(/[a-z]{4,}/g) ?? [])]
+    .filter((w) => !['road', 'street', 'lane', 'unit', 'high', 'avenue', 'close', 'place', 'square', 'united', 'kingdom', 'restaurant', 'kitchen'].includes(w));
   const key = `${site}|${words.join(',')}`;
 
   const hit = cache.get(key);
@@ -155,6 +157,22 @@ export async function findMenuUrl({ website, name = '', locality = null, address
 
   const run = (async () => {
     const at = () => new Date().toISOString();
+
+    // The site's own index first (owner, 5 Sep 2026). It is two requests, it
+    // needs no rendering and no model, and it is the only method that answers
+    // "which of your thirteen restaurants is the one in Windsor" without
+    // guessing: the branch is a line in location-sitemap.xml.
+    try {
+      const indexed = menusInIndex(await siteIndex(site), words);
+      // Only when the index actually distinguishes this branch, or there is
+      // exactly one menu page on the whole site. A group's bare /menus/ is a
+      // chooser and the page scan handles that better.
+      const best = indexed[0];
+      if (best && (best.n >= 4 || indexed.length === 1)) {
+        return { url: best.url, label: best.label, how: `Found it in their own site index (${indexed.length} menu page${indexed.length === 1 ? '' : 's'} listed).`, checkedAt: at() };
+      }
+    } catch { /* no index, or it would not answer: carry on and look at the page */ }
+
     let page;
     try {
       page = await get(site);
@@ -293,4 +311,103 @@ export async function childMenus(menuUrl, { max = 4, render = true, words = [] }
     out.push({ url: clean, label: text.slice(0, 60), n });
   }
   return out.sort((a, b) => b.n - a.n).slice(0, max);
+}
+
+/* -------------------------------------------------------------- the site index */
+
+/**
+ * Every page a site admits to having, from its sitemap.
+ *
+ * Owner, 5 Sep 2026: "you should be able to check the site index, see if
+ * there's a menu, go to the menu page if there is a menu… check whether you
+ * need to search by location, because for a lot of chains you have to select
+ * the venue."
+ *
+ * This is the step that was missing, and it is the cheapest one available: a
+ * site publishes a list of its own URLs so that search engines can find them,
+ * and everything the crawler was guessing at is simply written down in it.
+ * Megan's has a `location-sitemap.xml` naming all thirteen branches; The Alma's
+ * lists its menu page directly. Two requests, no rendering, no model.
+ *
+ * Where the address is: robots.txt names it, and where robots is silent the two
+ * conventional filenames are tried.
+ */
+export async function siteIndex(website, { maxSitemaps = 5, maxUrls = 3000 } = {}) {
+  let origin;
+  try { origin = new URL(website).origin; } catch { return []; }
+
+  const roots = [];
+  try {
+    const robots = await get(new URL('/robots.txt', origin).toString());
+    if (robots.ok) {
+      // `get` only returns a body for HTML; robots is text, so ask plainly.
+      const res = await fetch(new URL('/robots.txt', origin).toString(), {
+        redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), headers: { 'user-agent': UA },
+      });
+      if (res.ok) {
+        const text = (await res.text()).slice(0, 100_000);
+        for (const [, loc] of text.matchAll(/^\s*sitemap:\s*(\S+)/gim)) roots.push(loc.trim());
+      }
+    }
+  } catch { /* robots is a convenience, not a requirement */ }
+  if (!roots.length) roots.push(new URL('/sitemap_index.xml', origin).toString(), new URL('/sitemap.xml', origin).toString());
+
+  const xml = async (url) => {
+    try {
+      const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), headers: { 'user-agent': UA, accept: 'application/xml,text/xml' } });
+      if (!res.ok) return '';
+      const type = res.headers.get('content-type') || '';
+      if (!/xml/i.test(type)) return '';
+      return (await res.text()).slice(0, 4_000_000);
+    } catch { return ''; }
+  };
+
+  const urls = new Set();
+  const queue = [...roots];
+  let fetched = 0;
+  while (queue.length && fetched < maxSitemaps && urls.size < maxUrls) {
+    const next = queue.shift();
+    const body = await xml(next);
+    if (!body) continue;
+    fetched += 1;
+    const locs = [...body.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]);
+    // A sitemap index points at more sitemaps. Follow the ones that could hold
+    // a menu or a branch and ignore the pictures and the blog.
+    if (/<sitemapindex/i.test(body)) {
+      for (const loc of locs) {
+        if (/image|video|author|category|tag|post-sitemap/i.test(loc)) continue;
+        queue.push(loc);
+      }
+      continue;
+    }
+    for (const loc of locs) urls.add(loc);
+  }
+  return [...urls];
+}
+
+/**
+ * The menu pages in a site's own index, best first.
+ *
+ * `words` are the ones that say which branch this is — the venue's name and
+ * where it is — because a group's index lists every restaurant it owns and
+ * only one of them is the one we are standing outside.
+ */
+export function menusInIndex(urls, words = []) {
+  const out = [];
+  for (const url of urls) {
+    let u;
+    try { u = new URL(url); } catch { continue; }
+    const path = u.pathname.toLowerCase();
+    const isPdf = /\.pdf$/.test(path);
+    const menuish = /\/menus?\b|\/menus?\/|\/food\b|\/eat\b|\/drinks?\b|\/a-la-carte\b/.test(path) || (isPdf && /menu/.test(path));
+    if (!menuish) continue;
+    if (/gift|voucher|news|blog|job|career|privacy|terms|cookie/.test(path)) continue;
+    const branch = words.filter((w) => path.includes(w)).length * 3;
+    const depth = path.replace(/\/$/, '').split('/').filter(Boolean).length;
+    // A deeper page under /menus/ is the specific menu; /menus/ itself is the
+    // chooser. Prefer the specific one when the branch words point at it.
+    const n = (isPdf ? 2 : 0) + branch + (depth >= 2 ? 1 : 0) + 1;
+    out.push({ url: u.toString(), label: decodeURIComponent(path.split('/').filter(Boolean).pop() ?? 'Menu').replace(/[-_]/g, ' ').slice(0, 60), n });
+  }
+  return out.sort((a, b) => b.n - a.n);
 }
