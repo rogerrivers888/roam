@@ -136,6 +136,8 @@ Rules that matter more than fluency:
 
 1. QUOTE WHAT YOU READ. Every highlight and the history carry the sentence you took them from, verbatim, in the quote field. If you are inferring rather than reading, set the source to "judgement" and leave the quote empty. Never put a sentence in a quote field that is not in the sources word for word.
 
+1a. THE QUOTE MUST SUPPORT THE CLAIM IT SITS UNDER, and must mention the thing it is about by name. A real sentence attached to the wrong claim is worse than no quote, because it looks checked and is not. If the sources do not contain a sentence that supports what you want to say about this particular thing, then either say something the sources do support, or set the source to "judgement" and leave the quote empty. An empty quote is an honest answer; a borrowed one is not.
+
 2. DO NOT INVENT. If the sources do not say what it costs, do not estimate. If they do not say when it opens, do not guess from what similar places do. Put the gap in "missing" instead. A blank we know about is useful; a plausible invention is a family driving to a closed gate.
 
 3. HISTORY ONLY WHERE THERE IS HISTORY. A castle, an abbey, a battlefield: yes, and lead with what happened rather than with the architecture. A country park, a soft play, a modern gallery: leave history empty. Two or three sentences at most — this is the reason to be interested, not the article.
@@ -277,7 +279,9 @@ export async function readAttraction({
   }
 
   const system = systemFor({ lessons, examples });
+  const spend = {};
   const facts = await parseStructured({
+    meta: spend,
     system,
     messages: [{ role: 'user', content: briefFor(attraction, detail, contents) }],
     schema: AttractionFacts,
@@ -302,7 +306,8 @@ export async function readAttraction({
     facts, evidence,
     missing: facts.missing ?? [],
     confidence: facts.confidence,
-    model: MODEL,
+    model: spend.model ?? MODEL,
+    costUsd: spend.costUsd ?? null,
     promptHash: hashOf(system),
     lessonsUsed: lessons.map((l) => l.id),
   };

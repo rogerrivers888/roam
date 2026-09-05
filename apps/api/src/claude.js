@@ -90,6 +90,7 @@ async function recordCall({ householdId, sessionId, provider, purpose, usage, mo
     cacheReadTokens: usage?.cache_read_input_tokens ?? null, cacheWriteTokens: usage?.cache_creation_input_tokens ?? null,
     costUsd: cost,
   });
+  return { costUsd: cost, usage, model };
 }
 
 /**
@@ -111,6 +112,11 @@ export async function parseStructured({
   // A long answer needs room: a menu of two hundred dishes does not fit in the
   // planner's default (sources/menuRead.js).
   maxTokens = 4096,
+  // Filled in with { costUsd, usage, model } when the caller passes one. An
+  // out-parameter rather than a second return value because every existing
+  // caller expects the parsed object itself, and the back office is the only
+  // place that needs to say what a single call cost.
+  meta = null,
 }) {
   await assertWithinBounds({ householdId, sessionId });
 
@@ -124,7 +130,8 @@ export async function parseStructured({
     output_config: { effort, format: zodOutputFormat(schema) },
   });
 
-  await recordCall({ householdId, sessionId, provider: 'anthropic', purpose, usage: response.usage, model });
+  const spend = await recordCall({ householdId, sessionId, provider: 'anthropic', purpose, usage: response.usage, model });
+  if (meta) Object.assign(meta, spend);
 
   if (response.stop_reason === 'refusal') {
     const err = new Error('The planner declined this request');
