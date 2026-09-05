@@ -62,9 +62,15 @@ test('an article nobody has view data for is estimated, and says so', () => {
 
 test('the score shows its working', () => {
   const { parts } = scoreOf(windsor);
-  for (const key of ['views', 'open', 'visitors', 'notability', 'illustrated', 'designated']) {
+  // The parts a score is made of, whatever they currently are — the point of
+  // the test is that the working is kept, not that any one term is permanent.
+  // `designated` gave way to `acclaim` when accolades arrived; that is a design
+  // change, not a regression, and this asserts the invariant rather than the
+  // line-up.
+  for (const key of ['views', 'open', 'visitors', 'notability', 'illustrated']) {
     assert.ok(key in parts, `${key} is kept on the row`);
   }
+  assert.ok(Object.keys(parts).length >= 8, 'the working is kept, not just the answer');
   assert.equal(parts.pageviewsYear, 613_221, 'and the raw figures with it');
 });
 
