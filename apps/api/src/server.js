@@ -276,9 +276,18 @@ startReminderLoop();
 // picked back up, because four hours of harvesting inside a web server would
 // otherwise never finish on a repository where somebody deploys every hour
 // (sources/harvest.js).
-resumeInterrupted()
-  .then((r) => { if (r) console.log(`roam-api: harvest ${r.resumed ? `resumed over ${r.regions} region(s)` : `not resumed — ${r.reason}`}`); })
-  .catch((err) => console.error('harvest recovery', err.message));
+//
+// Deliberately not at boot. A job that begins the moment the process starts is
+// a job that is implicated in every failure to start, and there is no way to
+// tell those apart from the outside — so it waits until this process has been
+// up and answering for a minute. If the container is going to fall over, it
+// falls over first, on its own, with nothing of ours in the frame.
+const RESUME_AFTER_MS = Number(process.env.ROAM_HARVEST_RESUME_DELAY_MS || 60_000);
+setTimeout(() => {
+  resumeInterrupted()
+    .then((r) => { if (r) console.log(`roam-api: harvest ${r.resumed ? `resumed over ${r.regions} region(s)` : `not resumed — ${r.reason}`}`); })
+    .catch((err) => console.error('harvest recovery', err.message));
+}, RESUME_AFTER_MS).unref?.();
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`roam-api listening on 0.0.0.0:${port}`);
 });
