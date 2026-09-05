@@ -56,7 +56,8 @@ const FIELDS: { key: keyof AttractionFacts; label: string; kind: 'read' | 'judge
   { key: 'highlights', label: 'What there is to see', kind: 'read' },
   { key: 'dwell', label: 'How long it takes', kind: 'judged' },
   { key: 'cover', label: 'Indoors or out', kind: 'judged' },
-  { key: 'suits', label: 'Who it suits', kind: 'judged' },
+  { key: 'forAges', label: 'What there is, by age', kind: 'judged' },
+  { key: 'alsoSuits', label: 'Also suits', kind: 'judged' },
   { key: 'wouldBore', label: 'Who would be bored', kind: 'judged' },
   { key: 'bestTime', label: 'When to go', kind: 'judged' },
   { key: 'seasonal', label: 'What closes when', kind: 'read' },
@@ -451,7 +452,19 @@ function Extracted({ facts, attraction, lessons, canManage, onReviewed }: {
             ) : null}
             {evidence?.quote ? <Text style={styles.quote}>“{evidence.quote}”</Text> : null}
             {key === 'dwell' && f.dwellWhy ? <Text style={styles.judged}>because {f.dwellWhy}</Text> : null}
-            {key === 'suits' && f.suitsWhy ? <Text style={styles.judged}>{f.suitsWhy}</Text> : null}
+            {key === 'forAges' && f.forAges?.length ? (
+              <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
+                {f.forAges.map((a) => (
+                  <View key={a.band}>
+                    <Row style={{ gap: spacing.xs }}>
+                      <Text style={[type.tiny, { fontWeight: '700', width: 74 }]}>{a.band}</Text>
+                      <Pill label={a.howMuch} tone={a.howMuch === 'nothing' || a.howMuch === 'very little' ? 'warn' : 'plain'} />
+                    </Row>
+                    <Text style={[type.tiny, { marginTop: 1 }]}>{a.what || '—'}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         );
       })}
@@ -507,6 +520,13 @@ function renderValue(key: keyof AttractionFacts, value: unknown): string | null 
   if (key === 'highlights') {
     const n = (value as unknown[]).length;
     return n ? `${plural(n, 'thing')} to see` : null;
+  }
+  // The bands draw themselves below; the line above them just says how many
+  // have anything at all, which is the shape of the place in four words.
+  if (key === 'forAges') {
+    const bands = value as { howMuch: string }[];
+    const has = bands.filter((b) => b.howMuch !== 'nothing').length;
+    return `${has} of 4 age groups have something here`;
   }
   if (Array.isArray(value)) return value.length ? value.join(', ') : null;
   return String(value);

@@ -58,13 +58,41 @@ const Highlight = z.object({
 });
 
 /**
- * Who a place rewards. A closed list, because the point of it is filtering —
- * an open string would give us forty ways to say "good for young children" and
- * no way to search for one.
+ * The age bands, and what there is for each.
+ *
+ * Owner, 5 Sep 2026, on Thorpe Park: "What we do want to know, though, is what
+ * there is for younger children versus older children, like 4 to 8, 8 to 12,
+ * and 12 and above, something like that."
+ *
+ * That is a different question from "who does this suit", and it is the one a
+ * parent actually has. A theme park does not suit or not suit an eight-year-old
+ * — it has four rides they can go on and eleven they cannot, and that is the
+ * answer. So this is not a verdict per band, it is a list of what is there.
+ *
+ * His boundaries, moved a year apart so they do not overlap: 4-to-8 and 8-to-12
+ * both contain an eight-year-old, and a parent reading two different answers
+ * for the same child would rightly stop trusting the card.
+ */
+const AGE_BANDS = ['under 4', '4 to 7', '8 to 11', '12 and over'];
+
+const ForAge = z.object({
+  band: z.enum(AGE_BANDS),
+  // What there is for them, named. '' when the honest answer is nothing — which
+  // is a real and useful answer, and the reason this is not a rating.
+  what: z.string(),
+  // How much of the place is open to them: most of it, some, or very little.
+  // The word a parent scans for before reading the sentence.
+  howMuch: z.enum(['most of it', 'a good part of it', 'some of it', 'very little', 'nothing']),
+});
+
+/**
+ * The audiences that are not about age. Kept separate now that the bands carry
+ * the children, because "the less mobile" and "a teenager" were never the same
+ * kind of fact and folding them into one list made both vaguer.
  */
 const Audience = z.enum([
-  'toddlers', 'young children', 'older children', 'teenagers',
-  'adults', 'anybody', 'the less mobile', 'dog walkers', 'a special occasion',
+  'adults without children', 'the less mobile', 'dog walkers',
+  'a special occasion', 'a rainy day', 'anybody',
 ]);
 
 export const AttractionFacts = z.object({
@@ -93,8 +121,11 @@ export const AttractionFacts = z.object({
   // Does rain ruin it.
   cover: z.enum(['indoors', 'mostly indoors', 'both', 'mostly outdoors', 'outdoors']),
 
-  suits: z.array(Audience),
-  suitsWhy: z.string(),
+  // One entry per band, all four, in order. All four because a band left out
+  // reads as "nothing here for them" when it means "I did not think about it",
+  // and for a parent those are opposite answers.
+  forAges: z.array(ForAge).length(4),
+  alsoSuits: z.array(Audience),
   // Said plainly, because a family with a bored eight-year-old has had their
   // afternoon decided for them and nothing else on the card warns about it.
   wouldBore: z.string(),
@@ -144,11 +175,13 @@ Rules that matter more than fluency:
 
 4. DWELL IS ABOUT THE VISIT, NOT THE PLACE. A cathedral you walk round in forty minutes is "an hour or two" even though it took three centuries to build. Base it on what there is to do: the number of things to see, whether there is a walk, whether people eat there. Say what you based it on in dwellWhy. If the sources genuinely do not support a judgement, say so in dwellWhy and set confidence low.
 
-5. WOULD BORE IS NOT OPTIONAL AND IS NOT A DISCLAIMER. Name who would actually have a bad time and why: "under-eights — it is one room of cabinets and nothing to touch". If nobody would, say so plainly.
+5. THE AGE BANDS ARE THE MOST USEFUL THING ON THE CARD. Fill in all four — under 4, 4 to 7, 8 to 11, 12 and over — and for each say what there actually is for them, by name. "Rides they can go on: Mr Monkey's Banana Ride, the teacups, Flying Fish" beats "some rides suitable for younger children" every time. Where the sources give height restrictions, use them: they decide this more than age does. If there is genuinely nothing for a band, say so plainly and set howMuch to "nothing" — that is a real answer and a parent would rather have it than a hedge.
 
-6. WRITE LIKE A PERSON. Short sentences. No marketing ("nestled", "a hidden gem", "something for everyone"), no hedging stacks ("may possibly offer"). If you would not say it out loud to a friend, do not write it.
+6. WOULD BORE IS NOT OPTIONAL AND IS NOT A DISCLAIMER. Name who would actually have a bad time and why: "under-eights — it is one room of cabinets and nothing to touch". If nobody would, say so plainly.
 
-7. THE MODEL DOES NOT SET PRICES. Admission is read from the venue's own page elsewhere in Roam and is not your job. If the sources mention a price, put it in missing as something to verify rather than in a field.`;
+7. WRITE LIKE A PERSON. Short sentences. No marketing ("nestled", "a hidden gem", "something for everyone"), no hedging stacks ("may possibly offer"). If you would not say it out loud to a friend, do not write it.
+
+8. THE MODEL DOES NOT SET PRICES. Admission is read from the venue's own page elsewhere in Roam and is not your job. If the sources mention a price, put it in missing as something to verify rather than in a field.`;
 
 /** The lessons, as an instruction block, in the order they should be read. */
 export function lessonBlock(lessons = []) {

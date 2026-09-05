@@ -424,10 +424,27 @@ export type Journey = {
 };
 export type DirectionStep = { text: string; minutes: number; meters: number | null; travelMode: string; transit: { line: string | null; agency: string | null; vehicle: string | null; color: string | null; textColor: string | null; headsign: string | null; stopCount: number | null; from: string | null; to: string | null; departs: string | null; arrives: string | null } | null };
 export type Directions = { mode: LegMode; minutes: number; meters: number | null; encodedPolyline: string | null; steps: DirectionStep[]; estimated: boolean; source: string };
-export type AtlasCity = { name: string; places: number; been: number; special: number; trips: number; lastSeen: string | null; lat: number | null; lng: number | null; created: boolean };
+/** A trip in the two words a row has room for: which one, and when. */
+export type TripBrief = { id: string; label: string | null; startsOn: string | null; endsOn: string | null; on: string | null };
+export type AtlasCity = {
+  name: string; places: number; been: number; special: number; trips: number; lastSeen: string | null;
+  lat: number | null; lng: number | null; created: boolean;
+  /** The three lists an area is divided into. Hotels decides whether that tab is drawn at all. */
+  activities: number; food: number; hotels: number;
+  /**
+   * Whether this area gets a Hotels tab: somewhere to stay is kept here, or the
+   * household has slept a night here (routes/atlas.js). A day-trip area — Bath,
+   * Reading & around — shows Activities and Food & drink only.
+   */
+  holiday: boolean;
+  image: OwnedImage | null; lastTrip: TripBrief | null; nextTrip: TripBrief | null;
+};
 /** Everything within the household's radius of the front door: a standing view, not a city. */
-export type AtlasHome = { label: string | null; lat: number; lng: number; radiusMiles: number; places: number; been: number; special: number };
-export type AtlasCountry = { code: string; name: string; places: number; been: number; cities: AtlasCity[] };
+export type AtlasHome = { label: string | null; lat: number; lng: number; radiusMiles: number; places: number; been: number; special: number; image: OwnedImage | null; countryCode: string | null };
+export type AtlasCountry = {
+  code: string; name: string; places: number; been: number; cities: AtlasCity[];
+  areas: number; trips: number; lastTrip: TripBrief | null; nextTrip: TripBrief | null;
+};
 /** The map a search is drawn on while it runs (SearchSketch). Open data, in Mercator units. */
 export type SketchArea = { ref: string; name: string; d: string; cx: number; cy: number };
 export type SketchMap = {
@@ -454,10 +471,11 @@ export type SketchEvent =
 export type SearchParams = { q?: string; categories?: string; radiusKm?: number; near?: string; sources?: string; refresh?: '1' };
 export type SearchAnswer = { near: Place; radiusKm: number; results: (Venue & { onShortlist: boolean })[]; degradedSources: { source: string; error: string }[]; sourcesQueried?: string[]; cached?: boolean; fetchedAt?: string; tookMs?: number };
 
-export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number;
+export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: { id: string; title: string | null; on: string | null }[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number;
   /** Each person's latest score out of 5 here. */ scores: { memberId: string; member: string; score: number; on: string }[];
   /** Where it is at a glance: postcode district and the nearest station with its lines; null until looked up. */ postcode: string | null; station: string | null; stationLines: string[]; stationKind: string | null; stationDistanceM: number | null; whereChecked: string | null;
-  /** The picture Roam owns for this place, if the ladder found one. */ image?: OwnedImage | null };
+  /** The picture Roam owns for this place, if the ladder found one. */ image?: OwnedImage | null;
+  /** What a day here is like, over the closed set of six (domain/moods.js) — the Mood filter's vocabulary. */ moods?: MoodKey[] };
 
 export type Trip = {
   kind?: TripKind; place?: { label: string } | null; startDate?: string | null; endDate?: string | null; dayStart?: string; dayEnd?: string;
@@ -471,7 +489,34 @@ export type Trip = {
   country?: string | null; countryCode?: string | null; locality?: string | null;
 };
 
-export type TripSummary = Trip & { dayCount: number; stopCount: number; shortlistCount: number; visitCount: number; ratingCount: number; attendees: string[]; isPast: boolean };
+export type TripSummary = Trip & {
+  dayCount: number; stopCount: number; shortlistCount: number; visitCount: number; ratingCount: number;
+  placeCount: number; unratedCount: number;
+  attendees: { id: string; name: string }[]; isPast: boolean;
+  /** Nights away. Zero is a day out, whatever the trip calls itself — the line Day trips | Holidays is drawn on. */
+  nights: number;
+  /** Dates, and nowhere to sleep. The one thing on the Trips list allowed to be red. */
+  needsStay: boolean;
+  image: OwnedImage | null;
+};
+
+/**
+ * One place a trip touched, however it got there: booked onto a day, kept on
+ * the shortlist, visited, or slept in (handover, 5 Sep 2026).
+ */
+export type TripPlace = {
+  venueRef: string; name: string | null; category: string | null;
+  /** Which of the three lists it belongs in: something to do, somewhere to eat, somewhere to stay. */
+  group: 'do' | 'eat' | 'stay';
+  lat: number | null; lng: number | null; firstOn: string | null; lastOn: string | null;
+  /** The day it happened, in the words a row shows: "Sun 10". */ day: string | null;
+  dwellMinutes: number | null; visited: boolean; scheduled: boolean; shortlisted: boolean;
+  bookingStatus: string | null;
+  scores: { memberId: string; member: string; score: number }[];
+  /** The household's own mark out of five, or null where nobody has said — which is what the Rate nudge is for. */
+  score: number | null;
+  image: OwnedImage | null;
+};
 
 export type TripStop = { id: string; position: number; venueRef: string; name: string; lat: number | null; lng: number | null; dwellMinutes: number; visit: Visit | null };
 
@@ -1003,6 +1048,7 @@ export const api = {
   updateStop: (tripId: string, stopId: string, body: { dayId?: string; slot?: 'morning' | 'afternoon' | 'evening'; startTime?: string; dwellMinutes?: number; position?: number }) => patch<TripDetail>(`/api/trips/${tripId}/stops/${stopId}`, body),
   planDay: (tripId: string, dayId: string, body: { minActivities?: number; minFood?: number } = {}) => post<PlanResponse>('/api/plan/day', { tripId, dayId, ...body }),
   trip: (id: string) => request<TripDetail>(`/api/trips/${id}`),
+  tripPlaces: (id: string) => request<{ places: TripPlace[]; counts: { all: number; do: number; eat: number; stay: number } }>(`/api/trips/${id}/places`),
   createTrip: (body: { title?: string; notes?: string; origin?: Place; originText?: string; destination?: Place; destinationText?: string; departAt: string; returnAt: string; travelMode?: Trip['travelMode']; intensity?: Trip['intensity']; attendingMemberIds?: string[] }) =>
     post<TripDetail>('/api/trips', body),
   updateTrip: (id: string, body: Partial<Pick<Trip, 'title' | 'notes' | 'departAt' | 'returnAt' | 'travelMode' | 'intensity'>>) => patch<TripDetail>(`/api/trips/${id}`, body),
@@ -1326,7 +1372,10 @@ export type AttractionFacts = {
   dwell: 'under an hour' | 'an hour or two' | 'half a day' | 'a full day' | 'more than a day';
   dwellWhy: string;
   cover: 'indoors' | 'mostly indoors' | 'both' | 'mostly outdoors' | 'outdoors';
-  suits: string[]; suitsWhy: string; wouldBore: string;
+  /** All four bands, in order, with what there is for each. */
+  forAges: { band: 'under 4' | '4 to 7' | '8 to 11' | '12 and over'; what: string;
+             howMuch: 'most of it' | 'a good part of it' | 'some of it' | 'very little' | 'nothing' }[];
+  alsoSuits: string[]; wouldBore: string;
   bestTime: string; seasonal: string;
   booking: 'not needed' | 'advised' | 'required' | 'the sources do not say';
   missing: string[];
