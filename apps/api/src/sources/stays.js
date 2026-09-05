@@ -141,43 +141,59 @@ export async function bedsNear(centre, radiusKm, { stay = null, meter = null } =
     try { return await fn(); } finally { timings[name] = Date.now() - at; }
   };
 
-  const { beds: open, cached: openCached } = await clock('openMap', () => openBeds(centre, radiusKm));
+  // The three lookups do not depend on each other and must not wait for each
+  // other. The open map, LiteAPI's list of beds and LiteAPI's prices are three
+  // questions about the same patch of map — and `POST /hotels/rates` searches by
+  // point and radius, not by the hotel ids the other call returns, so there was
+  // never a reason to hold it back. Run in series they added up to twenty
+  // seconds on a wide ring; run together the wait is the slowest one, not the
+  // sum (owner, 5 Sep 2026: "It took more than a minute").
+  const openLeg = clock('openMap', () => openBeds(centre, radiusKm));
 
-  // No key, or the owner has switched it off in Settings › Providers. Either
-  // way the open map's beds are still an answer; the screen says which it is.
   if (!bedRatesOn()) {
+    const { beds, cached } = await openLeg;
     return {
-      beds: open, cached: openCached, calls: 0, timings,
+      beds, cached, calls: 0, timings,
       sources: ['osm'], degraded: [], priced: false, nights: 0,
       currency: null, sandbox: false, reason: liteapiEnabled() ? 'switched_off' : 'no_key',
     };
   }
 
   const nights = stay ? nightsBetween(stay.checkin, stay.checkout) : 0;
+  const hotelsLeg = clock('hotels', () => hotelsNear(centre, radiusKm, { meter }));
+  const ratesLeg = nights > 0
+    ? clock('rates', () => ratesNear(centre, radiusKm, {
+      checkin: stay.checkin, checkout: stay.checkout, occupancies: stay.occupancies, meter,
+    }))
+    : null;
+
+  // `allSettled`, not `all`: a licensed source that fails must not fail the
+  // look. The open map's beds are the floor — somewhere to sleep with no price
+  // on it is still somewhere to sleep — and the screen is told which source
+  // went quiet.
+  const [openGot, hotelsGot, ratesGot] = await Promise.allSettled([openLeg, hotelsLeg, ratesLeg]);
+
+  if (openGot.status === 'rejected') throw openGot.reason;
+  const { beds: open, cached: openCached } = openGot.value;
+
   let calls = 0;
   let cached = openCached;
   const degraded = [];
   let hotels = [];
   let offers = new Map();
 
-  try {
-    const got = await clock('hotels', () => hotelsNear(centre, radiusKm, { meter }));
-    hotels = got.hotels;
-    if (!got.cached) { calls += 1; cached = false; }
-  } catch (err) {
-    degraded.push({ source: 'liteapi', error: String(err?.message || err) });
+  if (hotelsGot.status === 'fulfilled') {
+    hotels = hotelsGot.value.hotels;
+    if (!hotelsGot.value.cached) { calls += 1; cached = false; }
+  } else {
+    degraded.push({ source: 'liteapi', error: String(hotelsGot.reason?.message || hotelsGot.reason) });
   }
 
-  if (hotels.length && nights > 0) {
-    try {
-      const got = await clock('rates', () => ratesNear(centre, radiusKm, {
-        checkin: stay.checkin, checkout: stay.checkout, occupancies: stay.occupancies, meter,
-      }));
-      offers = got.offers;
-      if (!got.cached) { calls += 1; cached = false; }
-    } catch (err) {
-      degraded.push({ source: 'liteapi-rates', error: String(err?.message || err) });
-    }
+  if (ratesGot.status === 'fulfilled' && ratesGot.value) {
+    offers = ratesGot.value.offers;
+    if (!ratesGot.value.cached) { calls += 1; cached = false; }
+  } else if (ratesGot.status === 'rejected') {
+    degraded.push({ source: 'liteapi-rates', error: String(ratesGot.reason?.message || ratesGot.reason) });
   }
 
   const licensed = hotels.map((h) => ({ ...h, offer: offers.get(h.sourcePlaceId) ?? null }));
