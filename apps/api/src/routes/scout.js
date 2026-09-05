@@ -106,7 +106,16 @@ router.post('/menus/read', requires('manage_library'), async (req, res, next) =>
   try {
     const limit = Math.min(40, Number(req.body?.limit) || 3);
     const household = await currentHousehold();
-    const sessionId = req.session?.id ?? null;
+    // Deliberately not the caller's session.
+    //
+    // SESSION_CALL_BOUND caps a household's planning session at forty Claude
+    // calls, which is the right rail for somebody sitting in front of the app
+    // and exactly the wrong one for a batch that reads ninety menus: every read
+    // after the fortieth was refused, and from the outside it looked like the
+    // crawler failing on Megan's (found 5 Sep 2026). Building the dataset is
+    // not a session. The household's monthly bound still applies, and that is
+    // the guard that belongs here.
+    const sessionId = null;
     // One place by name, for proving a fix without waiting for its turn.
     const ref = String(req.body?.ref || '').trim() || null;
 
