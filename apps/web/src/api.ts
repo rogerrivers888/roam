@@ -505,7 +505,9 @@ export type SketchEvent =
   | { type: 'waiting'; at: number };
 
 export type SearchParams = { q?: string; categories?: string; radiusKm?: number; near?: string; sources?: string; refresh?: '1' };
-export type SearchAnswer = { near: Place; radiusKm: number; results: (Venue & { onShortlist: boolean })[]; degradedSources: { source: string; error: string }[]; sourcesQueried?: string[]; cached?: boolean; fetchedAt?: string; tookMs?: number };
+export type SearchAnswer = { near: Place; radiusKm: number; results: (Venue & { onShortlist: boolean; stored?: boolean })[]; degradedSources: { source: string; error: string; slow?: boolean }[]; sourcesQueried?: string[];
+  /** How many of the results are the household's own records, served because they cannot go down. */ storedCount?: number;
+  cached?: boolean; fetchedAt?: string; tookMs?: number };
 
 export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: { id: string; title: string | null; on: string | null }[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number;
   /** Each person's latest score out of 5 here. */ scores: { memberId: string; member: string; score: number; on: string }[];

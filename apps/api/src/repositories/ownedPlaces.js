@@ -187,3 +187,39 @@ export async function summaryFor(householdId, behindVersion = 3) {
   );
   return rows[0] ?? null;
 }
+
+/**
+ * Every place we own within a radius of a point, nearest first.
+ *
+ * This is what makes Find survive a bad afternoon (owner, 5 Sep 2026: "surely
+ * you could just leave the placeholders that I saw there so that they're
+ * always available, because the moment it is completely empty"). When
+ * OpenStreetMap times out and Google has spent its daily quota, the live sweep
+ * comes back with nothing but event listings and the two tiles a family
+ * actually opens read zero.
+ *
+ * Nothing licensed is reached for here. `place_records` is the owned layer by
+ * construction — researched from the open map, the venue's own page and the
+ * open encyclopedias — so serving it when the rented sources are down breaks
+ * no terms and needs no expiry. It is also small: these are only the places
+ * this household has already claimed.
+ */
+export async function ownedNear(householdId, lat, lng, radiusKm, limit = 60) {
+  const { rows } = await query(
+    `select * from (
+       select r.*,
+              (select count(*)::int from visits v where v.household_id = $1 and v.venue_ref = r.venue_ref) as visits,
+              6371 * acos(least(1, greatest(-1,
+                sin(radians($2)) * sin(radians(r.lat)) +
+                cos(radians($2)) * cos(radians(r.lat)) * cos(radians(r.lng) - radians($3))))) as km
+         from place_records r
+         join household_places hp on hp.venue_ref = r.venue_ref and hp.household_id = $1
+        where r.lat is not null and r.lng is not null and r.name is not null
+     ) near
+      where km <= $4
+      order by km
+      limit $5`,
+    [householdId, lat, lng, radiusKm, limit],
+  );
+  return rows;
+}

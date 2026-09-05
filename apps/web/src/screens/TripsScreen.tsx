@@ -12,7 +12,6 @@ import { PlacePicker } from '../components/PlacePicker';
 import { DateRangePicker, monthSpanLabel } from '../components/DateRangePicker';
 import { TimeRangePicker, timeLabel } from '../components/TimePicker';
 import { PricePointControl, ChainsControl } from '../components/PlanControls';
-import { BrowsePool } from '../components/BrowsePool';
 import { MapView, MapPin } from '../components/MapView';
 import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
 import { VenueThumb } from '../components/VenueThumb';
@@ -648,7 +647,6 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
   const setSection = (next: Section) => navigate(paths.trip(id, next, next === 'day' ? dayId : null));
   const setDayId = (next: string) => navigate(paths.trip(id, 'day', next));
   useEffect(() => { if (asked) rememberScreen<TripPageMemory>(sectionKey, { section: asked }); }, [sectionKey, asked]);
-  const [planning, setPlanning] = useState(false);
   const [menu, setMenu] = useState(false);
   /**
    * How Find was set when somebody was sent here — "things to do within 5 km,
@@ -783,16 +781,12 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
         <TripPlaces data={tripPlaces} isPast={isPast} onOpen={(p) => { if (p.lat != null && p.lng != null) setSection('map'); }} />
       ) : null}
       {section === 'map' ? <TripMap d={d} places={tripPlaces?.places ?? []} wide={wide} /> : null}
+      {/* Find is for finding (owner, 5 Sep 2026). The planner used to hang off
+          the bottom of this tab and open a second, older copy of this very
+          list — two browse lists in two formats, one inside the other. It
+          lives on the day now, which is the thing being planned. */}
       {section === 'find' ? (
-        <View style={{ gap: spacing.md }}>
-          <BrowseNear d={d} household={household} onChanged={load} find={find} setFind={setFind} initialPrices={findPrices} initialCat={findCat} onShortlist={() => setSection('shortlist')} />
-          {household && day ? (
-            <View style={{ gap: spacing.sm }}>
-              <Button label={planning ? 'Hide the planner' : 'Plan it for me'} icon="plan" kind="ghost" onPress={() => setPlanning((v) => !v)} />
-              {planning ? <DayPlanner trip={d} day={day} household={household} onChanged={async () => { await load(); await refreshHousehold(); }} /> : null}
-            </View>
-          ) : null}
-        </View>
+        <BrowseNear d={d} household={household} onChanged={load} find={find} setFind={setFind} initialPrices={findPrices} initialCat={findCat} />
       ) : null}
       {section === 'shortlist' && day ? (
         <View style={{ gap: spacing.md }}>
@@ -821,6 +815,7 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
         <View style={{ gap: spacing.md }}>
           {dayChips}
           <TripJourneyDay d={d} day={day} wide={wide} onChanged={load} onChangePlan={() => setSection('shortlist')} />
+          {household ? <DayPlanner trip={d} day={day} household={household} onChanged={async () => { await load(); await refreshHousehold(); }} /> : null}
         </View>
       ) : null}
       {section === 'stay' && isTrip ? <StayPanel d={d} household={household} onChanged={load} onFindNear={() => setSection('find')} openSearch={!booked} /> : null}
@@ -1103,13 +1098,13 @@ function DayPlanner({ trip, day, household, onChanged }: { trip: TripDetail; day
         <Segmented value={day.travelMode} options={[{ value: 'walking', label: 'Walk' }, { value: 'transit', label: 'Transit' }, { value: 'driving', label: 'Drive' }, { value: 'cycling', label: 'Cycle' }]} onChange={(v) => call(() => api.updateDay(trip.trip.id, day.id, { travelMode: v }))} />
         <TimeBar budget={day.budget} stops={allStops.map((s) => ({ id: s.id, name: s.name, dwellMinutes: s.dwellMinutes }))} departAt={day.startTime} returnAt={day.endTime} />
         <Row>
-          <Button label={planning ? 'Hide planner' : resumed ? 'Back to the options' : allStops.length ? 'Re-plan this day with Roam' : 'Plan this day with Roam'} onPress={() => setPlanning((p) => !p)} />
+          <Button label={planning ? 'Hide the planner' : allStops.length ? 'Re-plan this day' : 'Plan it for me'} icon="plan" onPress={() => setPlanning((p) => !p)} />
           {planning && resumed ? <Button label="Start again" kind="ghost" onPress={() => { setResumed(null); setPlanning(true); }} /> : null}
         </Row>
         {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       </Card>
 
-      {planning && resumed !== undefined ? <DayPlanPanel key={resumed ? resumed.sessionId : 'fresh'} trip={trip} day={day} initial={resumed ?? null} onCommitted={async () => { setPlanning(false); await onChanged(); }} onShortlisted={onChanged} /> : null}
+      {planning && resumed !== undefined ? <DayPlanPanel key={resumed ? resumed.sessionId : 'fresh'} trip={trip} day={day} initial={resumed ?? null} onCommitted={async () => { setPlanning(false); await onChanged(); }} /> : null}
 
       {day.slots.map((slot) => (
         <Card key={slot.slot} style={{ gap: spacing.sm }}>
@@ -1186,14 +1181,12 @@ function StopRow({ stop, leg, trip, day, household, onChanged }: { stop: DayStop
  * No algorithm-named plans on top; "Let Roam fill the day" is one button.
  * Voice and typing refine the same session ("somewhere upmarket", "no chains").
  */
-function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip: TripDetail; day: TripDay; initial: PlanResponse | null; onCommitted: () => Promise<void>; onShortlisted: () => Promise<void> }) {
+function DayPlanPanel({ trip, day, initial, onCommitted }: { trip: TripDetail; day: TripDay; initial: PlanResponse | null; onCommitted: () => Promise<void> }) {
   const [plan, setPlan] = useState<PlanResponse | null>(initial);
   const [busy, setBusy] = useState<false | 'thinking' | 'updating'>(false);
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [reply, setReply] = useState<string | null>(null);
-  const [adding, setAdding] = useState<BrowseItem | null>(null);
-  const [justAdded, setJustAdded] = useState<string | null>(null);
 
   const start = useCallback(async () => {
     setBusy('thinking'); setError(null);
@@ -1201,8 +1194,6 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
   }, [trip.trip.id, day.id]);
   useEffect(() => { if (!initial) start(); }, [start, initial]);
   const baseLabel = trip.trip.base?.label ?? trip.trip.origin.label;
-  const onDay = new Set(day.slots.flatMap((sl) => sl.stops.map((st) => st.venueRef)));
-  const shortlisted = new Set(trip.shortlist.map((sh) => sh.venueRef));
 
   const say = async (text: string, viaVoice = false) => {
     if (!plan || !text.trim()) return;
@@ -1211,13 +1202,6 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
   };
   const speech = useSpeech({ onFinal: (t) => say(t, true) });
   const act = async (a: PlanAction) => { if (!plan) return; setBusy('updating'); try { setPlan(await api.planAct(plan.sessionId, a)); } catch (e: any) { setError(e.message); } finally { setBusy(false); } };
-  const addToDay = async (b: BrowseItem, slot: 'morning' | 'afternoon' | 'evening') => {
-    setBusy('updating'); setAdding(null);
-    try {
-      await api.addDayStop(trip.trip.id, day.id, { venueRef: b.venueRef, name: b.name, lat: b.lat, lng: b.lng, category: b.category, dwellMinutes: b.dwellMinutes, slot, startTime: b.startsAt ? clock24(b.startsAt) : undefined });
-      setJustAdded(b.name); await onCommitted();
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
-  };
   const fillDay = async () => {
     if (!plan?.options.length) return;
     setBusy('updating');
@@ -1235,22 +1219,11 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
 
   return (
     <Card style={{ borderColor: colors.accent, gap: spacing.md }}>
-      <Text style={type.h3}>Everything Roam found near {baseLabel}</Text>
-      <Text style={type.tiny}>Filter or sort, open a place for its reviews, hours and photos, then add it to {fmtDate(day.date)} or shortlist it for any day of the trip.{plan?.resumed ? ' Picked up where you left off.' : ''}</Text>
+      <Text style={type.h3}>Filling {fmtDate(day.date)}</Text>
+      <Text style={type.tiny}>Say what you're after and Roam works from the same pool Find searches, around whatever is already on the day. To browse that pool yourself, use Find.{plan?.resumed ? ' Picked up where you left off.' : ''}</Text>
       {busy === 'thinking' ? <StatusLine>Looking around {baseLabel}…</StatusLine> : null}
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-      {justAdded ? <StatusLine tone="good">{justAdded} is on the day — see the slots above.</StatusLine> : null}
       {reply ? <View style={styles.bubble}><Text style={type.body}>{reply}</Text></View> : null}
-
-      {adding ? (
-        <View style={[styles.bubble, { gap: spacing.sm }]}>
-          <Text style={type.body}>Add {adding.name} to which part of the day?</Text>
-          <Wrap>
-            {(['morning', 'afternoon', 'evening'] as const).map((sl) => <Chip key={sl} label={SLOT_LABEL[sl]} tone="accent" onPress={() => addToDay(adding, sl)} />)}
-            <Chip label="Cancel" onPress={() => setAdding(null)} />
-          </Wrap>
-        </View>
-      ) : null}
 
       <Row>
         <TextInput value={input} onChangeText={setInput} placeholder="e.g. somewhere upmarket for dinner, no chains, more for Phoenix" placeholderTextColor={colors.inkFaint} style={[styles.input, { flex: 1 }]} onSubmitEditing={() => say(input)} />
@@ -1258,28 +1231,21 @@ function DayPlanPanel({ trip, day, initial, onCommitted, onShortlisted }: { trip
         <Button label="Send" onPress={() => say(input)} disabled={!input.trim() || !!busy} />
       </Row>
 
+      {/* The browse list that used to sit here is gone (owner, 5 Sep 2026: "it
+          opens up another duplicated menu underneath that's in a completely
+          different format… extremely confusing"). It was BrowsePool — a second
+          implementation of Find's own list, nested inside Find. Find is the
+          list; this is the one button that fills the day from it. Price and
+          chains stay, because they change what the fill picks. */}
       {plan ? (
         <>
           <PricePointControl value={plan.constraints?.pricePoint ?? 'any'} onChange={(v) => act({ type: 'set', pricePoint: v })} />
           <ChainsControl includeChains={plan.constraints?.includeChains ?? false} hidden={plan.pool?.hiddenChains ?? 0} onChange={(v) => act({ type: 'set', includeChains: v })} />
-          <BrowsePool
-            items={plan.browse ?? []}
-            eventsSource={plan.eventsSource}
-            baseLabel={baseLabel}
-            pinned={onDay}
-            busy={!!busy}
-            addLabel="Add to the day"
-            addedLabel="On the day"
-            onAdd={(b) => setAdding(b)}
-            onDislike={(b) => act({ type: 'dislike', stopId: b.id })}
-            shortlistedRefs={shortlisted}
-            onShortlist={async (b) => { await api.addToShortlist(trip.trip.id, { venueRef: b.venueRef, venueLabel: b.name, category: b.category, lat: b.lat, lng: b.lng, venue: { name: b.name, category: b.category, cuisines: b.cuisines, experiences: b.experiences, rating: b.rating, priceLevel: b.priceLevel, lat: b.lat, lng: b.lng, photos: b.photos } as any }); await onShortlisted(); }}
-          />
-          <Row style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-            <Text style={[type.tiny, { flex: 1, minWidth: 200 }]}>Short of time? Roam can fill the day from the best matches around your must-dos and what's already on it.</Text>
-            <Button label="Let Roam fill the day" kind="secondary" onPress={fillDay} disabled={!!busy || !plan.options.length} />
-          </Row>
-          {plan.selection?.excluded?.length ? <Text style={type.tiny}>Set aside: {plan.selection.excluded.length} place{plan.selection.excluded.length === 1 ? '' : 's'}.</Text> : null}
+          <Text style={type.tiny}>
+            {plan.browse?.length ? `${plan.browse.length} places found around ${baseLabel}` : `Looking around ${baseLabel}`}
+            {plan.selection?.excluded?.length ? ` · ${plan.selection.excluded.length} set aside` : ''}
+          </Text>
+          <Button label="Fill the day from these" icon="plan" onPress={fillDay} disabled={!!busy || !plan.options.length} />
         </>
       ) : null}
     </Card>

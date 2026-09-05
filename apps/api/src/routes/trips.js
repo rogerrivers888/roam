@@ -20,9 +20,11 @@ import { currentHousehold } from './household.js';
 import { visitPayload, householdStatus } from './places.js';
 import { upsertHouseholdPlace, ownedImage } from './atlas.js';
 import * as atlasRepo from '../repositories/atlas.js';
+import * as ownedRepo from '../repositories/ownedPlaces.js';
 import { heroesForPlaces } from '../repositories/library.js';
 import { claimPlace } from '../sources/own.js';
 import { matchOsm } from '../sources/openMatch.js';
+import { mirrorHealth as overpassHealth } from '../sources/overpass.js';
 
 const router = Router();
 const SLOTS = ['morning', 'afternoon', 'evening'];
@@ -479,11 +481,36 @@ async function runShortlistSearch(req, { onProgress = null } = {}) {
   // nearest first, empties What's on in any city dense enough to fill it with
   // pubs before the first event: central London returns 400 places inside
   // three kilometres, and every one of them is nearer than a theatre.
-  const results = [
+  const live = [
     ...inRadius.filter((v) => v.category !== 'event').slice(0, 120),
     ...inRadius.filter((v) => v.category === 'event').slice(0, 80),
   ].sort(byDistance);
-  return { near: center, radiusKm, results: withFlags(results), degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started };
+  // Find is never blank (owner, 5 Sep 2026: "surely you could just leave the
+  // placeholders that I saw there so that they're always available, because the
+  // moment it is completely empty"). Whatever the rented sources managed, the
+  // places this household already owns near this point are added underneath —
+  // they cost nothing, they cannot go stale and they cannot go down. On a good
+  // afternoon they are a handful of familiar names at the bottom of a long
+  // list; on the afternoon Overpass times out and Google's daily quota is spent
+  // they are the whole of Things to do and Places to eat.
+  const known = new Set(live.map((v) => v.venueRef));
+  const stored = (await ownedRepo.ownedNear(household.id, center.lat, center.lng, radiusKm).catch(() => []))
+    .filter((r) => !known.has(r.venue_ref))
+    .map((r) => ({
+      venueRef: r.venue_ref, source: 'own', sourcePlaceId: String(r.venue_ref).split(':').slice(1).join(':'),
+      name: r.name, category: r.category ?? 'attraction', lat: Number(r.lat), lng: Number(r.lng),
+      cuisines: r.cuisines ?? [], experiences: r.experiences ?? [], dietaryOptions: r.dietary_options ?? [],
+      address: r.address ?? null, website: r.website ?? null, openingHours: r.opening_hours ?? null,
+      summary: r.summary ?? null, goodForChildren: r.good_for_children ?? null, photos: r.image_url ? [{ url: r.image_url }] : [],
+      rating: null, ratingCount: null, priceLevel: null,
+      attribution: r.attribution ?? [], distanceKm: Number(Number(r.km).toFixed(2)),
+      household: { visits: r.visits ?? 0 },
+      // The card says where this came from: it is the family's own record, not
+      // a provider's answer, and it is here because the provider had none.
+      stored: true,
+    }));
+  const results = [...live, ...stored];
+  return { near: center, radiusKm, results: withFlags(results), storedCount: stored.length, degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started };
 }
 
 /**
@@ -508,6 +535,7 @@ async function runShortlistSearch(req, { onProgress = null } = {}) {
  * path to a device.
  */
 router.get('/:id/stays', async (req, res, next) => {
+  const started = Date.now();
   try {
     const household = await currentHousehold();
     const trip = await loadTrip(req.params.id);
@@ -592,6 +620,11 @@ router.get('/:id/stays', async (req, res, next) => {
         reason: look.reason,
         degraded: look.degraded,
       },
+      // Milliseconds per source, and the whole thing. "The Stay tab is slow" is
+      // otherwise unanswerable without a deploy, and the answer is rarely the
+      // source anybody suspects.
+      tookMs: { total: Date.now() - started, ...look.timings },
+      mirrors: overpassHealth(),
       attributions: [OSM_ATTRIBUTION, ...(look.sources.includes('liteapi') ? [LITEAPI_ATTRIBUTION] : [])],
       attribution: OSM_ATTRIBUTION,
     });

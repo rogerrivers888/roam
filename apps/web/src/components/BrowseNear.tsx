@@ -27,17 +27,26 @@ import { SearchSketch } from './SearchSketch';
  */
 
 /** A listing carries when it runs and whose room it is in; a place carries neither. */
-export type FindResult = Venue & { onShortlist?: boolean; distanceKm?: number; startsAt?: string | null; endsAt?: string | null; venueName?: string | null; ticketed?: boolean };
+export type FindResult = Venue & { onShortlist?: boolean; distanceKm?: number; startsAt?: string | null; endsAt?: string | null; venueName?: string | null; ticketed?: boolean;
+  /** The household's own record, served because it cannot go down (routes/trips.js). */ stored?: boolean };
 export type FindCat = 'things' | 'food' | 'events';
 export type FindSort = 'you' | 'rating' | 'reviews' | 'nearest';
 export type FindBudget = 'any' | 'free' | 'low' | 'medium' | 'high';
 export type FindState = {
   q: string; radiusKm: number; sources: string[] | null; only: string | null;
-  res: FindResult[] | null; fetchedAt: string | null; cached: boolean; queried: string[]; degraded: { source: string; error: string }[];
+  res: FindResult[] | null; fetchedAt: string | null; cached: boolean; queried: string[]; degraded: { source: string; error: string; slow?: boolean }[];
   loading: boolean; error: string | null;
   cat: FindCat; sort: FindSort; kinds: string[]; budget: FindBudget;
+  /** How many of the results are the household's own records rather than a live answer. */ stored: number;
+  /**
+   * Whether the family chose this tile themselves. Until they do, a finished
+   * search is allowed to move them off a tile it has nothing for — landing on
+   * "Things to do · 0" while "What's on · 75" sits unopened beside it is the
+   * empty screen, not the empty result (owner, 5 Sep 2026).
+   */
+  picked: boolean;
 };
-export const emptyFind = (): FindState => ({ q: '', radiusKm: 3, sources: null, only: null, res: null, fetchedAt: null, cached: false, queried: [], degraded: [], loading: false, error: null, cat: 'things', sort: 'you', kinds: [], budget: 'any' });
+export const emptyFind = (): FindState => ({ q: '', radiusKm: 3, sources: null, only: null, res: null, fetchedAt: null, cached: false, queried: [], degraded: [], loading: false, error: null, cat: 'things', sort: 'you', kinds: [], budget: 'any', stored: 0, picked: false });
 
 const FOOD = new Set(['restaurant', 'cafe', 'pub', 'bar']);
 const catOf = (v: FindResult): FindCat => (v.category === 'event' ? 'events' : FOOD.has(v.category) ? 'food' : 'things');
@@ -46,6 +55,17 @@ const sourcesOf = (v: FindResult) => [...new Set([v.source, ...(v.contributingSo
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/-/g, ' ');
 const priceMarks = (p: number | null | undefined) => (p == null ? '' : p === 0 ? 'free' : '£'.repeat(Math.max(1, Math.min(4, p))));
 const SORT_LABEL: Record<FindSort, string> = { you: 'For you', rating: 'Top rated', reviews: 'Most reviewed', nearest: 'Nearest' };
+// A source that did not answer is said in the family's words, not the
+// provider's (owner, 5 Sep 2026: Find went blank and nothing on the screen said
+// why). The reason was always in the answer — it was only ever drawn inside a
+// panel that a phone cannot open.
+const SOURCE_NAME: Record<string, string> = { osm: 'The open map', google: 'Google', tripadvisor: 'Tripadvisor', ticketmaster: 'Ticketmaster', predicthq: 'PredictHQ', datathistle: 'Data Thistle', seatgeek: 'SeatGeek', scout: 'The local scout', fixtures: 'Sample data' };
+const whyFailed = (g: { source: string; error: string; slow?: boolean }) => {
+  const who = SOURCE_NAME[g.source] ?? cap(g.source);
+  if (/quota|RESOURCE_EXHAUSTED|\b429\b/i.test(g.error)) return `${who} has used up today's allowance`;
+  if (g.slow || /within \d+s|timed? ?out|still looking/i.test(g.error)) return `${who} didn't answer in time`;
+  return `${who} couldn't be reached`;
+};
 const SORT_NEXT: Record<FindSort, FindSort> = { you: 'rating', rating: 'reviews', reviews: 'nearest', nearest: 'you' };
 // One control, four choices (owner, 4 Sep 2026): free things only, or a ceiling
 // on what a place charges. Nothing here is pre-ticked — "Any budget" is the
@@ -92,13 +112,12 @@ const KIND_GROUPS: { label: string; keys: string[] }[] = [
 
 type Scored = { v: FindResult; score: number; reasons: { icon: 'keep' | 'check' | 'children' | 'plan'; text: string }[]; cat: FindCat; kinds: string[] };
 
-export function BrowseNear({ d, household, onChanged, find, setFind, initialPrices, initialCat, onShortlist }: {
+export function BrowseNear({ d, household, onChanged, find, setFind, initialPrices, initialCat }: {
   d: TripDetail; household?: HouseholdResponse | null; onChanged: () => Promise<void>; find: FindState; setFind: (f: FindState | ((cur: FindState) => FindState)) => void;
   /** Price chips to start with ("Free to enter" when the day was asked for on a free budget). */
   initialPrices?: string[];
   /** Which tile to open on: a day already spent at one place wants somewhere to eat, not more to do. */
   initialCat?: FindCat;
-  onShortlist?: () => void;
 }) {
   const { trip, shortlist } = d;
   // Width comes from the viewport, never the window, so the shell's Mobile
@@ -132,7 +151,14 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
         { q: params.q || undefined, radiusKm: params.radiusKm, sources: params.sources ? params.sources.join(',') : undefined, refresh: refresh ? '1' : undefined },
         (e) => setEvents((cur) => [...cur, e]),
       );
-      setFind((cur) => ({ ...cur, res: r.results, fetchedAt: r.fetchedAt ?? new Date().toISOString(), cached: Boolean(r.cached), queried: r.sourcesQueried ?? [], degraded: r.degradedSources ?? [], loading: false }));
+      setFind((cur) => {
+        // Land on a tile that has something. A search is not "empty" because
+        // the tile in front happens to be the one the sources had nothing for.
+        const n = { things: 0, food: 0, events: 0 };
+        for (const v of r.results) n[catOf(v as FindResult)] += 1;
+        const cat = cur.picked || n[cur.cat] > 0 ? cur.cat : (['things', 'food', 'events'] as FindCat[]).find((c) => n[c] > 0) ?? cur.cat;
+        return { ...cur, res: r.results, cat, fetchedAt: r.fetchedAt ?? new Date().toISOString(), cached: Boolean(r.cached), queried: r.sourcesQueried ?? [], degraded: r.degradedSources ?? [], stored: r.storedCount ?? 0, loading: false };
+      });
     } catch (e: any) { setFind((cur) => ({ ...cur, loading: false, error: e.message })); setSketching(false); }
   }, [trip.id, find, setFind]);
 
@@ -195,6 +221,9 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
     };
     return [...l].sort(by[find.sort]);
   }, [inCat, find.kinds, find.only, find.sort, budgetMax]);
+  // Only the sources that were meant to fill this tile. A theatre listings
+  // service that fell over has nothing to do with an empty Places to eat.
+  const failed = useMemo(() => (find.degraded ?? []).filter((g) => g.source !== 'fixtures'), [find.degraded]);
   const sourceCounts = useMemo(() => {
     const c = new Map<string, number>();
     for (const s of scored) for (const src of sourcesOf(s.v)) c.set(src, (c.get(src) ?? 0) + 1);
@@ -216,7 +245,7 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
     });
     await onChanged();
   };
-  const setCat = (cat: FindCat) => { setFind((cur) => ({ ...cur, cat, kinds: [] })); setShown(20); setSheet(null); };
+  const setCat = (cat: FindCat) => { setFind((cur) => ({ ...cur, cat, kinds: [], picked: true })); setShown(20); setSheet(null); };
   const toggleKind = (k: string) => setFind((cur) => ({ ...cur, kinds: cur.kinds.includes(k) ? cur.kinds.filter((x) => x !== k) : [...cur.kinds, k] }));
   // Tapping the pill that opened a panel closes it again; only one is ever open.
   const togglePanel = (p: 'kind' | 'budget' | 'distance' | 'sources') => setSheet((cur) => (cur === p ? null : p));
@@ -378,6 +407,19 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
           onSettled={() => setSketching(false)}
         />
       ) : null}
+      {/* What the sources actually did, on the screen the family is looking at
+          rather than behind a desktop-only panel. A search that came back thin
+          because Google had spent its allowance is not a place with nothing in
+          it, and the difference is the whole message. */}
+      {failed.length > 0 && !find.loading ? (
+        <View style={styles.trouble}>
+          <Icon name="info" size={15} color={colors.ink} />
+          <Text style={[type.small, { flex: 1, color: colors.ink }]}>
+            {failed.map(whyFailed).join(' · ')}
+            {find.stored ? `. Showing ${find.stored} of your own place${find.stored === 1 ? '' : 's'} near here in the meantime.` : '.'}
+          </Text>
+        </View>
+      ) : null}
       {find.res && !find.loading && !list.length ? <Text style={type.small}>{inCat.length ? 'Nothing matches those picks.' : find.cat === 'events' ? 'No listings here for that day.' : `Nothing within ${find.radiusKm} km.`}</Text> : null}
 
       <View>
@@ -401,7 +443,8 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
                   {v.rating != null ? <><Icon name="favourite" size={13} color={colors.icon} /><Text style={[type.small, { color: colors.ink, fontWeight: '700' }]}>{v.rating.toFixed(1)}</Text></> : null}
                   <Text style={type.small}>{v.rating != null ? ' · ' : ''}{v.distanceKm != null ? `${v.distanceKm < 1 ? `${Math.round(v.distanceKm * 1000)} m` : `${v.distanceKm} km`}` : ''}</Text>
                 </Row>
-                {reasons[0] ? <View style={styles.why}><Icon name={reasons[0].icon} size={12} color={colors.icon} /><Text style={styles.whyText} numberOfLines={1}>{reasons[0].text}</Text></View> : null}
+                {v.stored ? <View style={styles.why}><Icon name="owned" size={12} color={colors.icon} /><Text style={styles.whyText} numberOfLines={1}>Ours — saved, works offline</Text></View>
+                  : reasons[0] ? <View style={styles.why}><Icon name={reasons[0].icon} size={12} color={colors.icon} /><Text style={styles.whyText} numberOfLines={1}>{reasons[0].text}</Text></View> : null}
               </View>
               <Pressable onPress={() => { if (!saved) add(v); }} style={[styles.save, saved && styles.saveOn]} accessibilityRole="button" accessibilityLabel={saved ? 'Shortlisted' : 'Shortlist'}>
                 <Icon name={saved ? 'shortlisted' : 'shortlist'} size={16} color={saved ? colors.primaryFg : colors.ink} />
@@ -411,7 +454,10 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
         })}
       </View>
       {list.length > shown ? <Button label={`Show ${Math.min(20, list.length - shown)} more of ${list.length}`} kind="ghost" onPress={() => setShown((n) => n + 20)} /> : null}
-      {shortlisted.size && onShortlist ? <Button label={`Shortlist · ${shortlisted.size}`} icon="list" kind="secondary" onPress={onShortlist} /> : null}
+      {/* One call to action (owner, 5 Sep 2026: "Really, just what I want is a
+          single call to action, which is 'Refresh List'"). The Shortlist button
+          that used to sit here is gone — the shortlist has a tab of its own. */}
+      <Button label={find.loading ? 'Searching…' : 'Search again'} icon="refresh" kind="secondary" onPress={() => run({}, true)} loading={find.loading} disabled={find.loading} />
 
       <VenueDrawer item={open} baseLabel={baseLabel} onClose={() => setOpen(null)} onShortlist={async (b) => { const v = (find.res ?? []).find((x) => x.venueRef === b.venueRef); if (v) await add(v); }} shortlisted={open ? shortlisted.has(open.venueRef) : false} />
     </View>
@@ -440,6 +486,7 @@ const styles = StyleSheet.create({
   save: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: colors.ink, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
   saveOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   label: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.7, color: colors.inkMuted },
+  trouble: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surfaceMuted },
   panel: { backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, padding: spacing.md, gap: spacing.md },
   seg: { flexDirection: 'row', gap: 3, padding: 3, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
   segItem: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: radius.md },
