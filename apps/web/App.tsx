@@ -7,6 +7,7 @@ import { useTheme } from './src/hooks/useTheme';
 import { getViewer, onViewerChange } from './src/viewer';
 import { Avatar } from './src/components/Faces';
 import { PlanScreen } from './src/screens/PlanScreen';
+import { InspireScreen } from './src/screens/InspireScreen';
 import { PlacesScreen } from './src/screens/PlacesScreen';
 import { TripsScreen, TripPrefill } from './src/screens/TripsScreen';
 import { HouseholdScreen } from './src/screens/HouseholdScreen';
@@ -24,9 +25,13 @@ import { useOutbox } from './src/hooks/useOutbox';
 import { useSession } from './src/hooks/useSession';
 import { Icon, IconName } from './src/components/Icon';
 
-type Tab = 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes';
+type Tab = 'inspire' | 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes';
+// Roam opens on Inspire (owner, 5 Sep 2026, "Supporting docs/Roam Inspire"):
+// what there is to do, with one search bar above it. The conversational planner
+// is still there and still has an address — ?tab=plan, and the door at the foot
+// of the search screen — it is simply no longer the first thing Roam says.
 const TABS: { key: Tab; label: string; icon: IconName; owner?: true }[] = [
-  { key: 'plan', label: 'Plan', icon: 'plan' },
+  { key: 'inspire', label: 'Inspire', icon: 'inspire' },
   { key: 'places', label: 'Places', icon: 'places' },
   { key: 'trips', label: 'Trips', icon: 'trips' },
   { key: 'household', label: 'Household', icon: 'household' },
@@ -220,13 +225,13 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
     const t = q.get('tab');
     const section = q.get('section');
     return {
-      tab: TABS.some((x) => x.key === t && (!x.owner || isOwner)) || t === 'prototypes' ? (t as Tab) : null,
+      tab: TABS.some((x) => x.key === t && (!x.owner || isOwner)) || t === 'prototypes' || t === 'plan' ? (t as Tab) : null,
       trip: q.get('trip'),
       // ?section= opens the trip on one of its own tabs, so a group has an address too.
       section: ['find', 'shortlist', 'day', 'group'].includes(section ?? '') ? (section as TripPrefill['section']) : undefined,
     };
   }, []);
-  const [tab, setTab] = useState<Tab>(fromUrl.tab ?? 'plan');
+  const [tab, setTab] = useState<Tab>(fromUrl.tab ?? 'inspire');
   const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking');
   const [household, setHousehold] = useState<HouseholdResponse | null>(null);
   const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(fromUrl.trip ? { openTripId: fromUrl.trip, section: fromUrl.section } : null);
@@ -255,7 +260,7 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
     const onPop = () => {
       const q = new URLSearchParams(window.location.search);
       const t = q.get('tab');
-      if (TABS.some((x) => x.key === t && (!x.owner || isOwner)) || t === 'prototypes') setTab(t as Tab);
+      if (TABS.some((x) => x.key === t && (!x.owner || isOwner)) || t === 'prototypes' || t === 'plan') setTab(t as Tab);
       const trip = q.get('trip');
       if (trip) setTripPrefill({ openTripId: trip });
     };
@@ -301,6 +306,13 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
 
   const screen = (
     <>
+      {tab === 'inspire' ? (
+        <InspireScreen
+          household={household}
+          onOpenTrip={(id, opts) => { setTripPrefill({ openTripId: id, ...(opts ?? {}) }); setTab('trips'); }}
+          onPlanner={() => setTab('plan')}
+        />
+      ) : null}
       {tab === 'plan' ? <PlanScreen household={household} onOpenTrip={(id, opts) => { setTripPrefill({ openTripId: id, ...(opts ?? {}) }); setTab('trips'); }} /> : null}
       {tab === 'places' ? <PlacesScreen household={household} refreshHousehold={refreshHousehold} onPlanTrip={(p) => { setTripPrefill(p); setTab('trips'); }} /> : null}
       {tab === 'trips' ? <TripsScreen household={household} refreshHousehold={refreshHousehold} prefill={tripPrefill} onPrefillConsumed={() => setTripPrefill(null)} /> : null}
@@ -374,6 +386,12 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
                 <Text style={[styles.navLabel, tab === t.key && { color: colors.ink }]}>{t.label}</Text>
               </Pressable>
             ))}
+            {/* Not a tab any more, but not gone: the conversational planner, which
+                Inspire's search screen also opens. Named here so it is findable. */}
+            <Pressable onPress={() => setTab('plan')} style={[styles.navItem, tab === 'plan' && styles.navItemActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === 'plan' }}>
+              <View style={styles.navIcon}><Icon name="message" size={18} color={tab === 'plan' ? colors.ink : colors.inkMuted} /></View>
+              <Text style={[styles.navLabel, tab === 'plan' && { color: colors.ink }]}>Plan</Text>
+            </Pressable>
             {/* Desktop only: the served mock-up pages, for review — not part of the phone app. */}
             <Pressable onPress={() => setTab('prototypes')} style={[styles.navItem, tab === 'prototypes' && styles.navItemActive]} accessibilityRole="tab" accessibilityState={{ selected: tab === 'prototypes' }}>
               <View style={styles.navIcon}><Icon name="list" size={18} color={tab === 'prototypes' ? colors.ink : colors.inkMuted} /></View>

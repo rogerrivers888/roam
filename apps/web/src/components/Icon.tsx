@@ -16,7 +16,7 @@ import { colors, spacing, type } from '../theme';
  */
 const ICONS = {
   // navigation
-  plan: Sparkles, places: Compass, trips: Route, household: Users, settings: Settings,
+  inspire: Sparkles, plan: Sparkles, places: Compass, trips: Route, household: Users, settings: Settings,
   web: Monitor, mobile: Smartphone, person: User,
   // Light and dark mode, on the theme switch
   light: Sun, dark: Moon,

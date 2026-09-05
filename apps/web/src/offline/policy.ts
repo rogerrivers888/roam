@@ -132,6 +132,12 @@ export function storable(fullPath: string, body: any): any | null {
   // be kept, but a fix is not a fact about a place — it is a fact about a
   // person, this minute. It is used and dropped, never written down.
   //
+  // The home screen is deliberately not here either. `/api/inspire/near` is the
+  // first thing Roam draws, so it is the first thing somebody will want on a
+  // train — but it is a provider search, carrying their names, photos and
+  // ratings, and being the home screen does not change whose they are. With no
+  // signal it says so, and the household's own atlas (above) is what is there.
+  //
   // Everything else — every search, every plan, every photo, every route — is
   // a provider's answer to a question asked once, and is not ours to write down.
   return null;

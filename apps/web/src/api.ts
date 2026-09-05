@@ -614,6 +614,45 @@ export type IdeaThing = { venueRef: string; name: string; category: string; kind
 /** The place an idea is about, as its source holds it: the picture, the stars, how far. */
 export type IdeaHeadline = { venueRef: string; name: string; category: string; experiences?: string[]; rating: number | null; ratingCount: number | null; priceLevel: number | null; photos: VenuePhotoRef[]; distanceKm: number | null; summary: string | null; attribution: string | null };
 
+// ---------------------------------------------------------------------------
+// Inspire — the home screen
+// ---------------------------------------------------------------------------
+
+/** What a day is about. The closed set the home screen draws as chips. */
+export type MoodKey = 'fun' | 'food' | 'culture' | 'adrenaline' | 'relaxing' | 'outdoors';
+export type Mood = { key: MoodKey; label: string; count: number };
+
+/**
+ * One place on the home screen, from the single pool the API retrieved. Every
+ * shelf, every filter and every count on that screen is composed from these —
+ * changing a chip never asks a provider anything (Requirements: one pool).
+ */
+export type InspireItem = {
+  venueRef: string; source: string; name: string; category: string;
+  moods: MoodKey[]; experiences: string[]; cuisines: string[];
+  rating: number | null; ratingCount: number | null; priceLevel: number | null;
+  goodForChildren: boolean | null;
+  photos: VenuePhotoRef[];
+  /** The credit the picture and the rating travel with; shown wherever they are. */
+  attribution: string[];
+  lat: number; lng: number;
+  /** From the middle of the search. */
+  distanceKm: number;
+  /** The journey the family would actually make, from home or from where they are. */
+  travelMinutes: number; estimated: boolean;
+  /** How long this household would spend there, at their own pace. */
+  dwellMinutes: number;
+  household: { visits?: number; lastOn?: string; loved?: number; notForMe?: number; ledger?: string } | null;
+};
+
+export type InspireNear = {
+  place: { label: string | null; lat: number; lng: number; locality: string | null };
+  from: { label: string | null; lat: number; lng: number; how: 'home' | 'given' | 'centre' };
+  mode: string; radiusKm: number;
+  moods: Mood[]; items: InspireItem[];
+  cached: boolean; tookMs: number; attribution: string[];
+};
+
 export type PlanAction =
   | { type: 'like' | 'unlike' | 'dislike' | 'restore'; stopId: string }
   /** A stop on the way in or out of the journey; the day at the destination is untouched. */
@@ -1080,6 +1119,17 @@ export const api = {
   // 100 or so in London… images that we can hold in a database… some form of
   // index, a proper form of indexing, so we can search and find the images that
   // we own."
+  scoutAreas: () => request<{ areas: ScoutArea[] }>('/api/admin/scout/'),
+  scoutAddArea: (body: { code: string; label?: string; radiusKm?: number; keep?: number }) =>
+    post<{ area: ScoutArea }>('/api/admin/scout/areas', body),
+  scoutSweep: (code: string) => post<Record<string, unknown>>(`/api/admin/scout/areas/${code}/sweep`, {}),
+  scoutRescore: (code: string) => post<{ code: string; rescored: number }>(`/api/admin/scout/areas/${code}/rescore`, {}),
+  scoutFillMenus: (limit = 5) => post<Record<string, unknown>>('/api/admin/scout/menus/fill', { limit }),
+  scoutReadMenus: (limit = 10) => post<{ started: number }>('/api/admin/scout/menus/read', { limit }),
+  scoutRetryMenus: () => post<{ requeued: number }>('/api/admin/scout/menus/retry', {}),
+  scoutMisses: () => request<{ misses: ScoutMenuMiss[] }>('/api/admin/scout/menus/missing'),
+  scoutPlaces: (code: string, limit = 25) =>
+    request<{ area: { code: string; label: string | null; sweptAt: string | null }; places: ScoutPlace[] }>(`/api/places/area/${code}?limit=${limit}`),
   libraryOverview: () => request<LibraryOverview>('/api/admin/library'),
   libraryRegions: () => request<{ regions: LibraryRegion[] }>('/api/admin/library/regions'),
   librarySetTarget: (slug: string, targetCount: number) =>
@@ -1110,6 +1160,13 @@ export const api = {
    * cached immutably for a year, so the second view of any card never reaches
    * the API at all.
    */
+  /**
+   * The home screen's one read: everything around a point, already sorted into
+   * the six moods, with the journey and the stay worked out per place.
+   */
+  inspireNear: (q: { lat?: number; lng?: number; label?: string; locality?: string | null; from?: string | null; mode?: string }) =>
+    request<InspireNear>(`/api/inspire/near${qs(q)}`),
+
   imageUrl: (id: string, width = 500) => `${API_URL}/api/images/${id}/${width}`,
 
   /** The household app's read: one county, instantly, off one table. */
@@ -1202,6 +1259,59 @@ export type HarvestRun = {
   state: 'running' | 'done' | 'failed' | 'cancelled';
   counts: Record<string, number>; log?: { at: string; line: string }[];
   error: string | null; started_by: string | null; started_at: string; finished_at: string | null;
+};
+
+/** The postcode areas Roam has swept, and how well each went (migration 035). */
+export type ScoutArea = {
+  code: string;
+  label: string | null;
+  state: string;
+  swept_at: string | null;
+  next_sweep_at: string | null;
+  seen: number;
+  chains: number;
+  kept: number;
+  sweeps: number;
+  places: number;
+  researched: number;
+  menus: number;
+  menus_failed: number;
+  dishes: number;
+};
+
+/** One place in an area's selection, as the household API answers it. */
+export type ScoutPlace = {
+  venueRef: string;
+  name: string | null;
+  rank: number;
+  score: number | null;
+  // Our own words for the crowd, never their figure: 'top' | 'high' | 'good' | 'mixed'.
+  standing: string | null;
+  howMany: string | null;
+  accolades: string[];
+  cuisines: string[];
+  address: string | null;
+  postcode: string | null;
+  openingHours: string | null;
+  summary: string | null;
+  website: string | null;
+  menuUrl: string | null;
+  lat: number | null;
+  lng: number | null;
+  menu: { items: number; readAt: string } | null;
+  researched: boolean;
+};
+
+/** A menu Roam could not read, and the reason — the work list, not an empty tab. */
+export type ScoutMenuMiss = {
+  venue_ref: string;
+  venue_label: string | null;
+  state: string;
+  why: string | null;
+  menu_url: string | null;
+  attempts: number;
+  read_at: string | null;
+  website: string | null;
 };
 
 export type LibraryOverview = {
