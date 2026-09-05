@@ -125,6 +125,119 @@ async function fetchPage(url) {
   } catch { return null; } finally { clearTimeout(timer); }
 }
 
+// ---------------------------------------------------------------------------
+// what it costs to walk in
+// ---------------------------------------------------------------------------
+
+// Who a ticket is for, and every word a UK attraction actually prints for them.
+// Ordered longest-first inside each group so "adult" does not match first in
+// "adult carer" and mislabel a concession as the full price.
+const TICKETS = [
+  ['adult', /\b(?:adults?(?:\s*\(\s*1[6-8]\+?\s*\))?|grown[- ]ups?)\b/i],
+  ['child', /\b(?:child(?:ren)?|kids?|juniors?|under[- ]?1[0-8]s?)\b/i],
+  ['family', /\bfamily(?:\s*(?:ticket|of\s*\d))?\b/i],
+  ['concession', /\b(?:concessions?|seniors?|students?|over[- ]?60s?|65\+)\b/i],
+];
+
+// £14, £14.50, £14 per adult. Not "£14m", not a year, not a phone number.
+const MONEY = /£\s?\d{1,3}(?:\.\d{2})?(?!\d|\s?(?:m\b|bn\b|k\b|million|billion))/;
+const FREE = /\b(?:free\s+(?:admission|entry|entrance|to\s+enter|of\s+charge)|admission\s+(?:is\s+)?free|entry\s+(?:is\s+)?free|no\s+admission\s+charge)\b/i;
+
+const flatten = (html) => String(html)
+  .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+  .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&nbsp;?/gi, ' ').replace(/&amp;/gi, '&').replace(/&pound;/gi, '£')
+  .replace(/\s+/g, ' ');
+
+/**
+ * What a place charges to get in, from the page it publishes to be read.
+ *
+ * The one fact about an attraction that nobody gives away and everybody needs.
+ * Wikidata does not carry it, OpenStreetMap carries only whether there is a fee
+ * at all, and a licensed provider's copy would be theirs and not ours. The
+ * venue's own ticket page is the source that is both authoritative and free to
+ * use, for the same reason as the rest of this module: they publish it in order
+ * to be read.
+ *
+ * Two ways, in order of how much they can be trusted:
+ *
+ *   1. The `offers` block, where a site has one. Marked up by the site itself
+ *      for exactly this purpose, so the number and what it is for are already
+ *      separated and there is nothing to infer.
+ *   2. The printed price, read the way `printedPhone` reads a phone number: the
+ *      shape has to be right *and* it has to sit next to a word that says what
+ *      it is. A bare £14 on a page is as likely to be a gift shop mug.
+ *
+ * The prices are kept as they are written, not parsed to numbers. "£14.00
+ * online, £16.50 on the day" is the true answer to what it costs, and rounding
+ * that to 14 would put a price on the screen that nobody charges.
+ *
+ * Never guesses. Everything null and `free` null means the page did not say,
+ * which is a different and more useful answer than a wrong £14.
+ */
+export function admissionFrom(html, node = {}) {
+  const found = { free: null, adult: null, child: null, family: null, concession: null, note: null };
+
+  // 1. What they marked up.
+  if (node.isAccessibleForFree === true || node.isAccessibleForFree === 'true') found.free = true;
+  for (const offer of [].concat(node.offers ?? []).flatMap((o) => [].concat(o?.offers ?? o))) {
+    if (!offer || typeof offer !== 'object') continue;
+    const price = offer.price ?? offer.lowPrice ?? offer.priceSpecification?.price;
+    if (price == null || price === '') continue;
+    const currency = offer.priceCurrency ?? offer.priceSpecification?.priceCurrency ?? 'GBP';
+    const shown = currency === 'GBP' ? `£${price}` : `${price} ${currency}`;
+    if (Number(price) === 0) { found.free = true; continue; }
+    const label = String(offer.name ?? offer.category ?? '');
+    const slot = TICKETS.find(([, re]) => re.test(label))?.[0] ?? 'adult';
+    found[slot] ??= shown;
+  }
+
+  const flat = flatten(html);
+
+  // 2. What they printed. Either side of the word, because sites write it both
+  // ways round — "Adults £32.00" and "£14.50 per adult" — and the nearer of the
+  // two wins, so a list does not hand each label its neighbour's price.
+  //
+  // What may sit between a label and its price is the whole test. Only glue:
+  // punctuation, and the handful of words that join a thing to its cost. An
+  // "and" or a comma is not glue, it is the start of the next ticket, which is
+  // the difference between reading "£14.50 per adult and £7.25 per child" right
+  // and giving the grown-ups the child's price.
+  // The bracketed aside is allowed because half of them write the age range
+  // there — "Children (4-15) £24.00" — and refusing it loses the child price on
+  // exactly the sites that were clearest about who it was for.
+  const GLUE = /^[\s:.\u2013\u2014-]*(?:\([^)]{0,24}\))?[\s:.\u2013\u2014-]*(?:from|only|just|each|per|price[sd]?|ticket[s]?|entry|admission|is|are|at|costs?|of|=)?[\s:.\u2013\u2014-]*$/i;
+  for (const [slot, re] of TICKETS) {
+    if (found[slot]) continue;
+    let best = null;
+    for (const m of flat.matchAll(new RegExp(re.source, 'gi'))) {
+      const end = m.index + m[0].length;
+      const after = flat.slice(end, end + 40).match(MONEY);
+      if (after && GLUE.test(flat.slice(end, end + after.index))) {
+        best = { gap: after.index, price: after[0] };
+      }
+      const window = flat.slice(Math.max(0, m.index - 40), m.index);
+      for (const b of window.matchAll(new RegExp(MONEY.source, 'gi'))) {
+        const gap = window.length - (b.index + b[0].length);
+        if (!GLUE.test(window.slice(b.index + b[0].length))) continue;
+        if (!best || gap < best.gap) best = { gap, price: b[0] };
+      }
+      if (best) break;
+    }
+    if (best) found[slot] = best.price.replace(/\s/g, '');
+  }
+
+  if (found.free === null && !found.adult && FREE.test(flat)) found.free = true;
+  // A place that charges is not free, whatever a "free parking" line elsewhere
+  // on the page said.
+  if (found.adult) found.free = false;
+
+  const said = Object.entries(found).filter(([, v]) => v !== null && v !== false);
+  if (!said.length) return null;
+  return { ...found, currency: 'GBP' };
+}
+
 /**
  * Read one venue's own page.
  *
@@ -177,6 +290,7 @@ export async function siteFacts({ website, name = '', category = null, locality 
     openingHours: hoursFrom(node),
     cuisines,
     priceRange: text(node.priceRange),
+    admission: admissionFrom(html, node),
     bookingUrl: booking ? (() => { try { return new URL(booking, page.url).toString(); } catch { return null; } })() : null,
     socials,
     summary: meta ? meta.replace(/\s+/g, ' ').trim() : null,

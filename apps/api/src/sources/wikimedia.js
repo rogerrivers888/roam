@@ -388,6 +388,261 @@ export async function articleExtract(title) {
   return (page.extract || '').trim() || null;
 }
 
+// ---------------------------------------------------------------------------
+// Wikipedia: the whole article, in the sections its editors chose
+// ---------------------------------------------------------------------------
+
+// The sections of an article that are apparatus rather than reading. Nobody
+// opening a drawer about Leeds Castle wants "External links", and a References
+// section in plain text is four hundred lines of bare surnames.
+const APPARATUS = /^(see also|references?|notes?|citations?|sources|footnotes?|further reading|bibliography|external links?|gallery|see more|literature)$/i;
+
+// Where the answer to "what is there to do" actually lives. A section called
+// History tells you what the place is; one called Tourism, Attractions, Rides
+// or Gardens tells you what you would spend the afternoon on. Both are kept —
+// this only decides which get marked, so a drawer can lead with the useful one
+// rather than opening on the twelfth century.
+const DOING = /\b(tourism|visit|attraction|rides?|exhibit|collection|garden|grounds|trail|activit|facilit|what to see|things to do|events?|opening|admission|access|park(land)?|walks?|tour)\b/i;
+
+const MAX_SECTION = 1200;
+const MAX_SECTIONS_TEXT = 9000;
+
+/**
+ * The article as a list of sections, plain text, ready to be read in a drawer.
+ *
+ * `exintro` gives four sentences that say what a place *is*; this is the rest,
+ * which is where anybody who has decided to go finds out what they will do when
+ * they get there. One request, the same one, without the intro flag.
+ *
+ * Trimmed on the way out rather than on the way in, because the API has no
+ * length control that respects section boundaries: a whole article arrives,
+ * the apparatus is dropped, each section is cut to a paragraph or two and the
+ * set is capped. A drawer is a read, not a reprint — and the credit and the
+ * link to the full article travel with it either way.
+ */
+export async function articleSections(title) {
+  const p = new URLSearchParams({
+    action: 'query', prop: 'extracts', titles: title, explaintext: '1',
+    format: 'json', redirects: '1', origin: '*',
+  });
+  const data = await getJson(`${WIKIPEDIA}?${p}`);
+  const page = Object.values(data?.query?.pages ?? {})[0];
+  if (!page || page.missing !== undefined) return [];
+  const whole = String(page.extract || '').trim();
+  if (!whole) return [];
+
+  // Headings come back as "\n== History ==\n" and "\n=== Medieval ===\n"; the
+  // number of equals signs is the depth.
+  const parts = whole.split(/\n(={2,6})\s*([^=\n]+?)\s*\1\n/);
+  const out = [];
+  let budget = MAX_SECTIONS_TEXT;
+
+  const push = (heading, level, body) => {
+    const text = String(body || '').replace(/\n{3,}/g, '\n\n').trim();
+    if (!text || budget <= 0) return;
+    if (heading && APPARATUS.test(heading)) return;
+    const cut = text.length > MAX_SECTION ? `${text.slice(0, MAX_SECTION).replace(/\s+\S*$/, '')}…` : text;
+    const kept = cut.slice(0, budget);
+    budget -= kept.length;
+    out.push({ heading: heading ?? null, level, text: kept, doing: Boolean(heading && DOING.test(heading)) });
+  };
+
+  push(null, 1, parts[0]);
+  for (let i = 1; i < parts.length; i += 3) push(parts[i + 1], parts[i].length, parts[i + 2]);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Wikidata: the designations, which are the attraction's accolades
+// ---------------------------------------------------------------------------
+
+/**
+ * What has been said about this place by somebody whose job it is to say it.
+ *
+ * The restaurant side of Roam already draws this distinction (sources/
+ * accolades.js): a rating is a licensed figure we may not keep, but that
+ * somewhere is a World Heritage Site, a Grade I listed building or the holder
+ * of a Green Flag is a fact about who said what, published in order to be
+ * quoted, and ours for good.
+ *
+ * Two Wikidata properties carry it — P1435 heritage designation and P166 award
+ * received — and both are CC0. Asked as a second, small query over the QIDs
+ * that were actually published rather than folded into `areaCandidates`, which
+ * already walks `wdt:P131*` across a county and does not need two more label
+ * joins hung off it. Eighteen ids at a time is instant; the same clauses inside
+ * the big query are how London times out.
+ */
+export async function designations(qids) {
+  const ids = [...new Set((qids || []).filter((q) => /^Q\d+$/.test(q)))];
+  const out = new Map();
+  if (!ids.length) return out;
+
+  for (let i = 0; i < ids.length; i += 120) {
+    const batch = ids.slice(i, i + 120);
+    const rows = await sparql(`
+      SELECT ?item ?what ?whatLabel ?prop WHERE {
+        hint:Query hint:optimizer "None" .
+        VALUES ?item { ${batch.map((q) => `wd:${q}`).join(' ')} }
+        # The label join sits inside each branch rather than after the union.
+        # Outside it, ?what is unbound when the planner reaches it and the query
+        # walks every label in Wikidata: the same two ids that answer in 0.2s
+        # this way do not answer at all in sixty the other.
+        { ?item wdt:P1435 ?what . ?what rdfs:label ?whatLabel .
+          FILTER(lang(?whatLabel) = "en") BIND("designation" AS ?prop) }
+        UNION
+        { ?item wdt:P166 ?what . ?what rdfs:label ?whatLabel .
+          FILTER(lang(?whatLabel) = "en") BIND("award" AS ?prop) }
+      }`);
+    for (const r of rows) {
+      const id = qid(r.item);
+      if (!out.has(id)) out.set(id, []);
+      const list = out.get(id);
+      const label = String(r.whatLabel || '').trim();
+      if (label && !list.some((d) => d.label === label)) {
+        list.push({ label, kind: r.prop, qid: qid(r.what) });
+      }
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Wikivoyage: what it costs, when it opens, and why you would bother
+// ---------------------------------------------------------------------------
+
+const WIKIVOYAGE = 'https://en.wikivoyage.org/w/api.php';
+
+/**
+ * Pull one `{{see}}` / `{{do}}` / `{{listing}}` template out of wikitext,
+ * brace-counting rather than regex-matching, because listings contain nested
+ * templates ({{flag}}, {{USD}}) often enough that a lazy `\}\}` truncates them
+ * mid-price.
+ */
+function templatesIn(wikitext, names) {
+  const out = [];
+  const open = new RegExp(`\\{\\{\\s*(${names.join('|')})\\s*[|\\n]`, 'gi');
+  for (const m of String(wikitext).matchAll(open)) {
+    let depth = 1;
+    let i = m.index + 2;
+    while (i < wikitext.length && depth > 0) {
+      if (wikitext.startsWith('{{', i)) { depth += 1; i += 2; }
+      else if (wikitext.startsWith('}}', i)) { depth -= 1; i += 2; }
+      else i += 1;
+    }
+    if (depth === 0) out.push({ kind: m[1].toLowerCase(), body: wikitext.slice(m.index + 2, i - 2) });
+  }
+  return out;
+}
+
+/** `| name=Leeds Castle | price=£12.50` → { name: 'Leeds Castle', price: '£12.50' }. */
+function fieldsOf(body) {
+  const fields = {};
+  let depth = 0;
+  let current = '';
+  const parts = [];
+  for (let i = 0; i < body.length; i += 1) {
+    if (body.startsWith('{{', i) || body.startsWith('[[', i)) { depth += 1; current += body.slice(i, i + 2); i += 1; continue; }
+    if (body.startsWith('}}', i) || body.startsWith(']]', i)) { depth -= 1; current += body.slice(i, i + 2); i += 1; continue; }
+    if (body[i] === '|' && depth <= 0) { parts.push(current); current = ''; continue; }
+    current += body[i];
+  }
+  parts.push(current);
+  for (const part of parts.slice(1)) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    const key = part.slice(0, eq).trim().toLowerCase();
+    const value = part.slice(eq + 1)
+      .replace(/\[\[[^\]|]*\|([^\]]*)\]\]/g, '$1')   // [[Kent|the county]] → the county
+      .replace(/\[\[([^\]]*)\]\]/g, '$1')
+      .replace(/'''?/g, '')
+      .replace(/<ref[^>]*>[\s\S]*?<\/ref>|<ref[^>]*\/>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (value) fields[key] = value;
+  }
+  return fields;
+}
+
+const norm = (s) => String(s ?? '').toLowerCase().normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+
+/**
+ * What a travel guide says about this place.
+ *
+ * Wikivoyage is the same licence as Wikipedia — CC BY-SA — and a completely
+ * different thing to read. Its entries are written by people who went, for
+ * people deciding whether to, so they carry the four facts an encyclopedia
+ * never does: what it costs, when it opens, how to reach it, and one sentence
+ * on whether it is worth the afternoon.
+ *
+ * Matched on the `wikidata=` field the listings carry, which is exact, before
+ * falling back to the name — because "All Saints Church" is a hundred places
+ * and a QID is one.
+ *
+ * `lastedit` comes back with the price on purpose. A Wikivoyage admission
+ * figure can be a decade old (Leeds Castle is still listed at £12.50 there),
+ * and a price with no date on it is worse than no price: the date is what lets
+ * a screen say "read in 2017" instead of quietly lying.
+ */
+export async function voyageListings({ wikidataId, name, near = null } = {}) {
+  const query = near ? `"${name}" ${near}` : `"${name}"`;
+  let hits;
+  try {
+    const p = new URLSearchParams({
+      action: 'query', list: 'search', srsearch: query, srlimit: '3',
+      srnamespace: '0', format: 'json', origin: '*',
+    });
+    hits = (await getJson(`${WIKIVOYAGE}?${p}`))?.query?.search ?? [];
+  } catch { return { listing: null, listings: [] }; }
+  if (!hits.length) return { listing: null, listings: [] };
+
+  const wanted = norm(name);
+  let matched = null;
+  const listings = [];
+
+  for (const hit of hits.slice(0, 2)) {
+    let wikitext;
+    try {
+      const p = new URLSearchParams({
+        action: 'parse', page: hit.title, prop: 'wikitext',
+        format: 'json', redirects: '1', origin: '*',
+      });
+      wikitext = (await getJson(`${WIKIVOYAGE}?${p}`))?.parse?.wikitext?.['*'];
+    } catch { continue; }
+    if (!wikitext) continue;
+
+    // The page is the attraction itself — a destination in its own right, like
+    // a national park — so everything it lists is something to do *here*.
+    const pageIsThePlace = norm(hit.title) === wanted;
+
+    for (const t of templatesIn(wikitext, ['see', 'do', 'listing', 'marker'])) {
+      const f = fieldsOf(t.body);
+      if (!f.name) continue;
+      const entry = {
+        name: f.name,
+        kind: t.kind === 'do' ? 'do' : 'see',
+        note: f.content ?? null,
+        price: f.price ?? null,
+        hours: f.hours ?? null,
+        url: f.url ?? null,
+        phone: f.phone ?? null,
+        address: f.address ?? null,
+        wikidataId: /^Q\d+$/.test(f.wikidata ?? '') ? f.wikidata : null,
+        wikipediaTitle: f.wikipedia ?? null,
+        lastedit: f.lastedit ?? null,
+        page: hit.title,
+        pageUrl: `https://en.wikivoyage.org/wiki/${encodeURIComponent(hit.title.replace(/ /g, '_'))}`,
+      };
+      const isThisOne = (wikidataId && entry.wikidataId === wikidataId) || norm(entry.name) === wanted;
+      if (isThisOne && !matched) matched = entry;
+      else if (pageIsThePlace) listings.push(entry);
+    }
+    if (matched && !pageIsThePlace) break;
+  }
+  return { listing: matched, listings: listings.slice(0, 40) };
+}
+
 // Wikipedia articles carry the site's own furniture as well as photographs:
 // maps, flags, edit pencils, the Commons logo, featured-article stars. None of
 // them is a picture of the place.

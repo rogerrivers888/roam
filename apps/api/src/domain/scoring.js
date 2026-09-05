@@ -133,3 +133,107 @@ export function score({ crowd = null, count = null, accolades = [], menuItems = 
   const round = (x) => Math.round(x * 10) / 10;
   return { roamScore: round(composite * w), ownedScore: round(owned * w), substance: round(substance), accolade: round(accolade), chainWeight: w };
 }
+
+// ---------------------------------------------------------------------------
+// attractions
+// ---------------------------------------------------------------------------
+//
+// Owner, 5 Sep 2026: "I want the same 4 wide bands as the restaurant, but then
+// layer in the World Heritage and Green Flag, etc., because that's of real
+// value and significantly differs from restaurant."
+//
+// Both halves live here rather than in the harvest, so that the one place in
+// Roam that decides what a place is worth is one file.
+//
+// What differs from a restaurant is worth saying plainly. A restaurant's score
+// leans on a licensed crowd rating that has to be banded at the moment of the
+// fetch and thrown away. An attraction has no such input and needs none: how
+// many people read about it, how many went, and who has designated it are all
+// facts we own outright. The attraction number is the stronger of the two, and
+// it survives every provider going dark.
+
+/**
+ * What a designation is worth.
+ *
+ * The attraction's answer to `ACCOLADE_POINTS`, and the same argument: a rating
+ * is a licensed figure we may not keep, but that somewhere is a World Heritage
+ * Site or holds a Green Flag is a fact about who said what, published in order
+ * to be quoted, and ours for good.
+ *
+ * Matched on the English label Wikidata returns rather than on a QID, because
+ * the labels are stable and the QIDs are a thousand guesses waiting to be
+ * wrong. Ordered most-specific first: "Grade II* listed" must not be read as
+ * "Grade II listed", which is worth half as much.
+ */
+export const DESIGNATION_POINTS = [
+  ['world-heritage', 1.0, /\bworld heritage\b/i],
+  ['national-park', 0.85, /\bnational park\b/i],
+  ['museum-of-the-year', 0.85, /\bmuseum of the year\b/i],
+  ['geopark', 0.8, /\bgeopark\b/i],
+  ['biosphere-reserve', 0.75, /\bbiosphere reserve\b/i],
+  ['grade-i', 0.7, /\bgrade i\b(?!i)/i],
+  ['national-landscape', 0.65, /\b(?:area of outstanding natural beauty|national landscape)\b/i],
+  ['dark-sky', 0.6, /\bdark[- ]sky\b/i],
+  ['scheduled-monument', 0.6, /\bscheduled (?:ancient )?monument\b/i],
+  ['heritage-coast', 0.5, /\bheritage coast\b/i],
+  ['grade-ii-star', 0.5, /\bgrade ii\*/i],
+  ['green-flag', 0.5, /\bgreen flag\b/i],
+  ['blue-flag', 0.5, /\bblue flag\b/i],
+  ['national-nature-reserve', 0.5, /\bnational nature reserve\b/i],
+  ['accredited-museum', 0.5, /\baccredited museum\b/i],
+  ['registered-park-garden', 0.45, /\bregistered (?:park|historic park)\b|\bpark and garden\b/i],
+  ['ramsar', 0.4, /\bramsar\b/i],
+  ['category-a-listed', 0.6, /\bcategory a listed\b/i],
+  ['category-b-listed', 0.4, /\bcategory b listed\b/i],
+  ['sssi', 0.3, /\bsite of special scientific interest\b/i],
+  ['conservation-area', 0.25, /\bconservation area\b/i],
+  ['grade-ii', 0.25, /\bgrade ii\b(?!\*)/i],
+  ['listed-building', 0.25, /\blisted building\b/i],
+];
+
+/**
+ * Wikidata's designation and award labels, as Roam's accolades.
+ *
+ * A place carries several — Leeds Castle is a Grade I listed building *and* a
+ * Grade II* listed park and garden — and migration 036 kept only the first and
+ * dropped the rest. Both are worth having, so both are kept, and the label is
+ * kept beside the key because a drawer says "World Heritage Site", never
+ * "world-heritage".
+ */
+export function accoladesFrom(designations = []) {
+  const out = [];
+  for (const d of designations) {
+    const label = typeof d === 'string' ? d : d?.label;
+    if (!label) continue;
+    const hit = DESIGNATION_POINTS.find(([, , re]) => re.test(label));
+    if (!hit || out.some((a) => a.key === hit[0])) continue;
+    out.push({ key: hit[0], label, source: typeof d === 'string' ? 'wikidata' : (d.kind ?? 'wikidata') });
+  }
+  return out;
+}
+
+/** 0–1, stacking with the same diminishing returns a restaurant's accolades do. */
+export function acclaimOf(accolades = []) {
+  const points = (key) => DESIGNATION_POINTS.find(([k]) => k === key)?.[1] ?? 0;
+  return Math.min(1, accolades.reduce((n, a) => n + points(a.key ?? a), 0) * 0.7);
+}
+
+/**
+ * The shared vocabulary: the same four words `crowdBand` gives a restaurant.
+ *
+ * The thresholds are not round numbers because they are not guesses. An
+ * attraction's score is region-relative (see `scoreOf`), so across the whole
+ * atlas it lands in a narrow band around the middle — the published rows sit at
+ * 0.40 / 0.43 / 0.46 / 0.56 / 0.66 at the tenth, quarter, half, three-quarter
+ * and ninetieth. Cutting on round tenths would put four fifths of everything in
+ * one word and say nothing. These cuts put roughly a tenth in `top`, a quarter
+ * in `high` and the long middle in `good`, which is what the words have to mean
+ * if the list is to be worth sorting.
+ */
+export function bandOf(score) {
+  if (!Number.isFinite(score)) return null;
+  if (score >= 0.62) return 'top';
+  if (score >= 0.52) return 'high';
+  if (score >= 0.43) return 'good';
+  return 'mixed';
+}
