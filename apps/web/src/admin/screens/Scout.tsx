@@ -65,6 +65,20 @@ const ACCOLADE: Record<string, string> = {
   wikipedia: 'Wikipedia',
 };
 
+/**
+ * Why a menu is missing, in words.
+ *
+ * The crawler throws `menu_had_no_items` and the screen must not: a code word
+ * on a page tells the owner nothing about whether it is worth another go.
+ * Anything not in here is already a sentence and is shown as it is.
+ */
+const REASON: Record<string, string> = {
+  menu_had_no_items: 'Roam opened their menu page and there were no dishes on it — it may be a picture, or a page that only links elsewhere.',
+  menu_unreadable: 'Nothing readable on the page, even after running it in a browser.',
+  menu_url_required: 'No menu address to open.',
+};
+const reason = (why: string | null) => (why ? REASON[why] ?? why : 'No reason recorded');
+
 export function Scout({ canManage }: { canManage: boolean }) {
   const { width } = useViewport();
   const wide = width >= WIDE;
@@ -311,7 +325,7 @@ export function Scout({ canManage }: { canManage: boolean }) {
                 <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
                   <Text style={type.body} numberOfLines={1}>{m.venue_label ?? m.venue_ref}</Text>
                   <Text style={type.tiny}>
-                    {m.state === 'found' ? 'Found, waiting to be read' : m.why ?? 'No reason recorded'}
+                    {m.state === 'found' ? 'Found, waiting to be read' : reason(m.why)}
                   </Text>
                 </View>
                 {m.menu_url ? (
