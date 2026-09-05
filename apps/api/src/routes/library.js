@@ -38,7 +38,7 @@ import * as lib from '../repositories/library.js';
 import { runHarvest, refreshKinds, WIDTHS, researchAttraction, detailPass } from '../sources/harvest.js';
 import { contentsOf } from '../sources/inside.js';
 import { readAttraction } from '../domain/attractionReading.js';
-import { sweepRegion, sweepCost, ACTIVITY_QUERIES } from '../sources/activitySweep.js';
+import { sweepRegion, sweepCost, rematchRegion, ACTIVITY_QUERIES } from '../sources/activitySweep.js';
 import { sweepPictures, PICTURE_VERSION } from '../sources/placePicture.js';
 import { mapillaryReady } from '../sources/streetLevel.js';
 import { query } from '../db.js';
@@ -515,6 +515,24 @@ adminRouter.post('/sweep', requires('manage_library'), async (req, res, next) =>
       started: regions, dryRun, queries: (queries ?? ACTIVITY_QUERIES).length,
       watch: '/api/admin/library/sweep/cost',
     });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Try again to own what a sweep could only point at. Costs nothing: no Google
+ * request, just the free map, and safe to repeat until it works.
+ */
+adminRouter.post('/sweep/rematch', requires('manage_library'), async (req, res, next) => {
+  try {
+    const { regions } = req.body ?? {};
+    if (!Array.isArray(regions) || !regions.length) throw bad('Name the regions to re-match');
+    (async () => {
+      for (const slug of regions) {
+        try { await rematchRegion(slug, { onLine: (l) => console.log('rematch:', l) }); }
+        catch (err) { console.error(`rematch ${slug}:`, err.message); }
+      }
+    })();
+    res.status(202).json({ started: regions });
   } catch (err) { next(err); }
 });
 

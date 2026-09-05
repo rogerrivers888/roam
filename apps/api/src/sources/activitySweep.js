@@ -96,7 +96,12 @@ export function cellsFor({ lat, lng, spanKm = 40, across = 2 }) {
   return cells;
 }
 
-const OVERPASS = (process.env.ROAM_OVERPASS_URLS || 'https://overpass-api.de/api/interpreter').split(',')[0];
+// Mirrors, tried in turn. The main endpoint was flatly unreachable for the
+// whole of the first real sweep — 000 from overpass-api.de, 504 from kumi — so
+// 5,124 places were written as pointers when most of them could have been ours.
+// `sources/inside.js` already learned this lesson; this had not.
+const OVERPASS = (process.env.ROAM_OVERPASS_URLS
+  || 'https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter,https://overpass.osm.jp/api/interpreter').split(',');
 
 /**
  * Every day-out object OpenStreetMap holds in a region, in one request.
@@ -118,14 +123,21 @@ async function osmNear({ lat, lng, spanKm }) {
     nwr(${box})["name"]["historic"];
     nwr(${box})["name"]["sport"];
   );out tags center;`;
-  const res = await fetch(OVERPASS, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'RoamBot/1.0 (roam activity sweep)' },
-    body: new URLSearchParams({ data: q }),
-    signal: AbortSignal.timeout(180_000),
-  });
-  if (!res.ok) throw new Error(`Overpass ${res.status}`);
-  const data = await res.json();
+  let data = null; let last = null;
+  for (const endpoint of OVERPASS) {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'RoamBot/1.0 (roam activity sweep)' },
+        body: new URLSearchParams({ data: q }),
+        signal: AbortSignal.timeout(180_000),
+      });
+      if (!res.ok) { last = new Error(`${new URL(endpoint).hostname} ${res.status}`); continue; }
+      data = await res.json();
+      break;
+    } catch (err) { last = err; }
+  }
+  if (!data) throw last ?? new Error('no Overpass mirror answered');
   return (data.elements ?? []).map((e) => ({
     ref: `${e.type}/${e.id}`,
     tags: e.tags ?? {},
@@ -348,4 +360,50 @@ export async function sweepCost() {
       note: 'At the same queries and cells, in one month. Spread over two months the free allowance applies twice.',
     },
   };
+}
+
+/**
+ * Try again to own what the sweep could only point at.
+ *
+ * Discovery costs money and ownership does not, so they are separate passes on
+ * purpose. A row written while Overpass was unreachable is a Google place ID
+ * and little else; this re-runs the match over those rows alone and upgrades
+ * the ones the map can now account for — no Google requests, and repeatable
+ * until it succeeds.
+ *
+ * That separation is what stopped the first real sweep being a waste: 799
+ * requests had already been spent when the map went down.
+ */
+export async function rematchRegion(slug, { onLine } = {}) {
+  const region = await lib.regionBySlug(slug);
+  if (!region) throw new Error(`No region "${slug}"`);
+  const { rows } = await query(
+    `select id, external_ref, name, lat, lng, found_by from attractions
+      where region_slug = $1 and source = 'google' and display_source = 'google'`, [slug]);
+  if (!rows.length) return { looked: 0, matched: 0 };
+
+  const osmList = await osmNear({ lat: region.lat, lng: region.lng, spanKm: 50 });
+  onLine?.(`${region.name}: OpenStreetMap has ${osmList.length} named places; ${rows.length} pointers to try`);
+
+  let matched = 0;
+  for (const r of rows) {
+    // The name Google gave us was never stored, so the only thing left to match
+    // on is the point. A pointer whose name we do not hold can only be matched
+    // by position, which is weaker — so the ring is tighter and a single
+    // candidate within it is required, rather than the best of several.
+    const near = osmList.filter((o) => metresBetween(r, o) <= 120);
+    if (near.length !== 1) continue;
+    const o = near[0];
+    await query(
+      `update attractions set name = $2, slug = $3, lat = $4, lng = $5,
+              website = coalesce($6, website), osm_ref = $7, display_source = null,
+              attribution = $8, updated_at = now()
+        where id = $1`,
+      [r.id, o.name, slugify(o.name), o.lat, o.lng,
+       o.tags?.website ?? o.tags?.['contact:website'] ?? null, o.ref,
+       JSON.stringify([{ source: 'OpenStreetMap', licence: 'ODbL', url: 'https://www.openstreetmap.org/copyright' }])]);
+    matched += 1;
+  }
+  onLine?.(`${region.name}: ${matched} of ${rows.length} are ours now`);
+  return { looked: rows.length, matched };
 }
