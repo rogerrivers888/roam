@@ -12,19 +12,13 @@
 // confidence is returned and the caller stores what it was.
 
 import { bump } from './meter.js';
+import { mirrorsInOrder, mirrorAnswered, mirrorFailed, UA } from './overpass.js';
 
 // The interactive search (sources/osm.js) makes one Overpass call when somebody
 // taps; the researcher here makes one per claimed place, for ever. That is a
 // different kind of load on a service run for nothing, so it spreads across
 // every public mirror rather than leaning on the two the search uses, paces
 // itself, and stands down from a mirror that says no.
-const ENDPOINTS = (process.env.ROAM_OVERPASS_URLS || [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-  'https://overpass.osm.ch/api/interpreter',
-].join(',')).split(',').map((u) => u.trim()).filter(Boolean);
-const UA = 'Roam/0.1 (+https://github.com/rogerrivers888/roam)';
 
 // How far a match may be. A restaurant's Google pin and its OSM node are rarely
 // the same point — one is the door, the other the building — but they are never
@@ -109,23 +103,13 @@ const pace = async () => {
   lastCall = Date.now();
 };
 
-// A mirror that rate-limits us stops answering altogether for a while. Asking
-// it again every time costs the full timeout on every call and is rude besides,
-// so a refusal buys it ten minutes off and the work moves to another.
-const COOL_OFF_MS = 10 * 60_000;
-const restingUntil = new Map();
-const resting = (url) => (restingUntil.get(url) ?? 0) > Date.now();
-
-// Start where we last got an answer rather than at the top of the list.
-let preferred = 0;
-
 async function overpass(body, meter = null) {
   bump(meter, 'osm');
   let lastErr;
-  const order = ENDPOINTS.map((_, i) => ENDPOINTS[(preferred + i) % ENDPOINTS.length]);
-  // Everything resting goes to the back rather than being skipped: if they are
-  // all resting, one of them still has to be asked.
-  for (const url of [...order.filter((u) => !resting(u)), ...order.filter(resting)]) {
+  // Which mirror, and which to leave alone, is shared with the interactive
+  // search now (sources/overpass.js): a mirror either of them finds to be down
+  // is one the other stops asking.
+  for (const url of mirrorsInOrder()) {
     await pace();
     try {
       const res = await fetch(url, {
@@ -136,17 +120,16 @@ async function overpass(body, meter = null) {
       });
       // 429 is "slow down" and 504 is "I gave up"; both mean leave this one alone.
       if (!res.ok) {
-        if ([429, 503, 504].includes(res.status)) restingUntil.set(url, Date.now() + COOL_OFF_MS);
+        mirrorFailed(url, null, res.status);
         throw new Error(`Overpass ${res.status}`);
       }
       const data = await res.json();
-      restingUntil.delete(url);
-      preferred = ENDPOINTS.indexOf(url);
+      mirrorAnswered(url);
       return data;
     } catch (err) {
       // A timeout is the same signal as a 429 from a mirror that just stops
       // replying, which is what the busy ones actually do.
-      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') restingUntil.set(url, Date.now() + COOL_OFF_MS);
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') mirrorFailed(url, err);
       lastErr = err;
     }
   }

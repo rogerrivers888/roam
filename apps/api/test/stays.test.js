@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import { mergeBeds } from '../src/sources/stays.js';
 import { occupanciesFor, nightsBetween, ratesNear, liteapiKeyKind } from '../src/sources/liteapi.js';
 import { partyForStay, ageOn, rankStays } from '../src/domain/stays.js';
+import { mirrorsInOrder, mirrorAnswered, mirrorFailed, resetMirrors } from '../src/sources/overpass.js';
 
 // ---------------------------------------------------------------------------
 // one hotel, two sources
@@ -259,4 +260,48 @@ test('a radius under LiteAPI’s minimum is raised rather than rejected', async 
   await ratesNear({ lat: 51.48, lng: -0.61 }, 0.8, { checkin: '2026-10-23', checkout: '2026-10-24', occupancies: [{ adults: 2, children: [] }] });
   assert.equal(sent.radius, 1000);
   assert.equal(liteapiKeyKind(), 'production');
+});
+
+// ---------------------------------------------------------------------------
+// which mirror to ask
+// ---------------------------------------------------------------------------
+
+test('a mirror that refuses goes to the back, and the one that answered goes to the front', () => {
+  resetMirrors();
+  const all = mirrorsInOrder();
+  assert.equal(all.length, 4);
+  const [first, second] = all;
+
+  // 504 is "I gave up" — exactly what overpass.kumi.systems was returning on
+  // 5 Sep 2026 after forty seconds, twice in three tries.
+  mirrorFailed(first, null, 504);
+  assert.notEqual(mirrorsInOrder()[0], first, 'a mirror that gave up is not asked first again');
+  assert.equal(mirrorsInOrder().at(-1), first, 'but it is still on the list, at the back');
+
+  // And the one that worked is where the next search starts.
+  mirrorAnswered(second);
+  assert.equal(mirrorsInOrder()[0], second);
+});
+
+test('a mirror that hangs rests as surely as one that refuses', () => {
+  resetMirrors();
+  const [first] = mirrorsInOrder();
+  // No status, because nothing answered: this is the timeout path.
+  mirrorFailed(first, { name: 'TimeoutError' });
+  assert.notEqual(mirrorsInOrder()[0], first);
+});
+
+test('a 400 is our bad query, not a poorly mirror, and does not rest it', () => {
+  resetMirrors();
+  const [first] = mirrorsInOrder();
+  mirrorFailed(first, null, 400);
+  assert.equal(mirrorsInOrder()[0], first, 'a malformed query must not take a healthy mirror out of the rotation');
+});
+
+test('with every mirror resting, one is still asked', () => {
+  resetMirrors();
+  for (const url of mirrorsInOrder()) mirrorFailed(url, null, 504);
+  // Nothing to be gained by refusing to try: the alternative is no places at all.
+  assert.equal(mirrorsInOrder().length, 4);
+  resetMirrors();
 });

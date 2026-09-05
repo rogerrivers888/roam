@@ -1,4 +1,5 @@
 import { bump } from './meter.js';
+import { mirrorsInOrder, mirrorAnswered, mirrorFailed, UA } from './overpass.js';
 // OpenStreetMap places via the Overpass API.
 //
 // Real restaurants, cafés, pubs, museums, parks and playgrounds anywhere in the
@@ -7,7 +8,7 @@ import { bump } from './meter.js';
 // or dish lists. Those come from the licensed sources when they are enabled
 // (Technical Constraints §3); this source is the floor, not the ceiling.
 
-const ENDPOINTS = (process.env.ROAM_OVERPASS_URLS || 'https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter').split(',');
+// Mirrors, and which of them are answering today: sources/overpass.js.
 export const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
 
 const AMENITY_TO_CATEGORY = {
@@ -150,20 +151,32 @@ export function venueFromOsmElement(el) {
   };
 }
 
+// One mirror's patience, not the whole search's. Thirty seconds each across a
+// list that begins with two mirrors that are currently down is a minute of
+// somebody watching a spinner; a working mirror answers in under a second and a
+// slow one in ten, so anything past twelve is not coming.
+const ENDPOINT_TIMEOUT_MS = Number(process.env.ROAM_OVERPASS_TIMEOUT_MS) || 12_000;
+
 async function overpass(body, meter = null) {
   bump(meter, 'osm');
   let lastErr;
-  for (const url of ENDPOINTS) {
+  for (const url of mirrorsInOrder()) {
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Roam/0.1 (+https://github.com/rogerrivers888/roam)' },
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': UA },
         body: `data=${encodeURIComponent(body)}`,
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(ENDPOINT_TIMEOUT_MS),
       });
-      if (!res.ok) throw new Error(`Overpass ${res.status} at ${url}`);
-      return await res.json();
+      if (!res.ok) {
+        mirrorFailed(url, null, res.status);
+        throw new Error(`Overpass ${res.status} at ${url}`);
+      }
+      const data = await res.json();
+      mirrorAnswered(url);
+      return data;
     } catch (err) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') mirrorFailed(url, err);
       lastErr = err;
     }
   }

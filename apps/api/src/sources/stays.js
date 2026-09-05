@@ -131,13 +131,23 @@ export function mergeBeds(open, licensed) {
  * sleep, and the screen is told which source went quiet.
  */
 export async function bedsNear(centre, radiusKm, { stay = null, meter = null } = {}) {
-  const { beds: open, cached: openCached } = await openBeds(centre, radiusKm);
+  // Which source spent the time. Without this, "the Stay tab is slow" is a
+  // question nobody can answer without a deploy — and the answer on 5 Sep 2026
+  // was neither of the obvious suspects: LiteAPI took two seconds and a pair of
+  // dead Overpass mirrors took the other forty (sources/overpass.js).
+  const timings = {};
+  const clock = async (name, fn) => {
+    const at = Date.now();
+    try { return await fn(); } finally { timings[name] = Date.now() - at; }
+  };
+
+  const { beds: open, cached: openCached } = await clock('openMap', () => openBeds(centre, radiusKm));
 
   // No key, or the owner has switched it off in Settings › Providers. Either
   // way the open map's beds are still an answer; the screen says which it is.
   if (!bedRatesOn()) {
     return {
-      beds: open, cached: openCached, calls: 0,
+      beds: open, cached: openCached, calls: 0, timings,
       sources: ['osm'], degraded: [], priced: false, nights: 0,
       currency: null, sandbox: false, reason: liteapiEnabled() ? 'switched_off' : 'no_key',
     };
@@ -151,7 +161,7 @@ export async function bedsNear(centre, radiusKm, { stay = null, meter = null } =
   let offers = new Map();
 
   try {
-    const got = await hotelsNear(centre, radiusKm, { meter });
+    const got = await clock('hotels', () => hotelsNear(centre, radiusKm, { meter }));
     hotels = got.hotels;
     if (!got.cached) { calls += 1; cached = false; }
   } catch (err) {
@@ -160,9 +170,9 @@ export async function bedsNear(centre, radiusKm, { stay = null, meter = null } =
 
   if (hotels.length && nights > 0) {
     try {
-      const got = await ratesNear(centre, radiusKm, {
+      const got = await clock('rates', () => ratesNear(centre, radiusKm, {
         checkin: stay.checkin, checkout: stay.checkout, occupancies: stay.occupancies, meter,
-      });
+      }));
       offers = got.offers;
       if (!got.cached) { calls += 1; cached = false; }
     } catch (err) {
@@ -175,6 +185,7 @@ export async function bedsNear(centre, radiusKm, { stay = null, meter = null } =
     beds: mergeBeds(open, licensed),
     cached,
     calls,
+    timings,
     sources: hotels.length ? ['osm', 'liteapi'] : ['osm'],
     degraded,
     // Whether a price was asked for at all, which is not the same as whether
