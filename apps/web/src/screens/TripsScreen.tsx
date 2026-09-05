@@ -31,7 +31,18 @@ const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLoca
 const fmtRange = (a?: string | null, b?: string | null) => (a && b ? (a === b ? fmtDate(a) : `${fmtDate(a)} – ${fmtDate(b)}`) : '');
 const SLOT_LABEL = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' } as const;
 
-export type TripPrefill = { placeText?: string; place?: Place; countryCode?: string; openTripId?: string; section?: 'find' | 'shortlist' | 'day' | 'group'; findRadiusKm?: number; findPrices?: string[]; findCat?: FindCat };
+export type TripPrefill = {
+  placeText?: string; place?: Place; countryCode?: string; openTripId?: string;
+  section?: 'find' | 'shortlist' | 'day' | 'group'; findRadiusKm?: number; findPrices?: string[]; findCat?: FindCat;
+  /** Which of the three shapes the form should open on. */
+  kind?: 'trip' | 'outing' | 'now';
+  /**
+   * The place the trip is *for* — the one somebody tapped "Create trip" on.
+   * It goes on the new trip's shortlist as a must-do the moment the trip
+   * exists, so the day is built around it rather than merely near it.
+   */
+  seed?: { venueRef: string; name: string; category?: string | null; lat?: number | null; lng?: number | null; note?: string };
+};
 /** How a trip opened from elsewhere should start: which tab, how far Find looks. */
 type OpenWith = { section?: Section; findRadiusKm?: number; findPrices?: string[]; findCat?: FindCat };
 
@@ -150,7 +161,26 @@ export function TripsScreen({ household, refreshHousehold, prefill, onPrefillCon
           making one (owner, 4 Sep 2026). */}
       {creating && household ? (
         <>
-          <NewTripForm household={household} prefill={prefill ?? null} onCreated={async (t) => { setCreating(false); onPrefillConsumed?.(); await load(); setOpenId(t.trip.id); }} />
+          <NewTripForm
+            household={household}
+            prefill={prefill ?? null}
+            onCreated={async (t) => {
+              // A trip made from a place opens with that place already on it.
+              // Failing to seed is not a reason to lose the trip they just
+              // made, so it is tried and the trip opens either way.
+              const seed = prefill?.seed;
+              if (seed) {
+                try {
+                  await api.addToShortlist(t.trip.id, {
+                    venueRef: seed.venueRef, venueLabel: seed.name, category: seed.category ?? null,
+                    lat: seed.lat ?? null, lng: seed.lng ?? null, mustDo: true,
+                    note: seed.note ?? 'The reason for the trip',
+                  });
+                } catch { /* the trip is made; the shortlist can be added to by hand */ }
+              }
+              setCreating(false); onPrefillConsumed?.(); await load(); setOpenId(t.trip.id);
+            }}
+          />
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
         </>
       ) : (
@@ -225,7 +255,7 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
   // already ("in the real world, I'm out in London and I suddenly want to find
   // somewhere to go"). "Right now" is a day out whose starting point is the
   // device's own fix and whose window starts on the clock.
-  const [kind, setKind] = useState<TripKind>('trip');
+  const [kind, setKind] = useState<TripKind>(prefill?.kind ?? 'trip');
   const [title, setTitle] = useState('');
   // The name is filled in from where you are going and keeps up with it until
   // you type over it (owner, 4 Sep 2026: "It should just chuck in the location
@@ -248,7 +278,10 @@ function NewTripForm({ household, prefill, onCreated }: { household: HouseholdRe
   const [seed, setSeed] = useState(true);
   // outing
   const [from, setFrom] = useState<Place | null>(home);
-  const [to, setTo] = useState<Place | null>(null);
+  // A day out arriving from somewhere else already knows where it is going —
+  // it is the place they tapped "Create trip" on — so the destination is
+  // filled and only the times are left to answer.
+  const [to, setTo] = useState<Place | null>(prefill?.kind === 'outing' ? prefill?.place ?? null : null);
   const [oStart, setOStart] = useState('10:00');
   const [oEnd, setOEnd] = useState('16:00');
   // Right now: where the device says they are, and the hours left in the day.

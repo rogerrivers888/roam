@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
-import { Icon, IconText, Rating, Stars } from './Icon';
+import { Icon, IconName, IconText, Rating, Stars } from './Icon';
 import { API_URL, api, BrowseItem, MenuLink, OwnedRecord, PlaceInsideItem, Venue } from '../api';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Chip, Row, Segmented, Wrap, clock, minutes } from './ui';
@@ -185,11 +185,19 @@ function InsideList({ inside, busy, full = false }: { inside: PlaceInsideItem[] 
   );
 }
 
-export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, added, shortlisted, ours, capture, onVenue, gettingThere }: {
+export function VenueDrawer({ item, baseLabel, onClose, onAdd, addLabel, addIcon, onShortlist, added, shortlisted, ours, capture, onVenue, gettingThere }: {
   item: BrowseItem | null;
   baseLabel?: string | null;
   onClose: () => void;
   onAdd?: (item: BrowseItem) => void;
+  /**
+   * What the primary action is called here. A drawer opened inside a trip is
+   * adding to that day's plan; one opened from the home screen is starting a
+   * trip that does not exist yet, and calling both "Add to plan" would be a
+   * lie in one of the two places.
+   */
+  addLabel?: string;
+  addIcon?: IconName;
   onShortlist?: (item: BrowseItem) => Promise<void>;
   added?: boolean;
   shortlisted?: boolean;
@@ -378,7 +386,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, onShortlist, adde
             </Row>
             {onAdd || onShortlist ? (
               <Wrap>
-                {onAdd ? <Button label={added ? 'In the plan' : 'Add to plan'} icon={added ? 'keep' : 'add'} iconFill={added} kind={added ? 'secondary' : 'primary'} onPress={() => onAdd(item)} disabled={added} /> : null}
+                {onAdd ? <Button label={added ? 'In the plan' : addLabel ?? 'Add to plan'} icon={added ? 'keep' : addIcon ?? 'add'} iconFill={added} kind={added ? 'secondary' : 'primary'} onPress={() => onAdd(item)} disabled={added} /> : null}
                 {onShortlist ? <Button label={saved || shortlisted ? 'Shortlisted' : 'Shortlist'} icon={saved || shortlisted ? 'shortlisted' : 'shortlist'} kind="secondary" onPress={async () => { await onShortlist(item); setSaved(true); }} disabled={saved || shortlisted} /> : null}
               </Wrap>
             ) : null}

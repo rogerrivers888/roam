@@ -314,6 +314,7 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
           onOpenTrip={(id, opts) => { setTripPrefill({ openTripId: id, ...(opts ?? {}) }); setTab('trips'); }}
           onPlanner={() => setTab('plan')}
           onFood={() => { setPlacesPrefill({ home: true, kind: 'eat' }); setTab('places'); }}
+          onCreateTrip={({ place, seed }) => { setTripPrefill({ place, seed, kind: 'outing' }); setTab('trips'); }}
         />
       ) : null}
       {tab === 'plan' ? <PlanScreen household={household} onOpenTrip={(id, opts) => { setTripPrefill({ openTripId: id, ...(opts ?? {}) }); setTab('trips'); }} /> : null}
