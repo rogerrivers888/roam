@@ -158,13 +158,9 @@ function KeyWiring() {
 
   const missing = report?.expected.filter((k) => !k.set) ?? [];
   const wrong = report?.expected.filter((k) => k.set && (k.quoted || k.padded || k.unresolvedReference)) ?? [];
-  // Every Doppler config carries these; all three blank means the sync is not
-  // reaching this service, whatever the Doppler dashboard says about it.
-  const noSync = report ? !report.doppler.project && !report.doppler.config : false;
   const summary = !report ? (loading ? 'Reading…' : error ?? '—')
     : wrong.length ? `${wrong.length} set but malformed`
-      : noSync ? 'No Doppler sync on this service'
-        : missing.length ? `${missing.length} not set` : 'All present';
+      : missing.length ? `${missing.length} not set` : 'All present';
 
   return (
     <FoldLine label="Keys the API can actually see" value={summary} icon="settings">
@@ -177,16 +173,23 @@ function KeyWiring() {
             {new Date(report.service.startedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.
           </Text>
 
-          {noSync ? (
+          {report.doppler.project ? (
+            <Text style={type.tiny}>Doppler config: {report.doppler.project} / {report.doppler.config ?? '?'}.</Text>
+          ) : null}
+
+          {/* The lesson from 5 Sep 2026, written where it will be read again.
+              Doppler said "In Sync" and was telling the truth: its sync was
+              pointed at roam / Shared / production, so the secret landed in
+              Railway's project-level shared pool — and a Railway shared
+              variable is not on a service until that service is told to take
+              it. Every key set up earlier worked; the new one did not. */}
+          {missing.length ? (
             <StatusLine tone="warn">
-              No Doppler config reached this service: DOPPLER_PROJECT and DOPPLER_CONFIG are both absent, and every Doppler config carries them.
-              The keys that do work here were set on the service directly. If the Doppler sync uses “Shared across all services”, Railway drops the
-              secrets into the project's Shared Variables and each service still has to be told to take each one — a key added later is not picked up
-              by a service that was wired up before it.
+              {missing.map((k) => k.name).join(', ')} {missing.length === 1 ? 'is' : 'are'} not on this service. If Doppler says “In Sync”, check what its
+              sync is pointed at: a destination of “Shared” puts the secret in Railway's project-level shared variables, and a service does not get one
+              of those until it is told to take it. A sync aimed straight at the {report.service.railwayService ?? 'api'} service lands every future key on its own.
             </StatusLine>
-          ) : (
-            <Text style={type.tiny}>Doppler config: {report.doppler.project ?? '?'} / {report.doppler.config ?? '?'}.</Text>
-          )}
+          ) : null}
 
           <View style={styles.table}>
             {report.expected.map((k) => (
