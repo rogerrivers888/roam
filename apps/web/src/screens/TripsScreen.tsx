@@ -71,7 +71,7 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
 }) {
   const { width } = useViewport();
   const wide = width >= 1000;
-  const { navigate, back } = useRouter();
+  const { navigate, back, setQuery } = useRouter();
   const [data, setData] = useState<Awaited<ReturnType<typeof api.trips>> | null>(null);
   const creating = route.creating;
   const openId = route.tripId;
@@ -80,13 +80,24 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
    * Holidays segmented. Filters: area (All areas · UK · Abroad), when (defaults
    * Upcoming), who." All of it is query, because it is how the page is set and
    * not which page it is (CLAUDE.md).
+   *
+   * Where is drawn under Past only (owner, 5 Sep 2026) — see `byArea` below.
    */
   const [span, setSpan] = useQueryState<'day' | 'holiday'>('span', 'day', asOneOf(['day', 'holiday'] as const, 'day'));
-  const [when, setWhen] = useQueryState<'upcoming' | 'past'>('when', 'upcoming', asOneOf(['upcoming', 'past'] as const, 'upcoming'));
+  // Read here, written by `setWhen` below, which moves Where with it.
+  const [when] = useQueryState<'upcoming' | 'past'>('when', 'upcoming', asOneOf(['upcoming', 'past'] as const, 'upcoming'));
   const [area, setArea] = useQueryState<string | null>('area', null, asText);
   const [who, setWho] = useQueryState<string | null>('who', null, asText);
   const [sheet, setSheet] = useState<'area' | 'when' | 'who' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * When and Where move together, in one address rather than two navigations
+   * racing each other: coming back to Upcoming takes the country with it,
+   * because the chip that set it is not drawn there and a filter nobody can
+   * see is a filter nobody can undo.
+   */
+  const setWhen = (next: 'upcoming' | 'past') =>
+    setQuery({ when: next === 'upcoming' ? null : next, ...(next === 'upcoming' ? { area: null } : {}) });
 
   // Which trip the address has open, for the loader — as a ref, so opening one
   // does not count as a reason to go and fetch the list again.
@@ -130,8 +141,20 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
     return t.countryCode === area;
   };
   const inWho = (t: TripSummary) => !who || t.attendees.some((a) => a.id === who);
-  const shown = all.filter((t) => inSpan(t) && inArea(t) && inWho(t) && (when === 'past' ? t.isPast : !t.isPast));
-  const pastCount = all.filter((t) => inSpan(t) && inArea(t) && inWho(t) && t.isPast).length;
+  /**
+   * Where is a question about the past only (owner, 5 Sep 2026: "the country
+   * (UK or abroad) only needs to appear when you're looking in the past.
+   * Otherwise, you can just show all the upcoming trips").
+   *
+   * He is right about what the chip is for. Everything ahead of you is a short
+   * list you want to see whole — narrowing it by continent is filing, not
+   * finding — whereas "my trips to Italy" is a question about years of them.
+   * So the chip is drawn under Past and nowhere else, and it does not filter
+   * when it is not on screen: a filter you cannot see is one you cannot undo.
+   */
+  const byArea = when === 'past';
+  const shown = all.filter((t) => inSpan(t) && (!byArea || inArea(t)) && inWho(t) && (byArea ? t.isPast : !t.isPast));
+  const pastCount = all.filter((t) => inSpan(t) && inWho(t) && t.isPast).length;
 
   /**
    * Upcoming is grouped by month and past by year (handover 2a/2b): what is
@@ -158,11 +181,14 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
   })();
 
   const countries = data?.countries ?? [];
+  // Counted over the past, because that is the only place the chip is drawn.
+  const behind = all.filter((t) => inSpan(t) && t.isPast);
   const areaOptions = [
-    { value: '', label: 'All areas', count: all.filter(inSpan).length },
-    ...(homeCode ? [{ value: 'uk', label: countries.find((c) => c.code === homeCode)?.name ?? 'Home', count: all.filter((t) => inSpan(t) && t.countryCode === homeCode).length }] : []),
-    { value: 'abroad', label: 'Abroad', count: all.filter((t) => inSpan(t) && !!t.countryCode && t.countryCode !== homeCode).length },
-    ...countries.filter((c) => c.code !== homeCode).map((c) => ({ value: c.code, label: c.name, count: c.trips })),
+    { value: '', label: 'All areas', count: behind.length },
+    ...(homeCode ? [{ value: 'uk', label: countries.find((c) => c.code === homeCode)?.name ?? 'Home', count: behind.filter((t) => t.countryCode === homeCode).length }] : []),
+    { value: 'abroad', label: 'Abroad', count: behind.filter((t) => !!t.countryCode && t.countryCode !== homeCode).length },
+    ...countries.filter((c) => c.code !== homeCode && behind.some((t) => t.countryCode === c.code))
+      .map((c) => ({ value: c.code, label: c.name, count: behind.filter((t) => t.countryCode === c.code).length })),
   ];
   const whenOptions = [
     { value: 'upcoming', label: 'Upcoming', count: all.filter((t) => inSpan(t) && !t.isPast).length },
@@ -223,8 +249,8 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
             onChange={setSpan}
           />
           <View style={styles.filters}>
-            <FilterChip label={areaLabel} on={!!area} onPress={() => setSheet('area')} />
             <FilterChip label={when === 'past' ? 'Past' : 'Upcoming'} on={when === 'past'} onPress={() => setSheet('when')} />
+            {byArea ? <FilterChip label={areaLabel} on={!!area} onPress={() => setSheet('area')} /> : null}
             <FilterChip label={whoLabel} on={!!who} onPress={() => setSheet('who')} />
           </View>
 
