@@ -180,6 +180,70 @@ export async function chromePath() {
   return browserPath;
 }
 
+// A container is not a laptop: no sandbox, no shared-memory device worth the
+// name, one process, and a heap small enough that a heavy page cannot take the
+// API down with it.
+const BROWSER_ARGS = [
+  '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
+  '--no-zygote', '--single-process', '--hide-scrollbars', '--mute-audio',
+  '--disable-extensions', '--disable-background-networking', '--disable-sync',
+  '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
+  '--blink-settings=imagesEnabled=false', '--js-flags=--max-old-space-size=320',
+];
+
+/**
+ * The links a page has once it has drawn itself.
+ *
+ * `childMenus` reads anchors out of the HTML, which is the right answer for
+ * most sites and no answer at all for the ones that build their navigation in
+ * JavaScript. Sebastian's Windsor is one of those: the page says "Select a menu
+ * to view" and the four menus behind it are not in the markup, so the crawler
+ * found the index, read it, and correctly reported no dishes (5 Sep 2026).
+ *
+ * Same browser, same limits as `renderText` — this asks it for hrefs instead of
+ * words, and for the ones a script would navigate to as well.
+ */
+export async function renderLinks(url) {
+  const executablePath = await chromePath();
+  if (!executablePath) return { links: [], why: 'no browser on this machine' };
+  const puppeteer = (await import('puppeteer-core')).default;
+  let browser;
+  try {
+    browser = await puppeteer.launch({ executablePath, headless: true, args: BROWSER_ARGS, protocolTimeout: RENDER_TIMEOUT_MS + 10_000 });
+    const page = await browser.newPage();
+    await page.setUserAgent(UA);
+    await page.setViewport({ width: 1100, height: 1800 });
+    await page.setRequestInterception(true);
+    page.on('request', (r) => {
+      const type = r.resourceType();
+      if (type === 'image' || type === 'media' || type === 'font') r.abort().catch(() => {});
+      else r.continue().catch(() => {});
+    });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: RENDER_TIMEOUT_MS });
+    const links = await page.evaluate(() => {
+      const out = [];
+      for (const a of document.querySelectorAll('a[href]')) {
+        const href = a.href;
+        if (href) out.push({ url: href, text: (a.textContent || a.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim() });
+      }
+      // A card that navigates in script is a link to everyone except the parser.
+      for (const el of document.querySelectorAll('[onclick], [data-href], [data-url], [data-link]')) {
+        const attr = el.getAttribute('data-href') || el.getAttribute('data-url') || el.getAttribute('data-link')
+          || (el.getAttribute('onclick') || '').match(/['"]([^'"]*\/[^'"]*)['"]/)?.[1];
+        if (!attr) continue;
+        try { out.push({ url: new URL(attr, location.href).toString(), text: (el.textContent || '').replace(/\s+/g, ' ').trim() }); }
+        catch { /* not an address */ }
+      }
+      return out;
+    });
+    return { links: links.filter((l) => /^https?:/i.test(l.url)), why: null };
+  } catch (err) {
+    return { links: [], why: `render failed: ${err.message}` };
+  } finally {
+    try { await browser?.close(); } catch { /* it may already be gone */ }
+  }
+}
+
 /**
  * Run the page the way a diner's phone would, and take the text it drew.
  *
@@ -199,13 +263,7 @@ export async function renderText(url) {
       // A container is not a laptop: no sandbox, no shared-memory device worth
       // the name, one process, and a heap small enough that a heavy page cannot
       // take the API down with it.
-      args: [
-        '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
-        '--no-zygote', '--single-process', '--hide-scrollbars', '--mute-audio',
-        '--disable-extensions', '--disable-background-networking', '--disable-sync',
-        '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
-        '--blink-settings=imagesEnabled=false', '--js-flags=--max-old-space-size=320',
-      ],
+      args: BROWSER_ARGS,
       protocolTimeout: RENDER_TIMEOUT_MS + 10_000,
     });
     const page = await browser.newPage();
@@ -235,6 +293,99 @@ export async function renderText(url) {
     return { text: text.replace(/\n{3,}/g, '\n\n').trim(), why: null };
   } catch (err) {
     return { text: '', why: `render failed: ${err.message}` };
+  } finally {
+    try { await browser?.close(); } catch { /* it may already be gone */ }
+  }
+}
+
+/**
+ * Click through a menu that is a set of tabs, and take all of it.
+ *
+ * The last shape of the click-through problem, and the most common one on a
+ * restaurant's site. Sebastian's Windsor renders to a page that says "Select a
+ * menu to view" and then lists Main Menu, Desserts, Kids Menu, Drinks — none of
+ * them links, all of them calling a script that swaps the dishes in place. To a
+ * crawler that reads anchors it is an empty page; to a crawler that reads the
+ * rendered text it is 162 characters; to a diner it is four full menus
+ * (owner, 4 Sep 2026: "you needed to click through on a single page").
+ *
+ * So: render, find the things that look like a menu chooser, click each one,
+ * and keep whatever appears. Every tab's text is labelled with the tab, so the
+ * parser sees "Desserts" as a section heading rather than one long run.
+ */
+export async function renderTabbedText(url, { maxTabs = 8 } = {}) {
+  const executablePath = await chromePath();
+  if (!executablePath) return { text: '', tabs: [], why: 'no browser on this machine' };
+  const puppeteer = (await import('puppeteer-core')).default;
+  let browser;
+  try {
+    browser = await puppeteer.launch({ executablePath, headless: true, args: BROWSER_ARGS, protocolTimeout: RENDER_TIMEOUT_MS + 10_000 });
+    const page = await browser.newPage();
+    await page.setUserAgent(UA);
+    await page.setViewport({ width: 1100, height: 1800 });
+    await page.setRequestInterception(true);
+    page.on('request', (r) => {
+      const type = r.resourceType();
+      if (type === 'image' || type === 'media' || type === 'font') r.abort().catch(() => {});
+      else r.continue().catch(() => {});
+    });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: RENDER_TIMEOUT_MS });
+    await new Promise((r) => setTimeout(r, 1200));
+
+    // What a menu chooser looks like: a short piece of text naming a menu, on
+    // something clickable, that is not the site's own navigation.
+    const tabs = await page.evaluate(() => {
+      const NAMES = /^(the |our |view )?(main|full|a la carte|à la carte|lunch|dinner|brunch|breakfast|evening|kids?|children'?s?|dessert|pudding|drink|wine|cocktail|bar|beer|set|tasting|sunday|christmas|festive|specials?|takeaway|small plates|sides|starters?|pizza|pasta|grill|sushi|vegan|vegetarian)s?( menu| list)?$/i;
+      const seen = new Set();
+      const out = [];
+      for (const el of document.querySelectorAll('a, button, li, span, div, option, [role="tab"], [onclick]')) {
+        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!text || text.length > 32 || seen.has(text.toLowerCase())) continue;
+        // Strip a price the tab happens to carry ("Kids Menu@14.50").
+        const name = text.replace(/[@£$€]\s*[\d.,]+$/, '').trim();
+        if (!NAMES.test(name)) continue;
+        // Their own navigation is a link that goes somewhere else entirely.
+        if (el.tagName === 'A' && el.getAttribute('href') && !/^#|javascript:/i.test(el.getAttribute('href'))) {
+          try { if (new URL(el.href, location.href).pathname !== location.pathname) continue; } catch { /* keep it */ }
+        }
+        if (el.querySelector('a, button, li')) continue;   // a container, not the control
+        seen.add(text.toLowerCase());
+        el.setAttribute('data-roam-tab', String(out.length));
+        out.push(name);
+      }
+      return out;
+    });
+
+    const baseline = await page.evaluate(() => document.body?.innerText || '');
+    if (!tabs.length) return { text: baseline.trim(), tabs: [], why: baseline.length < THIN_TEXT ? 'nothing on the page looked like a menu chooser' : null };
+
+    const parts = [];
+    const deadline = Date.now() + RENDER_TIMEOUT_MS * 2;
+    for (let i = 0; i < Math.min(tabs.length, maxTabs); i += 1) {
+      if (Date.now() > deadline) break;
+      try {
+        await page.evaluate((n) => document.querySelector(`[data-roam-tab="${n}"]`)?.click(), i);
+      } catch { continue; }
+      // Let the swap happen, then wait for it to stop growing.
+      let text = '';
+      let settled = 0;
+      const tabDeadline = Date.now() + 8000;
+      while (Date.now() < tabDeadline) {
+        await new Promise((r) => setTimeout(r, 500));
+        const next = await page.evaluate(() => document.body?.innerText || '');
+        settled = next.length === text.length ? settled + 1 : 0;
+        text = next;
+        if (settled >= 2) break;
+      }
+      // Only what this tab added: the chooser itself is on every one of them.
+      const added = text.length > baseline.length ? text.slice(baseline.length) : (text === baseline ? '' : text);
+      if (added.trim().length > 40) parts.push(`\n\n${tabs[i]}\n${added.trim()}`);
+    }
+
+    const text = parts.length ? `${baseline.trim()}${parts.join('')}` : baseline.trim();
+    return { text, tabs: tabs.slice(0, maxTabs), why: null };
+  } catch (err) {
+    return { text: '', tabs: [], why: `render failed: ${err.message}` };
   } finally {
     try { await browser?.close(); } catch { /* it may already be gone */ }
   }
@@ -446,6 +597,16 @@ export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun
         steps.push(`rendered it in a headless browser (${rendered.text.length.toLocaleString()} characters)`);
       } else {
         steps.push(rendered.why || 'rendering it gave nothing');
+        // Still nothing: the page may be a chooser rather than a menu, with the
+        // dishes one click away and no link to follow.
+        const tabbed = await renderTabbedText(res.url || url);
+        if (tabbed.text.length >= THIN_TEXT) {
+          text = tabbed.text;
+          kind = 'rendered';
+          steps.push(`clicked through ${tabbed.tabs.length} menus on the page (${tabbed.text.length.toLocaleString()} characters)`);
+        } else if (tabbed.why) {
+          steps.push(tabbed.why);
+        }
       }
     }
   }

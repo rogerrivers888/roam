@@ -228,7 +228,7 @@ export async function findMenuUrl({ website, name = '', locality = null, address
  */
 const NOT_A_MENU_HOST = /(^|\.)(facebook|instagram|twitter|x|tiktok|youtube|linkedin|pinterest|google|goo\.gl|maps\.app|tripadvisor|yelp|wordpress|wix|squarespace|godaddy|cookiebot|gstatic)\./i;
 
-export async function childMenus(menuUrl, { max = 4 } = {}) {
+export async function childMenus(menuUrl, { max = 4, render = true } = {}) {
   let page;
   try { page = await get(menuUrl); } catch { return []; }
   if (!page.ok || !page.html) return [];
@@ -236,10 +236,22 @@ export async function childMenus(menuUrl, { max = 4 } = {}) {
   let host;
   try { host = new URL(page.url).hostname.replace(/^www\./, ''); } catch { return []; }
 
+  let candidates = links(page.html, page.url);
+  // A page whose navigation is built in JavaScript has no anchors to read, and
+  // the menus are behind exactly those. Rendering costs a browser, so it is
+  // only done when reading the markup found nothing worth following.
+  if (render && !candidates.some(({ url, text }) => /\bmenus?\b/i.test(text) || /\/menus?\b/i.test(url))) {
+    try {
+      const { renderLinks } = await import('./menuRead.js');
+      const { links: drawn } = await renderLinks(page.url);
+      if (drawn?.length) candidates = drawn;
+    } catch { /* no browser here; the markup is all there is */ }
+  }
+
   const named = /\b(lunch|dinner|brunch|breakfast|evening|a la carte|à la carte|carte|tasting|set|sunday|pre[- ]theatre|kids|children|wine|drinks|cocktail|bar|dessert|specials?|takeaway|main|food)\b/i;
   const seen = new Set([page.url.replace(/#.*$/, '')]);
   const out = [];
-  for (const { url, text } of links(page.html, page.url)) {
+  for (const { url, text } of candidates) {
     const clean = url.replace(/#.*$/, '');
     if (seen.has(clean)) continue;
     let u;
