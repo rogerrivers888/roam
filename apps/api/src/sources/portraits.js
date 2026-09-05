@@ -102,7 +102,15 @@ export async function resolveItem({ name, lat, lng, countryCode }) {
   return null;
 }
 
-/** The files worth considering for a portrait, best guess first. */
+/**
+ * The files worth considering, and whether each was *designated* or merely
+ * *used*.
+ *
+ * The difference decides how much they have to prove. Wikidata's P18 is a
+ * curated choice — somebody picked it to represent this item — so it earns its
+ * place by not being a satellite photograph. An article's other pictures are
+ * incidental to the text around them, so they have to name the place.
+ */
 async function candidates(itemId) {
   const rows = await wm.sparql(`
     SELECT ?img ?article WHERE {
@@ -111,14 +119,17 @@ async function candidates(itemId) {
     } LIMIT 1`);
   const row = rows[0] ?? {};
   const out = [];
-  if (row.img) out.push(`File:${decodeURIComponent(String(row.img).split('/').pop()).replace(/_/g, ' ')}`);
+  if (row.img) out.push({ title: `File:${decodeURIComponent(String(row.img).split('/').pop()).replace(/_/g, ' ')}`, designated: true });
   if (row.article) {
     const title = decodeURIComponent(String(row.article).split('/wiki/').pop()).replace(/_/g, ' ');
-    try { out.push(...await wm.articleImages(title, { limit: 14 })); } catch { /* the article's pictures are a bonus */ }
+    try {
+      for (const t of await wm.articleImages(title, { limit: 14 })) out.push({ title: t, designated: false });
+    } catch { /* the article's pictures are a bonus */ }
   }
   // The nominated image goes first but is not trusted: for most countries it is
   // a satellite photograph, and the article's own pictures are better.
-  return [...new Set(out)].filter((t) => !NOT_A_PORTRAIT.test(t));
+  const seen = new Set();
+  return out.filter((c) => !seen.has(c.title) && seen.add(c.title) && !NOT_A_PORTRAIT.test(c.title));
 }
 
 /**
@@ -159,10 +170,15 @@ export async function portraitFor({ subjectType, subjectId, name, lat, lng, coun
   onLine?.(`${name} → ${item.id} (${item.how})`);
 
   const all = await candidates(item.id);
-  // Only the ones that name the place, in the order the article used them.
-  const files = all.filter((t) => namesThePlace(t, name));
+  // The designated picture is kept as it stands; the incidental ones have to
+  // name the place. Applying the name test to the designated image is what
+  // turned the United Kingdom into a photograph of an FA Cup final — "United
+  // Kingdom" shares a word with Manchester United, and the Palace of
+  // Westminster it had chosen shares none.
+  const chosen = all.filter((c) => c.designated || namesThePlace(c.title, name));
+  const files = chosen.map((c) => c.title);
   if (!files.length) {
-    onLine?.(`${name}: ${all.length} pictures in the article, none of them named it — leaving it blank`);
+    onLine?.(`${name}: ${all.length} pictures, none designated and none named it — leaving it blank`);
     return { subjectId, item: item.id, found: all.length, stored: 0, reason: 'nothing named the place' };
   }
 
