@@ -399,6 +399,33 @@ export function MenuPanel({ ctl, onOrder }: { ctl: MenuOrderCtl; onOrder: () => 
 
         {menu ? (
           <>
+            {/*
+              Two ways to the same menu (owner, 5 Sep 2026): "their menu on their
+              website" and "their menu digitised in a standardised format, like
+              our own digital copy that we will use to let people then go through
+              and create their own order".
+
+              Both are named, and which one you are looking at is said out loud —
+              because they are not the same thing and can disagree. Ours is what
+              Roam read on a date, in one shape whatever the restaurant published;
+              theirs is whatever is on their site this minute. When a price
+              matters, the honest answer is "we read this on the 4th, go and look".
+            */}
+            <View style={styles.twoWays}>
+              <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+                <Text style={type.small}>Roam's copy</Text>
+                <Text style={type.tiny}>
+                  {menu.items} {menu.items === 1 ? 'dish' : 'dishes'}, tap a face to order
+                  {menu.stale ? ` · read ${menu.ageDays} days ago` : ''}
+                </Text>
+              </View>
+              <Button
+                label="On their site"
+                icon="external"
+                kind="secondary"
+                onPress={() => Linking.openURL(link?.url ?? menu.sourceUrl)}
+              />
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
               {sections.map((s) => (
                 <Chip key={s.title} label={s.title} selected={s.title === shown?.title} onPress={() => ctl.setSection(s.title)} />
@@ -885,6 +912,13 @@ const styles = StyleSheet.create({
   noteInput: {
     height: 32, minWidth: 120, borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm,
     paddingHorizontal: 10, color: colors.ink, backgroundColor: colors.surface, fontSize: 13,
+  },
+  // The two ways to the menu, side by side: ours on the left with what is in
+  // it, theirs as a button. One line on a phone, still one line at 390px.
+  twoWays: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap',
+    borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
+    paddingHorizontal: spacing.sm, paddingVertical: spacing.sm,
   },
   bar: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
