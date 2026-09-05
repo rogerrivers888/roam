@@ -387,7 +387,7 @@ export const googleSource = {
  * rather than one, because "restaurants" and "italian" surface different
  * halves of a town.
  */
-export async function sweepArea({ center, radiusKm = 2.5, queries = [], pages = 2, meter = null } = {}) {
+export async function sweepArea({ center, radiusKm = 2.5, queries = [], pages = 2, meter = null, includedType = 'restaurant', keepLodging = false } = {}) {
   if (!KEY() || !center || center.lat == null) return { places: [], calls: 0, problems: ['no Google key'] };
   // Text Search fences with a rectangle, not a circle: `locationRestriction`
   // rejects a circle outright, which is why the first Windsor sweep came back
@@ -410,7 +410,10 @@ export async function sweepArea({ center, radiusKm = 2.5, queries = [], pages = 
       const body = {
         textQuery: q,
         pageSize: 20,
-        includedType: 'restaurant',
+        // The food sweep fences to restaurants; the activity sweep must not,
+        // because "go-karting" and "flying lessons" are not one Google type and
+        // fencing to any single one loses most of what a family does.
+        ...(includedType ? { includedType } : {}),
         languageCode: 'en-GB',
         locationRestriction: { rectangle },
       };
@@ -430,7 +433,7 @@ export async function sweepArea({ center, radiusKm = 2.5, queries = [], pages = 
         break;
       }
       for (const p of data.places || []) {
-        if (LODGING.has(p.primaryType)) continue;
+        if (!keepLodging && LODGING.has(p.primaryType)) continue;
         const v = toVenue(p);
         // Banded here and nowhere else. `rating` and `userRatingCount` do not
         // leave this loop: what the caller receives is two words, which is all

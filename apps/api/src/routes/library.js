@@ -36,6 +36,7 @@ import express from 'express';
 import { can, requires } from '../access.js';
 import * as lib from '../repositories/library.js';
 import { runHarvest, refreshKinds, WIDTHS } from '../sources/harvest.js';
+import { sweepRegion, sweepCost, ACTIVITY_QUERIES } from '../sources/activitySweep.js';
 import { query } from '../db.js';
 
 const bad = (message, code = 'bad_request') => Object.assign(new Error(message), { status: 400, code });
@@ -377,6 +378,49 @@ adminRouter.post('/harvest', requires('manage_library'), async (req, res, next) 
 
     res.status(202).json({ run });
   } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// the activity sweep — the one thing here that spends money
+// ---------------------------------------------------------------------------
+
+/**
+ * Ask Google what there is to do in a region, then research each answer into a
+ * row we own (sources/activitySweep.js).
+ *
+ * The only endpoint in the library that costs anything, so it is deliberately
+ * awkward: it names the regions rather than taking a scope, it reports what it
+ * spent, and `dryRun` asks Google and writes nothing, which is how to find out
+ * what a county costs before buying ninety more of them.
+ */
+adminRouter.post('/sweep', requires('manage_library'), async (req, res, next) => {
+  try {
+    const { regions, across = 2, pages = 2, spanKm = 40, dryRun = false, queries } = req.body ?? {};
+    if (!Array.isArray(regions) || !regions.length) throw bad('Name the regions to sweep');
+    if (regions.length > 4) throw bad('Four regions at a time. This one spends money.');
+
+    const before = await sweepCost();
+    const results = [];
+    for (const slug of regions) {
+      results.push(await sweepRegion(slug, {
+        across, pages, spanKm, dryRun,
+        queries: Array.isArray(queries) && queries.length ? queries : undefined,
+        startedBy: actorOf(req),
+      }));
+    }
+    const after = await sweepCost();
+    await query(
+      `insert into admin_audit (actor_id, actor_label, action, subject_type, after)
+       values ($1,$2,'library.sweep','sweep',$3)`,
+      [req.account?.id ?? null, actorOf(req),
+       JSON.stringify({ regions, dryRun, calls: after.calls - before.calls })]);
+    res.json({ results, cost: after, queries: (queries ?? ACTIVITY_QUERIES).length });
+  } catch (err) { next(err); }
+});
+
+/** What the sweeps have cost this month, and what the country would. */
+adminRouter.get('/sweep/cost', requires('view_library'), async (_req, res, next) => {
+  try { res.json(await sweepCost()); } catch (err) { next(err); }
 });
 
 adminRouter.get('/harvest/:id', requires('view_library'), async (req, res, next) => {
