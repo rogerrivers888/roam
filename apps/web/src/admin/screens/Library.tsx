@@ -496,6 +496,12 @@ function Pictures({ regions, canManage, wide }: { regions: LibraryRegion[]; canM
         </ScrollView>
       </Panel>
 
+      {/* Above the grid, not below it. Six hundred pictures is a long way to
+          scroll, and a panel that opens off the bottom of that reads as a click
+          that did nothing — which is what it looked like the first time I tried
+          it on the deployed site. */}
+      {open ? <ImageDetail image={open} canManage={canManage} onClose={() => setOpen(null)} onChanged={() => { setOpen(null); load(); }} wide={wide} /> : null}
+
       {!images.length ? (
         <Panel><Text style={type.small}>{busy ? 'Searching…' : 'Nothing matches.'}</Text></Panel>
       ) : null}
@@ -517,7 +523,6 @@ function Pictures({ regions, canManage, wide }: { regions: LibraryRegion[]; canM
         ))}
       </View>
 
-      {open ? <ImageDetail image={open} canManage={canManage} onClose={() => setOpen(null)} onChanged={() => { setOpen(null); load(); }} wide={wide} /> : null}
     </>
   );
 }
