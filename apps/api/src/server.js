@@ -203,6 +203,18 @@ app.get('/api/sources', async (_req, res, next) => {
  * `DOPPLER_PROJECT` and `DOPPLER_CONFIG` are the answer to "which Doppler
  * config is feeding *this* service", which is the question worth asking first.
  */
+const KNOWN_PREFIXES = [
+  // LiteAPI's two, which are the whole point: a sandbox key answers with
+  // invented hotels at invented prices, and it must be possible to tell.
+  { prefix: 'sand_', label: 'LiteAPI sandbox' },
+  { prefix: 'prod_', label: 'LiteAPI production' },
+  { prefix: 'sk-ant-', label: 'Anthropic' },
+  { prefix: 'AIza', label: 'Google' },
+  { prefix: 'postgres://', label: 'Postgres URL' },
+  { prefix: 'postgresql://', label: 'Postgres URL' },
+  { prefix: 'eyJ', label: 'JWT' },
+];
+
 app.get('/api/keys', requireOwner, (_req, res) => {
   const raw = (name) => process.env[name];
   const look = (name) => {
@@ -213,9 +225,12 @@ app.get('/api/keys', requireOwner, (_req, res) => {
       name,
       set: trimmed.length > 0,
       length: v.length,
-      // Enough of the shape to recognise a key without being one: LiteAPI's own
-      // prefixes say sandbox from production, and four characters is not a key.
-      startsWith: trimmed.slice(0, 5).replace(/[^A-Za-z_-]/g, '') || null,
+      // Which vendor's shape it has, and nothing else. Only a prefix from the
+      // fixed list below is ever echoed — those are published, identical for
+      // every customer and chosen by nobody, so naming one gives away nothing.
+      // The first characters of the value itself are never returned: on a
+      // passcode that would be three letters of the passcode.
+      kind: KNOWN_PREFIXES.find((k) => trimmed.startsWith(k.prefix))?.label ?? null,
       quoted: /^['"].*['"]$/.test(trimmed),
       padded: v !== trimmed,
       unresolvedReference: v.includes('${{'),
