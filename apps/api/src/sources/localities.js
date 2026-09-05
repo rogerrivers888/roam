@@ -13,17 +13,15 @@
  *                             Bulk: 100 coordinates in one request, so 7,700
  *                             places is 77 requests and about a minute.
  *   What is it called?        OpenStreetMap, through Nominatim reverse at
- *                             **zoom 12**. One request per place, at the one a
- *                             second their policy asks for.
- *
- * Zoom 12 is not a guess. Windsor Castle answers:
- *
- *   zoom 10  Royal Borough of Windsor and Maidenhead   (the council)
- *   zoom 12  Windsor                                   (the place)
- *   zoom 14  Clewer New Town                           (a suburb)
+ *                             **zoom 14**, reading town before village before
+ *                             city. One request per place, at the one a second
+ *                             their policy asks for. Why 14 and why that order
+ *                             is set out on TOWN_ZOOM below — both were measured
+ *                             against real rows rather than assumed, and the
+ *                             first answer was wrong.
  *
  * The default stays 10 for every existing caller — trips group by city on it,
- * and London's folding depends on it — and this pass asks for 12 explicitly.
+ * and London's folding depends on it — and this pass asks for 14 explicitly.
  *
  * **The order matters, and it is the cheap one first.** The postal pass is fast
  * and free of rate limits, so it runs over everything and gives each place an
