@@ -39,14 +39,16 @@ import { Button, Chip, Row, Wrap } from '../../components/ui';
 import { useViewport } from '../../hooks/useViewport';
 import { AdminPage, Banner, FilterChip, FilterRow, PageHead, Panel, Pill, Tile, TileRow, ago, count, plural } from '../kit';
 import { asOneOf, asText, useQueryState } from '../../router';
+import { Reading } from './Reading';
 
 const WIDE = 900;
 
-type Section = 'coverage' | 'attractions' | 'pictures' | 'uploads' | 'types';
+type Section = 'coverage' | 'attractions' | 'reading' | 'pictures' | 'uploads' | 'types';
 
 const SECTIONS: { key: Section; label: string; needs?: 'manage' }[] = [
   { key: 'coverage', label: 'Coverage' },
   { key: 'attractions', label: 'Attractions' },
+  { key: 'reading', label: 'Reading' },
   { key: 'pictures', label: 'Pictures' },
   { key: 'uploads', label: 'Uploads' },
   { key: 'types', label: 'Types' },
@@ -74,7 +76,7 @@ export function Library({ canManage }: { canManage: boolean }) {
   // Which part of the atlas is in the address, so a colleague can be sent the
   // exact page: /admin/library?tab=pictures&region=Somerset.
   const [section, setSection] = useQueryState<Section>(
-    'tab', 'coverage', asOneOf(['coverage', 'attractions', 'pictures', 'uploads', 'types'] as const, 'coverage'),
+    'tab', 'coverage', asOneOf(['coverage', 'attractions', 'reading', 'pictures', 'uploads', 'types'] as const, 'coverage'),
   );
   const [overview, setOverview] = useState<LibraryOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -147,6 +149,7 @@ export function Library({ canManage }: { canManage: boolean }) {
       {section === 'attractions' ? (
         <Attractions regions={overview?.coverage ?? []} region={region} onRegion={setRegion} canManage={canManage} wide={wide} />
       ) : null}
+      {section === 'reading' ? <Reading canManage={canManage} /> : null}
       {section === 'pictures' ? <Pictures regions={overview?.coverage ?? []} canManage={canManage} wide={wide} /> : null}
       {section === 'uploads' ? <Uploads canManage={canManage} /> : null}
       {section === 'types' ? <Types canManage={canManage} /> : null}

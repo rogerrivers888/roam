@@ -346,7 +346,17 @@ export type PlaceInsideItem = {
   summary: string | null; summarySource: string | null; website: string | null; wikipediaUrl: string | null; attribution: string[];
 };
 
-export type BrowseItem = Omit<OptionStop, 'position' | 'travelFromPrevMinutes' | 'pinned'> & { pinned: boolean; ticketed?: boolean; venueName?: string | null; externalUrl?: string | null; shortlisted?: boolean; score?: number | null; contributingSources?: string[] };
+export type BrowseItem = Omit<OptionStop, 'position' | 'travelFromPrevMinutes' | 'pinned'> & {
+  pinned: boolean; ticketed?: boolean; venueName?: string | null; externalUrl?: string | null;
+  shortlisted?: boolean; score?: number | null; contributingSources?: string[];
+  /**
+   * A picture Roam owns, travelling as itself rather than folded into `photos`.
+   * It has to stay separate because the two are not interchangeable: a rented
+   * photo is fetched now and dropped, ours is stored; and a logo among them must
+   * be drawn contained rather than stretched across a hero.
+   */
+  image?: OwnedImage | null;
+};
 
 /**
  * A place on the way, with what it costs to stop there. The corridor is a bias
@@ -446,7 +456,8 @@ export type SearchAnswer = { near: Place; radiusKm: number; results: (Venue & { 
 
 export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; kind: 'food' | 'activity' | 'other' | null; category: string | null; lat: number | null; lng: number | null; country: string | null; countryCode: string | null; locality: string | null; venue: Partial<Venue> | null; note: string | null; visits: number; lastOn: string | null; takes: { member: string; take: Take; comment: string | null; on: string }[]; ledger: string | null; onTrips: string[]; status: 'been' | 'saved' | 'special'; special: boolean; loved: number; notForMe: number;
   /** Each person's latest score out of 5 here. */ scores: { memberId: string; member: string; score: number; on: string }[];
-  /** Where it is at a glance: postcode district and the nearest station with its lines; null until looked up. */ postcode: string | null; station: string | null; stationLines: string[]; stationKind: string | null; stationDistanceM: number | null; whereChecked: string | null };
+  /** Where it is at a glance: postcode district and the nearest station with its lines; null until looked up. */ postcode: string | null; station: string | null; stationLines: string[]; stationKind: string | null; stationDistanceM: number | null; whereChecked: string | null;
+  /** The picture Roam owns for this place, if the ladder found one. */ image?: OwnedImage | null };
 
 export type Trip = {
   kind?: TripKind; place?: { label: string } | null; startDate?: string | null; endDate?: string | null; dayStart?: string; dayEnd?: string;
@@ -637,7 +648,15 @@ export type Mood = { key: MoodKey; label: string; count: number };
  * draws the image must draw the credit too.
  */
 export type OwnedImage = {
-  id: string; lqip: string | null; credit: string | null;
+  id: string;
+  /**
+   * Which rung of the ladder found it (sources/placePicture.js), because a card
+   * must not draw all of them the same way. A photograph fills its tile; a
+   * `logo` is a business's mark and is contained on the mint ground with room
+   * around it, or it comes out cropped into an abstract smear.
+   */
+  source: 'wikimedia' | 'logo' | 'kartaview' | 'mapillary' | 'household' | 'upload' | string;
+  lqip: string | null; credit: string | null;
   licence: string; licenceUrl: string | null; sourceUrl: string | null;
   creditRequired: boolean;
 };
@@ -1184,6 +1203,23 @@ export const api = {
   librarySetKind: (qid: string, body: { admit?: boolean; category?: string }) =>
     patch<{ kind: LibraryKind }>(`/api/admin/library/kinds/${qid}`, body),
   libraryContributors: () => request<LibraryContributor[]>('/api/admin/library/contributors').then((r: any) => r.contributors ?? r),
+  // --- reading a place, and being taught what we got wrong ------------------
+  libraryAttraction: (id: string) =>
+    request<{ attraction: LibraryAttractionDetail; facts: AttractionFactsRow | null; contents: PlaceContent[]; lessons: ExtractionLesson[] }>(`/api/admin/library/attractions/${id}`),
+  libraryFetchDetail: (id: string, force = false) =>
+    post<{ state: string; sections: number; contentsCount: number; attraction: LibraryAttractionDetail }>(`/api/admin/library/attractions/${id}/detail`, { force }),
+  libraryRead: (id: string, effort?: string) =>
+    post<{ facts: AttractionFactsRow; lessons: ExtractionLesson[]; examples: number }>(`/api/admin/library/attractions/${id}/read`, { effort }),
+  libraryReview: (id: string, body: { review: 'approved' | 'corrected' | 'rejected'; note?: string; wrongFields?: string[]; lesson?: { scope?: string; subject?: string | null; subjectLabel?: string | null; rule: string; field?: string | null; said?: string | null } }) =>
+    post<{ facts: AttractionFactsRow; lesson: ExtractionLesson | null }>(`/api/admin/library/attractions/${id}/review`, body),
+  libraryLessons: (p: { scope?: string; region?: string } = {}) =>
+    request<{ lessons: ExtractionLesson[]; stats: ReadingStats }>(`/api/admin/library/lessons${qs(p)}`),
+  librarySetLesson: (id: string, body: { active?: boolean; rule?: string; field?: string | null }) =>
+    patch<{ lesson: ExtractionLesson }>(`/api/admin/library/lessons/${id}`, body),
+  libraryRegionDetail: (slug: string, limit = 50, force = false) =>
+    post<{ counts: Record<string, number> }>(`/api/admin/library/regions/${slug}/detail`, { limit, force }),
+  libraryRegionRead: (slug: string, limit = 25, anyway = false) =>
+    post<{ read: number; failed: number; errors: string[] }>(`/api/admin/library/regions/${slug}/read`, { limit, anyway }),
   // --- the shelves: teaching what the home screen calls a place -------------
   shelfVocabulary: () => request<ShelfVocabulary>('/api/admin/shelves/'),
   shelfContents: (p: { mood: MoodKey; lat?: number; lng?: number; km?: number }) =>
@@ -1278,6 +1314,75 @@ export type LibraryAttraction = {
  * it came from, whose it is, what the licence says, and the page that states
  * both. `source_page_url` is the attribution URL.
  */
+/**
+ * The form we fill in about a place (migration 045). Every field is present —
+ * empty string or empty list where the sources were silent — because a missing
+ * field and an unanswerable one must not look the same on the review screen.
+ */
+export type AttractionFacts = {
+  whyGo: string;
+  history: string; historyQuote: string;
+  highlights: { name: string; why: string; source: string; quote: string }[];
+  dwell: 'under an hour' | 'an hour or two' | 'half a day' | 'a full day' | 'more than a day';
+  dwellWhy: string;
+  cover: 'indoors' | 'mostly indoors' | 'both' | 'mostly outdoors' | 'outdoors';
+  suits: string[]; suitsWhy: string; wouldBore: string;
+  bestTime: string; seasonal: string;
+  booking: 'not needed' | 'advised' | 'required' | 'the sources do not say';
+  missing: string[];
+  confidence: 'high' | 'medium' | 'low';
+};
+
+export type AttractionFactsRow = {
+  attraction_id: string;
+  facts: AttractionFacts;
+  evidence: Record<string, { quote: string; source: string; of?: string; why?: string }>;
+  missing: string[]; confidence: string | null;
+  lessons_used: string[]; model: string | null; prompt_hash: string | null; cost_usd: number | null;
+  review: 'pending' | 'approved' | 'corrected' | 'rejected';
+  review_note: string | null; wrong_fields: string[];
+  reviewed_by: string | null; reviewed_at: string | null; read_at: string;
+};
+
+/** A correction, in his words, scoped to a kind of place so it travels. */
+export type ExtractionLesson = {
+  id: string;
+  scope: 'all' | 'kind' | 'place';
+  subject: string | null; subject_label: string | null;
+  rule: string; field: string | null; said: string | null;
+  from_attraction: string | null; from_name?: string | null;
+  active: boolean; used_count: number; approved_after: number;
+  created_by: string | null; created_at: string;
+};
+
+export type ReadingStats = {
+  published: string | number; read: string | number; pending: string | number;
+  approved: string | number; corrected: string | number; rejected: string | number;
+  spent: string | number; lessons: { active: string | number; total: string | number };
+};
+
+/** One thing inside a place — a ride, an animal house, a tearoom. */
+export type PlaceContent = {
+  itemRef: string; name: string; kind: string | null; kindLabel: string | null;
+  facts: Record<string, any>; summary: string | null; website: string | null;
+};
+
+/** An attraction with everything migration 041 fetched about it attached. */
+export type LibraryAttractionDetail = LibraryAttraction & {
+  kinds: string[];
+  accolades: { key: string; label: string; source: string }[];
+  acclaim: number; band: string | null; roam_score: number;
+  sections: { heading: string | null; level: number; text: string; doing: boolean }[] | null;
+  highlights: { name: string; kind: string; note: string | null; price: string | null; hours: string | null; sourceUrl: string }[] | null;
+  admission: Record<string, any> | null;
+  visit: Record<string, any> | null;
+  contents_ref: string | null; contents_count: number;
+  detail_attribution: { source: string; licence: string; url: string | null; note?: string }[] | null;
+  provenance: Record<string, string> | null;
+  detail_research_state: string | null; detail_error: string | null; researched_at: string | null;
+  images: { id: string; title: string | null; lqip: string | null; credit_line: string | null; role: string }[];
+};
+
 export type LibraryImage = {
   id: string; source: string; source_ref: string | null; source_page_url: string | null;
   licence: string; licence_url: string | null; attribution_required: boolean;

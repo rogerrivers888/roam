@@ -241,7 +241,13 @@ export async function upsertAttractions(regionSlug, rows) {
             wikipedia_title, wikipedia_url, commons_category, website, osm_ref, heritage,
             sitelinks, pageviews_year, score, score_parts, attribution)
          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-         on conflict (region_slug, wikidata_id) do update set
+         -- The predicate is part of the inference clause because the index is
+         -- partial (migration 044 added activity-sweep rows, which have an
+         -- external_ref and no Wikidata id). Postgres will not match a partial
+         -- unique index from the columns alone: without the WHERE it raises
+         -- 42P10 and every harvest dies after listing its candidates.
+         on conflict (region_slug, wikidata_id) where wikidata_id is not null
+         do update set
            name = excluded.name, slug = excluded.slug,
            summary = coalesce(excluded.summary, attractions.summary),
            summary_source = coalesce(excluded.summary_source, attractions.summary_source),
@@ -1111,4 +1117,144 @@ export async function pictureStats() {
            where l.subject_type = 'place' and l.role = 'hero'
            group by i.source) s) as by_source`);
   return rows[0] ?? {};
+}
+
+// ---------------------------------------------------------------------------
+// the reading, and what it was taught (migration 045)
+// ---------------------------------------------------------------------------
+
+/** What was read about one place, and whether the owner has looked at it. */
+export const factsFor = async (attractionId) =>
+  (await query('select * from attraction_facts where attraction_id = $1', [attractionId])).rows[0] ?? null;
+
+export async function saveFacts(attractionId, {
+  facts, evidence = {}, missing = [], confidence = null,
+  lessonsUsed = [], model = null, promptHash = null, costUsd = null,
+}) {
+  const { rows } = await query(
+    `insert into attraction_facts
+       (attraction_id, facts, evidence, missing, confidence, lessons_used, model, prompt_hash, cost_usd,
+        review, read_at, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',now(),now())
+     on conflict (attraction_id) do update set
+       facts = excluded.facts, evidence = excluded.evidence, missing = excluded.missing,
+       confidence = excluded.confidence, lessons_used = excluded.lessons_used,
+       model = excluded.model, prompt_hash = excluded.prompt_hash, cost_usd = excluded.cost_usd,
+       -- A fresh reading is unreviewed again. Carrying the old verdict forward
+       -- would let a lesson silently change an answer he had already approved.
+       review = 'pending', review_note = null, wrong_fields = '{}',
+       reviewed_by = null, reviewed_at = null,
+       read_at = now(), updated_at = now()
+     returning *`,
+    [attractionId, JSON.stringify(facts), JSON.stringify(evidence), missing, confidence,
+     lessonsUsed, model, promptHash, costUsd]);
+  return rows[0] ?? null;
+}
+
+export async function reviewFacts(attractionId, { review, note, wrongFields = [], by }) {
+  const { rows } = await query(
+    `update attraction_facts
+        set review = $2, review_note = $3, wrong_fields = $4,
+            reviewed_by = $5, reviewed_at = now(), updated_at = now()
+      where attraction_id = $1 returning *`,
+    [attractionId, review, note ?? null, wrongFields, by ?? null]);
+  return rows[0] ?? null;
+}
+
+/**
+ * The lessons that apply to one place.
+ *
+ * Everything scoped to `all`, everything scoped to a Wikidata type this place
+ * actually is, and anything written about this row in particular. Ordered
+ * general-to-specific, which is the order they are pasted into the prompt: the
+ * narrower rule is read last and therefore wins.
+ */
+export async function lessonsFor({ attractionId = null, kinds = [] } = {}) {
+  const { rows } = await query(
+    `select * from extraction_lessons
+      where active
+        and (scope = 'all'
+          or (scope = 'kind' and subject = any($1))
+          or (scope = 'place' and subject = $2))
+      order by case scope when 'all' then 0 when 'kind' then 1 else 2 end, created_at`,
+    [kinds ?? [], attractionId ? String(attractionId) : null]);
+  return rows;
+}
+
+export async function listLessons({ scope = null, limit = 200 } = {}) {
+  const args = [limit];
+  const where = [];
+  if (scope) { args.push(scope); where.push(`scope = $${args.length}`); }
+  const { rows } = await query(
+    `select l.*, a.name as from_name
+       from extraction_lessons l
+       left join attractions a on a.id = l.from_attraction
+      ${where.length ? `where ${where.join(' and ')}` : ''}
+      order by l.active desc, l.created_at desc limit $1`, args);
+  return rows;
+}
+
+export async function addLesson({ scope = 'kind', subject, subjectLabel, rule, field, said, fromAttraction, by }) {
+  const { rows } = await query(
+    `insert into extraction_lessons
+       (scope, subject, subject_label, rule, field, said, from_attraction, created_by)
+     values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
+    [scope, subject ?? null, subjectLabel ?? null, rule, field ?? null, said ?? null,
+     fromAttraction ?? null, by ?? null]);
+  return rows[0] ?? null;
+}
+
+export async function setLesson(id, { active, rule, field }) {
+  const { rows } = await query(
+    `update extraction_lessons
+        set active = coalesce($2, active), rule = coalesce($3, rule),
+            field = coalesce($4, field), updated_at = now()
+      where id = $1 returning *`, [id, active ?? null, rule ?? null, field ?? null]);
+  return rows[0] ?? null;
+}
+
+/** Note that these lessons were used, so a rule that helps is distinguishable. */
+export async function noteLessonsUsed(ids = []) {
+  if (!ids.length) return;
+  await query('update extraction_lessons set used_count = used_count + 1 where id = any($1)', [ids]);
+}
+
+export async function creditLessons(ids = []) {
+  if (!ids.length) return;
+  await query('update extraction_lessons set approved_after = approved_after + 1 where id = any($1)', [ids]);
+}
+
+/**
+ * The readings he approved, as few-shot examples for the next one.
+ *
+ * Same kind first, because "write like this" travels furthest between two
+ * castles. Three at most: they are the biggest thing in the prompt and a
+ * fourth has never earned its tokens.
+ */
+export async function approvedExamples({ kinds = [], limit = 3 } = {}) {
+  const { rows } = await query(
+    `select a.name, a.category, a.kinds, f.facts
+       from attraction_facts f join attractions a on a.id = f.attraction_id
+      where f.review = 'approved'
+      order by (a.kinds && $1) desc, f.reviewed_at desc
+      limit $2`, [kinds ?? [], limit]);
+  return rows;
+}
+
+/** How the teaching is going: read, looked at, and how often he agreed. */
+export async function readingStats(region = null) {
+  const args = [];
+  const scope = region ? (args.push(region), `where a.region_slug = $${args.length}`) : '';
+  const { rows } = await query(
+    `select count(*) filter (where a.state = 'published') as published,
+            count(f.attraction_id) as read,
+            count(*) filter (where f.review = 'pending') as pending,
+            count(*) filter (where f.review = 'approved') as approved,
+            count(*) filter (where f.review = 'corrected') as corrected,
+            count(*) filter (where f.review = 'rejected') as rejected,
+            coalesce(sum(f.cost_usd), 0) as spent
+       from attractions a left join attraction_facts f on f.attraction_id = a.id ${scope}`, args);
+  const { rows: lessons } = await query(
+    'select count(*) filter (where active) as active, count(*) as total from extraction_lessons');
+  return { ...rows[0], lessons: lessons[0] };
 }

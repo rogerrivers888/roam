@@ -35,7 +35,9 @@
 import express from 'express';
 import { can, requires } from '../access.js';
 import * as lib from '../repositories/library.js';
-import { runHarvest, refreshKinds, WIDTHS } from '../sources/harvest.js';
+import { runHarvest, refreshKinds, WIDTHS, researchAttraction, detailPass } from '../sources/harvest.js';
+import { contentsOf } from '../sources/inside.js';
+import { readAttraction } from '../domain/attractionReading.js';
 import { sweepRegion, sweepCost, ACTIVITY_QUERIES } from '../sources/activitySweep.js';
 import { sweepPictures, PICTURE_VERSION } from '../sources/placePicture.js';
 import { mapillaryReady } from '../sources/streetLevel.js';
@@ -110,6 +112,28 @@ atlasRouter.get('/regions/:slug', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/**
+ * A header value Node will actually send.
+ *
+ * HTTP header values are latin-1, and the licence lines here are not: a credit
+ * line carries an em dash, a photographer's name carries an accent, and a
+ * trade mark basis carries curly quotes. Node rejects the whole response with
+ * ERR_INVALID_CHAR rather than dropping the header, so before this existed
+ * every logo answered 500 and the card fell back to its icon — the picture was
+ * in the database and simply could not be served (found 5 Sep 2026).
+ *
+ * The headers are a convenience copy of what the JSON already says, so folding
+ * to ASCII here loses nothing that matters: the exact line, with its dashes and
+ * its accents, travels on the row and is what a screen actually draws.
+ */
+const headerSafe = (v) => String(v ?? '')
+  .normalize('NFKD')
+  // Curly quotes and dashes have no latin-1 equivalent worth keeping.
+  .replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"')
+  .replace(/[\u2010-\u2015]/g, '-').replace(/\u2026/g, '...')
+  .replace(/[^\x20-\x7e]/g, '')
+  .slice(0, 500);
+
 /** The bytes. `/api/images/:id/500` — one row, one buffer, cached for a year. */
 imageRouter.get('/:id/:width', async (req, res, next) => {
   try {
@@ -125,9 +149,9 @@ imageRouter.get('/:id/:width', async (req, res, next) => {
       etag: `"${image.id}-${variant.width}"`,
       // The licence, on the response itself, so it is attached to the bytes
       // wherever they end up and not only to the JSON that pointed at them.
-      'x-licence': image.licence,
-      'x-attribution': image.credit_line ?? '',
-      'x-source': image.source_page_url ?? '',
+      'x-licence': headerSafe(image.licence),
+      'x-attribution': headerSafe(image.credit_line),
+      'x-source': headerSafe(image.source_page_url),
     });
     res.end(variant.body);
   } catch (err) { next(err); }
@@ -536,5 +560,206 @@ adminRouter.post('/kinds/refresh', requires('manage_library'), async (req, res, 
       types, reclassified: moved.length, moved: moved.slice(0, 50),
       retired: retired.length, retiredNames: retired.slice(0, 50).map((r) => r.name),
     });
+  } catch (err) { next(err); }
+});
+
+// --- reading a place, and being taught (migration 045) ---------------------
+
+/**
+ * Everything about one attraction, which is what the review screen opens on.
+ *
+ * The whole comparison in one answer — the sources on the left, the reading on
+ * the right — because the owner's ask was explicitly side by side: "comparing
+ * the wiki page to a locations page, showing what you're extracting and what
+ * you're going to be showing to the user". Two round trips would let one half
+ * arrive without the other, which is the one thing this screen must not do.
+ */
+adminRouter.get('/attractions/:id', requires('view_library'), async (req, res, next) => {
+  try {
+    const attraction = await lib.attractionDetail(req.params.id);
+    if (!attraction) return res.status(404).json({ error: 'not_found' });
+    const [facts, contents, lessons] = await Promise.all([
+      lib.factsFor(req.params.id),
+      attraction.contents_ref ? contentsOf(attraction.contents_ref) : [],
+      lib.lessonsFor({ attractionId: req.params.id, kinds: attraction.kinds ?? [] }),
+    ]);
+    res.json({ attraction, facts, contents, lessons });
+  } catch (err) { next(err); }
+});
+
+/** Go and get the sections, the travel guide, the map and their ticket page. */
+adminRouter.post('/attractions/:id/detail', requires('manage_library'), async (req, res, next) => {
+  try {
+    const row = await lib.attractionDetail(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not_found' });
+    const out = await researchAttraction(row, { force: req.body?.force === true });
+    res.json({ ...out, attraction: await lib.attractionDetail(req.params.id) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Read one place with Claude.
+ *
+ * Costs money, so it is `manage_library` and it is one place at a time from a
+ * button — there is deliberately no "read the whole country" here. The owner
+ * asked to go "1 by 1… we could then train the AI on whether that's the right
+ * data to capture. Once we've trained it, we can let it loose", and letting it
+ * loose is `/regions/:slug/read` below, which exists but is not what this
+ * screen presses.
+ */
+adminRouter.post('/attractions/:id/read', requires('manage_library'), async (req, res, next) => {
+  try {
+    const attraction = await lib.attractionDetail(req.params.id);
+    if (!attraction) return res.status(404).json({ error: 'not_found' });
+    if (!attraction.sections?.length) {
+      return res.status(409).json({
+        error: 'nothing_to_read',
+        message: 'Nothing has been fetched about this place yet. Press "Go and read the sources" first.',
+      });
+    }
+
+    const [lessons, examples, contents] = await Promise.all([
+      lib.lessonsFor({ attractionId: attraction.id, kinds: attraction.kinds ?? [] }),
+      lib.approvedExamples({ kinds: attraction.kinds ?? [] }),
+      attraction.contents_ref ? contentsOf(attraction.contents_ref) : [],
+    ]);
+
+    const read = await readAttraction({
+      attraction, detail: attraction, contents, lessons, examples,
+      householdId: req.household?.id ?? null,
+      effort: req.body?.effort ?? 'medium',
+    });
+    const saved = await lib.saveFacts(attraction.id, read);
+    await lib.noteLessonsUsed(read.lessonsUsed);
+    res.json({ facts: saved, lessons, examples: examples.length });
+  } catch (err) { next(err); }
+});
+
+/**
+ * His verdict, and the lesson that comes out of it.
+ *
+ * The two happen together because they are one act: saying "this is wrong" and
+ * not saying what right would have looked like teaches nothing, and a screen
+ * that let the first happen without prompting for the second would fill the
+ * table with rejections and never improve a prompt.
+ *
+ * A lesson is scoped to a Wikidata type by default (owner, 5 Sep 2026), so it
+ * travels to every place of that kind rather than fixing one row.
+ */
+adminRouter.post('/attractions/:id/review', requires('manage_library'), async (req, res, next) => {
+  try {
+    const { review, note, wrongFields = [], lesson } = req.body ?? {};
+    if (!['approved', 'corrected', 'rejected'].includes(review)) {
+      return res.status(400).json({ error: 'bad_review' });
+    }
+    const attraction = await lib.attractionDetail(req.params.id);
+    if (!attraction) return res.status(404).json({ error: 'not_found' });
+
+    const saved = await lib.reviewFacts(req.params.id, {
+      review, note, wrongFields, by: actorOf(req),
+    });
+    // A rule that was in the prompt when he approved the answer earned some of
+    // the credit; one that was in the prompt when he rejected it did not.
+    if (review === 'approved') await lib.creditLessons(saved?.lessons_used ?? []);
+
+    let taught = null;
+    if (lesson?.rule) {
+      taught = await lib.addLesson({
+        scope: lesson.scope ?? 'kind',
+        subject: lesson.subject ?? (lesson.scope === 'place' ? String(attraction.id) : null),
+        subjectLabel: lesson.subjectLabel ?? null,
+        rule: lesson.rule, field: lesson.field ?? null, said: lesson.said ?? null,
+        fromAttraction: attraction.id, by: actorOf(req),
+      });
+    }
+    await query(
+      `insert into admin_audit (actor_id, actor_label, action, subject_type, subject_id, after)
+       values ($1,$2,'library.reading.review','attraction',$3,$4)`,
+      [req.account?.id ?? null, actorOf(req), String(attraction.id),
+       JSON.stringify({ review, wrongFields, lesson: taught?.rule ?? null })]);
+
+    res.json({ facts: saved, lesson: taught });
+  } catch (err) { next(err); }
+});
+
+// --- the lessons themselves ------------------------------------------------
+
+adminRouter.get('/lessons', requires('view_library'), async (req, res, next) => {
+  try {
+    res.json({
+      lessons: await lib.listLessons({ scope: req.query.scope }),
+      stats: await lib.readingStats(req.query.region ?? null),
+    });
+  } catch (err) { next(err); }
+});
+
+adminRouter.patch('/lessons/:id', requires('manage_library'), async (req, res, next) => {
+  try {
+    const { active, rule, field } = req.body ?? {};
+    const row = await lib.setLesson(req.params.id, { active, rule, field });
+    if (!row) return res.status(404).json({ error: 'not_found' });
+    res.json({ lesson: row });
+  } catch (err) { next(err); }
+});
+
+// --- by the region ---------------------------------------------------------
+
+/** Fetch the sources for a whole region. Free — nobody's API is paid for. */
+adminRouter.post('/regions/:slug/detail', requires('manage_library'), async (req, res, next) => {
+  try {
+    const counts = await detailPass(req.params.slug, {
+      limit: Math.min(200, Number(req.body?.limit) || 50),
+      force: req.body?.force === true,
+    });
+    res.json({ counts });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Let it loose on a region.
+ *
+ * The owner's "once we've trained it, we can let it loose" — and the reason it
+ * refuses below a limit is that letting it loose before the training is the
+ * failure this whole screen exists to prevent. Five approvals is not a
+ * statistical bar, it is a check that somebody has actually looked.
+ */
+adminRouter.post('/regions/:slug/read', requires('manage_library'), async (req, res, next) => {
+  try {
+    const stats = await lib.readingStats(req.params.slug);
+    if (Number(stats.approved) < 5 && req.body?.anyway !== true) {
+      return res.status(409).json({
+        error: 'not_taught_yet',
+        approved: Number(stats.approved),
+        message: `Only ${stats.approved} readings have been approved. Read and review a few one at a time first, or send anyway: true.`,
+      });
+    }
+    const rows = await lib.attractionsNeedingDetail({
+      region: req.params.slug, limit: Math.min(100, Number(req.body?.limit) || 25), force: true,
+    });
+    const out = { read: 0, failed: 0, errors: [] };
+    for (const row of rows) {
+      try {
+        const attraction = await lib.attractionDetail(row.id);
+        if (!attraction?.sections?.length) continue;
+        const [lessons, examples, contents] = await Promise.all([
+          lib.lessonsFor({ attractionId: attraction.id, kinds: attraction.kinds ?? [] }),
+          lib.approvedExamples({ kinds: attraction.kinds ?? [] }),
+          attraction.contents_ref ? contentsOf(attraction.contents_ref) : [],
+        ]);
+        const read = await readAttraction({
+          attraction, detail: attraction, contents, lessons, examples,
+          householdId: req.household?.id ?? null,
+        });
+        await lib.saveFacts(attraction.id, read);
+        await lib.noteLessonsUsed(read.lessonsUsed);
+        out.read += 1;
+      } catch (err) {
+        out.failed += 1;
+        out.errors.push(`${row.name}: ${err.message}`);
+        // A spend bound is the end of the run, not one bad row.
+        if (err.code === 'spend_bound_reached') break;
+      }
+    }
+    res.json(out);
   } catch (err) { next(err); }
 });
