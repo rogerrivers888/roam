@@ -1303,6 +1303,25 @@ export const api = {
   scoutMisses: () => request<{ misses: ScoutMenuMiss[] }>('/api/admin/scout/menus/missing'),
   scoutPlaces: (code: string, limit = 25) =>
     request<{ area: { code: string; label: string | null; sweptAt: string | null }; places: ScoutPlace[] }>(`/api/places/area/${code}?limit=${limit}`),
+  // --- places you can point at (routes/localities.js) ---
+  placeTree: () => request<PlaceTree>('/api/admin/places/'),
+  placeSearch: (q: string) => request<{ places: Locality[] }>(`/api/admin/places/search${qs({ q })}`),
+  /** No argument is the estate; a county is that county and everything under and across it. */
+  placeCoverage: (p: { county?: string | null; slugs?: string[] } = {}) =>
+    request<{ rows: CoverageRow[]; facts: FactKey[] }>(
+      `/api/admin/places/coverage${qs({ county: p.county ?? undefined, slugs: p.slugs?.length ? p.slugs.join(',') : undefined })}`),
+  locality: (slug: string, p: { kind?: 'go' | 'eat'; missing?: FactKey; limit?: number } = {}) =>
+    request<LocalityPage>(`/api/admin/places/${encodeURIComponent(slug)}${qs(p)}`),
+  placePass: (which: 'postal' | 'naming', limit?: number) =>
+    post<{ started: string; limit: number }>('/api/admin/places/pass', { which, limit }),
+  placeRecount: () => post<{ ok: boolean }>('/api/admin/places/recount', {}),
+
+  // --- correcting a category where the mistake is (routes/library.js) ---
+  categoryRead: (id: string, said: string) =>
+    post<{ proposal: CategoryProposal }>(`/api/admin/library/attractions/${id}/category/read`, { said }),
+  categorySave: (id: string, body: { scope: 'place' | 'kind' | 'category'; subject: string; category: string; reason?: string; weights?: ShelfWeights | null }) =>
+    post<{ moved: number; rule: ShelfRule | null }>(`/api/admin/library/attractions/${id}/category`, body),
+
   libraryOverview: () => request<LibraryOverview>('/api/admin/library'),
   libraryRegions: () => request<{ regions: LibraryRegion[] }>('/api/admin/library/regions'),
   librarySetTarget: (slug: string, targetCount: number) =>
@@ -1538,6 +1557,105 @@ export type LibraryKind = {
  * A weight per shelf. A shelf that is absent is a shelf the place is not on at
  * all; a shelf below the floor is true but not worth a card.
  */
+// ---------------------------------------------------------------------------
+// places you can point at
+// ---------------------------------------------------------------------------
+
+/**
+ * A county, a town or a postcode district. One shape for all three, because the
+ * owner asked to "look at each one of those through the same lens" (5 Sep 2026)
+ * and the back office has no reason to know which it is holding.
+ */
+export type Locality = {
+  slug: string;
+  name: string;
+  kind: 'county' | 'town' | 'postcode';
+  nation: string | null;
+  parent_slug: string | null;
+  parent_name?: string | null;
+  council?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  to_go_count: number;
+  to_eat_count: number;
+  image_count: number;
+};
+
+/** The six facts the back office tracks, per place. */
+export type FactKey = 'picture' | 'description' | 'hours' | 'website' | 'menu' | 'shelf';
+
+export type FactCoverage = { held: number; of: number; pc: number | null };
+
+export type PlaceCoverage = {
+  toGo: number;
+  toEat: number;
+  facts: Record<FactKey, FactCoverage>;
+};
+
+/** One row on a place page: an attraction or a restaurant, told the same way. */
+export type LocalityRow = {
+  id: string;
+  name: string;
+  slug: string | null;
+  side: 'go' | 'eat';
+  type: string | null;
+  score: number | null;
+  owned_score?: number | null;
+  rank: number | null;
+  state: string | null;
+  website: string | null;
+  outcode: string | null;
+  locality_slug: string | null;
+  region_slug: string | null;
+  hero_id: string | null;
+  image_count: number;
+  has_picture: boolean;
+  has_description: boolean;
+  has_hours: boolean;
+  has_website: boolean;
+  has_menu: boolean | null;
+  has_shelf: boolean;
+};
+
+export type LocalityPage = {
+  place: Locality;
+  coverage: PlaceCoverage;
+  contents: LocalityRow[];
+  breakdown: { category: string; n: number }[];
+  siblings: Locality[];
+};
+
+export type PlaceTree = {
+  nations: string[];
+  counties: (Locality & { towns: Locality[] })[];
+  orphanTowns: Locality[];
+  postcodes: Locality[];
+  remaining: number;
+  running: { since: string } | null;
+};
+
+export type CoverageRow = {
+  slug: string; name: string; kind: Locality['kind'];
+  toGo: number; toEat: number; facts: Record<FactKey, FactCoverage>;
+};
+
+/**
+ * What Roam proposes when you say why a category is wrong.
+ *
+ * It proposes and never writes — the same rule the shelf teaching already
+ * holds to, because a categorisation nobody read is the silent guessing the
+ * teaching screens exist to end.
+ */
+export type CategoryProposal = {
+  category: string;
+  reason: string;
+  scope: 'place' | 'kind' | 'category';
+  suggestedScope: 'place' | 'kind' | 'category';
+  /** Every scope that could carry this change, and how far each one travels. */
+  options: { scope: 'place' | 'kind' | 'category'; subject: string; label: string; affects: number; regions: number }[];
+  weights: ShelfWeights;
+};
+
 export type ShelfWeights = Partial<Record<MoodKey, number>>;
 
 export type ShelfRule = {

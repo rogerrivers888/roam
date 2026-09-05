@@ -282,3 +282,33 @@ export async function siblingsOf(loc) {
   }
   return [];
 }
+
+/**
+ * The rows of the coverage matrix for one part of the country.
+ *
+ * A county, the towns inside it, and the postcode districts its own places
+ * actually fall in — which is the only honest way to put both ladders on one
+ * screen. SL4 appears under Berkshire not because it is in Berkshire (it is in
+ * five councils and reaches into Surrey) but because places we hold in Berkshire
+ * carry that outward code, which is a fact about our data rather than a claim
+ * about geography.
+ */
+export async function familyOf(slug) {
+  const county = await bySlug(slug);
+  if (!county || county.kind !== 'county') return county ? [county.slug] : [];
+  const { rows } = await query(
+    `select slug from localities where parent_slug = $1
+      order by to_go_count + to_eat_count desc, name limit 24`, [county.slug]);
+  const { rows: codes } = await query(
+    `select distinct upper(a.outcode) as code from attractions a
+      where a.region_slug = $1 and a.outcode is not null
+      order by 1 limit 24`, [county.slug]);
+  const postcodes = codes.map((c) => c.code.toLowerCase());
+  return [county.slug, ...rows.map((r) => r.slug), ...postcodes];
+}
+
+/** Every county that holds something, for the matrix's "everywhere" view. */
+export const countiesWithContent = async (limit = 30) => (await query(
+  `select slug from localities
+    where kind = 'county' and (to_go_count > 0 or to_eat_count > 0)
+    order by to_go_count + to_eat_count desc, name limit $1`, [limit])).rows.map((r) => r.slug);

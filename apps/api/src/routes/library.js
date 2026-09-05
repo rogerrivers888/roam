@@ -38,6 +38,9 @@ import * as lib from '../repositories/library.js';
 import { runHarvest, refreshKinds, WIDTHS, researchAttraction, detailPass } from '../sources/harvest.js';
 import { contentsOf } from '../sources/inside.js';
 import { readAttraction } from '../domain/attractionReading.js';
+import { readCategoryTeaching, CATEGORIES } from '../domain/categoryTeaching.js';
+import * as shelfRules from '../repositories/shelfRules.js';
+import { currentHousehold } from './household.js';
 import { sweepRegion, sweepCost, rematchRegion, ACTIVITY_QUERIES } from '../sources/activitySweep.js';
 import { portraitsForApp, setPortrait } from '../sources/portraits.js';
 import { sweepPictures, PICTURE_VERSION } from '../sources/placePicture.js';
@@ -619,6 +622,150 @@ adminRouter.post('/kinds/refresh', requires('manage_library'), async (req, res, 
       types, reclassified: moved.length, moved: moved.slice(0, 50),
       retired: retired.length, retiredNames: retired.slice(0, 50).map((r) => r.name),
     });
+  } catch (err) { next(err); }
+});
+
+// --- correcting a category where the mistake is (owner, 5 Sep 2026) --------
+
+/**
+ * How far a correction would travel, before it is made.
+ *
+ * The whole argument for a sentence over a dropdown is that the mistake is
+ * usually on the *type*, so the screen has to be able to say "this changes 41
+ * places across 19 counties" while there is still time to disagree. Counted
+ * rather than estimated: these are the rows `reclassifyAttractions` would
+ * actually move.
+ */
+async function scopeOptions(place, kinds) {
+  const options = [];
+
+  for (const k of kinds) {
+    const { rows } = await query(
+      `select count(*)::int as n, count(distinct region_slug)::int as regions
+         from attractions where $1 = any(kinds) and state <> 'hidden'`, [k.qid]);
+    options.push({
+      scope: 'kind', subject: k.qid,
+      label: k.label ? `Every ${k.label}` : `Everything of type ${k.qid}`,
+      affects: rows[0].n, regions: rows[0].regions,
+    });
+  }
+
+  options.push({ scope: 'place', subject: place.id, label: `Only ${place.name}`, affects: 1, regions: 1 });
+
+  if (place.category) {
+    const { rows } = await query(
+      `select count(*)::int as n, count(distinct region_slug)::int as regions
+         from attractions where category = $1 and state <> 'hidden'`, [place.category]);
+    options.push({
+      scope: 'category', subject: place.category,
+      label: `Everything the atlas calls ${place.category}`,
+      affects: rows[0].n, regions: rows[0].regions,
+    });
+  }
+
+  // Widest-travelling kind first: the model is told to prefer a type, and the
+  // one that answers for the most places is the one worth reading first.
+  return options.sort((a, b) => (a.scope === 'kind' ? 0 : 1) - (b.scope === 'kind' ? 0 : 1) || b.affects - a.affects);
+}
+
+/**
+ * POST /attractions/:id/category/read — a sentence in, a scoped proposal back.
+ *
+ * Nothing is written here. The owner's own rule from the shelf teaching holds:
+ * a categorisation nobody read is precisely the silent guessing these screens
+ * exist to end.
+ */
+adminRouter.post('/attractions/:id/category/read', requires('manage_library'), async (req, res, next) => {
+  try {
+    const said = String(req.body?.said || '').trim();
+    if (!said) throw bad('Say what is wrong with it and Roam will turn that into a change.');
+    const place = await lib.attractionDetail(req.params.id);
+    if (!place) return res.status(404).json({ error: 'not_found' });
+
+    // `kindsByQid` answers with a Map; the model and the scope counter both want
+    // a list in the order Wikidata stated them, which is the order that decides
+    // which type the harvest picked in the first place.
+    const known = await lib.kindsByQid(place.kinds ?? []);
+    const kinds = (place.kinds ?? []).map((qid) => ({ qid, ...(known.get(qid) ?? {}) }));
+    const household = await currentHousehold();
+    const proposal = await readCategoryTeaching({ said, place, kinds, householdId: household?.id ?? null });
+
+    res.json({ proposal: { ...proposal, options: await scopeOptions(place, kinds) } });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /attractions/:id/category — make the change.
+ *
+ * Three scopes, three different writes, and only the first is the interesting
+ * one:
+ *
+ *   kind      `place_kinds.category` for that QID, then every attraction is
+ *             reclassified from the corrected classifier. This is the fix that
+ *             travels, and it is why the sentence beats a dropdown.
+ *   place     `attractions.category` on the one row, and pinned so the next
+ *             harvest's re-rank does not quietly undo it.
+ *   category  every kind currently filed under one word moves to another.
+ *
+ * A shelf rule is saved alongside only when one was asked for, and against
+ * `shelf_rules` rather than here, because a category and a shelf are two axes
+ * and Roam has been bitten by conflating them before.
+ */
+adminRouter.post('/attractions/:id/category', requires('manage_library'), async (req, res, next) => {
+  try {
+    const place = await lib.attractionDetail(req.params.id);
+    if (!place) return res.status(404).json({ error: 'not_found' });
+
+    const category = String(req.body?.category || '').trim();
+    if (!CATEGORIES.includes(category)) throw bad(`"${category}" is not one of the atlas's eight words.`);
+    const scope = req.body?.scope ?? 'place';
+    const subject = req.body?.subject ?? null;
+    const by = actorOf(req);
+    let moved = 0;
+
+    if (scope === 'kind') {
+      if (!subject) throw bad('A type-wide change needs the type it is about.');
+      await lib.setKind(subject, { category, by });
+      const changed = await lib.reclassifyAttractions();
+      moved = changed.length;
+    } else if (scope === 'category') {
+      if (!subject) throw bad('Say which word is being moved.');
+      const { rows } = await query(
+        `update place_kinds set category = $2, overridden = true, overridden_by = $3, updated_at = now()
+          where category = $1 returning qid`, [subject, category, by]);
+      if (rows.length) moved = (await lib.reclassifyAttractions()).length;
+    } else {
+      // One place, and pinned: a hand correction that the next re-rank throws
+      // away is not a correction (repositories/library.js:326).
+      await query(
+        `update attractions set category = $2, pinned = true, note = coalesce($3, note), updated_at = now()
+          where id = $1`, [place.id, category, req.body?.reason ?? null]);
+      moved = 1;
+    }
+
+    // The other axis, only if it was asked for.
+    let rule = null;
+    if (req.body?.weights) {
+      const household = await currentHousehold();
+      rule = await shelfRules.teach({
+        scope: scope === 'category' ? 'category' : scope,
+        subject: subject ?? place.id,
+        subjectLabel: scope === 'kind'
+          ? (await lib.kindsByQid([subject])).get(subject)?.label ?? subject
+          : place.name,
+        weights: req.body.weights,
+        reason: req.body?.reason ?? null,
+        by,
+      }).catch(() => null);
+    }
+
+    await query(
+      `insert into admin_audit (actor_id, actor_label, action, subject_type, subject_id, subject_label, before, after)
+       values ($1,$2,$3,'attraction',$4,$5,$6,$7)`,
+      [req.account?.id ?? null, by, 'attraction.category', place.id, place.name,
+       JSON.stringify({ category: place.category }),
+       JSON.stringify({ category, scope, subject, moved, reason: req.body?.reason ?? null })]);
+    res.json({ moved, rule, attraction: await lib.attractionDetail(place.id) });
   } catch (err) { next(err); }
 });
 

@@ -63,7 +63,14 @@ router.get('/search', requires('view_library'), async (req, res, next) => {
  */
 router.get('/coverage', requires('view_library'), async (req, res, next) => {
   try {
-    const slugs = String(req.query.slugs ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    // Three ways to ask, and the screen uses all of them: an explicit list, one
+    // county and everything under and across it, or the country at a glance.
+    const explicit = String(req.query.slugs ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const slugs = explicit.length
+      ? explicit
+      : req.query.county
+        ? await loc.familyOf(String(req.query.county).toLowerCase())
+        : await loc.countiesWithContent(24);
     res.json({ rows: await loc.coverageRows(slugs.slice(0, 40)), facts: loc.FACT_KEYS });
   } catch (err) { next(err); }
 });

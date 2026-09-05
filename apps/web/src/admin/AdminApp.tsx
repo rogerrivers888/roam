@@ -33,6 +33,8 @@ import { Activity } from './screens/Activity';
 import { Reporting } from './screens/Reporting';
 import { Audit, Plans, Roles } from './screens/Governance';
 import { Library } from './screens/Library';
+import { Places } from './screens/Places';
+import { Coverage } from './screens/Coverage';
 import { Scout } from './screens/Scout';
 import { Shelves } from './screens/Shelves';
 
@@ -54,6 +56,8 @@ const NAV: { key: Screen; label: string; icon: IconName; needs?: string; sub: st
   { key: 'households', label: 'Households', icon: 'household', needs: 'view_accounts', sub: 'What each one does, and what it costs' },
   { key: 'activity', label: 'Activity', icon: 'list', needs: 'view_activity', sub: 'Everything that has happened' },
   { key: 'reporting', label: 'Reporting', icon: 'places', needs: 'view_reporting', sub: 'Engagement, revenue and usage' },
+  { key: 'coverage', label: 'Coverage', icon: 'plan', needs: 'view_library', sub: 'Where the holes are, and a way into each one' },
+  { key: 'places', label: 'Places', icon: 'places', needs: 'view_library', sub: 'A county, a town or a postcode district, and everything in it' },
   { key: 'library', label: 'Atlas', icon: 'owned', needs: 'view_library', sub: 'Attractions by county, and the pictures we own' },
   { key: 'shelves', label: 'Shelves', icon: 'themePark', needs: 'view_library', sub: 'What the home screen calls a place, and how to teach it' },
   { key: 'scout', label: 'The sweep', icon: 'search', needs: 'view_library', sub: 'Postcode areas, their best restaurants and their menus' },
@@ -91,6 +95,8 @@ export function AdminApp({ access, screen, onScreen, onLeave }: {
       {screen === 'households' ? <People canManageRoles={can('manage_roles')} /> : null}
       {screen === 'activity' ? <Activity /> : null}
       {screen === 'reporting' ? <Reporting canSeeMoney={can('view_financials')} /> : null}
+      {screen === 'coverage' ? <Coverage /> : null}
+      {screen === 'places' ? <Places canManage={can('manage_library')} /> : null}
       {screen === 'library' ? <Library canManage={can('manage_library')} /> : null}
       {screen === 'shelves' ? <Shelves canManage={can('manage_library')} /> : null}
       {screen === 'scout' ? <Scout canManage={can('manage_library')} /> : null}
