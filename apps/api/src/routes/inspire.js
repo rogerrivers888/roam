@@ -239,6 +239,14 @@ inspire.get('/near', async (req, res, next) => {
         name: a.name,
         category: 'attraction',
         moods: moodsForAtlas(a.category),
+        // What the atlas calls this place — heritage, outdoors, family, museum,
+        // arts, animals, active, landmark. Its own field rather than smuggled
+        // into `experiences`, which is a closed vocabulary that voice is
+        // interpreted against (domain/concepts.js): putting a word in there
+        // that is not one of its terms would make the set quietly no longer
+        // closed, which is the sort of thing that breaks somewhere else months
+        // later. The screen's "kind of thing" filter reads this.
+        atlasCategory: a.category,
         experiences: [], cuisines: [],
         rating: null, ratingCount: null, priceLevel: null, goodForChildren: null,
         photos: [],
