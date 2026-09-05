@@ -29,7 +29,10 @@
 
 import { bump } from './meter.js';
 
-const KEY = () => process.env.LITEAPI_KEY?.trim();
+// Trimmed, and unwrapped from the quotes a paste sometimes brings with it: a
+// key that is right apart from a pair of speech marks fails as a 401 with
+// nothing on screen to say why, and that is an hour of somebody's evening.
+const KEY = () => process.env.LITEAPI_KEY?.trim().replace(/^['"]|['"]$/g, '').trim();
 const BASE = (process.env.LITEAPI_BASE || 'https://api.liteapi.travel/v3.0').replace(/\/$/, '');
 
 export const LITEAPI_ATTRIBUTION = 'Hotels, prices and availability © Nuitée (LiteAPI)';

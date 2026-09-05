@@ -33,7 +33,7 @@ import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
 import { enabledSources, defaultSourceKeys, loadSourceSettings, setSourceOff, sourceHasKey, sourceOff, sourceKeys, bedRatesOn } from './sources/index.js';
 import { routingEnabled } from './sources/routing.js';
 import sessionRoutes, { devices as deviceRoutes } from './routes/session.js';
-import { authConfigured, deployed, originAllowed, requireSession } from './auth.js';
+import { authConfigured, deployed, originAllowed, requireOwner, requireSession } from './auth.js';
 import { requireDoor } from './access.js';
 import { generalLimit, signInLimit, spendLimit } from './limits.js';
 import { sweepDeadSessions } from './repositories/sessions.js';
@@ -178,6 +178,85 @@ app.get('/api/sources', async (_req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+/**
+ * GET /api/keys — which keys this process can actually see, and where from.
+ *
+ * The owner's, and only the owner's (404 to everybody else). It exists because
+ * "the key is in Doppler" and "the API can read the key" are two different
+ * facts, and the gap between them has cost hours more than once: Doppler's
+ * Railway integration is configured **per service**, so a config synced to
+ * `web` never reaches `api`, and Railway's variable editor happily autocompletes
+ * a name it knows from a sibling service without that service having it.
+ *
+ * **Never a value, and never part of one.** What is reported is a name, whether
+ * something is set, how long it is, and the three ways a value can be present
+ * and still be wrong:
+ *
+ *  - wrapped in quotes, because it was pasted with them;
+ *  - carrying leading or trailing whitespace, usually a newline off a clipboard;
+ *  - still holding Railway's own `${{ ... }}` reference syntax, which renders
+ *    literally when the thing it points at does not exist — the variable looks
+ *    set in the dashboard and arrives as nonsense.
+ *
+ * `DOPPLER_PROJECT` and `DOPPLER_CONFIG` are the answer to "which Doppler
+ * config is feeding *this* service", which is the question worth asking first.
+ */
+app.get('/api/keys', requireOwner, (_req, res) => {
+  const raw = (name) => process.env[name];
+  const look = (name) => {
+    const v = raw(name);
+    if (v == null) return { name, set: false };
+    const trimmed = v.trim();
+    return {
+      name,
+      set: trimmed.length > 0,
+      length: v.length,
+      // Enough of the shape to recognise a key without being one: LiteAPI's own
+      // prefixes say sandbox from production, and four characters is not a key.
+      startsWith: trimmed.slice(0, 5).replace(/[^A-Za-z_-]/g, '') || null,
+      quoted: /^['"].*['"]$/.test(trimmed),
+      padded: v !== trimmed,
+      unresolvedReference: v.includes('${{'),
+    };
+  };
+
+  const expected = [
+    'DATABASE_URL', 'ROAM_PASSCODE', 'ANTHROPIC_API_KEY', 'GOOGLE_MAPS_API_KEY',
+    'TRIPADVISOR_API_KEY', 'TICKETMASTER_API_KEY', 'SEATGEEK_CLIENT_ID',
+    'PREDICTHQ_API_KEY', 'DATATHISTLE_API_KEY', 'LITEAPI_KEY', 'MAPILLARY_TOKEN',
+  ];
+  const known = new Set(expected);
+
+  // Names only. A key that is here under a name nobody is reading — LITE_API_KEY,
+  // NUITEE_KEY, a stray copy — is invisible to every other check, and this is
+  // the one that finds it.
+  const secretish = Object.keys(process.env)
+    .filter((k) => /(_KEY|_TOKEN|_SECRET|_PASSWORD|APIKEY)$/i.test(k) && !known.has(k))
+    .sort();
+
+  res.json({
+    // Which box this is. A key on the wrong service is the usual answer.
+    service: {
+      railwayService: process.env.RAILWAY_SERVICE_NAME ?? null,
+      railwayEnvironment: process.env.RAILWAY_ENVIRONMENT_NAME ?? null,
+      railwayProject: process.env.RAILWAY_PROJECT_NAME ?? null,
+      commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+      startedAt: new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString(),
+    },
+    // Which Doppler config Railway pulled into it. Blank on both lines means
+    // the integration is not pointed at this service at all.
+    doppler: {
+      project: process.env.DOPPLER_PROJECT ?? null,
+      config: process.env.DOPPLER_CONFIG ?? null,
+      environment: process.env.DOPPLER_ENVIRONMENT ?? null,
+    },
+    expected: expected.map(look),
+    // Other names that look like credentials, so a near miss is visible.
+    otherSecretNames: secretish,
+    note: 'Names and shapes only — no value, or part of a value, is ever returned here.',
+  });
 });
 
 /**
