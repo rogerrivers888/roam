@@ -580,6 +580,13 @@ function fieldsOf(body) {
       .replace(/'''?/g, '')
       .replace(/<ref[^>]*>[\s\S]*?<\/ref>|<ref[^>]*\/>/gi, '')
       .replace(/<[^>]+>/g, '')
+      // Wikitext carries HTML entities inline — &nbsp; between a number and its
+      // unit is routine — and a price that reads "under 1&nbsp;m" on screen is
+      // the sort of thing nobody notices until it is in front of the owner.
+      .replace(/&nbsp;?/gi, ' ').replace(/&amp;/gi, '&').replace(/&pound;/gi, '£')
+      .replace(/&(#\d+|#x[0-9a-f]+);/gi, (m, code) =>
+        String.fromCodePoint(code[0] === '#' && code[1]?.toLowerCase() === 'x'
+          ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10)))
       .replace(/\s+/g, ' ')
       .trim();
     if (value) fields[key] = value;

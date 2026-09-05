@@ -766,7 +766,13 @@ export async function researchAttraction(a, { onLine, force = false } = {}) {
     provenance.admission = 'site';
   } else if (voyage.listing?.price) {
     Object.assign(admission, {
-      note: voyage.listing.price, free: /\bfree\b/i.test(voyage.listing.price) || null,
+      note: voyage.listing.price,
+      // A listing that names any figure is not free, whatever else the line
+      // says. Thorpe Park's entry ends "Children under 1 m: Free" and a bare
+      // test for the word put `free: true` on a £43.20 ticket — the same
+      // qualified-free trap English Heritage's page set in sources/site.js.
+      free: /£\s?\d/.test(voyage.listing.price) ? false
+        : (/\bfree\b/i.test(voyage.listing.price) ? true : null),
       source: 'Wikivoyage', sourceUrl: voyage.listing.pageUrl,
       // The date the entry was last touched, not the date we read it. A price
       // nobody has checked since 2017 must not look like this morning's.
