@@ -120,6 +120,10 @@ export async function unlabelledKinds(limit = 400) {
   return rows.map((r) => r.qid);
 }
 
+/** How many are still nameless, for a screen that says how much is left. */
+export const unlabelledKindCount = async () =>
+  (await query("select count(*)::int as n from place_kinds where label is null or label = ''")).rows[0].n;
+
 /** Give them their English names. */
 export async function nameKinds(labels) {
   const entries = [...labels.entries()];
@@ -171,6 +175,34 @@ export async function reclassifyAttractions() {
         and sub.category is not null
         and a.category is distinct from sub.category
       returning a.id, a.name, a.category`);
+  return rows;
+}
+
+/**
+ * Withdraw anything whose type has since been refused.
+ *
+ * The companion to `reclassifyAttractions`, and needed for the same reason:
+ * admission is decided when a region is listed, so refusing a type afterwards
+ * leaves everything already published exactly where it was. Re-filing a country
+ * house hotel as heritage makes its category honest and still leaves a working
+ * hotel on a shelf of things to do.
+ *
+ * Hidden rather than deleted, and with the reason written on the row, because
+ * this is a judgement that somebody may want to look at and reverse — and
+ * because the pictures already fetched for it are still ours.
+ */
+export async function retireDeniedAttractions() {
+  const { rows } = await query(
+    `update attractions a
+        set state = 'hidden',
+            note = coalesce(a.note, 'Withdrawn: its type is not something to go and do'),
+            updated_at = now()
+      where a.state <> 'hidden'
+        and exists (select 1 from unnest(a.kinds) as k(qid)
+                     join place_kinds pk on pk.qid = k.qid
+                    where pk.admit = false)
+      returning a.id, a.name, a.region_slug`);
+  for (const slug of new Set(rows.map((r) => r.region_slug))) await refreshRegionCounts(slug);
   return rows;
 }
 

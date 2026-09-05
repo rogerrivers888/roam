@@ -407,10 +407,14 @@ adminRouter.post('/kinds/refresh', requires('manage_library'), async (req, res, 
   try {
     const types = await refreshKinds({});
     const moved = await lib.reclassifyAttractions();
+    const retired = await lib.retireDeniedAttractions();
     await query(
       `insert into admin_audit (actor_id, actor_label, action, subject_type, after)
        values ($1,$2,'library.kinds.refresh','kinds',$3)`,
-      [req.account?.id ?? null, actorOf(req), JSON.stringify({ types, reclassified: moved.length })]);
-    res.json({ types, reclassified: moved.length, moved: moved.slice(0, 50) });
+      [req.account?.id ?? null, actorOf(req), JSON.stringify({ types, reclassified: moved.length, retired: retired.length })]);
+    res.json({
+      types, reclassified: moved.length, moved: moved.slice(0, 50),
+      retired: retired.length, retiredNames: retired.slice(0, 50).map((r) => r.name),
+    });
   } catch (err) { next(err); }
 });

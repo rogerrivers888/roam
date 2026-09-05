@@ -53,6 +53,13 @@ const DENY = {
   Q476028: 'association football club', Q4498974: 'ice hockey team',
   Q4830453: 'business', Q783794: 'company', Q11707: 'restaurant', Q30022: 'café',
   Q187456: 'bar', Q27686: 'hotel', Q11315: 'shopping centre',
+  // A working hotel is not a day out, whatever else it also is. Oakley Court,
+  // the Royal Berkshire, Coworth House and Wokefield Park all reached the
+  // Berkshire shelves as historic houses that happen to take bookings; `hotel`
+  // did not catch them because it is not their first type. Denying the hotel
+  // form of a country house is precise — plain `English country house` stays
+  // admitted, so Basildon Park, Cliveden and Chartwell are untouched.
+  Q64995589: 'country house hotel',
   Q16917: 'hospital', Q34442: 'road', Q79007: 'street', Q4022: 'river',
   // A trading estate is a park in Wikidata's tree and nowhere else. These four
   // are the reason Slough Trading Estate came fifteenth in Berkshire.
