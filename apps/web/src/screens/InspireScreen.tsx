@@ -157,12 +157,24 @@ const priceMarks = (p: number | null) => (p == null ? null : p === 0 ? 'Free' : 
 const cap1 = (s: string) => (s ? s[0].toUpperCase() + s.slice(1).replace(/-/g, ' ') : s);
 
 /**
+ * The atlas's eight words, said in a way that does not collide with a shelf.
+ *
+ * `active` is the atlas's word for anything under "sports venue" — what the
+ * place *is* — and there is now a shelf called Active, which is what a day
+ * there is *like*. Wembley Stadium sitting on the Sport shelf with the word
+ * "Active" under it is two vocabularies colliding in one card, so the card uses
+ * the longer word. The rest are shown as they are.
+ */
+const ATLAS_WORD: Record<string, string> = { active: 'Sports venue' };
+
+/**
  * Every word we have for what kind of place this is. The atlas's own is first
  * because it is the researched one — "Heritage", "Outdoors" — and a search's
  * tags follow it.
  */
 const kindsOf = (item: InspireItem): string[] =>
-  [item.atlasCategory, ...(item.experiences ?? [])].filter(Boolean) as string[];
+  [item.atlasCategory ? ATLAS_WORD[item.atlasCategory] ?? item.atlasCategory : null, ...(item.experiences ?? [])]
+    .filter(Boolean) as string[];
 
 /** What kind of place this is, in its own words: "Heritage", "Castle · History", "Italian". */
 function kindLine(item: InspireItem): string | null {
