@@ -168,10 +168,14 @@ function asVenue(h) {
     reviewCount: num(h.reviewCount),
     rooms: null,
     chain: h.chain || null,
-    // Their photograph, shown from their URL and never fetched into our library:
-    // the library only holds pictures under licences that let us keep them
-    // (sources/placePicture.js), and this is not one of them.
-    photo: h.main_photo ?? h.thumbnail ?? null,
+    // Their photograph, drawn straight from their URL and never fetched into our
+    // library: the library only holds pictures under licences that let us keep
+    // them (sources/placePicture.js), and this is not one of them. The shape is
+    // the one VenueThumb already understands for a rented photo, so the credit
+    // travels on the picture rather than being remembered by the caller.
+    photos: h.main_photo || h.thumbnail
+      ? [{ url: h.main_photo ?? h.thumbnail, attribution: LITEAPI_ATTRIBUTION }]
+      : [],
     attribution: LITEAPI_ATTRIBUTION,
   };
 }

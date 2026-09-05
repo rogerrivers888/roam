@@ -94,6 +94,48 @@ test('a bed is still ranked by how much of the week is on foot from its door', (
   assert.equal(first.name, 'On the doorstep');
 });
 
+test('somewhere with no room free does not outrank somewhere you can book', () => {
+  // Bath returned forty beds and four of them bookable, and every one of the
+  // four sat below the fold under apartments with nothing free. A place with no
+  // room is not a worse option, it is not an option.
+  const centre = { lat: 51.3811, lng: -2.3590 };
+  const ranked = rankStays(
+    [
+      { name: 'Nearest, nothing free', lat: 51.3812, lng: -2.3591, offer: null },
+      { name: 'Also nothing free', lat: 51.3813, lng: -2.3592, offer: null },
+      { name: 'Bookable, a little further', lat: 51.3830, lng: -2.3610, offer: { total: 245 } },
+    ],
+    { centre, mode: 'walking', availabilityFirst: true },
+  );
+  assert.equal(ranked[0].name, 'Bookable, a little further');
+  // And the ones with nothing free are still shown, below — the dates may change.
+  assert.equal(ranked.length, 3);
+});
+
+test('among the bookable ones the order is still the walk, never the price', () => {
+  const anchors = [{ label: 'Roman Baths', lat: 51.3811, lng: -2.3590 }];
+  const ranked = rankStays(
+    [
+      { name: 'Cheap and miles away', lat: 51.4200, lng: -2.3590, offer: { total: 90 } },
+      { name: 'Dear and on the doorstep', lat: 51.3812, lng: -2.3591, offer: { total: 480 } },
+    ],
+    { anchors, centre: anchors[0], mode: 'walking', availabilityFirst: true },
+  );
+  assert.equal(ranked[0].name, 'Dear and on the doorstep');
+});
+
+test('with no prices asked for, availability cannot reorder anything', () => {
+  const centre = { lat: 51.3811, lng: -2.3590 };
+  const ranked = rankStays(
+    [
+      { name: 'Nearest', lat: 51.3812, lng: -2.3591, offer: null },
+      { name: 'Further', lat: 51.3830, lng: -2.3610, offer: { total: 245 } },
+    ],
+    { centre, mode: 'walking' },
+  );
+  assert.equal(ranked[0].name, 'Nearest');
+});
+
 // ---------------------------------------------------------------------------
 // who the room is for
 // ---------------------------------------------------------------------------

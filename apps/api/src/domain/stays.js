@@ -25,7 +25,7 @@ export const WALK_MINUTES = 20;
  * @param centre   the middle of the city, for when there are no anchors yet
  * @param mode     how they will get about — 'walking' when there is no car
  */
-export function rankStays(stays, { anchors = [], centre = null, mode = 'walking', walkMinutes = WALK_MINUTES } = {}) {
+export function rankStays(stays, { anchors = [], centre = null, mode = 'walking', walkMinutes = WALK_MINUTES, availabilityFirst = false } = {}) {
   return stays
     .map((s) => {
       const toCentre = centre ? kmBetween(centre, s) : null;
@@ -47,6 +47,16 @@ export function rankStays(stays, { anchors = [], centre = null, mode = 'walking'
       };
     })
     .sort((a, b) => {
+      // Somewhere with no room free on those nights is not a worse option; it
+      // is not an option. Sorting it above a hotel you can actually book buries
+      // the answer — Bath returned forty beds, four of them bookable, and every
+      // one of the four was below the fold (owner, 5 Sep 2026: "There are no
+      // pictures or prices").
+      //
+      // This is availability, not price: what a room costs still never enters
+      // the sort, and among the bookable ones the order is the same walk-first
+      // order it always was.
+      if (availabilityFirst && Boolean(a.offer) !== Boolean(b.offer)) return a.offer ? -1 : 1;
       if (a.plansTotal) {
         // How much of the week is on foot, then how far the typical leg is.
         if (b.plansNear !== a.plansNear) return b.plansNear - a.plansNear;

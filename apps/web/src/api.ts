@@ -186,7 +186,6 @@ export type Stay = Venue & {
   /** The price source's own id for this bed, where it is a different one from the row's. */
   bookRef?: string | null;
   reviewCount?: number | null;
-  photo?: string | null;
 };
 
 /** What the Stay tab asked the price source for, and what came back. */

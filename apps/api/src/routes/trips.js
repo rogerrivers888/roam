@@ -553,7 +553,7 @@ router.get('/:id/stays', async (req, res, next) => {
       // somebody can act on rather than passing on a timeout code.
       return res.status(504).json({ error: 'map_busy', message: 'The open map took too long to answer. Try again in a moment — or say where you are staying and we will work around it.' });
     }
-    const ranked = rankStays(look.beds, { anchors, centre: anchors.length ? heart : centre, mode })
+    const ranked = rankStays(look.beds, { anchors, centre: anchors.length ? heart : centre, mode, availabilityFirst: look.priced })
       .filter((s) => s.distanceKm == null || s.distanceKm <= radiusKm + 1)
       .slice(0, 40);
     const status = await householdStatus(household.id, ranked.map((s) => s.venueRef));

@@ -106,7 +106,10 @@ export function mergeBeds(open, licensed) {
       stars: out[match].stars ?? bed.stars,
       rating: out[match].rating ?? bed.rating,
       reviewCount: out[match].reviewCount ?? bed.reviewCount,
-      photo: out[match].photo ?? bed.photo,
+      // The open map almost never has a photograph of a hotel and the booking
+      // platform always does, so this is the one field where the licensed
+      // record fills a hole rather than duplicating what we already hold.
+      photos: out[match].photos?.length ? out[match].photos : bed.photos ?? [],
     };
   }
   return out;

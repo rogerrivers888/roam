@@ -1461,37 +1461,46 @@ function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
                 </Text>
                 {stays.slice(0, 12).map((s) => (
                   <Pressable key={s.venueRef} onPress={() => choose(s)} style={styles.stayRow} accessibilityRole="button">
-                    <Row style={{ gap: spacing.sm }}>
-                      <Icon name="hotel" size={16} color={colors.icon} />
-                      <Text style={[type.h3, { flex: 1 }]} numberOfLines={1}>{s.name}</Text>
-                      {s.stars ? <Rating value={s.stars} /> : null}
+                    {/* You choose a hotel with your eyes first. The picture is
+                        the provider's, drawn from their URL and never stored —
+                        VenueThumb already knows the difference and carries the
+                        credit; with no picture it falls back to the bed icon on
+                        the one mint ground rather than inventing something. */}
+                    <Row style={{ gap: spacing.md, alignItems: 'flex-start' }}>
+                      <VenueThumb name={s.name} photos={s.photos} category="hotel" width={92} height={70} credit={false} rounded={radius.sm} />
+                      <View style={{ flex: 1, gap: 3 }}>
+                        <Row style={{ gap: spacing.sm }}>
+                          <Text style={[type.h3, { flex: 1 }]} numberOfLines={2}>{s.name}</Text>
+                          {s.stars ? <Rating value={s.stars} /> : null}
+                        </Row>
+                        <Text style={type.tiny} numberOfLines={1}>{[s.stayKind, s.address].filter(Boolean).join(' · ')}</Text>
+                        {/* The sentence that is the whole point of doing this here. */}
+                        {s.plansTotal ? (
+                          <Text style={[type.small, { color: s.plansNear === s.plansTotal ? colors.like : colors.ink }]}>
+                            {s.plansNear === s.plansTotal
+                              ? `Everything on your shortlist within ${hasCar ? 'a short drive' : 'a walk'} — typically ${s.typicalMinutes} min`
+                              : `${s.plansNear} of your ${s.plansTotal} plans within ${hasCar ? 'a short drive' : 'a walk'} · typically ${s.typicalMinutes} min${s.farthest ? `, ${s.farthest.minutes} min to ${s.farthest.label.split(',')[0]}` : ''}`}
+                          </Text>
+                        ) : (
+                          <Text style={type.small}>{s.distanceKm} km from the middle of {trip.locality ?? 'town'}</Text>
+                        )}
+                        {/* The other half of the answer: what it costs, on what terms. */}
+                        {s.offer ? (
+                          <Text style={type.small}>
+                            <Text style={styles.stayPrice}>{price(s.offer.total, s.offer.currency)}</Text>
+                            <Text style={type.small}>
+                              {' '}for {pricing?.nights ?? 0} {pricing?.nights === 1 ? 'night' : 'nights'}
+                              {s.offer.perNight ? ` · ${price(s.offer.perNight, s.offer.currency)} a night` : ''}
+                              {s.offer.board ? ` · ${s.offer.board}` : ''}
+                              {s.offer.refundable === true ? ' · free cancellation' : s.offer.refundable === false ? ' · non-refundable' : ''}
+                            </Text>
+                          </Text>
+                        ) : pricing?.priced ? (
+                          <Text style={type.tiny}>No room free on these nights.</Text>
+                        ) : null}
+                        <View style={styles.stayPick}><Text style={styles.stayPickText}>{saving === s.venueRef ? 'Saving…' : "We'll stay here"}</Text></View>
+                      </View>
                     </Row>
-                    <Text style={type.tiny} numberOfLines={1}>{[s.stayKind, s.address].filter(Boolean).join(' · ')}</Text>
-                    {/* The sentence that is the whole point of doing this here. */}
-                    {s.plansTotal ? (
-                      <Text style={[type.small, { color: s.plansNear === s.plansTotal ? colors.like : colors.ink }]}>
-                        {s.plansNear === s.plansTotal
-                          ? `Everything on your shortlist within ${hasCar ? 'a short drive' : 'a walk'} — typically ${s.typicalMinutes} min`
-                          : `${s.plansNear} of your ${s.plansTotal} plans within ${hasCar ? 'a short drive' : 'a walk'} · typically ${s.typicalMinutes} min${s.farthest ? `, ${s.farthest.minutes} min to ${s.farthest.label.split(',')[0]}` : ''}`}
-                      </Text>
-                    ) : (
-                      <Text style={type.small}>{s.distanceKm} km from the middle of {trip.locality ?? 'town'}</Text>
-                    )}
-                    {/* The other half of the answer: what it costs, on what terms. */}
-                    {s.offer ? (
-                      <Text style={type.small}>
-                        <Text style={styles.stayPrice}>{price(s.offer.total, s.offer.currency)}</Text>
-                        <Text style={type.small}>
-                          {' '}for {pricing?.nights ?? 0} {pricing?.nights === 1 ? 'night' : 'nights'}
-                          {s.offer.perNight ? ` · ${price(s.offer.perNight, s.offer.currency)} a night` : ''}
-                          {s.offer.board ? ` · ${s.offer.board}` : ''}
-                          {s.offer.refundable === true ? ' · free cancellation' : s.offer.refundable === false ? ' · non-refundable' : ''}
-                        </Text>
-                      </Text>
-                    ) : pricing?.priced ? (
-                      <Text style={type.tiny}>No room free on these nights.</Text>
-                    ) : null}
-                    <View style={styles.stayPick}><Text style={styles.stayPickText}>{saving === s.venueRef ? 'Saving…' : "We'll stay here"}</Text></View>
                   </Pressable>
                 ))}
                 <Text style={type.tiny}>
