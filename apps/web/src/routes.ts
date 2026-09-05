@@ -70,7 +70,7 @@ function toParams(o: Record<string, string | null | undefined>): URLSearchParams
 
 export type Tab = 'inspire' | 'plan' | 'places' | 'trips' | 'household' | 'settings' | 'prototypes';
 
-export const MOODS: MoodKey[] = ['fun', 'food', 'culture', 'adrenaline', 'relaxing', 'outdoors'];
+export const MOODS: MoodKey[] = ['fun', 'food', 'culture', 'sport', 'activity', 'adrenaline', 'relaxing', 'outdoors'];
 
 /**
  * A trip's tabs. The first three are the ones on the segmented control

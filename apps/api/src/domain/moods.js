@@ -1,5 +1,5 @@
 /**
- * What a day is about — the six words the Inspire screen leads with, and how a
+ * What a day is about — the words the Inspire screen leads with, and how a
  * place ends up under one of them.
  *
  * This is a CLOSED SET, and deliberately so. It is the vocabulary the home
@@ -17,8 +17,8 @@
  * the categories, and that will also annoy people." So each shelf now carries a
  * number from 0 to 1: 1 is what the place is *for*, `SHELF_FLOOR` and above is
  * genuinely also this, and below the floor is true but not worth a card. A
- * climbing wall is Adrenaline 1 and Fun 0.8 and appears on both; a football
- * ground is Fun 0.9 and Adrenaline 0.2 and appears on one.
+ * climbing wall is Adrenaline 1 and Active 0.8 and appears on both; a football
+ * ground is Sport 1 and Adrenaline 0.2 and appears on one.
  *
  * **The mapping is taught, not guessed.** The tables below are only where a
  * place starts. Anything in `shelf_rules` — a rule about one place, about a
@@ -37,6 +37,21 @@ export const MOODS = [
   { key: 'fun', label: 'Fun' },
   { key: 'food', label: 'Food' },
   { key: 'culture', label: 'Culture' },
+  // Sport and Active are two shelves and not one, because watching and doing
+  // are two different afternoons (owner, 5 Sep 2026): "Sports stadiums are not
+  // really normal days out. You go book your football tickets or your rugby
+  // tickets. Wentworth Golf, you have to have a membership for those. Those are
+  // different things… the leisure centre is active."
+  //
+  // Sport is the ticket and the membership — a fixture, a race meeting, a club
+  // you belong to. Active is what you can turn up and do. Adrenaline stays for
+  // the thrill, which is a third thing again.
+  { key: 'sport', label: 'Sport' },
+  // Keyed `activity` rather than `active` on purpose. The atlas has its own
+  // category called `active` (sources/wikimedia.js ATTRACTION_ROOTS) and the two
+  // mean different things — one is what a place *is*, the other is what a day
+  // there is like. Two vocabularies sharing a word is how they get conflated.
+  { key: 'activity', label: 'Active' },
   { key: 'adrenaline', label: 'Adrenaline' },
   { key: 'relaxing', label: 'Relaxing' },
   { key: 'outdoors', label: 'Outdoors' },
@@ -75,19 +90,23 @@ export const BY_EXPERIENCE = {
   beach: { outdoors: 1, relaxing: 0.8 },
   // A swimming pool is a swim, not a thrill. The white-water and wake-boarding
   // end of water is a different thing and comes in as its own place rule.
-  swimming: { fun: 1, relaxing: 0.4 },
+  // A lido is a day out and a leisure-centre pool is exercise, and the map
+  // calls both of them this. It leads with Fun (owner: "the Lido… more like
+  // fun") and the pools that are really exercise are named as types below.
+  swimming: { fun: 0.9, activity: 0.5, relaxing: 0.3 },
   cinema: { fun: 1, relaxing: 0.7 },
   theatre: { culture: 1 },
   'live-music': { culture: 1, fun: 0.8 },
   comedy: { fun: 1 },
-  // Watching sport, not playing it — the same correction the stadium types get.
-  'sports-game': { fun: 1, adrenaline: 0.2 },
-  bowling: { fun: 1 },
-  'mini-golf': { fun: 1 },
-  climbing: { adrenaline: 1, fun: 0.8 },
-  trampoline: { fun: 1, adrenaline: 0.8 },
-  'ice-skating': { fun: 1, adrenaline: 0.7 },
-  cycling: { outdoors: 1, adrenaline: 0.6 },
+  // Watching sport is Sport, and it is not Adrenaline: the adrenaline belongs
+  // to whoever is playing.
+  'sports-game': { sport: 1, fun: 0.5, adrenaline: 0.2 },
+  bowling: { fun: 1, activity: 0.4 },
+  'mini-golf': { fun: 1, activity: 0.4 },
+  climbing: { adrenaline: 1, activity: 0.8, fun: 0.5 },
+  trampoline: { fun: 1, adrenaline: 0.8, activity: 0.5 },
+  'ice-skating': { fun: 1, activity: 0.7, adrenaline: 0.5 },
+  cycling: { outdoors: 1, activity: 0.9, adrenaline: 0.4 },
   'boat-trip': { outdoors: 1, relaxing: 0.7 },
   market: { relaxing: 1, outdoors: 0.7 },
   shopping: { relaxing: 1 },
@@ -113,10 +132,10 @@ export const BY_EXPERIENCE = {
  * in the other.
  *
  * These eight are the *coarsest* thing that can be said about a place, so they
- * are deliberately timid: `active` sits at Fun 0.8 and Adrenaline 0.3, which
- * puts a sports venue nobody has taught us about on the Fun shelf and off the
- * Adrenaline one. Getting it onto Adrenaline is a rule about the type, and
- * types are what the back office teaches.
+ * are deliberately timid: `active` leads with Sport and keeps Adrenaline at
+ * 0.2, which puts a sports venue nobody has taught us about on the Sport shelf
+ * and nowhere near the Adrenaline one. Getting it onto Adrenaline is a rule
+ * about the type, and types are what the back office teaches.
  *
  * Food is deliberately unreachable from here. The atlas holds no restaurants —
  * the owner: "I don't care about restaurant images… with restaurants it's more
@@ -130,7 +149,11 @@ export const BY_ATLAS_CATEGORY = {
   outdoors: { outdoors: 1, relaxing: 0.7 },
   animals: { fun: 1, outdoors: 0.7 },
   family: { fun: 1 },
-  active: { fun: 0.8, adrenaline: 0.3 },
+  // `active` is the atlas's word for anything under "sports venue" or "race
+  // track", which is overwhelmingly somewhere a fixture happens. An untaught
+  // one lands on Sport rather than on Fun, where forty-seven stadiums and
+  // racecourses were burying the days out.
+  active: { sport: 0.9, fun: 0.4, adrenaline: 0.2 },
 };
 
 /** What an atlas place falls back to when its category is not one of the eight. */

@@ -62,6 +62,7 @@ const SECTIONS: { key: Section; label: string }[] = [
 /** The six, as pictures. Adrenaline is a mountain because it is a thing you do. */
 const SHELF_ICON: Record<MoodKey, IconName> = {
   fun: 'festival', food: 'restaurant', culture: 'museum',
+  sport: 'bowling', activity: 'sport',
   adrenaline: 'climbing', relaxing: 'walk', outdoors: 'park',
 };
 

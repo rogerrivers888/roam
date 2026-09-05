@@ -70,7 +70,12 @@ const MOOD_ORDER: MoodKey[] = MOODS;
 /** The ones that are shelves. Food is a door and never a shelf. */
 const SHELVES: MoodKey[] = MOOD_ORDER.filter((m) => m !== 'food') as MoodKey[];
 const MOOD_LABEL: Record<MoodKey, string> = {
-  fun: 'Fun', food: 'Food', culture: 'Culture', adrenaline: 'Adrenaline', relaxing: 'Relaxing', outdoors: 'Outdoors',
+  fun: 'Fun', food: 'Food', culture: 'Culture',
+  // Sport is the ticket and the membership; Active is what you turn up and do
+  // (owner, 5 Sep 2026). The key is `activity` because the atlas already has a
+  // category called `active` that means something else.
+  sport: 'Sport', activity: 'Active',
+  adrenaline: 'Adrenaline', relaxing: 'Relaxing', outdoors: 'Outdoors',
 };
 
 /** How far the family will go today. The chip reads the chosen label back. */

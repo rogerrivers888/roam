@@ -578,6 +578,14 @@ That is not a mapping that can be re-guessed correctly. Watching sport and doing
 
 **Every rule carries its reason**, and the reason is shown wherever the rule is. A weight nobody can account for is a weight nobody dares change, and this table is meant to be changed. A sentence typed into the screen can be turned into weights by one Claude call (`domain/teaching.js`), which fills the form and never writes: the owner reads and saves, or does not.
 
+**Sport and Active — the closed set grew to eight** (owner, 5 Sep 2026). Taking the grounds off Adrenaline put them on Fun, and near Ascot that meant forty-seven stadiums, racecourses and training grounds sitting where the days out should be. He: "Sports stadiums are not really normal days out. You go book your football tickets or your rugby tickets. Wentworth Golf, you have to have a membership for those. Those are different things… the leisure centre is active."
+
+Two shelves, because those are two behaviours. **Sport** is the ticket and the membership — a fixture, a race meeting, a club you belong to; not a day you decide on over breakfast, which is what the home screen is for. **Active** is what you turn up and do: the pool, the rink, the track. Adrenaline is a third thing again and is untouched.
+
+The shelf key is `activity`, not `active`, and deliberately: the atlas already has a category called `active` meaning something else entirely, and two vocabularies sharing a word is how they get conflated. There is a test that fails if the keys ever collapse.
+
+His two by-name rulings are written against the *type* so they hold generally — a rowing and canoeing venue is Fun (Dorney Lake), an outdoor pool is Fun (the Lido) — each keeping an Active claim below the floor, so the number to move is already on the screen if he changes his mind. Files: `api/migrations/050_sport_and_active.sql`, `web/src/routes.ts` (`MOODS`), `web/src/screens/InspireScreen.tsx` (`MOOD_LABEL`).
+
 Files: `api/migrations/040_shelf_teaching.sql`, `api/src/domain/moods.js`, `api/src/domain/teaching.js`, `api/src/repositories/shelfRules.js`, `api/src/routes/shelves.js`, `web/src/admin/screens/Shelves.tsx`.
 
 ### 13.14 Every page has an address — **built** (owner, 5 Sep 2026)

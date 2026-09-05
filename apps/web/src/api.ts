@@ -712,7 +712,7 @@ export type IdeaHeadline = { venueRef: string; name: string; category: string; e
 // ---------------------------------------------------------------------------
 
 /** What a day is about. The closed set the home screen draws as chips. */
-export type MoodKey = 'fun' | 'food' | 'culture' | 'adrenaline' | 'relaxing' | 'outdoors';
+export type MoodKey = 'fun' | 'food' | 'culture' | 'sport' | 'activity' | 'adrenaline' | 'relaxing' | 'outdoors';
 export type Mood = { key: MoodKey; label: string; count: number };
 
 /**
