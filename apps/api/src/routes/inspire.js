@@ -19,18 +19,27 @@
  * That is what makes "35 min" true both for a park down the road and for a
  * gallery in Bath: the distance on the card is the journey they would make.
  *
- * **Two pools, one shelf.** The search above is what is *near* — every playing
- * field and parade of shops OpenStreetMap knows about. The atlas (§13.12) is
- * what is *worth going to*: the top attractions of the county, researched from
- * Wikidata and Wikipedia, each with a photograph we own outright. Without the
- * second, "Fun near Ascot" was twenty suburban play areas and Ascot Racecourse
- * — 0.9 km away, in the atlas, with a picture — was not on the screen at all.
- * Neither was Legoland, Windsor Great Park or Windsor Castle.
+ * **The home screen is ours, and makes no provider call at all.** It is served
+ * from the atlas (§13.12): the top attractions of each county, researched from
+ * Wikidata and Wikipedia, each with a photograph we own outright. A bounding-box
+ * read of one small table, single-digit milliseconds, nothing rented in it.
  *
- * The atlas costs nothing to add: it is a bounding-box read of one small table,
- * so this endpoint still makes exactly one provider call, which is the rule
- * (Requirements: options are composed from one retrieved pool; adding an option
- * must not add a call).
+ * It did not start that way. It was a live 5 km look-around, and near Ascot that
+ * meant 128 places, none with a photograph, forty of them suburban play areas —
+ * while Ascot Racecourse sat 0.9 km away in the atlas with a picture and was not
+ * on the screen at all. Neither was Legoland, Windsor Great Park or Windsor
+ * Castle.
+ *
+ * **No food here** (owner, 5 Sep 2026): "for food, we should not show that on
+ * our homepage now, and we should just show inspirational activities… if I
+ * clicked on food, it would take me to the places tab and search for food."
+ * Restaurants rarely have a photograph anybody may republish, so a Food shelf
+ * on a screen made of pictures is a row of grey rectangles. The chip is a
+ * doorway into Places instead, and the atlas holds no restaurants by design.
+ *
+ * `live=1` puts the old look-around back alongside the atlas, for a "see
+ * everything around here" that is a deliberate tap rather than the front door.
+ * It is the only thing here that costs a provider call.
  *
  * Nothing here goes on a device. The answer carries a provider's names, photos
  * and ratings, which are rented (Technical Constraints §4), so this path is
@@ -72,11 +81,23 @@ function point(text) {
 const weight = (v) => (v.rating ?? 0) * Math.log10((v.ratingCount ?? 0) + 2);
 
 /**
- * How far out the atlas half reaches. Twice the look-around, because a family
+ * How far out the atlas reaches, unless asked otherwise (`?km=`).
+ *
+ * Much further than the live look-around's 5 km, and deliberately: a family
  * will drive half an hour to a castle and will not drive half an hour to a
- * playground, and the two pools should not be held to the same ring.
+ * playground. Sixty kilometres is about an hour, which is the default on the
+ * screen's own travel-time chip — so the pool is wide enough that narrowing it
+ * there means something, and distance costs nothing when the answer is a
+ * bounding-box read of our own table rather than a provider call.
  */
-const ATLAS_RADIUS_KM = THINGS_RADIUS_KM * 2;
+const ATLAS_RADIUS_KM = 60;
+const ATLAS_MAX_KM = 100;
+/**
+ * How many to hand over. Everything within reach rather than a page: these are
+ * our own rows, they are small, and paginating our own table so a household can
+ * scroll is a round trip bought for nothing.
+ */
+const ATLAS_LIMIT = 250;
 
 /**
  * The credit a picture and a rating travel with. Sources hand this over as a
@@ -92,22 +113,14 @@ function attributionOf(v, lines) {
 }
 
 /**
- * GET /api/inspire/near?lat=&lng=&label=&locality=&from=lat,lng&mode=driving&owned=1
+ * GET /api/inspire/near?lat=&lng=&label=&locality=&from=lat,lng&mode=driving&live=1
  *
- * Everything around a point, on shelves. `from` defaults to the household's
+ * Things to do around a point, on shelves. `from` defaults to the household's
  * home; `mode` to how they usually travel.
  *
- * `owned=1` answers from the atlas alone and makes no provider call at all. It
- * returns in single-digit milliseconds against one indexed table, where the
- * full answer waits about seven seconds on OpenStreetMap — so the screen can
- * paint real, illustrated places immediately and fill the rest in behind them.
- * That is the whole difference between a home screen that feels instant and one
- * that feels like a search, and it is why the atlas was built.
- *
- * It is a narrower answer, not a cheaper one: the atlas holds no restaurants,
- * so an owned-only reply has nothing on the Food shelf and says so by returning
- * `partial: true`. A screen that showed it and stopped would be telling a
- * household there is nowhere to eat near Ascot.
+ * The answer says which pools are in it (`pools`) rather than leaving the screen
+ * to infer it from a thin shelf. `live=1` adds the OpenStreetMap look-around and
+ * is the only form that spends anything.
  */
 inspire.get('/near', async (req, res, next) => {
   try {
@@ -138,11 +151,16 @@ inspire.get('/near', async (req, res, next) => {
     const label = String(req.query.label || '').trim() || household.home_label || null;
     const locality = req.query.locality ? String(req.query.locality) : null;
 
-    // The atlas alone, for the first paint. No provider call, no waiting.
-    const ownedOnly = req.query.owned === '1' || req.query.owned === 'true';
-    const { venues, cached } = ownedOnly
-      ? { venues: [], cached: true }
-      : await thingsAround({ household, session: null, place: { ...centre, locality } });
+    // The atlas alone unless somebody deliberately asks for more. `owned=1` is
+    // kept as the older spelling of the same default so a client that still
+    // sends it is not surprised.
+    const live = req.query.live === '1' || req.query.live === 'true';
+    // How far a day out may be. Capped, because the query is a bounding box and
+    // "everywhere" is not a search.
+    const reach = Math.min(ATLAS_MAX_KM, Math.max(1, Number(req.query.km) || ATLAS_RADIUS_KM));
+    const { venues, cached } = live
+      ? await thingsAround({ household, session: null, place: { ...centre, locality } })
+      : { venues: [], cached: true };
 
     // Around this place, and only around it. A source is free to answer with
     // whatever its index matched, and the fixture set ignores the point it was
@@ -201,11 +219,16 @@ inspire.get('/near', async (req, res, next) => {
     // Twice the OSM radius, because an attraction worth driving to is worth
     // showing from further away than a playground is. It is therefore the outer
     // edge of the whole answer, which is what `radiusKm` has to report.
-    const atlas = await publishedNear({ lat: centre.lat, lng: centre.lng, km: ATLAS_RADIUS_KM });
+    const atlas = await publishedNear({
+      lat: centre.lat, lng: centre.lng, km: reach, limit: ATLAS_LIMIT,
+      // The home screen is a wall of photographs; a card without one reads as
+      // broken rather than as pending.
+      illustratedOnly: true,
+    });
     for (const a of atlas) {
       if (a.lat == null || a.lng == null) continue;
       // The box is generous at its corners; this is the honest ring.
-      if (kmBetween(centre, a) > ATLAS_RADIUS_KM) continue;
+      if (kmBetween(centre, a) > reach) continue;
       if (seen(a)) continue;
       items.push({
         // Wikidata's own identifier where there is no OpenStreetMap one, which
@@ -263,9 +286,10 @@ inspire.get('/near', async (req, res, next) => {
       // X km", and the atlas half reaches twice as far as the look-around — so
       // reporting 5 while showing Windsor Castle at 9.7 would be a plain
       // untruth on the screen.
-      radiusKm: atlasCount ? ATLAS_RADIUS_KM : THINGS_RADIUS_KM,
-      // Said plainly rather than left to be inferred from a thin Food shelf.
-      partial: ownedOnly,
+      radiusKm: atlasCount ? reach : THINGS_RADIUS_KM,
+      // What is actually in this answer. Said outright, so a screen never has to
+      // work out from an empty shelf whether a pool was absent or merely quiet.
+      pools: { atlas: true, live },
       moods: MOODS.map((m) => ({ ...m, count: counts[m.key] })),
       items,
       cached: Boolean(cached),

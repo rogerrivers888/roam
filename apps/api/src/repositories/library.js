@@ -275,8 +275,14 @@ export async function publishedFor(slug) {
  * reach about 40% further than the edges. `kmBetween` in the caller does the
  * honest filtering; this only has to be cheap and to not miss anything, and a
  * box that is slightly too generous satisfies both.
+ *
+ * `illustratedOnly` is for the home screen, which is made of pictures. A card
+ * with no photograph on a wall of photographs does not read as "we have not got
+ * to this one yet", it reads as broken — and an attraction is only ever without
+ * one for as long as it takes the next image pass to reach it. Nothing is
+ * hidden by this: the back office counts them on its own tile.
  */
-export async function publishedNear({ lat, lng, km = 25, limit = 60 }) {
+export async function publishedNear({ lat, lng, km = 25, limit = 60, illustratedOnly = false }) {
   const dLat = km / 111;
   // Longitude degrees shorten towards the poles. Guarded so a search near a
   // pole cannot divide by nothing and ask for the whole planet.
@@ -293,6 +299,7 @@ export async function publishedNear({ lat, lng, km = 25, limit = 60 }) {
        left join image_assets i on i.id = l.image_id and i.moderation = 'approved'
       where a.state = 'published'
         and a.lat between $1 and $2 and a.lng between $3 and $4
+        ${illustratedOnly ? 'and i.id is not null' : ''}
       order by a.score desc
       limit $5`,
     [lat - dLat, lat + dLat, lng - dLng, lng + dLng, limit]);
