@@ -35,7 +35,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   api, AttractionFacts, AttractionFactsRow, ExtractionLesson,
   LibraryAttraction, LibraryAttractionDetail, PlaceContent, ReadingStats,
@@ -44,7 +44,7 @@ import { colors, radius, spacing, TARGET, type } from '../../theme';
 import { Icon } from '../../components/Icon';
 import { Button, Chip, Row, Wrap } from '../../components/ui';
 import { useViewport } from '../../hooks/useViewport';
-import { AdminPage, Banner, FilterChip, FilterRow, Panel, Pill, Tile, TileRow, ago, count, plural } from '../kit';
+import { Banner, FilterChip, FilterRow, Panel, Pill, Tile, TileRow, ago, count, plural } from '../kit';
 import { asText, useQueryState } from '../../router';
 
 const WIDE = 1000;
@@ -72,6 +72,7 @@ export function Reading({ canManage }: { canManage: boolean }) {
   const wide = width >= WIDE;
   const [region, setRegion] = useQueryState<string | null>('readRegion', 'berkshire', asText);
   const [openId, setOpenId] = useQueryState<string | null>('place', null, asText);
+  const [q, setQ] = useState('');
 
   const [rows, setRows] = useState<LibraryAttraction[]>([]);
   const [stats, setStats] = useState<ReadingStats | null>(null);
@@ -97,8 +98,21 @@ export function Reading({ canManage }: { canManage: boolean }) {
   // for now only").
   const REGIONS = [{ slug: 'berkshire', name: 'Berkshire' }, { slug: 'surrey', name: 'Surrey' }];
 
+  // Every word has to appear, independently — the same rule the atlas search
+  // uses, because "thorp park" finding nothing is how this started.
+  const shown = useMemo(() => {
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return rows;
+    return rows.filter((a) => words.every((w) => a.name.toLowerCase().includes(w)));
+  }, [rows, q]);
+
   return (
-    <AdminPage>
+    // A View and not an `AdminPage`: Library already wraps every section in one,
+    // and AdminPage is a ScrollView with flex: 1. Nested inside another scroll
+    // view's content container that collapses to nothing, so the whole tab drew
+    // blank — no tiles, no counties, no list (owner, 5 Sep 2026: "What on earth
+    // am I supposed to do?"). Every other section returns its panels directly.
+    <View style={{ gap: spacing.md }}>
       {error ? <Banner tone="crit">{error}</Banner> : null}
 
       <TileRow>
@@ -116,16 +130,29 @@ export function Reading({ canManage }: { canManage: boolean }) {
         ))}
       </FilterRow>
 
+      {/* He went looking for one and there wasn't one. Two hundred and fifty
+          published places in a county is a list nobody scrolls. */}
+      <View style={styles.search}>
+        <Icon name="search" size={15} color={colors.inkMuted} />
+        <TextInput value={q} onChangeText={setQ} placeholder="Find a place by name"
+                   placeholderTextColor={colors.inkFaint} style={styles.searchInput} />
+        {q ? (
+          <Pressable onPress={() => setQ('')} accessibilityRole="button" accessibilityLabel="Clear the search" hitSlop={8}>
+            <Icon name="close" size={15} color={colors.inkMuted} />
+          </Pressable>
+        ) : null}
+      </View>
+
       <View style={[wide && styles.split]}>
         <View style={[{ minWidth: 0 }, wide && { flex: 2 }]}>
           <Panel title={openId ? 'The reading' : 'Pick a place to read'}
-                 sub={openId ? undefined : `${plural(rows.length, 'published place')} in ${REGIONS.find((r) => r.slug === region)?.name ?? region}`}
+                 sub={openId ? undefined : `${plural(shown.length, 'published place')} in ${REGIONS.find((r) => r.slug === region)?.name ?? region}`}
                  padded={false}>
             {openId ? (
               <Compare id={openId} canManage={canManage} wide={wide}
                        onClose={() => setOpenId(null)} onChanged={load} />
             ) : (
-              <PlaceList rows={rows} onOpen={setOpenId} />
+              <PlaceList rows={shown} q={q} onOpen={setOpenId} />
             )}
           </Panel>
         </View>
@@ -134,7 +161,7 @@ export function Reading({ canManage }: { canManage: boolean }) {
           <Lessons lessons={lessons} canManage={canManage} onChanged={load} />
         </View>
       </View>
-    </AdminPage>
+    </View>
   );
 }
 
@@ -142,11 +169,13 @@ export function Reading({ canManage }: { canManage: boolean }) {
 // picking one
 // ---------------------------------------------------------------------------
 
-function PlaceList({ rows, onOpen }: { rows: LibraryAttraction[]; onOpen: (id: string) => void }) {
+function PlaceList({ rows, q, onOpen }: { rows: LibraryAttraction[]; q: string; onOpen: (id: string) => void }) {
   if (!rows.length) {
     return (
       <View style={{ padding: spacing.lg }}>
-        <Text style={type.small}>Nothing published here yet — harvest the region on Coverage first.</Text>
+        <Text style={type.small}>
+          {q ? `Nothing matching “${q}”.` : 'Nothing published here yet — harvest the region on Coverage first.'}
+        </Text>
       </View>
     );
   }
@@ -529,6 +558,12 @@ function Lessons({ lessons, canManage, onChanged }: {
 
 const styles = StyleSheet.create({
   split: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' },
+  search: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
+    borderRadius: radius.lg, paddingHorizontal: spacing.sm, minHeight: TARGET,
+  },
+  searchInput: { ...type.small, color: colors.ink, flex: 1, minWidth: 0, paddingVertical: spacing.sm },
   columnHead: { ...type.tiny, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
   pick: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
