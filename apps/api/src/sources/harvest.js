@@ -504,18 +504,39 @@ export async function runHarvest({ slugs, withImages = true, refreshTypes = fals
  */
 const COOL_OFF_MS = 4 * 60_000;
 
-export async function resumeInterrupted({ startedBy = 'Roam (resumed after a restart)' } = {}) {
-  // Anything this boot found still saying "running" belongs to a process that
-  // is gone. Close it out first, whatever we then decide to do about it.
-  const justClosed = await lib.recoverAbandonedRuns();
+/**
+ * Pick a harvest back up where a restart left it.
+ *
+ * Called once as the API comes up, and then every few minutes for as long as it
+ * is up. The repeat is not belt-and-braces — it is the whole fix. This ran once
+ * at boot to begin with, and declined that one chance because the run it was
+ * meant to resume had started two minutes earlier and the cool-off below read
+ * that as a restart loop. Nothing ever asked again, and ninety-five counties
+ * sat there for good. Deploys land minutes apart in this tree; a resume that
+ * gets one attempt will keep landing inside somebody else's deploy. So a
+ * cool-off now means "not yet" rather than "never".
+ *
+ * `atBoot` is the difference between the two callers and it matters. At boot,
+ * anything still marked running belongs to a process that is gone and is closed
+ * out. On a later check it does not: a run marked running is very likely this
+ * process's own, doing exactly what it should, and closing it would be the
+ * periodic check killing the harvest it exists to protect. Staleness is judged
+ * on `touched_at` instead (repositories/library.js `runningRun`).
+ */
+export async function resumeInterrupted({ atBoot = false, startedBy = 'Roam (resumed after a restart)' } = {}) {
+  const justClosed = atBoot ? await lib.recoverAbandonedRuns() : [];
 
-  // …and then ask whether there is a harvest to carry on with. Looking at the
-  // *last run* rather than only at what this boot closed is the difference
-  // between resuming and not: the restart that kills a run and the restart that
-  // should pick it up are usually two different restarts. The first deploy
-  // closes the run; the next one boots into a database where nothing says
-  // "running" any more, and would otherwise leave ninety-seven counties sitting
-  // there for ever.
+  if (!atBoot) {
+    // Something is genuinely working. Leave it alone.
+    const live = await lib.runningRun();
+    if (live) return { resumed: false, reason: `already harvesting: ${live.stage ?? live.scope}` };
+  }
+
+  // Looking at the *last run* rather than only at what this boot closed is the
+  // difference between resuming and not: the restart that kills a run and the
+  // restart that should pick it up are usually two different restarts. The
+  // first deploy closes the run; the next boots into a database where nothing
+  // says "running" any more.
   const last = justClosed[0] ?? (await lib.lastRun());
   if (!last) return null;
 
@@ -525,9 +546,12 @@ export async function resumeInterrupted({ startedBy = 'Roam (resumed after a res
   const takenByARestart = justClosed.length > 0 || (last.state === 'failed' && last.error === lib.RESTARTED);
   if (!takenByARestart) return { resumed: false, reason: `the last run ${last.state === 'done' ? 'finished' : `ended: ${last.error ?? last.state}`}` };
 
-  const lastStart = last.started_at;
-  if (lastStart && Date.now() - new Date(lastStart).getTime() < COOL_OFF_MS) {
-    return { resumed: false, reason: 'a run started moments ago; not resuming into a restart loop' };
+  // A process that dies within four minutes of starting a run is a process that
+  // will die again, and resuming into that is a loop that fills the log with
+  // its own failure. Waiting is the answer, not giving up — the next check is
+  // along shortly.
+  if (last.started_at && Date.now() - new Date(last.started_at).getTime() < COOL_OFF_MS) {
+    return { resumed: false, reason: 'a run started moments ago; waiting rather than resuming into a restart loop' };
   }
 
   const left = (await lib.listRegions({ state: 'never' })).map((r) => r.slug);

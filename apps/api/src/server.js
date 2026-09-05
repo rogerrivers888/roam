@@ -283,11 +283,17 @@ startReminderLoop();
 // up and answering for a minute. If the container is going to fall over, it
 // falls over first, on its own, with nothing of ours in the frame.
 const RESUME_AFTER_MS = Number(process.env.ROAM_HARVEST_RESUME_DELAY_MS || 60_000);
-setTimeout(() => {
-  resumeInterrupted()
-    .then((r) => { if (r) console.log(`roam-api: harvest ${r.resumed ? `resumed over ${r.regions} region(s)` : `not resumed — ${r.reason}`}`); })
-    .catch((err) => console.error('harvest recovery', err.message));
-}, RESUME_AFTER_MS).unref?.();
+// And then again every few minutes, for as long as this process is up. Deploys
+// in this tree land minutes apart, and a resume that gets a single attempt will
+// sooner or later spend it inside somebody else's deploy — which is exactly
+// what happened, and left ninety-five counties unharvested with nothing due to
+// ask again (sources/harvest.js).
+const RESUME_EVERY_MS = Number(process.env.ROAM_HARVEST_RESUME_EVERY_MS || 5 * 60_000);
+const tryResume = (atBoot) => resumeInterrupted({ atBoot })
+  .then((r) => { if (r?.resumed || (atBoot && r)) console.log(`roam-api: harvest ${r.resumed ? `resumed over ${r.regions} region(s)` : `not resumed — ${r.reason}`}`); })
+  .catch((err) => console.error('harvest recovery', err.message));
+setTimeout(() => { void tryResume(true); }, RESUME_AFTER_MS).unref?.();
+setInterval(() => { void tryResume(false); }, RESUME_EVERY_MS).unref?.();
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`roam-api listening on 0.0.0.0:${port}`);
 });
