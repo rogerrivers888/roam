@@ -340,6 +340,16 @@ export async function rankRegion(slug) {
          from attractions where region_slug = $1 and state <> 'hidden')
      update attractions a set rank = o.r,
             state = case when o.r <= $2 then 'published' else 'candidate' end,
+            -- The band and the 0-10 are settled here rather than at write time
+            -- because this is the moment the score is final: scoreOf measures a
+            -- place against the best-read place in its own region, and until
+            -- every candidate has been scored there is no best.
+            roam_score = round((a.score * 10)::numeric, 1),
+            band = case
+              when a.score >= 0.62 then 'top'
+              when a.score >= 0.52 then 'high'
+              when a.score >= 0.43 then 'good'
+              else 'mixed' end,
             updated_at = now()
        from ordered o where a.id = o.id and a.state <> 'hidden'`,
     [slug, region.target_count]);
@@ -797,3 +807,308 @@ export const lastRun = async () =>
  * decides whether to pick hours of work back up by matching it.
  */
 export const RESTARTED = 'The API restarted while this was running.';
+
+// ---------------------------------------------------------------------------
+// the detail layer (migration 041)
+// ---------------------------------------------------------------------------
+
+/**
+ * The designations a place holds, and what they are worth.
+ *
+ * Written separately from `upsertAttractions` because they arrive separately: a
+ * second, small SPARQL query over the published ids, rather than two more label
+ * joins hung off the one that already walks a whole county.
+ */
+export async function saveAccolades(id, { accolades = [], acclaim = 0, score, scoreParts, band, roamScore }) {
+  const { rows } = await query(
+    `update attractions
+        set accolades = $2, acclaim = $3,
+            score = coalesce($4, score), score_parts = coalesce($5, score_parts),
+            band = coalesce($6, band), roam_score = coalesce($7, roam_score),
+            updated_at = now()
+      where id = $1 returning *`,
+    [id, JSON.stringify(accolades), acclaim,
+     score ?? null, scoreParts ? JSON.stringify(scoreParts) : null,
+     band ?? null, roamScore ?? null]);
+  return rows[0] ?? null;
+}
+
+/**
+ * The queue for the detail pass.
+ *
+ * Published rows only, and deliberately so. The detail pass is four requests a
+ * place — the article, the travel guide, the map and their own ticket page —
+ * and running it over the eight hundred candidates a county produces to fill a
+ * list of eighteen would be three thousand requests for prose nobody will read.
+ * The list is ranked before this runs; this is what happens to the winners.
+ *
+ * `next_attempt_at` is the backoff. A site that was down at nine is often up at
+ * ten, but a place with no Wikivoyage entry and no ticket page will never have
+ * one, so a row that has failed four times stops being asked.
+ */
+export async function attractionsNeedingDetail({ region = null, limit = 50, force = false } = {}) {
+  const args = [limit];
+  const where = [`a.state = 'published'`];
+  if (region) { args.push(region); where.push(`a.region_slug = $${args.length}`); }
+  if (!force) {
+    where.push(`(d.attraction_id is null
+                 or (d.state <> 'done' and d.attempts < 4
+                     and (d.next_attempt_at is null or d.next_attempt_at <= now())))`);
+  }
+  const { rows } = await query(
+    `select a.*, r.name as region_name, d.state as detail_state_now, d.attempts
+       from attractions a
+       join regions r on r.slug = a.region_slug
+       left join attraction_details d on d.attraction_id = a.id
+      where ${where.join(' and ')}
+      order by a.region_slug, a.rank nulls last
+      limit $1`, args);
+  return rows;
+}
+
+/** Everything we hold about the inside of one place, for a drawer to read. */
+export async function detailFor(attractionId) {
+  const { rows } = await query(
+    'select * from attraction_details where attraction_id = $1', [attractionId]);
+  return rows[0] ?? null;
+}
+
+/**
+ * Write what the detail pass found.
+ *
+ * `partial` is a real and common outcome rather than a failure: Wikipedia
+ * almost always answers, a travel guide entry exists for maybe half of places
+ * and a machine-readable ticket price for fewer than that. A row with sections
+ * and no admission is worth keeping and worth showing, and marking it failed
+ * would throw away the half that worked.
+ */
+export async function saveDetail(attractionId, {
+  wikidataId, sections = [], highlights = [], admission = {}, visit = {},
+  contentsRef = null, contentsCount = 0, attribution = [], provenance = {},
+  state = 'done', error = null,
+} = {}) {
+  const { rows } = await query(
+    `insert into attraction_details
+       (attraction_id, wikidata_id, sections, highlights, admission, visit,
+        contents_ref, contents_count, attribution, provenance, state, error,
+        attempts, researched_at, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,1,now(),now())
+     on conflict (attraction_id) do update set
+       wikidata_id = excluded.wikidata_id,
+       sections = excluded.sections, highlights = excluded.highlights,
+       admission = excluded.admission, visit = excluded.visit,
+       contents_ref = excluded.contents_ref, contents_count = excluded.contents_count,
+       attribution = excluded.attribution, provenance = excluded.provenance,
+       state = excluded.state, error = excluded.error,
+       attempts = attraction_details.attempts + 1,
+       researched_at = now(), updated_at = now()
+     returning *`,
+    [attractionId, wikidataId, JSON.stringify(sections), JSON.stringify(highlights),
+     JSON.stringify(admission ?? {}), JSON.stringify(visit ?? {}),
+     contentsRef, contentsCount, JSON.stringify(attribution), JSON.stringify(provenance),
+     state, error]);
+  // Denormalised so the library grid can show a coverage column without
+  // dragging six kilobytes of prose per row through the pool to get it.
+  await query('update attractions set detail_state = $2 where id = $1', [attractionId, state]);
+  return rows[0] ?? null;
+}
+
+/**
+ * Note that a pass failed, and when it is worth trying again.
+ *
+ * Doubling from an hour: a Wikimedia wobble clears in minutes, a site that has
+ * moved never does, and four attempts is where the difference stops mattering.
+ */
+export async function markDetailFailed(attractionId, wikidataId, error) {
+  await query(
+    `insert into attraction_details (attraction_id, wikidata_id, state, error, attempts, next_attempt_at)
+     values ($1, $2, 'failed', $3, 1, now() + interval '1 hour')
+     on conflict (attraction_id) do update set
+       state = 'failed', error = $3,
+       attempts = attraction_details.attempts + 1,
+       next_attempt_at = now() + (interval '1 hour' * power(2, least(attraction_details.attempts, 4))),
+       updated_at = now()`,
+    [attractionId, wikidataId, String(error ?? '').slice(0, 400)]);
+  await query(`update attractions set detail_state = 'failed' where id = $1`, [attractionId]);
+}
+
+/** One attraction with everything attached, which is what a drawer opens on. */
+export async function attractionDetail(id) {
+  const { rows } = await query(
+    `select a.*, r.name as region_name, r.nation,
+            d.sections, d.highlights, d.admission, d.visit, d.contents_ref, d.contents_count,
+            d.attribution as detail_attribution, d.provenance, d.state as detail_research_state,
+            d.error as detail_error, d.researched_at, d.attempts as detail_attempts
+       from attractions a
+       join regions r on r.slug = a.region_slug
+       left join attraction_details d on d.attraction_id = a.id
+      where a.id = $1`, [id]);
+  const row = rows[0];
+  if (!row) return null;
+  const { rows: images } = await query(
+    `select i.id, i.title, i.caption, i.lqip, i.credit_line, i.licence, i.licence_url,
+            i.source_page_url, i.creator, i.attribution_required, l.role, l.position
+       from image_links l join image_assets i on i.id = l.image_id
+      where l.subject_type = 'attraction' and l.subject_id = $1 and i.moderation = 'approved'
+      order by (l.role = 'hero') desc, l.position`, [String(id)]);
+  return { ...row, images };
+}
+
+/** How much of the atlas has been researched, for the coverage screen. */
+export async function detailStats() {
+  const { rows } = await query(
+    `select count(*) filter (where a.state = 'published') as published,
+            count(*) filter (where a.state = 'published' and d.state = 'done') as researched,
+            count(*) filter (where a.state = 'published' and d.state = 'partial') as partial,
+            count(*) filter (where a.state = 'published' and d.state = 'failed') as failed,
+            count(*) filter (where a.state = 'published' and jsonb_array_length(coalesce(d.sections,'[]'::jsonb)) > 0) as with_sections,
+            count(*) filter (where a.state = 'published' and coalesce(d.admission,'{}'::jsonb) <> '{}'::jsonb) as with_admission,
+            count(*) filter (where a.state = 'published' and d.contents_count > 0) as with_contents,
+            count(*) filter (where a.state = 'published' and jsonb_array_length(coalesce(a.accolades,'[]'::jsonb)) > 0) as with_accolades
+       from attractions a left join attraction_details d on d.attraction_id = a.id`);
+  return rows[0] ?? {};
+}
+
+// ---------------------------------------------------------------------------
+// pictures for places
+// ---------------------------------------------------------------------------
+//
+// An attraction is a row we made and carries its own image_state (migration
+// 039). A place is a venue_ref and a place_record, so the same bookkeeping
+// lives in `place_image_passes` (migration 042). Everything below is that
+// table, plus the two reads a screen needs: the hero for one place, and the
+// heroes for the pageful the home screen is about to draw.
+
+/** The card image for one place, or null. Narrow row: never drags the bytes. */
+export const heroForPlace = async (venueRef) =>
+  (await query(
+    `select i.id, i.source, i.lqip, i.credit_line, i.licence, i.licence_url,
+            i.source_page_url, i.attribution_required, i.width, i.height
+       from image_links l join image_assets i on i.id = l.image_id
+      where l.subject_type = 'place' and l.subject_id = $1 and l.role = 'hero'
+        and i.moderation = 'approved'`, [venueRef])).rows[0] ?? null;
+
+/**
+ * The card images for a pageful of places, as a Map keyed by venue_ref.
+ *
+ * One statement for the whole screen. The home screen draws twenty-odd cards
+ * and a query each would be twenty round trips before anything is painted.
+ */
+export async function heroesForPlaces(refs = []) {
+  const list = [...new Set(refs.filter(Boolean))];
+  if (!list.length) return new Map();
+  const { rows } = await query(
+    `select l.subject_id as venue_ref, i.id, i.source, i.lqip, i.credit_line, i.licence,
+            i.licence_url, i.source_page_url, i.attribution_required, i.width, i.height
+       from image_links l join image_assets i on i.id = l.image_id
+      where l.subject_type = 'place' and l.role = 'hero'
+        and i.moderation = 'approved' and l.subject_id = any($1)`, [list]);
+  return new Map(rows.map((r) => [r.venue_ref, r]));
+}
+
+/** What the last pass over one place concluded. */
+export const placePass = async (venueRef) =>
+  (await query('select * from place_image_passes where venue_ref = $1', [venueRef])).rows[0] ?? null;
+
+/**
+ * Write down what a pass concluded.
+ *
+ * `attempts` only counts the passes that broke. A place where every rung was
+ * walked and none of them had anything is settled at one attempt, and the only
+ * thing that will make us look again is the ladder learning a new rung —
+ * which is what `picture_version` is for.
+ */
+export async function notePlacePass(venueRef, { state, rung, tried = [], error = null, version = 1, nextAttemptAt = null }) {
+  const { rows } = await query(
+    `insert into place_image_passes (venue_ref, state, rung, tried, attempts, error, picture_version, looked_at, next_attempt_at)
+     values ($1,$2,$3,$4::jsonb, case when $2 = 'failed' then 1 else 0 end, $5, $6, now(), $7)
+     on conflict (venue_ref) do update set
+       state = excluded.state, rung = excluded.rung, tried = excluded.tried,
+       attempts = case when excluded.state = 'failed' then place_image_passes.attempts + 1 else 0 end,
+       error = excluded.error, picture_version = excluded.picture_version,
+       looked_at = now(), next_attempt_at = excluded.next_attempt_at
+     returning *`,
+    [venueRef, state, rung, JSON.stringify(tried), error, version, nextAttemptAt]);
+  return rows[0];
+}
+
+/**
+ * Places whose card has no picture and whose turn it is.
+ *
+ * Four cases qualify, and the last is the one that makes the ladder worth
+ * improving: never looked at; looked at, broke, and the backoff has passed;
+ * and looked at by an older ladder than the one running now. A place settled as
+ * 'none' by the current version is deliberately not returned — that is the
+ * whole point of writing the negative answer down.
+ *
+ * Ordered so the places a household actually claimed come first: somewhere
+ * shortlisted or visited is worth a picture before somewhere that merely
+ * appeared in a search once.
+ */
+export async function placesNeedingPictures({ limit = 50, version = 1, force = false } = {}) {
+  const { rows } = await query(
+    `select r.venue_ref, r.name, r.category, r.website, r.lat, r.lng, r.postcode,
+            r.wikidata_id, r.wikipedia_url, coalesce(p.attempts, 0) as attempts,
+            (select count(*) from place_claims c where c.venue_ref = r.venue_ref) as claims
+       from place_records r
+       left join place_image_passes p on p.venue_ref = r.venue_ref
+       left join image_links l on l.subject_type = 'place' and l.subject_id = r.venue_ref and l.role = 'hero'
+      where ($2 or l.image_id is null)
+        and ($2
+             or p.venue_ref is null
+             or p.picture_version < $3
+             or (p.state = 'failed' and (p.next_attempt_at is null or p.next_attempt_at <= now()))
+             -- The record learned something since we looked. A takeaway with no
+             -- website has nothing for the logo rung to read, and settling it as
+             -- 'none' for ever would mean the day own.js finds its website in
+             -- OpenStreetMap is a day nothing happens.
+             or r.updated_at > p.looked_at)
+        -- A rung needs something to work from. Nothing to look at, nowhere to
+        -- look: not a place this sweep can help, and returning it every run
+        -- would starve the ones it can.
+        and (r.website is not null or r.wikidata_id is not null or r.wikipedia_url is not null
+             or (r.lat is not null and r.lng is not null))
+      order by claims desc, r.first_owned asc
+      limit $1`, [limit, force, version]);
+  return rows;
+}
+
+/**
+ * Is this exact picture already somebody else's mark?
+ *
+ * The second lock on the same door as the platform blocklist in sources/logo.js.
+ * That list names the hosts we know serve their own icon; this catches the ones
+ * nobody thought of, by asking whether these exact bytes are already the logo of
+ * a place on a different site. Two restaurants on two different domains cannot
+ * both own the same mark — that is a platform's icon, or a template's — so the
+ * second one is refused rather than shown a picture of somebody else.
+ *
+ * Two branches of the same chain are the case this must not break, and it does
+ * not: they share an origin, so the origin comparison lets them through.
+ */
+export async function logoBelongsElsewhere(sha256, origin) {
+  if (!sha256 || !origin) return false;
+  const { rows } = await query(
+    `select i.source_page_url from image_assets i
+      where i.source = 'logo' and i.sha256 = $1 and i.source_page_url is not null
+      limit 25`, [sha256]);
+  return rows.some((r) => {
+    try { return new URL(r.source_page_url).origin !== origin; } catch { return false; }
+  });
+}
+
+/** What the sweep has achieved, for the back office. */
+export async function pictureStats() {
+  const { rows } = await query(
+    `select
+       (select count(*) from place_records) as places,
+       (select count(*) from image_links where subject_type = 'place' and role = 'hero') as illustrated,
+       (select count(*) from place_image_passes where state = 'none') as nothing_found,
+       (select count(*) from place_image_passes where state = 'failed') as to_retry,
+       (select coalesce(json_object_agg(source, n), '{}'::json) from (
+          select i.source, count(*)::int as n
+            from image_links l join image_assets i on i.id = l.image_id
+           where l.subject_type = 'place' and l.role = 'hero'
+           group by i.source) s) as by_source`);
+  return rows[0] ?? {};
+}

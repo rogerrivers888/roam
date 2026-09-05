@@ -25,6 +25,9 @@
 import crypto from 'node:crypto';
 import * as wm from './wikimedia.js';
 import * as lib from '../repositories/library.js';
+import { siteFacts } from './site.js';
+import { placeTags, visitFromTags, groundsFromTags, researchInside, contentsOf } from './inside.js';
+import { accoladesFrom, acclaimOf, bandOf } from '../domain/scoring.js';
 
 // The widths held. 20 is the placeholder that renders before the network
 // answers; 500 is a card; 960 is the drawer. Wikimedia renders to its own
@@ -109,7 +112,7 @@ export async function refreshKinds({ onLine } = {}) {
  *
  * Six parts, and the reason each is here:
  *
- *  - **views** (0.45) — English Wikipedia readers over twelve months, against
+ *  - **views** (0.40) — English Wikipedia readers over twelve months, against
  *    the best-read place in this region. The only part that measures whether
  *    anybody wants to go, as opposed to whether anybody wrote it down.
  *  - **open to visitors** (0.15) — an official website, and somebody named as
@@ -120,9 +123,19 @@ export async function refreshKinds({ onLine } = {}) {
  *    could spend Saturday there".
  *  - **visitors** (0.15) — a published visitor count, where Wikidata has one.
  *    Nobody publishes a figure for somewhere you cannot go in.
- *  - **notability** (0.15) — Wikidata sitelinks, which separate the nationally
+ *  - **notability** (0.10) — Wikidata sitelinks, which separate the nationally
  *    known from the locally listed.
- *  - **designated** (0.05) — Grade I, scheduled monument, World Heritage Site.
+ *  - **acclaim** (0.15) — every designation and award the place holds, stacked
+ *    with diminishing returns: World Heritage Site, national park, Grade I,
+ *    scheduled monument, Green Flag, Blue Flag, dark-sky reserve, accredited
+ *    museum. This was 0.05 and a yes-or-no, and it read one designation and
+ *    threw the rest away — Leeds Castle is a Grade I listed building *and* a
+ *    Grade II* listed park and garden and only the first counted. Owner, 5 Sep
+ *    2026: "layer in the World Heritage and Green Flag, etc., because that's of
+ *    real value and significantly differs from restaurant." So it is worth
+ *    three times what it was, and notability gives up the difference, because
+ *    a designation is a better test of the same thing sitelinks were guessing
+ *    at: somebody official decided this place matters.
  *  - **illustrated** (0.05) — there is a photograph at all, which correlates
  *    with somebody having bothered to go, and matters on a screen of cards.
  *
@@ -131,7 +144,7 @@ export async function refreshKinds({ onLine } = {}) {
  * kept on the row: "why is this fourth" is the first question anybody asks of a
  * ranked list, and a score with no working is not an answer.
  */
-export function scoreOf({ pageviewsYear, sitelinks, hasImage, heritage, visitorsPerYear, hasOperator, website, peakViews }) {
+export function scoreOf({ pageviewsYear, sitelinks, hasImage, heritage, visitorsPerYear, hasOperator, website, peakViews, acclaim = null }) {
   // An article with no pageview data at all — very new, or moved last week — is
   // estimated from notability rather than scored as "nobody looked", which
   // would bury it for a year. Marked as estimated so the back office can see
@@ -150,16 +163,22 @@ export function scoreOf({ pageviewsYear, sitelinks, hasImage, heritage, visitors
   // publishes a page for it and somebody is named as running it.
   const open = (website ? 0.5 : 0) + (hasOperator ? 0.5 : 0);
   const illustrated = hasImage ? 1 : 0;
-  const designated = heritage ? 1 : 0;
+  // The designations pass runs after ranking, because it is a second query over
+  // the ids that were actually published. Until it has, the one designation the
+  // listing query happened to return stands in for the set — a place with a
+  // heritage label has at least one, and scoring it as though it had none would
+  // rank it below a shed for the hour between the two passes.
+  const acclaimed = acclaim ?? (heritage ? 0.35 : 0);
 
-  const score = 0.45 * readership + 0.15 * open + 0.15 * visitors + 0.15 * notability
-              + 0.05 * designated + 0.05 * illustrated;
+  const score = 0.40 * readership + 0.15 * open + 0.15 * visitors + 0.10 * notability
+              + 0.15 * acclaimed + 0.05 * illustrated;
   return {
     score: Number(score.toFixed(6)),
     parts: {
       views: Number(readership.toFixed(4)), viewsEstimated: estimated,
       open: Number(open.toFixed(2)), visitors: Number(visitors.toFixed(4)),
-      notability: Number(notability.toFixed(4)), illustrated, designated,
+      notability: Number(notability.toFixed(4)), illustrated,
+      acclaim: Number(acclaimed.toFixed(4)), acclaimEstimated: acclaim == null,
       pageviewsYear: pageviewsYear ?? null, visitorsPerYear: visitorsPerYear ?? null,
       peakViews: peak, sitelinks: sitelinks ?? 0, hasOperator: Boolean(hasOperator),
     },
@@ -600,4 +619,242 @@ export async function resumeInterrupted({ atBoot = false, startedBy = 'Roam (res
   runHarvest({ slugs: left, withImages: true, relistDone: false, runId: run.id, startedBy })
     .catch((err) => lib.endRun(run.id, { state: 'failed', error: err.message?.slice(0, 500) }));
   return { resumed: true, regions: left.length, runId: run.id };
+}
+
+// ---------------------------------------------------------------------------
+// stage 5: the designations
+// ---------------------------------------------------------------------------
+
+/**
+ * What has been said about each published place by somebody official.
+ *
+ * A second pass rather than part of the listing query, and a small one: the
+ * listing query already walks `wdt:P131*` across a whole county and hanging two
+ * more label joins off it is how London stops answering. Over eighteen ids it
+ * is one request and a fifth of a second.
+ *
+ * Re-scores as it goes, because acclaim is 0.15 of the score and until this has
+ * run every row is carrying the estimate `scoreOf` makes from the single
+ * designation the listing happened to return.
+ */
+export async function designationsPass(slug, { onLine, cancelled } = {}) {
+  const published = await lib.listAttractions({ region: slug, state: 'published', limit: 500 });
+  if (!published.length) return { checked: 0, decorated: 0 };
+  if (cancelled?.()) throw Object.assign(new Error('cancelled'), { cancelled: true });
+
+  const found = await wm.designations(published.map((a) => a.wikidata_id));
+  let decorated = 0;
+  for (const a of published) {
+    const accolades = accoladesFrom(found.get(a.wikidata_id) ?? []);
+    const acclaim = acclaimOf(accolades);
+    const { score, parts } = scoreOf({
+      pageviewsYear: a.pageviews_year, sitelinks: a.sitelinks,
+      hasImage: Number(a.image_count) > 0 || Boolean(a.score_parts?.illustrated),
+      visitorsPerYear: a.score_parts?.visitorsPerYear ?? null,
+      hasOperator: a.score_parts?.hasOperator, website: a.website,
+      peakViews: a.score_parts?.peakViews, acclaim,
+    });
+    await lib.saveAccolades(a.id, {
+      accolades, acclaim, score, scoreParts: parts,
+      band: bandOf(score), roamScore: Math.round(score * 100) / 10,
+    });
+    if (accolades.length) decorated += 1;
+  }
+  // Ranking again, because a re-score can reorder a county and the rank on the
+  // row is what a device reads.
+  await lib.rankRegion(slug);
+  onLine?.(`${decorated} of ${published.length} carry a designation or an award`);
+  return { checked: published.length, decorated };
+}
+
+// ---------------------------------------------------------------------------
+// stage 6: what there is to do
+// ---------------------------------------------------------------------------
+
+/** The first non-null of several answers, and where it came from. */
+function pick(...candidates) {
+  for (const [value, source] of candidates) {
+    if (value !== null && value !== undefined && value !== '') return { value, source };
+  }
+  return { value: null, source: null };
+}
+
+/**
+ * Everything about one place that is not its name, its rank or its photograph.
+ *
+ * Four sources, asked in the order of how much each is worth and how much it
+ * costs to ask:
+ *
+ *   Wikipedia    the article in the sections its editors chose, which is the
+ *                read. Always answers where there is an article.
+ *   Wikivoyage   the travel guide's entry: the price, the hours and one
+ *                sentence on whether it is worth the afternoon. Exists for
+ *                maybe half of places and is worth the ask every time.
+ *   OpenStreetMap the practicalities nobody else records — step-free access,
+ *                loos, parking, dogs — and, where the place is mapped as an
+ *                area, everything inside its boundary. This is the ride list.
+ *   Their page   the admission prices, which is the one fact that is both
+ *                essential and published nowhere else.
+ *
+ * A place where three of the four say nothing is `partial`, not `failed`. Half
+ * an answer about Leeds Castle is worth keeping and worth showing; throwing it
+ * away because Wikivoyage has never heard of it would leave the drawer emptier
+ * than the sources are.
+ */
+export async function researchAttraction(a, { onLine, force = false } = {}) {
+  const attribution = [];
+  const provenance = {};
+  const problems = [];
+
+  const sections = a.wikipedia_title
+    ? await wm.articleSections(a.wikipedia_title).catch((err) => { problems.push(`Wikipedia: ${err.message}`); return []; })
+    : [];
+  if (sections.length) {
+    attribution.push({ source: 'Wikipedia', licence: 'CC BY-SA 4.0', url: a.wikipedia_url, note: 'The description' });
+    provenance.sections = 'wikipedia';
+  }
+
+  const voyage = await wm.voyageListings({ wikidataId: a.wikidata_id, name: a.name, near: a.region_name })
+    .catch(() => ({ listing: null, listings: [] }));
+  if (voyage.listing || voyage.listings.length) {
+    attribution.push({ source: 'Wikivoyage', licence: 'CC BY-SA 4.0', url: voyage.listing?.pageUrl ?? voyage.listings[0]?.pageUrl, note: 'Prices and opening times' });
+  }
+
+  // The map. The tags come first because they carry the OSM ref, and the ref is
+  // what turns "everything within a kilometre" into "everything inside the
+  // fence" for the pass that follows.
+  const osm = await placeTags({
+    osmRef: a.osm_ref, wikidataId: a.wikidata_id, name: a.name, lat: a.lat, lng: a.lng,
+  }).catch(() => null);
+  const osmVisit = osm ? visitFromTags(osm.tags) : {};
+  if (osm) { attribution.push({ source: 'OpenStreetMap', licence: 'ODbL', url: `https://www.openstreetmap.org/${osm.ref}`, note: 'Access and facilities' }); }
+
+  // What is inside it. Only where the map says this is somewhere you go into —
+  // a park, a zoo, a castle's grounds. Running it on a statue would return the
+  // town's cafés and call them the statue's contents.
+  let contentsRef = null;
+  let contentsCount = 0;
+  const grounds = osm ? groundsFromTags(osm.tags) : 0;
+  if (osm && grounds > 0) {
+    try {
+      const rows = await researchInside({
+        parentRef: `wikidata:${a.wikidata_id}`, name: a.name,
+        lat: osm.lat ?? a.lat, lng: osm.lng ?? a.lng,
+        radiusKm: grounds, areaRef: osm.isArea ? osm.ref : null, force,
+      });
+      contentsRef = `wikidata:${a.wikidata_id}`;
+      contentsCount = rows.length;
+      if (rows.length) provenance.contents = 'osm';
+    } catch (err) { problems.push(`the map: ${err.message}`); }
+  }
+
+  // Their own page, last, because it is the only source that can be down.
+  const website = a.website ?? osmVisit.website ?? voyage.listing?.url ?? null;
+  const site = website ? await siteFacts({ website, name: a.name, locality: a.region_name }).catch(() => null) : null;
+  if (site?.admission || site?.openingHours) {
+    attribution.push({ source: new URL(site.sourceUrl).hostname, licence: 'Published by them', url: site.sourceUrl, note: 'Prices and opening times' });
+  }
+  if (website && !site) problems.push('their website did not answer');
+
+  // Admission, in order of how much it can be trusted. Their own page is
+  // authoritative and today's; a travel guide's price is real but can be a
+  // decade old, which is why `seenAt` travels with it and a screen must say so;
+  // the map only ever knows whether there is a charge at all.
+  const admission = {};
+  if (site?.admission) {
+    Object.assign(admission, site.admission, { source: new URL(site.sourceUrl).hostname, sourceUrl: site.sourceUrl, seenAt: new Date().toISOString() });
+    provenance.admission = 'site';
+  } else if (voyage.listing?.price) {
+    Object.assign(admission, {
+      note: voyage.listing.price, free: /\bfree\b/i.test(voyage.listing.price) || null,
+      source: 'Wikivoyage', sourceUrl: voyage.listing.pageUrl,
+      // The date the entry was last touched, not the date we read it. A price
+      // nobody has checked since 2017 must not look like this morning's.
+      seenAt: voyage.listing.lastedit ?? null, stale: !voyage.listing.lastedit,
+    });
+    provenance.admission = 'wikivoyage';
+  } else if (osmVisit.fee) {
+    Object.assign(admission, {
+      free: osmVisit.fee === 'free', note: osmVisit.charge ?? null,
+      source: 'OpenStreetMap', sourceUrl: osm ? `https://www.openstreetmap.org/${osm.ref}` : null,
+      seenAt: new Date().toISOString(),
+    });
+    provenance.admission = 'osm';
+  }
+
+  const hours = pick([site?.openingHours, 'site'], [voyage.listing?.hours, 'wikivoyage'], [osmVisit.openingHours, 'osm']);
+  const phone = pick([site?.phone, 'site'], [voyage.listing?.phone, 'wikivoyage'], [osmVisit.phone, 'osm']);
+  const address = pick([site?.address, 'site'], [osmVisit.address, 'osm'], [voyage.listing?.address, 'wikivoyage']);
+  if (hours.source) provenance.openingHours = hours.source;
+  if (phone.source) provenance.phone = phone.source;
+  if (address.source) provenance.address = address.source;
+
+  const visit = {
+    openingHours: hours.value, phone: phone.value, address: address.value,
+    postcode: site?.postcode ?? osmVisit.postcode ?? null,
+    website: website ?? null,
+    booking: site?.bookingUrl ?? null,
+    operator: osmVisit.operator ?? null,
+    wheelchair: osmVisit.wheelchair ?? null,
+    stepFree: osmVisit.stepFree ?? null,
+    wheelchairToilet: osmVisit.wheelchairToilet ?? null,
+    toilets: osmVisit.toilets ?? null,
+    parking: osmVisit.parking ?? null,
+    dogs: osmVisit.dogs ?? null,
+    seasonal: osmVisit.seasonal ?? null,
+  };
+
+  // The travel guide's own See and Do entries, kept only where the page it took
+  // them from is about this place — a national park's page lists what is in the
+  // park, a town's page lists the town, and the second is somewhere else to go
+  // rather than something to do here.
+  const highlights = (voyage.listings ?? []).map((l) => ({
+    name: l.name, kind: l.kind, note: l.note, price: l.price, hours: l.hours,
+    url: l.url, source: 'Wikivoyage', sourceUrl: l.pageUrl,
+  }));
+  if (voyage.listing?.note) {
+    provenance.travellerNote = 'wikivoyage';
+    visit.travellerNote = voyage.listing.note;
+    visit.travellerNoteUrl = voyage.listing.pageUrl;
+  }
+
+  const got = [sections.length, highlights.length, Object.keys(admission).length, contentsCount,
+    Object.values(visit).filter(Boolean).length].filter(Boolean).length;
+  const state = got === 0 ? 'failed' : (sections.length && (Object.keys(admission).length || contentsCount) ? 'done' : 'partial');
+
+  await lib.saveDetail(a.id, {
+    wikidataId: a.wikidata_id, sections, highlights, admission, visit,
+    contentsRef, contentsCount, attribution, provenance, state,
+    error: problems.length ? problems.join('; ').slice(0, 400) : null,
+  });
+  onLine?.(`${a.name}: ${sections.length} sections, ${contentsCount} things inside${Object.keys(admission).length ? ', a price' : ''}${state === 'partial' ? ' (partial)' : ''}`);
+  return { state, sections: sections.length, contentsCount, admission: Object.keys(admission).length > 0 };
+}
+
+/**
+ * The detail pass over one region, or over whatever is next in the queue.
+ *
+ * Published rows only. This is four requests a place, and running it over the
+ * eight hundred candidates a county produces to fill a list of eighteen would
+ * be three thousand requests for prose nobody will ever open.
+ */
+export async function detailPass(slug, { onLine, cancelled, limit = 50, force = false } = {}) {
+  const rows = await lib.attractionsNeedingDetail({ region: slug, limit, force });
+  const counts = { looked: 0, done: 0, partial: 0, failed: 0, contents: 0, prices: 0 };
+  for (const a of rows) {
+    if (cancelled?.()) throw Object.assign(new Error('cancelled'), { cancelled: true });
+    counts.looked += 1;
+    try {
+      const out = await researchAttraction(a, { onLine, force });
+      counts[out.state] = (counts[out.state] ?? 0) + 1;
+      if (out.contentsCount) counts.contents += 1;
+      if (out.admission) counts.prices += 1;
+    } catch (err) {
+      counts.failed += 1;
+      await lib.markDetailFailed(a.id, a.wikidata_id, err.message);
+      onLine?.(`${a.name}: ${err.message}`);
+    }
+  }
+  onLine?.(`${counts.looked} researched — ${counts.done} full, ${counts.partial} partial, ${counts.failed} failed, ${counts.prices} with a price, ${counts.contents} with things inside`);
+  return counts;
 }

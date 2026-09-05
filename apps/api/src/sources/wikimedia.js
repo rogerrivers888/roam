@@ -418,7 +418,7 @@ export async function articleExtract(title) {
 // The sections of an article that are apparatus rather than reading. Nobody
 // opening a drawer about Leeds Castle wants "External links", and a References
 // section in plain text is four hundred lines of bare surnames.
-const APPARATUS = /^(see also|references?|notes?|citations?|sources|footnotes?|further reading|bibliography|external links?|gallery|see more|literature)$/i;
+const APPARATUS = /^(see also|references?|notes?|citations?|sources|footnotes?|further reading|bibliography|external links?|gallery|galleries|images?|photographs?|see more|literature|in popular culture|notable people|twin towns.*)$/i;
 
 // Where the answer to "what is there to do" actually lives. A section called
 // History tells you what the place is; one called Tourism, Attractions, Rides

@@ -141,7 +141,14 @@ const TICKETS = [
 
 // £14, £14.50, £14 per adult. Not "£14m", not a year, not a phone number.
 const MONEY = /£\s?\d{1,3}(?:\.\d{2})?(?!\d|\s?(?:m\b|bn\b|k\b|million|billion))/;
-const FREE = /\b(?:free\s+(?:admission|entry|entrance|to\s+enter|of\s+charge)|admission\s+(?:is\s+)?free|entry\s+(?:is\s+)?free|no\s+admission\s+charge)\b/i;
+const FREE = /\b(?:free\s+(?:admission|entry|entrance|to\s+enter|of\s+charge)|admission\s+(?:is\s+)?free|entry\s+(?:is\s+)?free|no\s+admission\s+charge)\b/gi;
+
+// What turns "free entry" into somebody else's free entry. English Heritage's
+// Dover Castle page says "FREE ENTRY FOR UP TO SIX CHILDREN … accompanied by an
+// adult member", and read without this the atlas told a family that a £26 day
+// out cost nothing. A price that is confidently wrong is worse than no price,
+// so a free claim counts only when nothing qualifies it.
+const QUALIFIED = /\b(?:members?|membership|subscriber|annual pass|children|child|under[- ]?\d|accompanied|carers?|when you|if you|with (?:a|an|any|your)|for (?:up to|the first)|residents?|students?|locals?|nhs|blue light)\b/i;
 
 const flatten = (html) => String(html)
   .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
@@ -207,7 +214,7 @@ export function admissionFrom(html, node = {}) {
   // The bracketed aside is allowed because half of them write the age range
   // there — "Children (4-15) £24.00" — and refusing it loses the child price on
   // exactly the sites that were clearest about who it was for.
-  const GLUE = /^[\s:.\u2013\u2014-]*(?:\([^)]{0,24}\))?[\s:.\u2013\u2014-]*(?:from|only|just|each|per|price[sd]?|ticket[s]?|entry|admission|is|are|at|costs?|of|=)?[\s:.\u2013\u2014-]*$/i;
+  const GLUE = /^[\s:.\u2013\u2014-]*(?:\([^)]{0,24}\))?[\s:.\u2013\u2014-]*(?:(?:from|only|just|each|per|price[sd]?|ticket[s]?|entry|admission|is|are|at|costs?|of|=)[\s:.\u2013\u2014-]*)*$/i;
   for (const [slot, re] of TICKETS) {
     if (found[slot]) continue;
     let best = null;
@@ -228,7 +235,11 @@ export function admissionFrom(html, node = {}) {
     if (best) found[slot] = best.price.replace(/\s/g, '');
   }
 
-  if (found.free === null && !found.adult && FREE.test(flat)) found.free = true;
+  if (found.free === null && !found.adult) {
+    for (const m of flat.matchAll(FREE)) {
+      if (!QUALIFIED.test(flat.slice(m.index + m[0].length, m.index + m[0].length + 80))) { found.free = true; break; }
+    }
+  }
   // A place that charges is not free, whatever a "free parking" line elsewhere
   // on the page said.
   if (found.adult) found.free = false;

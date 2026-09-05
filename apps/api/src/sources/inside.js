@@ -102,14 +102,36 @@ const metres = (v) => { const n = Number(String(v).replace(/[^\d.]/g, '')); retu
  * ride leaves behind (a way for the track, a node for the station, four
  * segments of the same flume) are folded into one by name.
  */
-async function fromOsm({ lat, lng, radiusKm }) {
+async function fromOsm({ lat, lng, radiusKm, areaRef = null }) {
+  const wanted =
+    `nwr(SCOPE)[attraction][name];` +
+    `nwr(SCOPE)[tourism=attraction][name];` +
+    `nwr(SCOPE)[amenity~"^(cafe|fast_food|restaurant|ice_cream|toilets)$"][name];`;
+
+  // Where the place is mapped as an area — a park's boundary, a zoo's fence —
+  // ask for what is *inside it* rather than what is within so many metres of
+  // its middle. A radius around Thorpe Park's centre reaches the retail park
+  // over the road; the polygon does not, and it also does not stop short of
+  // the far end of Alton Towers, which is a mile from its centre.
+  if (areaRef) {
+    const [kind, id] = String(areaRef).split('/');
+    if ((kind === 'way' || kind === 'relation') && /^\d+$/.test(id ?? '')) {
+      // Overpass numbers areas from the element they were made from; asking it
+      // to derive one with map_to_area avoids having to know the offset.
+      try {
+        const inside = itemsFromElements((await overpass(
+          `[out:json][timeout:80];${kind}(id:${id});map_to_area->.g;(` +
+          wanted.replace(/SCOPE/g, 'area.g') +
+          `);out tags center;`,
+        )).elements || []);
+        if (inside.length) return inside;
+      } catch { /* fall through to the radius, which always works */ }
+    }
+  }
+
   const r = Math.round(radiusKm * 1000);
   return itemsFromElements((await overpass(
-    `[out:json][timeout:80];(` +
-    `nwr(around:${r},${lat},${lng})[attraction][name];` +
-    `nwr(around:${r},${lat},${lng})[tourism=attraction][name];` +
-    `nwr(around:${r},${lat},${lng})[amenity~"^(cafe|fast_food|restaurant|ice_cream|toilets)$"][name];` +
-    `);out tags center;`,
+    `[out:json][timeout:80];(` + wanted.replace(/SCOPE/g, `around:${r},${lat},${lng}`) + `);out tags center;`,
   )).elements || []);
 }
 
@@ -228,7 +250,7 @@ async function fromWikipedia(items) {
  * Research what is inside one place and keep it. Returns the rows as stored.
  * `force` re-researches a park whose contents are already held.
  */
-export async function researchInside({ parentRef, name, lat, lng, radiusKm, force = false }) {
+export async function researchInside({ parentRef, name, lat, lng, radiusKm, areaRef = null, force = false }) {
   if (!parentRef || lat == null || lng == null || !radiusKm) return [];
   if (!force) {
     const held = await placeContents.contentsState(parentRef);
@@ -240,7 +262,7 @@ export async function researchInside({ parentRef, name, lat, lng, radiusKm, forc
 
   let items = [];
   try {
-    items = await fromOsm({ lat, lng, radiusKm });
+    items = await fromOsm({ lat, lng, radiusKm, areaRef });
   } catch (err) {
     await placeContents.markResearchFailed(parentRef);
     throw err;
@@ -282,4 +304,106 @@ export async function contentsOf(parentRef) {
     lat: r.lat, lng: r.lng, facts: r.facts ?? {}, summary: r.summary, summarySource: r.summary_source,
     website: r.website, wikidataId: r.wikidata_id, wikipediaUrl: r.wikipedia_url, attribution: r.attribution ?? [],
   }));
+}
+
+// ---------------------------------------------------------------------------
+// the place itself
+// ---------------------------------------------------------------------------
+
+// How far a place's grounds reach when the map has it only as a point, by what
+// the map calls it. A fallback: `fromOsm` prefers the polygon whenever there is
+// one, and these numbers only decide how wide to cast when there is not.
+const TAG_GROUNDS = [
+  [/^theme_park$/, 1.2], [/^zoo$/, 1.0], [/^safari_park$/, 3.0], [/^water_park$/, 0.8],
+  [/^aquarium$/, 0.4], [/^museum$/, 0.25], [/^gallery$/, 0.2], [/^attraction$/, 0.4],
+  [/^castle$/, 0.4], [/^manor$/, 0.4], [/^ruins$/, 0.3], [/^monument$/, 0.2],
+  [/^garden$/, 0.6], [/^park$/, 1.0], [/^nature_reserve$/, 1.5],
+];
+
+/** What the map calls this place, and therefore how far to look around it. */
+export function groundsFromTags(tags = {}) {
+  const words = [tags.tourism, tags.historic, tags.leisure, tags.attraction, tags.amenity]
+    .filter(Boolean).map((w) => String(w).split(';')[0]);
+  let km = 0;
+  for (const w of words) for (const [re, r] of TAG_GROUNDS) if (re.test(w)) km = Math.max(km, r);
+  return km;
+}
+
+const norm = (s) => String(s ?? '').toLowerCase().normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+
+/**
+ * The map's own entry for one place: its tags, and whether it is an area.
+ *
+ * The tags are where the practicalities live — when it opens, whether there is
+ * a charge, whether you can get a wheelchair round it, whether there are loos
+ * and somewhere to park and whether the dog can come. None of that is in an
+ * encyclopedia and all of it decides whether a family goes.
+ *
+ * Found by Wikidata id first, which is exact and needs no judgement, then by
+ * name within 800m, which does. An attraction that Wikidata already gave us an
+ * `osm_ref` for skips both and is fetched directly.
+ */
+export async function placeTags({ osmRef = null, wikidataId = null, name = null, lat = null, lng = null } = {}) {
+  const clauses = [];
+  if (osmRef && /^(node|way|relation)\/\d+$/.test(osmRef)) {
+    const [kind, id] = osmRef.split('/');
+    clauses.push(`${kind}(id:${id});`);
+  }
+  if (wikidataId && /^Q\d+$/.test(wikidataId)) clauses.push(`nwr["wikidata"="${wikidataId}"];`);
+  if (!clauses.length && name && lat != null && lng != null) {
+    clauses.push(`nwr(around:800,${lat},${lng})[name][~"^(tourism|historic|leisure|attraction)$"~"."];`);
+  }
+  if (!clauses.length) return null;
+
+  let elements;
+  try {
+    elements = (await overpass(`[out:json][timeout:60];(${clauses.join('')});out tags center;`)).elements || [];
+  } catch { return null; }
+  if (!elements.length) return null;
+
+  const wanted = norm(name);
+  // An exact identifier beats a name; among names, the one that actually
+  // matches beats the nearest café that happens to be tagged historic.
+  const pick = elements.find((e) => e.tags?.wikidata && e.tags.wikidata === wikidataId)
+    ?? elements.find((e) => wanted && norm(e.tags?.name) === wanted)
+    ?? (osmRef ? elements[0] : null);
+  if (!pick) return null;
+
+  return {
+    ref: `${pick.type}/${pick.id}`,
+    isArea: pick.type !== 'node',
+    lat: pick.lat ?? pick.center?.lat ?? null,
+    lng: pick.lon ?? pick.center?.lon ?? null,
+    tags: pick.tags ?? {},
+  };
+}
+
+// What a tag means to a family, and the tags that carry it. Only the ones a
+// household actually asks about before setting off — this is not a dump of
+// everything OpenStreetMap knows, it is the six questions that decide a day.
+const YES = (v) => v != null && !/^(no|none|false)$/i.test(String(v));
+
+/** The map's answer to "can we actually go, and what do we need to know". */
+export function visitFromTags(tags = {}) {
+  const out = {};
+  if (tags.opening_hours) out.openingHours = tags.opening_hours;
+  if (tags['opening_hours:signed'] === 'no') out.seasonal = 'Hours are not signed at the gate';
+  if (tags.fee != null) out.fee = /^(no|free)$/i.test(tags.fee) ? 'free' : 'charged';
+  if (tags.charge) out.charge = tags.charge;
+  if (tags.website || tags['contact:website']) out.website = tags.website ?? tags['contact:website'];
+  if (tags.phone || tags['contact:phone']) out.phone = tags.phone ?? tags['contact:phone'];
+  if (tags.wheelchair) out.wheelchair = tags.wheelchair;
+  if (tags['wheelchair:description']) out.stepFree = tags['wheelchair:description'];
+  if (tags['toilets:wheelchair']) out.wheelchairToilet = tags['toilets:wheelchair'];
+  if (YES(tags.toilets)) out.toilets = true;
+  if (YES(tags.dog) || YES(tags.dogs)) out.dogs = tags.dog ?? tags.dogs;
+  if (tags.parking || YES(tags['service:parking'])) out.parking = tags.parking ?? 'yes';
+  if (tags.operator) out.operator = tags.operator;
+  if (tags['addr:street']) {
+    out.address = [tags['addr:housenumber'], tags['addr:street'], tags['addr:city'], tags['addr:postcode']]
+      .filter(Boolean).join(', ');
+  }
+  if (tags['addr:postcode']) out.postcode = tags['addr:postcode'];
+  return out;
 }
