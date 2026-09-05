@@ -380,11 +380,16 @@ export async function rankRegion(slug) {
  * the only thing sorting them. A name that *is* the search comes first, then one
  * that starts with it, then one where it starts a word, then the rest.
  */
-export async function listAttractions({ region, state, q, category, limit = 200, offset = 0 } = {}) {
+export async function listAttractions({ region, state, q, category, kind, limit = 200, offset = 0 } = {}) {
   const where = []; const args = [];
   if (region) { args.push(region); where.push(`a.region_slug = $${args.length}`); }
   if (state) { args.push(state); where.push(`a.state = $${args.length}`); }
   if (category) { args.push(category); where.push(`a.category = $${args.length}`); }
+
+  // The granular layer: a Wikidata type the place actually is. `category` is
+  // Roam's eight words and is too coarse to pick out a theme park from a
+  // cathedral — both are somewhere to go, and only one of them has rides.
+  if (kind) { args.push(kind); where.push(`$${args.length} = any(a.kinds)`); }
 
   const words = String(q ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 6);
   for (const word of words) {
@@ -1028,6 +1033,41 @@ export const heroForPlace = async (venueRef) =>
       where l.subject_type = 'place' and l.subject_id = $1 and l.role = 'hero'
         and i.moderation = 'approved'`, [venueRef])).rows[0] ?? null;
 
+/**
+ * The card image for a pageful of places, in one statement.
+ *
+ * A place's own hero first, then — for the atlas's own attractions, which are
+ * rows we made and which carry their picture against the attraction rather than
+ * against the venue_ref — the attraction's hero for the same place. Without
+ * that second half, the Colosseum has a picture on the home screen and a blank
+ * tile in the household's own atlas, which is the same photograph in two
+ * tables failing to meet.
+ *
+ * Returns a Map keyed by venue_ref; a place with nothing is simply absent.
+ */
+export async function heroesForPlaces(venueRefs) {
+  const refs = [...new Set((venueRefs ?? []).filter(Boolean).map(String))];
+  if (!refs.length) return new Map();
+  const { rows } = await query(
+    `select l.subject_id as venue_ref, i.id, i.source, i.lqip, i.credit_line, i.licence,
+            i.licence_url, i.source_page_url, i.attribution_required, i.width, i.height, 0 as tier
+       from image_links l join image_assets i on i.id = l.image_id
+      where l.subject_type = 'place' and l.role = 'hero' and i.moderation = 'approved'
+        and l.subject_id = any($1::text[])
+      union all
+     select a.venue_ref, i.id, i.source, i.lqip, i.credit_line, i.licence,
+            i.licence_url, i.source_page_url, i.attribution_required, i.width, i.height, 1 as tier
+       from attractions a
+       join image_links l on l.subject_type = 'attraction' and l.subject_id = a.id::text and l.role = 'hero'
+       join image_assets i on i.id = l.image_id and i.moderation = 'approved'
+      where a.venue_ref = any($1::text[])`,
+    [refs],
+  );
+  const out = new Map();
+  for (const r of rows.sort((a, b) => a.tier - b.tier)) if (!out.has(r.venue_ref)) out.set(r.venue_ref, r);
+  return out;
+}
+
 /** What the last pass over one place concluded. */
 export const placePass = async (venueRef) =>
   (await query('select * from place_image_passes where venue_ref = $1', [venueRef])).rows[0] ?? null;
@@ -1194,4 +1234,34 @@ export async function readingStats(region = null) {
   const { rows: lessons } = await query(
     'select count(*) filter (where active) as active, count(*) as total from extraction_lessons');
   return { ...rows[0], lessons: lessons[0] };
+}
+
+/**
+ * The granular types actually present in a region, with how many places each
+ * holds (owner, 5 Sep 2026: "Do we have theme parks, aquariums, and that sort
+ * of granular level look at soft plays, etc.? Can we filter by that?").
+ *
+ * Counted from the rows rather than read off `place_kinds.seen_count`, which
+ * counts every candidate the harvest has ever seen anywhere — a number that
+ * cannot tell you whether there is a single castle in Surrey.
+ *
+ * Ordered by how many places carry the type, because the tail is long and
+ * mostly useless: of the 161 types across Surrey and Berkshire, 83 sit on
+ * exactly one place. The types worth a chip are the ones at the top.
+ */
+export async function typesInRegion({ region = null, state = 'published' } = {}) {
+  const args = [];
+  const where = [];
+  if (region) { args.push(region); where.push(`a.region_slug = $${args.length}`); }
+  if (state && state !== 'all') { args.push(state); where.push(`a.state = $${args.length}`); }
+  const { rows } = await query(
+    `select k.qid, coalesce(k.label, k.qid) as label, k.category, count(*)::int as places
+       from attractions a
+       cross join lateral unnest(a.kinds) as u(qid)
+       join place_kinds k on k.qid = u.qid and k.admit
+      ${where.length ? `where ${where.join(' and ')}` : ''}
+      group by k.qid, k.label, k.category
+      order by count(*) desc, label
+      limit 120`, args);
+  return rows;
 }

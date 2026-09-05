@@ -38,7 +38,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import {
   api, AttractionFacts, AttractionFactsRow, ExtractionLesson,
-  LibraryAttraction, LibraryAttractionDetail, PlaceContent, ReadingStats,
+  LibraryAttraction, LibraryAttractionDetail, LibraryType, PlaceContent, ReadingStats,
 } from '../../api';
 import { colors, radius, spacing, TARGET, type } from '../../theme';
 import { Icon } from '../../components/Icon';
@@ -74,6 +74,8 @@ export function Reading({ canManage }: { canManage: boolean }) {
   const [region, setRegion] = useQueryState<string | null>('readRegion', 'berkshire', asText);
   const [openId, setOpenId] = useQueryState<string | null>('place', null, asText);
   const [q, setQ] = useState('');
+  const [kind, setKind] = useQueryState<string | null>('kind', null, asText);
+  const [types, setTypes] = useState<LibraryType[]>([]);
 
   const [rows, setRows] = useState<LibraryAttraction[]>([]);
   const [stats, setStats] = useState<ReadingStats | null>(null);
@@ -82,16 +84,18 @@ export function Reading({ canManage }: { canManage: boolean }) {
 
   const load = useCallback(async () => {
     try {
-      const [list, taught] = await Promise.all([
-        api.libraryAttractions({ region: region ?? undefined, state: 'published', limit: 300 }),
+      const [list, taught, kinds] = await Promise.all([
+        api.libraryAttractions({ region: region ?? undefined, state: 'published', kind: kind ?? undefined, limit: 300 }),
         api.libraryLessons({ region: region ?? undefined }),
+        api.libraryTypes({ region: region ?? undefined }),
       ]);
       setRows(list.attractions);
       setLessons(taught.lessons);
       setStats(taught.stats);
+      setTypes(kinds.types);
       setError(null);
     } catch (e: any) { setError(e.message); }
-  }, [region]);
+  }, [region, kind]);
   useEffect(() => { load(); }, [load]);
 
   // Only the two counties the owner asked for, until the reading is trusted
@@ -131,6 +135,18 @@ export function Reading({ canManage }: { canManage: boolean }) {
         ))}
       </FilterRow>
 
+      {/* The granular layer. Roam's eight categories cannot tell a theme park
+          from a cathedral, and a lesson is taught against one of these, so this
+          is also how you review every castle's reading together. Ordered by how
+          many places carry the type: the tail is long and mostly ones. */}
+      <FilterRow>
+        <FilterChip label="Every kind" on={!kind} onPress={() => setKind(null)} />
+        {types.slice(0, 14).map((t) => (
+          <FilterChip key={t.qid} label={t.label} count={t.places}
+                      on={kind === t.qid} onPress={() => setKind(kind === t.qid ? null : t.qid)} />
+        ))}
+      </FilterRow>
+
       {/* He went looking for one and there wasn't one. Two hundred and fifty
           published places in a county is a list nobody scrolls. */}
       <View style={styles.search}>
@@ -147,7 +163,9 @@ export function Reading({ canManage }: { canManage: boolean }) {
       <View style={[wide && styles.split]}>
         <View style={[{ minWidth: 0 }, wide && { flex: 2 }]}>
           <Panel title={openId ? 'The reading' : 'Pick a place to read'}
-                 sub={openId ? undefined : `${plural(shown.length, 'published place')} in ${REGIONS.find((r) => r.slug === region)?.name ?? region}`}
+                 sub={openId ? undefined
+                   : `${plural(shown.length, 'published place')} in ${REGIONS.find((r) => r.slug === region)?.name ?? region}`
+                     + (kind ? `, of kind “${types.find((t) => t.qid === kind)?.label ?? kind}”` : '')}
                  padded={false}>
             {openId ? (
               <Compare id={openId} canManage={canManage} wide={wide}

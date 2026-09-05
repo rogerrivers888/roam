@@ -1235,7 +1235,9 @@ export const api = {
   librarySetTarget: (slug: string, targetCount: number) =>
     patch<{ region: LibraryRegion }>(`/api/admin/library/regions/${slug}`, { targetCount }),
   libraryRank: (slug: string) => post<{ region: LibraryRegion }>(`/api/admin/library/regions/${slug}/rank`, {}),
-  libraryAttractions: (p: { region?: string; state?: string; q?: string; category?: string; limit?: number }) =>
+  libraryTypes: (p: { region?: string; state?: string } = {}) =>
+    request<{ types: LibraryType[] }>(`/api/admin/library/types${qs(p)}`),
+  libraryAttractions: (p: { region?: string; state?: string; q?: string; category?: string; kind?: string; limit?: number }) =>
     request<{ attractions: LibraryAttraction[] }>(`/api/admin/library/attractions${qs(p)}`),
   libraryCurate: (id: string, body: { state?: string; pinned?: boolean; note?: string }) =>
     patch<{ attraction: LibraryAttraction }>(`/api/admin/library/attractions/${id}`, body),
@@ -1392,6 +1394,9 @@ export type AttractionFactsRow = {
   review_note: string | null; wrong_fields: string[];
   reviewed_by: string | null; reviewed_at: string | null; read_at: string;
 };
+
+/** A Wikidata type present in a region, and how many places carry it. */
+export type LibraryType = { qid: string; label: string; category: string | null; places: number };
 
 /** A correction, in his words, scoped to a kind of place so it travels. */
 export type ExtractionLesson = {

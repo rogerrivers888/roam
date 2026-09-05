@@ -197,7 +197,7 @@ adminRouter.get('/attractions', requires('view_library'), async (req, res, next)
   try {
     const rows = await lib.listAttractions({
       region: req.query.region, state: req.query.state, q: req.query.q,
-      category: req.query.category,
+      category: req.query.category, kind: req.query.kind,
       limit: Math.min(500, Number(req.query.limit) || 200),
       offset: Number(req.query.offset) || 0,
     });
@@ -779,5 +779,24 @@ adminRouter.post('/regions/:slug/read', requires('manage_library'), async (req, 
       }
     }
     res.json(out);
+  } catch (err) { next(err); }
+});
+
+/**
+ * What kinds of place a region actually holds, for the filter above the list.
+ *
+ * Separate from `/kinds`, which is the classifier — every Wikidata type Roam
+ * has ever seen and whether it counts as somewhere to go. This is the much
+ * shorter question a person standing in front of one county asks: what is
+ * actually here, and how much of it.
+ */
+adminRouter.get('/types', requires('view_library'), async (req, res, next) => {
+  try {
+    res.json({
+      types: await lib.typesInRegion({
+        region: req.query.region ?? null,
+        state: req.query.state ?? 'published',
+      }),
+    });
   } catch (err) { next(err); }
 });
