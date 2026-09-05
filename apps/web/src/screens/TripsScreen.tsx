@@ -854,24 +854,10 @@ function Itinerary({ d, isPast, onPlan, onDay }: { d: TripDetail; isPast: boolea
   const checkOut = base?.checkOut ?? (isTrip ? trip.endDate : null);
 
   const spine = days.map((day, i) => {
-    const beats: Beat[] = [];
-    // Leaving home is the first thing that happens, and it is a fact of the
-    // trip rather than a stop somebody saved.
-    if (i === 0) {
-      beats.push({
-        time: isTrip ? trip.dayStart ?? null : clock24(trip.departAt),
-        icon: trip.travelMode === 'transit' ? 'transit' : trip.travelMode === 'walking' ? 'walking' : 'driving',
-        title: 'Leave home',
-        detail: [trip.origin.label?.split(',')[0], trip.destination?.label?.split(',')[0]].filter(Boolean).join(' → ') || null,
-        dayId: day.id,
-      });
-    }
-    if (base && checkIn && String(checkIn).slice(0, 10) === day.date) {
-      beats.push({ time: null, icon: 'hotel', title: base.label.split(',')[0], detail: `Check in${checkOut ? ` · until ${fmtDate(String(checkOut))}` : ''}`, dayId: day.id });
-    }
+    const stopBeats: Beat[] = [];
     for (const slot of day.slots) {
       for (const stop of slot.stops) {
-        beats.push({
+        stopBeats.push({
           time: stop.startTime,
           icon: 'place',
           title: stop.name,
@@ -882,11 +868,41 @@ function Itinerary({ d, isPast, onPlan, onDay }: { d: TripDetail; isPast: boolea
         });
       }
     }
+    const times = stopBeats.map((b) => b.time).filter(Boolean) as string[];
+    const firstAt = times.length ? times.reduce((a, b) => (a < b ? a : b)) : null;
+    const lastAt = times.length ? times.reduce((a, b) => (a > b ? a : b)) : null;
+    /**
+     * A day's window and the times on its stops can disagree — the window was
+     * changed after the day was saved — and the stops are what actually
+     * happened. So the window's time is only shown where it is still true:
+     * leaving home before the first stop, coming back after the last. Where it
+     * is not, the beat keeps its place and loses its clock, rather than telling
+     * somebody they left home at 10:00 to arrive somewhere at 07:41.
+     */
+    const dayStart = isTrip ? trip.dayStart ?? null : clock24(trip.departAt);
+    const dayEnd = isTrip ? trip.dayEnd ?? null : clock24(trip.returnAt);
+
+    const beats: Beat[] = [];
+    // Leaving home is the first thing that happens, and it is a fact of the
+    // trip rather than a stop somebody saved.
+    if (i === 0) {
+      beats.push({
+        time: dayStart && (!firstAt || dayStart < firstAt) ? dayStart : null,
+        icon: trip.travelMode === 'transit' ? 'transit' : trip.travelMode === 'walking' ? 'walking' : 'driving',
+        title: 'Leave home',
+        detail: [trip.origin.label?.split(',')[0], trip.destination?.label?.split(',')[0]].filter(Boolean).join(' → ') || null,
+        dayId: day.id,
+      });
+    }
+    if (base && checkIn && String(checkIn).slice(0, 10) === day.date) {
+      beats.push({ time: null, icon: 'hotel', title: base.label.split(',')[0], detail: `Check in${checkOut ? ` · until ${fmtDate(String(checkOut))}` : ''}`, dayId: day.id });
+    }
+    beats.push(...stopBeats);
     if (base && checkOut && String(checkOut).slice(0, 10) === day.date && beats.length) {
       beats.push({ time: null, icon: 'hotel', title: `Check out · ${base.label.split(',')[0]}`, detail: null, dayId: day.id });
     }
     if (i === days.length - 1) {
-      beats.push({ time: isTrip ? trip.dayEnd ?? null : clock24(trip.returnAt), icon: 'home', title: 'Home', detail: null, dayId: day.id });
+      beats.push({ time: dayEnd && (!lastAt || dayEnd > lastAt) ? dayEnd : null, icon: 'home', title: 'Home', detail: null, dayId: day.id });
     }
     return { day, beats };
   });

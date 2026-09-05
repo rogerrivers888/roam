@@ -12,8 +12,9 @@ import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { searchAreas } from '../sources/areas.js';
 import { optInFrom, enabledSources } from '../sources/index.js';
 import { searchCached } from '../sources/cache.js';
-import { bedsNear, OSM_ATTRIBUTION } from '../sources/stays.js';
-import { rankStays, middleOf } from '../domain/stays.js';
+import { bedsNear, OSM_ATTRIBUTION, LITEAPI_ATTRIBUTION } from '../sources/stays.js';
+import { rankStays, middleOf, partyForStay } from '../domain/stays.js';
+import { occupanciesFor, liteapiEnabled, liteapiKeyKind } from '../sources/liteapi.js';
 import { kmBetween } from '../domain/travel.js';
 import { currentHousehold } from './household.js';
 import { visitPayload, householdStatus } from './places.js';
@@ -21,6 +22,7 @@ import { upsertHouseholdPlace, ownedImage } from './atlas.js';
 import * as atlasRepo from '../repositories/atlas.js';
 import { heroesForPlaces } from '../repositories/library.js';
 import { claimPlace } from '../sources/own.js';
+import { matchOsm } from '../sources/openMatch.js';
 
 const router = Router();
 const SLOTS = ['morning', 'afternoon', 'evening'];
@@ -325,8 +327,10 @@ router.get('/:id/places', async (req, res, next) => {
       };
     });
 
-    // The base is a place this trip touched even when nobody put it on a day.
-    if (trip.base_lat != null && trip.base_kind !== 'centre' && trip.base_kind !== 'home' && !places.some((p) => p.name === trip.base_label)) {
+    // Somewhere they slept is a place this trip touched even when nobody put it
+    // on a day. A day out's "base" is the town it went to, not a hotel, so it
+    // is only a row where there was a night in it.
+    if (nightsOf(trip) > 0 && trip.base_lat != null && trip.base_kind !== 'centre' && trip.base_kind !== 'home' && !places.some((p) => p.name === trip.base_label)) {
       places.unshift({
         venueRef: `base:${trip.id}`, name: trip.base_label, category: 'hotel', group: 'stay',
         lat: trip.base_lat, lng: trip.base_lng, firstOn: trip.base_check_in ?? trip.start_date, lastOn: trip.base_check_out ?? trip.end_date,
@@ -483,12 +487,25 @@ async function runShortlistSearch(req, { onProgress = null } = {}) {
 }
 
 /**
- * GET /api/trips/:id/stays?radiusKm=2&near=plans|centre&mode=walking
+ * GET /api/trips/:id/stays?radiusKm=2&mode=walking&rooms=1&adults=2&children=8,11
  *
  * Somewhere to sleep, ranked by how much of the shortlist is on foot from the
- * front door (domain/stays.js). Open map only: beds, addresses and the star
- * rating an operator is allowed to advertise. No prices and no availability —
- * those need a booking provider with a key and a cap, which is the owner's.
+ * front door (domain/stays.js), and priced for the nights this trip is away.
+ *
+ * The ranking is the half only Roam can do: it is the only thing that holds the
+ * shortlist, so it is the only thing that can say "eight minutes from four of
+ * your five plans". The price is the half everybody else can do and Roam could
+ * not, until LiteAPI (sources/liteapi.js). Both are needed — a hotel on the
+ * doorstep at £600 a night is not an answer either.
+ *
+ * `rooms`, `adults` and `children` override what the trip's attendees imply.
+ * The answer always says what it asked for, including any age it had to assume,
+ * so the screen can show it rather than the household discovering it at a desk.
+ *
+ * Nothing licensed is written down here. LiteAPI's names, scores, photographs
+ * and prices are fetched for this one screen; the row's own reference stays the
+ * open map's wherever the two agree, and offline/policy.ts does not save this
+ * path to a device.
  */
 router.get('/:id/stays', async (req, res, next) => {
   try {
@@ -508,27 +525,130 @@ router.get('/:id/stays', async (req, res, next) => {
     // No car means everything is a walk; a car makes a mile nothing at all.
     const mode = req.query.mode === 'driving' || (req.query.mode == null && trip.has_car) ? 'driving' : 'walking';
 
-    let beds; let cached;
-    try { ({ beds, cached } = await bedsNear(centre, radiusKm)); }
-    catch (err) {
+    // The nights. A day out has none, and a trip with no dates yet has none
+    // either — in both cases there are still beds to show, just no prices.
+    const checkin = trip.start_date ? String(trip.start_date).slice(0, 10) : null;
+    const checkout = trip.end_date ? String(trip.end_date).slice(0, 10) : null;
+    const nights = nightsOf(trip);
+
+    // Who the room is for: the people on this trip, unless the screen says
+    // otherwise. A child's age changes the price, so it is asked for by age.
+    const derived = partyForStay(await trips.partyOf(trip.id), { on: checkin });
+    const asked = {
+      adults: Math.max(1, Math.min(20, Number(req.query.adults) || derived.adults)),
+      childAges: req.query.children != null
+        ? String(req.query.children).split(',').map((n) => Number(n.trim())).filter((n) => Number.isFinite(n) && n >= 0 && n < 18)
+        : derived.childAges,
+      rooms: Math.max(1, Math.min(9, Number(req.query.rooms) || 1)),
+    };
+    const occupancies = occupanciesFor({ adults: asked.adults, childAges: asked.childAges, rooms: asked.rooms });
+
+    let look;
+    try {
+      look = await bedsNear(centre, radiusKm, {
+        stay: nights > 0 && checkin && checkout ? { checkin, checkout, occupancies } : null,
+      });
+    } catch (err) {
       // The open map's servers are shared and sometimes busy. Say so in words
       // somebody can act on rather than passing on a timeout code.
       return res.status(504).json({ error: 'map_busy', message: 'The open map took too long to answer. Try again in a moment — or say where you are staying and we will work around it.' });
     }
-    const ranked = rankStays(beds, { anchors, centre: anchors.length ? heart : centre, mode })
+    const ranked = rankStays(look.beds, { anchors, centre: anchors.length ? heart : centre, mode })
       .filter((s) => s.distanceKm == null || s.distanceKm <= radiusKm + 1)
       .slice(0, 40);
     const status = await householdStatus(household.id, ranked.map((s) => s.venueRef));
-    if (!cached) await trips.recordProviderCall(household.id, 'osm', 'trip.stays');
+    // Every outbound call is attributed (Technical Constraints §2). LiteAPI is
+    // free to search — they earn on the booking — so the units are requests and
+    // the cost line stays at zero, but the row is written all the same.
+    if (!look.cached) await trips.recordProviderCall(household.id, 'osm', 'trip.stays');
+    if (look.calls) await trips.recordProviderCall(household.id, 'liteapi', 'trip.stays.rates', { liteapi: look.calls });
     res.json({
       near: { ...(anchors.length ? heart : centre), label: anchors.length ? 'the middle of your plans' : (trip.locality ?? trip.place_label ?? 'the centre') },
       radiusKm,
       mode,
       anchors: anchors.map((a) => ({ label: a.label, lat: a.lat, lng: a.lng })),
       results: ranked.map((s) => ({ ...s, household: status[s.venueRef] ?? null })),
-      cached,
+      cached: look.cached,
+      // What was asked of the price source, and what came back — enough for the
+      // screen to say "for 2 adults and 2 children, 1 room, 3 nights" and to be
+      // corrected, rather than showing a number nobody can account for.
+      pricing: {
+        on: liteapiEnabled(),
+        priced: look.priced,
+        // A sandbox key answers with invented hotels at invented prices. Shown,
+        // never hidden: a made-up price with nothing saying so is a lie.
+        sandbox: look.sandbox,
+        environment: liteapiKeyKind(),
+        currency: look.currency,
+        nights,
+        checkIn: checkin,
+        checkOut: checkout,
+        rooms: asked.rooms,
+        adults: asked.adults,
+        childAges: asked.childAges,
+        // Whose age we had to take a view on, so the screen can offer to fix it.
+        assumedAges: derived.assumed,
+        withPrice: ranked.filter((s) => s.offer).length,
+        reason: look.reason,
+        degraded: look.degraded,
+      },
+      attributions: [OSM_ATTRIBUTION, ...(look.sources.includes('liteapi') ? [LITEAPI_ATTRIBUTION] : [])],
       attribution: OSM_ATTRIBUTION,
     });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/trips/:id/stay — this is where we are staying.
+ *
+ * Picking a bed off the list is the household claiming a place, and a claim is
+ * where the owned layer starts (CLAUDE.md, Technical Constraints §13.10). So
+ * this is not a plain "set the base to whatever the row said":
+ *
+ *  - An open row (OpenStreetMap) is already ours to keep. Its name and its
+ *    reference go straight in and sources/own.js researches it, so the address
+ *    and the check-in time are on the phone when the family arrives.
+ *  - A licensed row — a hotel LiteAPI has and the map does not — is looked for
+ *    in the open map by name and point (sources/openMatch.js). Found, it is
+ *    stored as the open place it turns out to be, and the rented record is
+ *    discarded.
+ *  - Not found, we keep the point and the household's own words for it. What
+ *    is never done is writing a provider's name into a trip that syncs to a
+ *    phone; that is the line `trip_stops.venue_name` already sits on.
+ */
+router.post('/:id/stay', async (req, res, next) => {
+  try {
+    const trip = await loadTrip(req.params.id);
+    const b = req.body || {};
+    const lat = Number(b.lat); const lng = Number(b.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'point_required' });
+    const ref = String(b.venueRef ?? '');
+    const [prefix, ...rest] = ref.split(':');
+    const openRef = ['osm', 'fixtures'].includes(prefix) ? rest.join(':') : null;
+
+    let base = { label: String(b.label ?? '').trim() || 'Where we are staying', lat, lng, source: prefix === 'osm' ? 'osm' : null, sourcePlaceId: prefix === 'osm' ? openRef : null };
+    let named = openRef ? 'open' : 'household';
+    let how = null;
+
+    if (!openRef && b.label) {
+      // One Overpass lookup, and only on the one place they chose — not on the
+      // forty on the list. This is the same call every claimed place makes.
+      const match = await matchOsm({ name: String(b.label), lat, lng }).catch(() => null);
+      if (match && match.confidence >= 0.6) {
+        base = { label: match.matchedName, lat: match.lat, lng: match.lng, source: 'osm', sourcePlaceId: match.ref };
+        named = 'open';
+        how = match.how;
+      }
+    }
+
+    claimBase(trip.household_id, base, 'hotel');
+    await withTransaction(async (client) => {
+      await trips.updateTrip(trip.id, {
+        baseKind: 'hotel', baseLabel: base.label, baseLat: base.lat, baseLng: base.lng,
+        ...(b.checkIn != null ? { checkIn: b.checkIn } : {}), ...(b.checkOut != null ? { checkOut: b.checkOut } : {}),
+      }, client);
+    });
+    res.json({ ...(await tripPayload(trip.id)), stay: { named, how } });
   } catch (err) { next(err); }
 });
 
