@@ -34,8 +34,18 @@ const isJoin = (p: string) => /^\/api\/join\/[^/]+$/.test(p);
  * A place row carries a `venue` snapshot. For an open source that snapshot is
  * ours to keep; for a licensed one the atlas merges in what it fetched this
  * session (routes/atlas.js `taxonomyKept`), and that must not be written down.
+ *
+ * `photos` goes the same way, and unconditionally. It is the provider's own
+ * photograph, sent only for rows we own no picture of (sources/rentedPhoto.js),
+ * and it is rented in the strictest sense there is: a reference Google reissues,
+ * under a retention allowance of none. On the network it fills a tile that would
+ * otherwise be a mint square; on a device it would be a licence breach we could
+ * not reach to undo. So the card draws its category icon offline, which is the
+ * honest thing for it to draw — we do not have that picture, we were only
+ * allowed to look at it.
  */
-function cleanPlaceRow<T extends { venueRef?: string; venue?: unknown }>(row: T): T {
+function cleanPlaceRow<T extends { venueRef?: string; venue?: unknown; photos?: unknown }>(row: T): T {
+  if (row.photos !== undefined) row = { ...row, photos: undefined };
   // `image` deliberately survives this. It is not a provider's photograph: it is
   // an id into our own library, and every row in there is something we are
   // allowed to keep — a Commons photograph, a CC BY-SA street-level frame, or a

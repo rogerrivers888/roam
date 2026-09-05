@@ -17,6 +17,7 @@ import { recallVenue } from '../sources/index.js';
 import { currentHousehold } from './household.js';
 import { fillWhere } from '../sources/where.js';
 import { fillTaxonomy, needsTaxonomy, taxonomyKept } from '../sources/taxonomy.js';
+import { fillPhotos, needsPhoto, photosKept } from '../sources/rentedPhoto.js';
 import { countryOutline, sketchFor, SKETCH_ATTRIBUTION } from '../sources/sketch.js';
 import { heroesForPlaces } from '../repositories/library.js';
 import { shelvesForVenue } from '../domain/moods.js';
@@ -255,26 +256,45 @@ atlas.get('/places', async (req, res, next) => {
     // screen's shelves. Nothing here fetches: it reads the experiences and the
     // category a search already returned.
     const rules = await shelfRules();
-    places = places.map((p) => ({
-      ...p,
-      image: ownedImage(ourPictures.get(p.venueRef) ?? null),
-      moods: shelvesForVenue({
-        source: p.venueRef.split(':')[0], sourcePlaceId: p.venueRef.split(':').slice(1).join(':'),
-        category: p.category ?? p.venue?.category ?? null, experiences: p.venue?.experiences ?? [],
-      }, rules).shelves,
-    }));
+    places = places.map((p) => {
+      const ours = ownedImage(ourPictures.get(p.venueRef) ?? null);
+      return {
+        ...p,
+        image: ours,
+        // The rung below the ladder's floor. Only where we have nothing of our
+        // own, only what has been fetched since the service started, and never
+        // written down — the same rented-in-memory bargain as the taxonomy
+        // above (sources/rentedPhoto.js). VenueThumb already prefers `image`
+        // over `photos`, so a place the ladder later finds a mark for simply
+        // stops drawing the provider's.
+        photos: ours ? undefined : photosKept(p.venueRef) ?? undefined,
+        moods: shelvesForVenue({
+          source: p.venueRef.split(':')[0], sourcePlaceId: p.venueRef.split(':').slice(1).join(':'),
+          category: p.category ?? p.venue?.category ?? null, experiences: p.venue?.experiences ?? [],
+        }, rules).shelves,
+      };
+    });
     if (status) places = places.filter((p) => (status === 'special' ? p.special : p.status === status));
     // Where a place is, and what kind of place it is, are looked up lazily a few
     // rows per read, after the response has gone; the web asks again shortly
     // while any row is still waiting.
+    // A row we have no picture for at all — neither ours nor the provider's,
+    // yet. Counted with the rest so the screen asks again and the tiles fill in,
+    // rather than a household seeing mint squares until they navigate away.
+    const wantPictures = places.filter((p) => needsPhoto(p.venueRef, Boolean(p.image)));
     const pending = rows.filter((r) => r.lat != null && r.lng != null && !r.where_checked).length
-      + rows.filter(needsTaxonomy).length;
+      + rows.filter(needsTaxonomy).length
+      + wantPictures.length;
     res.json({ places, wherePending: pending });
     if (pending && !whereRunning.has(household.id)) {
       whereRunning.add(household.id);
       Promise.resolve()
         .then(() => fillWhere(household.id, rows))
         .then(() => fillTaxonomy(household.id, rows))
+        // Last, and deliberately: the ladder is asked for nothing here, but a
+        // provider is, and a provider bills. Anything that could have filled a
+        // tile for free has already had its turn by now.
+        .then(() => fillPhotos(household.id, wantPictures.map((p) => ({ venueRef: p.venueRef, hasOwn: Boolean(p.image) }))))
         .catch(() => null)
         .finally(() => whereRunning.delete(household.id));
     }

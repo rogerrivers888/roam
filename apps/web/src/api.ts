@@ -511,6 +511,7 @@ export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; ki
   /** Each person's latest score out of 5 here. */ scores: { memberId: string; member: string; score: number; on: string }[];
   /** Where it is at a glance: postcode district and the nearest station with its lines; null until looked up. */ postcode: string | null; station: string | null; stationLines: string[]; stationKind: string | null; stationDistanceM: number | null; whereChecked: string | null;
   /** The picture Roam owns for this place, if the ladder found one. */ image?: OwnedImage | null;
+  /** Rented: the provider's photographs, sent only where we own none, fetched at display and never stored. */ photos?: VenuePhotoRef[] | null;
   /** What a day here is like, over the closed set of six (domain/moods.js) — the Mood filter's vocabulary. */ moods?: MoodKey[] };
 
 export type Trip = {

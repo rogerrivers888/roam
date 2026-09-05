@@ -1096,6 +1096,117 @@ export const placePass = async (venueRef) =>
   (await query('select * from place_image_passes where venue_ref = $1', [venueRef])).rows[0] ?? null;
 
 /**
+ * The places the ladder should look at next.
+ *
+ * Migration 042 built the table and nothing was ever written to read it, so
+ * `sweepPictures()` threw on its first line and the ladder never ran once. That
+ * is the whole reason a household's own saved restaurants have no picture while
+ * the atlas's attractions do: the atlas walks `attractions.image_state`, which
+ * was written, and places walk this, which was not.
+ *
+ * Four reasons a place is due, and they are not the same reason:
+ *
+ *   never looked at   No pass row. The common case, and first in the queue.
+ *   due a retry       'failed' means the looking broke — a site down, KartaView
+ *                     refusing — not that there is nothing. Backed off, retried.
+ *   an older ladder   `picture_version` below the current one. Settled as 'none'
+ *                     by a ladder that had fewer rungs; adding Mapillary must
+ *                     improve the places already looked at, not only the ones
+ *                     claimed afterwards.
+ *   force             Everything, including what is settled and what is found.
+ *                     The thing to do after adding a token, and nothing else.
+ *
+ * A place that already has a hero is not due. `pictureFor` checks that again at
+ * rung 1 — this is the cheap filter, that is the correct one.
+ */
+export async function placesNeedingPictures({ limit = 50, version = 1, force = false } = {}) {
+  const { rows } = await query(
+    `select r.venue_ref, r.name, r.category, r.postcode, r.website, r.lat, r.lng,
+            r.wikidata_id, r.wikipedia_url,
+            coalesce(p.attempts, 0) as attempts,
+            p.state, p.picture_version, p.looked_at
+       from place_records r
+       left join place_image_passes p on p.venue_ref = r.venue_ref
+      where ($2 or not exists (
+              select 1 from image_links l
+                join image_assets i on i.id = l.image_id and i.moderation = 'approved'
+               where l.subject_type = 'place' and l.subject_id = r.venue_ref and l.role = 'hero'))
+        and ($2
+             or p.venue_ref is null
+             or (p.state = 'failed' and (p.next_attempt_at is null or p.next_attempt_at <= now()))
+             or (p.state = 'none' and coalesce(p.picture_version, 0) < $3))
+      -- Never looked at first, then the longest since anybody looked. A queue
+      -- that always starts at the same end never reaches the far one.
+      order by (p.venue_ref is null) desc, p.looked_at asc nulls first, r.first_owned asc
+      limit $1`,
+    [limit, force, version]);
+  return rows;
+}
+
+/** What this pass concluded, so the same ground is not walked again tomorrow. */
+export async function notePlacePass(venueRef, { state, rung = null, tried = [], error = null, version = 1, nextAttemptAt = null }) {
+  await query(
+    `insert into place_image_passes
+       (venue_ref, state, rung, tried, attempts, error, picture_version, looked_at, next_attempt_at)
+     values ($1, $2, $3, $4::jsonb, 1, $5, $6, now(), $7)
+     on conflict (venue_ref) do update set
+       state = excluded.state,
+       rung = excluded.rung,
+       tried = excluded.tried,
+       -- Attempts counts the looking, not the failing: it is what the backoff is
+       -- computed from, and it resets when a picture is finally found so a place
+       -- that breaks again later is not punished for its history.
+       attempts = case when excluded.state = 'found' then 0 else place_image_passes.attempts + 1 end,
+       error = excluded.error,
+       picture_version = excluded.picture_version,
+       looked_at = now(),
+       next_attempt_at = excluded.next_attempt_at`,
+    [venueRef, state, rung, JSON.stringify(tried ?? []), error, version, nextAttemptAt]);
+}
+
+/**
+ * How the ladder is doing, for the back office.
+ *
+ * The question this has to answer is "why has this got no picture", at the
+ * scale of the whole owned layer rather than one place. So it counts three
+ * different things and does not add them up: how many owned places there are,
+ * what the passes concluded, and which rung actually answered — because "we
+ * looked and there is nothing" and "we have not looked yet" are the same blank
+ * tile on screen and completely different problems behind it.
+ */
+export async function pictureStats() {
+  const [places, passes, rungs] = await Promise.all([
+    query(
+      `select count(*)::int as owned,
+              count(*) filter (where exists (
+                select 1 from image_links l
+                  join image_assets i on i.id = l.image_id and i.moderation = 'approved'
+                 where l.subject_type = 'place' and l.subject_id = r.venue_ref and l.role = 'hero'
+              ))::int as with_picture
+         from place_records r`),
+    query('select state, count(*)::int as n from place_image_passes group by state'),
+    query("select rung, count(*)::int as n from place_image_passes where state = 'found' and rung is not null group by rung"),
+  ]);
+
+  const byState = Object.fromEntries(passes.rows.map((r) => [r.state, r.n]));
+  const owned = places.rows[0]?.owned ?? 0;
+  const withPicture = places.rows[0]?.with_picture ?? 0;
+  const looked = passes.rows.reduce((n, r) => n + r.n, 0);
+
+  return {
+    owned,
+    withPicture,
+    // The number that matters, and the one nothing reported before: places
+    // nobody has even tried to find a picture for.
+    neverLooked: Math.max(0, owned - looked),
+    found: byState.found ?? 0,
+    none: byState.none ?? 0,
+    failed: byState.failed ?? 0,
+    byRung: Object.fromEntries(rungs.rows.map((r) => [r.rung, r.n])),
+  };
+}
+
+/**
  * Is this exact picture already somebody else's mark?
  *
  * The second lock on the same door as the platform blocklist in sources/logo.js.

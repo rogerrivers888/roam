@@ -328,6 +328,31 @@ export const googleSource = {
   },
 
   /**
+   * Just the photographs this place has, and who took them.
+   *
+   * The narrowest mask that reaches a picture. It is a Pro field and it bills as
+   * one, which is exactly why it is its own call rather than a corner of the
+   * detail: a card wants a picture and nothing else, and asking for the reviews,
+   * the hours and the price to get one is paying Enterprise rates for a
+   * thumbnail.
+   *
+   * What comes back is a *reference*, not a photograph — the bytes are fetched
+   * separately through /api/photos/google, and neither the reference nor the
+   * bytes are ever written down (Technical Constraints §4: display content,
+   * retention none). The attribution travels with it because showing the
+   * picture without the credit is the licence broken, not a missing nicety.
+   */
+  async photos(id, { meter = null } = {}) {
+    if (!KEY()) return null;
+    const p = await call(`/places/${id}`, { method: 'GET', fieldMask: 'id,photos.name,photos.authorAttributions', meter });
+    const found = (p?.photos || []).slice(0, 3).map((ph) => ({
+      ref: ph.name,
+      attribution: (ph.authorAttributions || []).map((a) => a.displayName).join(', '),
+    }));
+    return found.length ? found : null;
+  },
+
+  /**
    * Just enough to go looking with: the name, the point, and the address of
    * their own site.
    *

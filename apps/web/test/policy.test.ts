@@ -50,6 +50,28 @@ test('a licensed place row loses its venue on the way to the device', () => {
   assert.equal(body.places[0].venue!.name, 'The Bistro');
 });
 
+test('the provider’s photograph fills a tile but never lands on the device', () => {
+  // The rung below the owned ladder's floor (api/src/sources/rentedPhoto.js):
+  // where we own no picture of a restaurant, the atlas sends the provider's, to
+  // be fetched at display. It is the most strictly rented thing on the row — a
+  // reference under a retention allowance of none — so it must not survive the
+  // trip to IndexedDB, while our own picture must.
+  const body = {
+    places: [
+      { venueRef: 'google:ChIJabc', name: 'No picture of our own', image: null,
+        photos: [{ ref: 'places/ChIJabc/photos/XYZ', attribution: 'A. Photographer' }] },
+      { venueRef: 'google:ChIJdef', name: 'The ladder found their mark',
+        image: { id: 'img-1', source: 'logo', licence: 'their own mark' } },
+    ],
+  };
+  const saved: any = storable('/api/atlas/places', body);
+  assert.equal(saved.places[0].photos, undefined, 'a rented photo reference must not be written down');
+  assert.deepEqual(saved.places[1].image, { id: 'img-1', source: 'logo', licence: 'their own mark' },
+    'our own picture is ours to keep, and is the whole point of owning it');
+  // Untouched on screen: only what is written down is stripped.
+  assert.equal(body.places[0].photos![0].ref, 'places/ChIJabc/photos/XYZ');
+});
+
 test('a trip’s shortlist is stripped the same way', () => {
   const saved: any = storable('/api/trips/abc-123', {
     trip: { id: 'abc-123' },

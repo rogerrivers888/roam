@@ -866,13 +866,22 @@ function PlaceRow({ place, kind, viewer, first, selected, onPress }: { place: At
       {/* The well was the category icon and nothing else, which is what made a
           list of places read as a text listing (owner, 5 Sep 2026). It is now
           whatever the ladder found for this place — their mark, a photograph of
-          the building, the shopfront — and falls back to the same icon on the
-          same mint ground when there is nothing, so a list with three pictures
-          in it still reads as one list. */}
+          the building, the shopfront — then, only where we own nothing, the
+          provider's photograph fetched at display and never stored (owner,
+          5 Sep 2026: "at least that we can have restaurant pictures, which is
+          really useful in some instances"), and the same icon on the same mint
+          ground when there is neither. A list with three pictures in it still
+          reads as one list.
+
+          No credit line under a 56px well: it would not fit and would not be
+          read. The licence is met where the picture is actually looked at —
+          VenueDrawer draws the same photograph large, with its attribution
+          under it. */}
       <View style={styles.well}>
         <VenueThumb
           name={place.name}
           image={place.image}
+          photos={place.photos}
           category={place.category}
           experiences={(place.venue as Partial<Venue> | null)?.experiences ?? []}
           width={WELL}

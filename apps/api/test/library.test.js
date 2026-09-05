@@ -21,6 +21,9 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const { scoreOf } = await import('../src/sources/harvest.js');
 const { ATTRACTION_ROOTS } = await import('../src/sources/wikimedia.js');
@@ -222,4 +225,58 @@ test('a non-image answer is never stored as one', async (t) => {
   });
   t.after(() => { globalThis.fetch = realFetch; });
   assert.equal(await wm.fetchImage('https://thumb.wikimedia.org/x.jpg'), null);
+});
+
+/**
+ * The repository is a contract, and nothing was checking it.
+ *
+ * `place_image_passes` shipped in migration 042 and the three functions that
+ * read and write it were never written. Nothing said so: `sweepPictures()`
+ * threw `lib.placesNeedingPictures is not a function` on its first line, inside
+ * a background sweep that swallows its own errors, and the back office's
+ * Pictures view answered 500. The visible symptom was a household's saved
+ * restaurants having no picture — which looks exactly like "the ladder looked
+ * and found nothing", the one thing it was not.
+ *
+ * A missing export is only ever found at the moment the line runs, and this one
+ * ran nowhere a person was watching. So it is checked statically instead: every
+ * `lib.…` the API mentions must be something the repository actually exports.
+ * The same spirit as the migration-number guard above — the sixth time is
+ * caught while it is still free.
+ */
+test('every library function the API calls is one the repository exports', async () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src');
+
+  const files = [];
+  const walk = async (dir) => {
+    for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (e.name.endsWith('.js')) files.push(full);
+    }
+  };
+  await walk(root);
+
+  const repo = await fs.readFile(path.join(root, 'repositories/library.js'), 'utf8');
+  const exported = new Set(
+    [...repo.matchAll(/^export\s+(?:async\s+)?(?:function|const)\s+([A-Za-z0-9_]+)/gm)].map((m) => m[1]),
+  );
+
+  const called = new Map();
+  for (const file of files) {
+    const src = await fs.readFile(file, 'utf8');
+    // Only files that actually bind the repository to the name `lib`, so a
+    // `lib.` belonging to some other import is not blamed on this one.
+    if (!/import\s+\*\s+as\s+lib\s+from\s+'.*repositories\/library\.js'/.test(src)) continue;
+    for (const m of src.matchAll(/\blib\.([A-Za-z0-9_]+)/g)) {
+      if (!called.has(m[1])) called.set(m[1], path.relative(root, file));
+    }
+  }
+
+  assert.ok(called.size > 0, 'found no lib.… calls at all — the scan is broken, not the code');
+  const missing = [...called].filter(([name]) => !exported.has(name));
+  assert.deepEqual(
+    missing, [],
+    `called but not exported by repositories/library.js: ${missing.map(([n, f]) => `${n} (${f})`).join(', ')}`,
+  );
 });
