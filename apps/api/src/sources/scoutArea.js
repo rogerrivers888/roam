@@ -201,10 +201,15 @@ export async function sweep(code, { dryRun = false, householdId = null } = {}) {
   }
   const dropped = await scout.pruneArea(code, kept.map((c) => c.venueRef));
 
-  const next = new Date(Date.now() + RESWEEP_DAYS * 86_400_000);
+  // A sweep that could not ask the crowd is a census, not a ranking: those
+  // areas are ordered on `owned_score` alone. The daily Text Search cap is a
+  // fact about today rather than about the area, so it comes back tomorrow
+  // instead of in six months (found sweeping SL6–SL9, 5 Sep 2026).
+  const askedTheCrowd = kept.some((c) => c.crowdBand);
+  const next = new Date(Date.now() + (askedTheCrowd ? RESWEEP_DAYS : 1) * 86_400_000);
   await scout.finishSweep(code, {
     state: kept.length ? 'done' : 'failed',
-    why: notes.join('; '),
+    why: askedTheCrowd ? notes.join('; ') : `${notes.join('; ')} — ranked on open data alone; will ask the crowd again tomorrow`,
     seen, chains, kept: kept.length, nextSweepAt: next,
   });
 
