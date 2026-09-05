@@ -160,12 +160,21 @@ function asVenue(h) {
     lng,
     address: [h.address, h.city, h.zip ?? h.postalCode].filter(Boolean).join(', ') || null,
     stayKind: STAY_WORDS[kindWord] ?? (h.hotelType ? String(h.hotelType) : 'Hotel'),
-    // The star rating an operator is allowed to advertise, and the guest score,
-    // which LiteAPI reports out of ten. Places shows marks out of five, so it
-    // is halved here rather than in four screens.
+    // Two different facts that look alike and must not be confused.
+    //
+    // `stars` is the classification the operator is graded at and allowed to
+    // advertise — a fact about the building, the same kind of thing as its
+    // address. `rating` is what guests thought, aggregated, which is an opinion
+    // and a rented one. LiteAPI reports the second out of ten; Roam shows every
+    // provider's score out of five (Google's arrives that way), so it is halved
+    // here rather than in each screen that draws it.
     stars: num(h.stars ?? h.starRating),
-    rating: num(h.rating) == null ? null : Number((num(h.rating) / 2).toFixed(1)),
-    reviewCount: num(h.reviewCount),
+    // A zero score against seven thousand reviews is not a verdict of nought,
+    // it is a missing value arriving as a number (Holiday Inn Express Bath,
+    // 5 Sep 2026: rating 0, reviewCount 7,686). Treated as unknown, because
+    // printing it would libel the hotel.
+    rating: num(h.rating) ? Number((num(h.rating) / 2).toFixed(1)) : null,
+    reviewCount: num(h.reviewCount) || null,
     rooms: null,
     chain: h.chain || null,
     // Their photograph, drawn straight from their URL and never fetched into our

@@ -15,7 +15,7 @@ import { PricePointControl, ChainsControl } from '../components/PlanControls';
 import { MapView, MapPin } from '../components/MapView';
 import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
 import { VenueThumb } from '../components/VenueThumb';
-import { PickSheet } from '../components/PickSheet';
+import { PickPanel } from '../components/PickPanel';
 import { TripCard } from '../components/TripCard';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
@@ -248,10 +248,16 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
             onChange={setSpan}
           />
           <View style={styles.filters}>
-            <FilterChip label={when === 'past' ? 'Past' : 'Upcoming'} on={when === 'past'} onPress={() => setSheet('when')} />
-            {byArea ? <FilterChip label={areaLabel} on={!!area} onPress={() => setSheet('area')} /> : null}
-            <FilterChip label={whoLabel} on={!!who} onPress={() => setSheet('who')} />
+            <FilterChip label={when === 'past' ? 'Past' : 'Upcoming'} on={when === 'past'} open={sheet === 'when'} onPress={() => setSheet(sheet === 'when' ? null : 'when')} />
+            {byArea ? <FilterChip label={areaLabel} on={!!area} open={sheet === 'area'} onPress={() => setSheet(sheet === 'area' ? null : 'area')} /> : null}
+            <FilterChip label={whoLabel} on={!!who} open={sheet === 'who'} onPress={() => setSheet(sheet === 'who' ? null : 'who')} />
           </View>
+          {/* The answers open under the chips, not in a sheet at the foot of the window. */}
+          <PickPanel open={sheet === 'when'} title="When" options={whenOptions} value={when} onPick={(v) => { setWhen(v as any); setSheet(null); }} onClose={() => setSheet(null)} />
+          <PickPanel open={sheet === 'area'} title="Where" options={areaOptions} value={area ?? ''} onPick={(v) => { setArea(v || null); setSheet(null); }} onClose={() => setSheet(null)} />
+          <PickPanel open={sheet === 'who'} title="Who's coming" options={whoOptions} value={who ?? ''}
+            empty="Only you are in this household so far — add somebody on the Household tab."
+            onPick={(v) => { setWho(v || null); setSheet(null); }} onClose={() => setSheet(null)} />
 
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
           {!data ? <Text style={type.small}>Loading…</Text> : null}
@@ -285,9 +291,6 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
             </Pressable>
           ) : null}
 
-          <PickSheet visible={sheet === 'area'} title="Where" options={areaOptions} value={area ?? ''} onPick={(v) => { setArea(v || null); setSheet(null); }} onClose={() => setSheet(null)} />
-          <PickSheet visible={sheet === 'when'} title="When" options={whenOptions} value={when} onPick={(v) => { setWhen(v as any); setSheet(null); }} onClose={() => setSheet(null)} />
-          <PickSheet visible={sheet === 'who'} title="Who's coming" options={whoOptions} value={who ?? ''} onPick={(v) => { setWho(v || null); setSheet(null); }} onClose={() => setSheet(null)} />
         </>
       )}
     </ScrollView>
@@ -295,12 +298,12 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
 }
 
 
-/** A dropdown, as a chip that opens a sheet. Same control as Places. */
-function FilterChip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+/** A dropdown, as a chip that opens a panel under the row. Same control as Places. */
+function FilterChip({ label, on, open, onPress }: { label: string; on: boolean; open?: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.fchip, on && styles.fchipOn]} accessibilityRole="button">
+    <Pressable onPress={onPress} style={[styles.fchip, on && styles.fchipOn, open && !on && styles.fchipOpen]} accessibilityRole="button" accessibilityState={{ expanded: !!open }}>
       <Text style={[styles.fchipText, on && { color: colors.primaryFg }]} numberOfLines={1}>{label}</Text>
-      <Icon name="expand" size={13} color={on ? colors.primaryFg : colors.ink} />
+      <Icon name={open ? 'collapse' : 'expand'} size={13} color={on ? colors.primaryFg : colors.ink} />
     </Pressable>
   );
 }
@@ -1265,6 +1268,19 @@ const price = (n: number, currency: string) => {
   return `${sym}${n % 1 === 0 ? n.toFixed(0) : n.toFixed(2)}`;
 };
 
+/**
+ * The grade, said as a grade. "4.0" beside a hotel's name reads as a score out
+ * of five, and it is not one — it is the classification the operator is graded
+ * at and allowed to advertise, which is a fact about the building in the same
+ * way its address is (owner, 5 Sep 2026: "Can it tell us what star of hotel it
+ * is and also how many reviews there are?"). What guests thought is a separate
+ * line, because it is a separate thing.
+ */
+const starClass = (n: number | null | undefined) => (n && n >= 1 ? `${Math.round(n)}-star` : null);
+
+/** 4,674 — thousands marked, because "4674 reviews" is a number you have to stop and read. */
+const reviews = (n: number) => n.toLocaleString('en-GB');
+
 /** "2 adults and 2 children (8, 11)" — who the room was priced for, in words. */
 function partyWords(p: StayPricing) {
   const a = `${p.adults} ${p.adults === 1 ? 'adult' : 'adults'}`;
@@ -1435,11 +1451,21 @@ function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
                     <Row style={{ gap: spacing.md, alignItems: 'flex-start' }}>
                       <VenueThumb name={s.name} photos={s.photos} category="hotel" width={92} height={70} credit={false} rounded={radius.sm} />
                       <View style={{ flex: 1, gap: 3 }}>
-                        <Row style={{ gap: spacing.sm }}>
-                          <Text style={[type.h3, { flex: 1 }]} numberOfLines={2}>{s.name}</Text>
-                          {s.stars ? <Rating value={s.stars} /> : null}
-                        </Row>
-                        <Text style={type.tiny} numberOfLines={1}>{[s.stayKind, s.address].filter(Boolean).join(' · ')}</Text>
+                        <Text style={type.h3} numberOfLines={2}>{s.name}</Text>
+                        {/* What it is graded at, then where it is. */}
+                        <Text style={type.tiny} numberOfLines={1}>{[starClass(s.stars) ?? s.stayKind, s.address].filter(Boolean).join(' · ')}</Text>
+                        {/* What guests made of it, and how many of them — a
+                            score off four thousand stays is a different claim
+                            from the same score off nine, and the row should say
+                            which. Absent where the source has no score rather
+                            than drawn as a nought. */}
+                        {s.rating ? (
+                          <Rating value={s.rating}>
+                            {s.reviewCount ? <Text style={type.tiny}>{`  from ${reviews(s.reviewCount)} guest reviews`}</Text> : null}
+                          </Rating>
+                        ) : s.reviewCount ? (
+                          <Text style={type.tiny}>{reviews(s.reviewCount)} guest reviews, no score given</Text>
+                        ) : null}
                         {/* The sentence that is the whole point of doing this here. */}
                         {s.plansTotal ? (
                           <Text style={[type.small, { color: s.plansNear === s.plansTotal ? colors.like : colors.ink }]}>
@@ -1496,6 +1522,7 @@ const styles = StyleSheet.create({
   filters: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   fchip: { flexDirection: 'row', alignItems: 'center', gap: 2, height: 32, paddingLeft: 10, paddingRight: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, maxWidth: 170 },
   fchipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  fchipOpen: { borderColor: colors.ink, backgroundColor: colors.panel },
   fchipText: { fontSize: 12, fontWeight: '600', color: colors.ink, flexShrink: 1 },
   // A trip on the list: the picture, the name, the dates, the people.
   tripCard: { flexDirection: 'row', gap: spacing.md, padding: spacing.md, borderWidth: 1, borderColor: colors.line, borderRadius: radius.lg, backgroundColor: colors.surface },
