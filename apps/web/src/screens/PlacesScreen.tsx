@@ -145,7 +145,20 @@ type CityMemory = { kind: Kind; status: Status; typeF: string | null; sort: Sort
 // The screen
 // ---------------------------------------------------------------------------
 
-export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; onPlanTrip?: (p: TripPrefill) => void }) {
+/** Arriving from somewhere else with the question already asked. */
+export type PlacesPrefill = { home?: true; kind?: Kind };
+
+export function PlacesScreen({ household, refreshHousehold, onPlanTrip, prefill, onPrefillConsumed }: {
+  household: HouseholdResponse | null; refreshHousehold: () => Promise<void>; onPlanTrip?: (p: TripPrefill) => void;
+  /**
+   * Inspire sends somebody here when they tap Food (owner, 5 Sep 2026: "if I
+   * clicked on food, it would take me to the places tab and search for food").
+   * They arrive at close-to-home with the food segment already chosen, rather
+   * than at a country list they then have to navigate.
+   */
+  prefill?: PlacesPrefill | null;
+  onPrefillConsumed?: () => void;
+}) {
   const { width, height } = useViewport();
   const wide = width >= 1000;
   const [data, setData] = useState<{ countries: AtlasCountry[]; unplaced: number; home: AtlasHome | null } | null>(null);
@@ -170,6 +183,15 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
   // is in, and mark the row (owner, 4 Sep 2026: "when I exit out of that screen,
   // I want to come back to my places… and see the place that I've just added").
   const [landed, setLanded] = useState<{ venueRef: string; kind: Kind } | null>(null);
+  // What an arriving link asked for, handed to the panel once it is open.
+  const [startKind, setStartKind] = useState<Kind | null>(null);
+  useEffect(() => {
+    if (!prefill) return;
+    if (prefill.home) setSel({ home: true });
+    if (prefill.kind) setStartKind(prefill.kind);
+    onPrefillConsumed?.();
+  }, [prefill]);
+
   const refills = useRef(0);
 
   const members = household?.members ?? [];
@@ -284,6 +306,7 @@ export function PlacesScreen({ household, refreshHousehold, onPlanTrip }: { hous
           country={country} city={city} home={home} places={places} household={household} viewer={viewer} wide={wide} viewportHeight={height}
           onBack={() => { setSel(null); setOpen(null); }} onOpen={setOpen} onOpenVenue={setNewVenue} openRef={open?.venueRef ?? null}
           landed={landed} onLandedShown={() => setLanded(null)}
+          startKind={startKind} onStartKindUsed={() => setStartKind(null)}
           onPlanTrip={() => onPlanTrip?.(home ? { placeText: home.label ?? 'home' } : { placeText: `${city!.name}, ${country!.name}`, countryCode: country!.code })}
           onChanged={refreshAll}
         />
@@ -343,10 +366,12 @@ const Count = ({ label, heart }: { label: string; heart?: boolean }) => (
 // Inside a city
 // ---------------------------------------------------------------------------
 
-function CityPanel({ country, city, home, places, household, viewer, wide, viewportHeight, onBack, onOpen, onOpenVenue, openRef, onPlanTrip, onChanged, landed, onLandedShown }: {
+function CityPanel({ country, city, home, places, household, viewer, wide, viewportHeight, onBack, onOpen, onOpenVenue, openRef, onPlanTrip, onChanged, landed, onLandedShown, startKind, onStartKindUsed }: {
   country: AtlasCountry | null; city: AtlasCity | null; home: AtlasHome | null; places: AtlasPlace[]; household: HouseholdResponse | null; viewer: string | null; wide: boolean; viewportHeight: number;
   onBack: () => void; onOpen: (p: AtlasPlace) => void; onOpenVenue: (v: Venue) => void; openRef: string | null; onPlanTrip: () => void; onChanged: () => Promise<void>;
   landed: { venueRef: string; kind: Kind } | null; onLandedShown: () => void;
+  /** The segment somebody arrived asking for, which beats what was left here last time. */
+  startKind?: Kind | null; onStartKindUsed?: () => void;
 }) {
   // The filters are per city: coming back to London should not bring Lisbon's
   // "food only, been" with it.
@@ -357,6 +382,13 @@ function CityPanel({ country, city, home, places, household, viewer, wide, viewp
   const [typeF, setTypeF] = useState<string | null>(heldCity?.data.typeF ?? null);
   const [sort, setSort] = useState<Sort>(heldCity?.data.sort ?? 'name');
   const [view, setView] = useState<'list' | 'map'>(heldCity?.data.view ?? 'list');
+  // Arriving with the question already asked beats the filters left here last
+  // time: somebody who tapped Food on the home screen means food, now.
+  useEffect(() => {
+    if (!startKind) return;
+    setKind(startKind); setTypeF(null); setStatus('any');
+    onStartKindUsed?.();
+  }, [startKind]);
   useEffect(() => {
     rememberScreen<CityMemory>(memoryKey, { kind, status, typeF, sort, view });
   }, [memoryKey, kind, status, typeF, sort, view]);

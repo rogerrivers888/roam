@@ -672,8 +672,12 @@ export type InspireNear = {
   from: { label: string | null; lat: number; lng: number; how: 'home' | 'given' | 'centre' };
   mode: string; radiusKm: number;
   moods: Mood[]; items: InspireItem[];
-  /** True when the answer came from the atlas alone — no provider was asked. */
-  partial?: boolean;
+  /**
+   * Which pools are in this answer. The home screen reads the atlas alone —
+   * ours, illustrated, and answered in milliseconds — and `live` is only true
+   * when somebody deliberately asked to look around beyond it.
+   */
+  pools?: { atlas: boolean; live: boolean };
   cached: boolean; tookMs: number; attribution: string[];
 };
 
@@ -1188,7 +1192,7 @@ export const api = {
    * The home screen's one read: everything around a point, already sorted into
    * the six moods, with the journey and the stay worked out per place.
    */
-  inspireNear: (q: { lat?: number; lng?: number; label?: string; locality?: string | null; from?: string | null; mode?: string; owned?: 1 }) =>
+  inspireNear: (q: { lat?: number; lng?: number; label?: string; locality?: string | null; from?: string | null; mode?: string; km?: number; live?: 1 }) =>
     request<InspireNear>(`/api/inspire/near${qs(q)}`),
 
   imageUrl: (id: string, width = 500) => `${API_URL}/api/images/${id}/${width}`,

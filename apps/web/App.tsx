@@ -8,7 +8,7 @@ import { getViewer, onViewerChange } from './src/viewer';
 import { Avatar } from './src/components/Faces';
 import { PlanScreen } from './src/screens/PlanScreen';
 import { InspireScreen } from './src/screens/InspireScreen';
-import { PlacesScreen } from './src/screens/PlacesScreen';
+import { PlacesScreen, PlacesPrefill } from './src/screens/PlacesScreen';
 import { TripsScreen, TripPrefill } from './src/screens/TripsScreen';
 import { HouseholdScreen } from './src/screens/HouseholdScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -235,6 +235,8 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
   const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking');
   const [household, setHousehold] = useState<HouseholdResponse | null>(null);
   const [tripPrefill, setTripPrefill] = useState<TripPrefill | null>(fromUrl.trip ? { openTripId: fromUrl.trip, section: fromUrl.section } : null);
+  // Inspire's Food chip is a door into Places, not a filter on the home screen.
+  const [placesPrefill, setPlacesPrefill] = useState<PlacesPrefill | null>(null);
   // Wherever you are has an address (owner, 4 Sep 2026: "we need a unique URL
   // structure, so wherever I am, there is a unique URL"). The tab, and the trip
   // when one is open, are written to the address bar as they change, so the
@@ -311,10 +313,11 @@ function Shell({ isOwner, mayAdminister = false, onAdmin }: { isOwner: boolean; 
           household={household}
           onOpenTrip={(id, opts) => { setTripPrefill({ openTripId: id, ...(opts ?? {}) }); setTab('trips'); }}
           onPlanner={() => setTab('plan')}
+          onFood={() => { setPlacesPrefill({ home: true, kind: 'eat' }); setTab('places'); }}
         />
       ) : null}
       {tab === 'plan' ? <PlanScreen household={household} onOpenTrip={(id, opts) => { setTripPrefill({ openTripId: id, ...(opts ?? {}) }); setTab('trips'); }} /> : null}
-      {tab === 'places' ? <PlacesScreen household={household} refreshHousehold={refreshHousehold} onPlanTrip={(p) => { setTripPrefill(p); setTab('trips'); }} /> : null}
+      {tab === 'places' ? <PlacesScreen household={household} refreshHousehold={refreshHousehold} prefill={placesPrefill} onPrefillConsumed={() => setPlacesPrefill(null)} onPlanTrip={(p) => { setTripPrefill(p); setTab('trips'); }} /> : null}
       {tab === 'trips' ? <TripsScreen household={household} refreshHousehold={refreshHousehold} prefill={tripPrefill} onPrefillConsumed={() => setTripPrefill(null)} /> : null}
       {tab === 'household' ? <HouseholdScreen data={household} refresh={refreshHousehold} /> : null}
       {tab === 'settings' ? <SettingsScreen data={household} refresh={refreshHousehold} /> : null}

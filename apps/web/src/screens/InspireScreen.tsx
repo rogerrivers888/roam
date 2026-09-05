@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { api, BrowseItem, HouseholdResponse, InspireItem, InspireNear, MoodKey, Place, API_URL } from '../api';
+import { useHere } from '../hooks/useHere';
 import { colors, radius, spacing, TARGET, type } from '../theme';
 import { Icon, IconName, iconFor } from '../components/Icon';
 import { Chip, minutes } from '../components/ui';
@@ -37,10 +38,36 @@ import type { OpenTripOptions } from './PlanScreen';
  *    how they had it filtered — which is theirs.
  */
 
-// A shelf is drawn at most this deep; the row's own "see all" opens the rest.
-const SHELF = 12;
+// How deep a shelf goes before you have to ask for the rest.
+//
+// The owner, 5 Sep 2026: "60 so the user can keep scrolling, but if they just
+// want to keep on scrolling again, we can just keep loading more. If we have
+// 250, then let them scroll until we've exhausted the 250." So there is no cut
+// in the data at all — the whole pool is already in hand, from our own table —
+// and these are only how much is drawn at once, so a shelf of two hundred
+// places does not put two hundred images in the tree before anybody has
+// scrolled. Opening a shelf shows a page of them and adds another page on ask.
+const SHELF = 24;
+const PAGE = 36;
 
+/**
+ * The chips, in the order the design draws them — and Food is not one of the
+ * others (owner, 5 Sep 2026):
+ *
+ * > "for food, we should not show that on our homepage now, and we should just
+ * > show inspirational activities. If they click food, then I feel like we need
+ * > to take them into our food listings because food will never have photos...
+ * > if I clicked on food, it would take me to the places tab and search for
+ * > food."
+ *
+ * So Food keeps its place in the row and stops being a filter: it is a door
+ * into Places, which is where somewhere to eat already lives. It carries an
+ * arrow rather than the others' selected state, because a chip that navigates
+ * where its neighbours filter has to say so before it is tapped.
+ */
 const MOOD_ORDER: MoodKey[] = ['fun', 'food', 'culture', 'adrenaline', 'relaxing', 'outdoors'];
+/** The ones that are shelves. Food is a door and never a shelf. */
+const SHELVES: MoodKey[] = MOOD_ORDER.filter((m) => m !== 'food') as MoodKey[];
 const MOOD_LABEL: Record<MoodKey, string> = {
   fun: 'Fun', food: 'Food', culture: 'Culture', adrenaline: 'Adrenaline', relaxing: 'Relaxing', outdoors: 'Outdoors',
 };
@@ -110,11 +137,13 @@ function kindLine(item: InspireItem): string | null {
   return bits.length ? [...new Set(bits.map(cap1))].join(' · ') : null;
 }
 
-export function InspireScreen({ household, onOpenTrip, onPlanner }: {
+export function InspireScreen({ household, onOpenTrip, onPlanner, onFood }: {
   household: HouseholdResponse | null;
   onOpenTrip?: (tripId: string, opts?: OpenTripOptions) => void;
   /** The other way to ask: say what the day is for and let Roam think about it. */
   onPlanner?: () => void;
+  /** Somewhere to eat is Places' question, not this screen's. */
+  onFood?: () => void;
 }) {
   const { width } = useViewport();
   const wide = width >= 900;
@@ -125,7 +154,7 @@ export function InspireScreen({ household, onOpenTrip, onPlanner }: {
 
   const [where, setWhere] = useState<Place | null>(held?.data.where ?? null);
   const [searching, setSearching] = useState(false);
-  const [mood, setMood] = useState<MoodKey>(held?.data.mood ?? 'fun');
+  const [mood, setMood] = useState<MoodKey>(held?.data.mood === 'food' ? 'fun' : held?.data.mood ?? 'fun');
   const [cap, setCap] = useState<number | null>(held?.data.cap === undefined ? 60 : held.data.cap);
   const [outing, setOuting] = useState<string>(held?.data.outing ?? 'any');
   const [budget, setBudget] = useState<string>(held?.data.budget ?? 'all');
@@ -148,12 +177,48 @@ export function InspireScreen({ household, onOpenTrip, onPlanner }: {
     rememberScreen<Held>('inspire.home', { where, mood, cap, outing, budget, kinds, attending: attending ? [...attending] : null });
   }, [where, mood, cap, outing, budget, kinds, attending]);
 
-  const centre = where ?? home;
+  // Where the phone is, when the browser will say without being asked.
+  //
+  // Roger, 5 Sep 2026: "We should identify the location from the user's mobile
+  // browser." A cold permission prompt on load is still not the way to do it —
+  // once refused, the browser remembers and will not ask again, which would
+  // cost this feature permanently on that phone. So: if permission has already
+  // been granted, the fix is taken silently and the screen opens on where they
+  // are standing; if it has not, the offer is one obvious tap under the search
+  // bar. Nothing here ever triggers a prompt the household did not ask for.
+  const me = useHere();
+  const [here, setHere] = useState<Place | null>(null);
+  const [mayAsk, setMayAsk] = useState(false);
+  const askedSilently = useRef(false);
+  useEffect(() => {
+    if (askedSilently.current || !me.supported) return;
+    askedSilently.current = true;
+    const permissions = (globalThis as any).navigator?.permissions;
+    if (!permissions?.query) { setMayAsk(true); return; }
+    permissions.query({ name: 'geolocation' })
+      .then(async (status: any) => {
+        if (status.state === 'granted') { const p = await me.ask(); if (p) setHere(p); }
+        else if (status.state === 'prompt') setMayAsk(true);
+      })
+      .catch(() => setMayAsk(true));
+  }, [me.supported]);
+
+  const useHereNow = async () => { const p = await me.ask(); if (p) { setHere(p); setWhere(null); setMayAsk(false); } };
+
+  // A place they searched wins over a fix, which wins over home: the most
+  // deliberate answer to "where" is the one on screen.
+  const centre = where ?? here ?? home;
   const load = useCallback(async () => {
     if (!centre) { setPool(null); setLoading(false); return; }
     setLoading(true);
     setError(null);
     try {
+      // The atlas alone, which is what this endpoint now answers by default
+      // (owner, 5 Sep 2026: activities "from our own database with data we
+      // own", loaded "within a second or 2"). One indexed table, no provider
+      // asked, every place illustrated — the live look-around waits seven
+      // seconds on OpenStreetMap and comes back without a photograph, and is
+      // now only reachable by asking for it.
       const r = await api.inspireNear({
         lat: centre.lat, lng: centre.lng,
         label: centre.label, locality: centre.locality ?? null,
@@ -201,7 +266,7 @@ export function InspireScreen({ household, onOpenTrip, onPlanner }: {
   }, [pool, cap, outing, budget, kinds, minorComing]);
 
   const shelves = useMemo(() => {
-    const order = [mood, ...MOOD_ORDER.filter((m) => m !== mood)];
+    const order = [mood, ...SHELVES.filter((m) => m !== mood)];
     return order.map((key) => ({ key, items: shown.filter((i) => i.moods.includes(key)) }));
   }, [shown, mood]);
 
@@ -263,14 +328,24 @@ export function InspireScreen({ household, onOpenTrip, onPlanner }: {
           <Pressable onPress={() => setSearching(true)} style={[styles.search, wide && styles.searchWide]} accessibilityRole="search" accessibilityLabel="Where should we go?">
             <Icon name="search" size={18} color={colors.ink} strokeWidth={2.2} />
             <Text style={styles.searchText} numberOfLines={1}>
-              {where ? shortPlace(where.locality ?? where.label) : 'Where should we go?'}
+              {where ? shortPlace(where.locality ?? where.label) : here ? `Near ${shortPlace(here.locality ?? here.label)}` : 'Where should we go?'}
             </Text>
-            {where ? (
-              <Pressable onPress={() => { setWhere(null); setOpenRow(null); }} hitSlop={10} accessibilityLabel="Back to near home">
+            {where || here ? (
+              <Pressable onPress={() => { setWhere(null); setHere(null); setOpenRow(null); }} hitSlop={10} accessibilityLabel="Back to near home">
                 <Icon name="close" size={16} color={colors.inkMuted} />
               </Pressable>
             ) : null}
           </Pressable>
+          {/* Offered, never sprung: this only appears when the browser has not
+              been asked yet, and tapping it is what asks. */}
+          {mayAsk && !where && !here ? (
+            <Pressable onPress={useHereNow} disabled={me.busy} style={styles.hereOffer} accessibilityRole="button">
+              {me.busy ? <ActivityIndicator size="small" color={colors.icon} /> : <Icon name="here" size={14} color={colors.icon} />}
+              <Text style={[type.small, { color: colors.ink, fontWeight: '600' }]}>
+                {me.busy ? 'Finding you…' : 'Use my location'}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={[styles.column, wide && styles.columnWide]}>
@@ -278,7 +353,9 @@ export function InspireScreen({ household, onOpenTrip, onPlanner }: {
             <Text style={[type.label, styles.gutter]}>What's the day about?</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
               {MOOD_ORDER.map((m) => (
-                <Chip key={m} label={MOOD_LABEL[m]} selected={mood === m} onPress={() => { setMood(m); setOpenRow(null); }} />
+                m === 'food'
+                  ? <FoodDoor key={m} onPress={() => onFood?.()} />
+                  : <Chip key={m} label={MOOD_LABEL[m]} selected={mood === m} onPress={() => { setMood(m); setOpenRow(null); }} />
               ))}
             </ScrollView>
           </View>
@@ -417,6 +494,22 @@ export function InspireScreen({ household, onOpenTrip, onPlanner }: {
   );
 }
 
+/**
+ * Food, in the chip row but not of it. Somewhere to eat is judged on reviews
+ * and menus rather than on a photograph — the atlas holds no restaurants by
+ * the owner's own instruction — so this opens Places, where the household's
+ * own food places already live, instead of drawing a shelf of grey tiles.
+ */
+function FoodDoor({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="link" style={styles.foodDoor} accessibilityLabel="Somewhere to eat, in Places">
+      <Icon name="restaurant" size={14} color={colors.ink} />
+      <Text style={styles.foodDoorText}>Food</Text>
+      <Icon name="forward" size={13} color={colors.inkMuted} strokeWidth={2.2} />
+    </Pressable>
+  );
+}
+
 const PANEL_TITLE: Record<Exclude<Panel, null>, string> = {
   travel: 'How far', kind: 'Kind of thing', who: "Who's coming", outing: 'How long', budget: 'Budget',
 };
@@ -455,8 +548,13 @@ function Shelf({ title, items, wide, expanded, onToggle, onOpen, onKeep, isKept,
   onOpen: (i: InspireItem) => void; onKeep: (i: InspireItem) => void; isKept: (i: InspireItem) => boolean;
   empty: string | null;
 }) {
+  // How much of an opened shelf has been drawn. It starts again at a page each
+  // time the shelf is closed, which is what somebody expects of a fold.
+  const [drawn, setDrawn] = useState(PAGE);
+  useEffect(() => { if (!expanded) setDrawn(PAGE); }, [expanded]);
   if (!items.length && !empty) return null;
-  const cards = expanded ? items : items.slice(0, SHELF);
+  const cards = expanded ? items.slice(0, drawn) : items.slice(0, SHELF);
+  const more = expanded ? items.length - cards.length : 0;
   return (
     <View style={styles.shelf}>
       <Pressable onPress={items.length > SHELF || items.length ? onToggle : undefined} style={[styles.shelfHead, styles.gutter]} accessibilityRole="button" accessibilityState={{ expanded }}>
@@ -473,6 +571,12 @@ function Shelf({ title, items, wide, expanded, onToggle, onOpen, onKeep, isKept,
       ) : expanded ? (
         <View style={[styles.grid, styles.gutter]}>
           {cards.map((i) => <Card key={i.venueRef} item={i} wide={wide} onOpen={onOpen} onKeep={onKeep} kept={isKept(i)} />)}
+          {more ? (
+            <Pressable onPress={() => setDrawn((n) => n + PAGE)} style={[styles.tile, styles.showMore, { width: wide ? 240 : 200, height: wide ? 180 : 150 }]} accessibilityRole="button">
+              <Icon name="expand" size={20} color={colors.icon} />
+              <Text style={[type.small, { color: colors.ink, fontWeight: '700' }]}>{more} more</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
@@ -484,26 +588,53 @@ function Shelf({ title, items, wide, expanded, onToggle, onOpen, onKeep, isKept,
 }
 
 /**
- * One place. The picture when a source gave us one — fetched through the API at
- * display time, never stored — and the category's own icon on the mint tile
- * when it did not, so a shelf of OpenStreetMap places reads as deliberate
- * rather than broken.
+ * One place.
+ *
+ * The picture is Roam's own: harvested from Wikimedia Commons under a licence
+ * that lets us keep it, held in our database at three widths, and served from
+ * `/api/images/:id/500` outside the session door with a year's immutable
+ * caching — so the second time anybody sees this card the bytes come from the
+ * browser and nothing reaches the API at all.
+ *
+ * It paints in two steps. The `lqip` is a 20px JPEG inlined in the answer as a
+ * data URI, about half a kilobyte, so the tile has the photograph's own colours
+ * before a single image request has been made; the real picture then arrives
+ * over the top. That is what "instant" is made of here, and it is why the atlas
+ * exists at all.
+ *
+ * `credit` is drawn whenever the licence requires it. That is a condition of
+ * being allowed to show the picture, not a nicety, so it is inside this
+ * component rather than left to each caller to remember.
+ *
+ * A place with no photograph of ours still gets its own icon on the mint tile,
+ * so a shelf reads as deliberate rather than broken.
  */
 function Card({ item, wide, onOpen, onKeep, kept }: {
   item: InspireItem; wide: boolean; onOpen: (i: InspireItem) => void; onKeep: (i: InspireItem) => void; kept: boolean;
 }) {
   const w = wide ? 240 : 200;
   const h = wide ? 180 : 150;
+  // Ours first. A provider's photo is only ever fetched at display time and is
+  // never stored (Technical Constraints §4); ours is stored because we own it.
+  const owned = item.image;
   const photo = item.photos?.[0];
-  const uri = photo?.url ?? (photo?.ref ? `${API_URL}/api/photos/google?name=${encodeURIComponent(photo.ref)}&w=480` : null);
+  const uri = owned
+    ? `${API_URL}/api/images/${owned.id}/${wide ? 960 : 500}`
+    : photo?.url ?? (photo?.ref ? `${API_URL}/api/photos/google?name=${encodeURIComponent(photo.ref)}&w=480` : null);
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const price = priceMarks(item.priceLevel);
   const kind = kindLine(item);
+  const credit = owned?.creditRequired ? owned.credit : null;
   return (
     <Pressable onPress={() => onOpen(item)} style={{ width: w, gap: spacing.sm }} accessibilityRole="button" accessibilityLabel={item.name}>
       <View style={[styles.tile, { width: w, height: h }]}>
+        {/* The photograph's own colours, half a kilobyte, already in hand. */}
+        {owned?.lqip && !loaded && !failed ? (
+          <Image source={{ uri: owned.lqip }} style={StyleSheet.absoluteFill as any} resizeMode="cover" blurRadius={2} accessibilityIgnoresInvertColors />
+        ) : null}
         {uri && !failed ? (
-          <Image source={{ uri }} style={StyleSheet.absoluteFill as any} resizeMode="cover" onError={() => setFailed(true)} accessibilityIgnoresInvertColors />
+          <Image source={{ uri }} style={StyleSheet.absoluteFill as any} resizeMode="cover" onError={() => setFailed(true)} onLoad={() => setLoaded(true)} accessibilityIgnoresInvertColors />
         ) : (
           <View style={styles.tileEmpty}><Icon name={iconFor(item)} size={28} color={colors.icon} /></View>
         )}
@@ -522,6 +653,8 @@ function Card({ item, wide, onOpen, onKeep, kept }: {
         <Text style={styles.cardName} numberOfLines={2}>{item.name}</Text>
         <Text style={type.small}>{minutes(item.travelMinutes)} · {minutes(item.dwellMinutes)}</Text>
         {price || kind ? <Text style={[type.small, { color: colors.ink }]} numberOfLines={1}>{price ?? kind}</Text> : null}
+        {/* Shown because the licence says so, and only while the picture is. */}
+        {credit && !failed ? <Text style={styles.credit} numberOfLines={1}>{credit}</Text> : null}
       </View>
     </Pressable>
   );
@@ -553,6 +686,12 @@ const styles = StyleSheet.create({
     boxShadow: '0 2px 10px rgba(32,30,29,0.10)',
   },
   searchWide: { maxWidth: 560, width: '100%', alignSelf: 'center' },
+  hereOffer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 34, marginTop: 6 },
+  foodDoor: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 34, paddingHorizontal: 12,
+    borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surfaceMuted,
+  },
+  foodDoorText: { fontSize: 13, fontWeight: '600', color: colors.ink },
   searchText: { fontSize: 15, fontWeight: '700', color: colors.ink },
   moods: { gap: 2 },
   strip: { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: 2 },
@@ -579,6 +718,7 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   tile: { borderRadius: 6, overflow: 'hidden', backgroundColor: colors.surfaceMuted },
   tileEmpty: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  showMore: { alignItems: 'center', justifyContent: 'center', gap: 6 },
   // The one control that sits on a photograph, so it carries its own ground —
   // the surface colour of whichever mode is on, not a hardcoded white disc that
   // would burn a hole in a dark screen.
@@ -587,6 +727,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center',
   },
   cardName: { fontSize: 14, fontWeight: '700', lineHeight: 18, color: colors.ink },
+  credit: { fontSize: 10, lineHeight: 13, color: colors.inkFaint },
   waiting: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
   empty: { gap: 6, paddingVertical: spacing.lg },
   foot: { gap: 6, paddingTop: spacing.lg },
