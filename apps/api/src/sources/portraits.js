@@ -122,21 +122,49 @@ async function candidates(itemId) {
 }
 
 /**
+ * Of the pictures an article uses, the ones that are of the place.
+ *
+ * Taking the first storable one gave Italy a photograph of partisans in Milan in
+ * 1945 and South Oxfordshire a railway platform at Didcot. Both are in the
+ * article and neither is a portrait of anywhere — country articles lead with
+ * history, and district articles lead with whatever somebody photographed.
+ *
+ * So a candidate has to *name* the place. It is the same rule that stopped
+ * "South Ascot Playing Field" being illustrated by a car park, and the same
+ * conclusion: where nothing names it, we would rather hold no picture than the
+ * wrong one. A card with no photograph is a gap; a card with somebody else's
+ * war is a mistake nobody can explain.
+ */
+function namesThePlace(title, name) {
+  const words = String(name).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
+    .filter((w) => w.length > 3 && !['city', 'town', 'county', 'district', 'borough', 'upon', 'north', 'south', 'east', 'west', 'royal', 'the', 'and', 'of'].includes(w));
+  if (!words.length) return false;
+  const t = String(title).toLowerCase();
+  return words.some((w) => t.includes(w));
+}
+
+/**
  * Find, licence-check, download and store one portrait.
  *
  * `subjectType` is 'country' or 'locality'; `subjectId` is what the rest of
  * Roam calls the place — an ISO code, or `GB:Bath`.
  */
-export async function portraitFor({ subjectType, subjectId, name, lat, lng, countryCode, onLine }) {
+export async function portraitFor({ subjectType, subjectId, name, lat, lng, countryCode, onLine, replace = false }) {
   const held = await lib.portraitOf(subjectType, subjectId);
-  if (held) return { subjectId, already: true };
+  if (held && !replace) return { subjectId, already: true };
+  if (held && replace) await lib.unlinkImage(held.id, subjectType, subjectId);
 
   const item = await resolveItem({ name, lat, lng, countryCode });
   if (!item) { onLine?.(`${name}: no Wikidata item within reach of where we hold it`); return { subjectId, resolved: false }; }
   onLine?.(`${name} → ${item.id} (${item.how})`);
 
-  const files = await candidates(item.id);
-  if (!files.length) return { subjectId, item: item.id, found: 0 };
+  const all = await candidates(item.id);
+  // Only the ones that name the place, in the order the article used them.
+  const files = all.filter((t) => namesThePlace(t, name));
+  if (!files.length) {
+    onLine?.(`${name}: ${all.length} pictures in the article, none of them named it — leaving it blank`);
+    return { subjectId, item: item.id, found: all.length, stored: 0, reason: 'nothing named the place' };
+  }
 
   const details = await wm.fileDetails(files, { widths: WIDTHS });
   for (const title of files) {
@@ -189,7 +217,7 @@ export async function portraitFor({ subjectType, subjectId, name, lat, lng, coun
  * trips, the atlas, and saved places. That way a family who plans a week in
  * Seville gets Seville, and nobody has to remember to add it to a constant.
  */
-export async function portraitsForApp({ onLine, only } = {}) {
+export async function portraitsForApp({ onLine, only, replace = false } = {}) {
   const { query } = await import('../db.js');
   const { rows: places } = await query(`
     select country_code, locality, max(lat) as lat, max(lng) as lng, sum(n) as n from (
@@ -221,7 +249,7 @@ export async function portraitsForApp({ onLine, only } = {}) {
     out.countries.push(await portraitFor({
       subjectType: 'country', subjectId: c.country_code,
       name: COUNTRY_NAMES[c.country_code] ?? c.country_code,
-      countryCode: c.country_code, onLine,
+      countryCode: c.country_code, onLine, replace,
     }));
   }
   for (const [id, p] of named) {
@@ -229,7 +257,7 @@ export async function portraitsForApp({ onLine, only } = {}) {
     out.localities.push(await portraitFor({
       subjectType: 'locality', subjectId: id, name: p.locality,
       lat: p.lat != null ? Number(p.lat) : null, lng: p.lng != null ? Number(p.lng) : null,
-      countryCode: p.country_code, onLine,
+      countryCode: p.country_code, onLine, replace,
     }));
   }
   return out;

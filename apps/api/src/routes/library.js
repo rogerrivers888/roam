@@ -549,7 +549,7 @@ adminRouter.post('/portraits', requires('manage_library'), async (req, res, next
     // them comfortably outlast Railway's five-minute gateway, which is how the
     // first run got one portrait and a 502.
     (async () => {
-      try { await portraitsForApp({ only, onLine: (l) => console.log('portrait:', l) }); }
+      try { await portraitsForApp({ only, replace: req.body?.replace === true, onLine: (l) => console.log('portrait:', l) }); }
       catch (err) { console.error('portraits:', err.message); }
     })();
     res.status(202).json({ started: true, only, watch: '/api/admin/library/portraits' });
