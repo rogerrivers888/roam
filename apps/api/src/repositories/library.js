@@ -574,6 +574,29 @@ export async function saveImage(asset, variants = []) {
   });
 }
 
+/** The portrait we hold for a country or a locality, if any. */
+export async function portraitOf(subjectType, subjectId) {
+  const { rows } = await query(
+    `select i.id, i.lqip, i.credit_line, i.licence, i.licence_url, i.source_page_url,
+            i.attribution_required, i.title
+       from image_links l join image_assets i on i.id = l.image_id
+      where l.subject_type = $1 and l.subject_id = $2 and l.role = 'hero'
+        and i.moderation = 'approved' limit 1`, [subjectType, subjectId]);
+  return rows[0] ?? null;
+}
+
+/** Every portrait we hold, for the screen that shows a shelf of them. */
+export async function allPortraits() {
+  const { rows } = await query(
+    `select l.subject_type, l.subject_id, i.id as image_id, i.lqip, i.credit_line,
+            i.licence, i.licence_url, i.source_page_url, i.attribution_required, i.title
+       from image_links l join image_assets i on i.id = l.image_id
+      where l.subject_type in ('country', 'locality') and l.role = 'hero'
+        and i.moderation = 'approved'
+      order by l.subject_type, l.subject_id`);
+  return rows;
+}
+
 export async function linkImage(imageId, { subjectType, subjectId, role = 'gallery', position = 0 }) {
   // A hero replaces the hero rather than colliding with the unique index: there
   // is one card image, and saying so twice should mean the second one wins.

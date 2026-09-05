@@ -39,6 +39,7 @@ import { runHarvest, refreshKinds, WIDTHS, researchAttraction, detailPass } from
 import { contentsOf } from '../sources/inside.js';
 import { readAttraction } from '../domain/attractionReading.js';
 import { sweepRegion, sweepCost, rematchRegion, ACTIVITY_QUERIES } from '../sources/activitySweep.js';
+import { portraitsForApp } from '../sources/portraits.js';
 import { sweepPictures, PICTURE_VERSION } from '../sources/placePicture.js';
 import { mapillaryReady } from '../sources/streetLevel.js';
 import { query } from '../db.js';
@@ -534,6 +535,23 @@ adminRouter.post('/sweep/rematch', requires('manage_library'), async (req, res, 
     })();
     res.status(202).json({ started: regions });
   } catch (err) { next(err); }
+});
+
+/**
+ * A picture of each country and town the app mentions — the place itself, not
+ * something inside it. Free: Wikidata, Wikipedia and Commons, no key.
+ */
+adminRouter.post('/portraits', requires('manage_library'), async (req, res, next) => {
+  try {
+    const only = Array.isArray(req.body?.only) && req.body.only.length ? req.body.only : null;
+    const out = await portraitsForApp({ only, onLine: (l) => console.log('portrait:', l) });
+    res.json(out);
+  } catch (err) { next(err); }
+});
+
+/** What we hold, for a screen that wants to draw them. */
+adminRouter.get('/portraits', requires('view_library'), async (_req, res, next) => {
+  try { res.json({ portraits: await lib.allPortraits() }); } catch (err) { next(err); }
 });
 
 /** What the sweeps have cost this month, and what the country would. */
