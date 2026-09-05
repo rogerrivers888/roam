@@ -265,16 +265,32 @@ export async function publishedFor(slug) {
 }
 
 /**
- * Published attractions around a point, with the picture we own of each.
+ * Published attractions around a point, with the picture we own of each, best
+ * first — where "best" accounts for how far away it is.
  *
  * This is what the home screen reads. It is a bounding-box scan over one small
  * table with no third-party call anywhere in it, which is the whole reason the
  * atlas exists: the shelves fill instantly and every card arrives illustrated.
  *
- * The box is degrees rather than a true great-circle distance, so the corners
- * reach about 40% further than the edges. `kmBetween` in the caller does the
- * honest filtering; this only has to be cheap and to not miss anything, and a
- * box that is slightly too generous satisfies both.
+ * **Why distance is in the ordering.** Score alone is region-relative — each
+ * county's best thing scores near one — so a wide search pools several counties
+ * and London wins on volume. Asked for things to do near Ascot, ranking by
+ * score put the Tower of London first at 42.9 km and twelve of the first twenty
+ * were central London; Windsor Castle was fourth at 9.7 km and Legoland sixth
+ * at 6.3 km. That is a list of Britain's best museums, not an answer to what a
+ * family might do on Saturday.
+ *
+ * The damping is deliberately gentle. Somebody in Ascot really can spend a day
+ * at the Tower of London, and a home screen that buried it under every local
+ * garden because the garden is closer would be just as wrong in the other
+ * direction. At `NEARNESS_WEIGHT` of 0.4 a place at the very edge of the search
+ * keeps 60% of its score, which is enough for something exceptional an hour
+ * away to hold its own against something merely good round the corner, and not
+ * enough for it to lead.
+ *
+ * The distance here is a flat-earth approximation, which over sixty kilometres
+ * is out by centimetres and is only ever used for ordering — the caller's
+ * `kmBetween` is what any figure shown to a household comes from.
  *
  * `illustratedOnly` is for the home screen, which is made of pictures. A card
  * with no photograph on a wall of photographs does not read as "we have not got
@@ -282,27 +298,36 @@ export async function publishedFor(slug) {
  * one for as long as it takes the next image pass to reach it. Nothing is
  * hidden by this: the back office counts them on its own tile.
  */
+const NEARNESS_WEIGHT = 0.4;
+
 export async function publishedNear({ lat, lng, km = 25, limit = 60, illustratedOnly = false }) {
   const dLat = km / 111;
   // Longitude degrees shorten towards the poles. Guarded so a search near a
   // pole cannot divide by nothing and ask for the whole planet.
   const dLng = km / Math.max(1, 111 * Math.cos((lat * Math.PI) / 180));
   const { rows } = await query(
-    `select a.id, a.name, a.slug, a.summary, a.category, a.lat, a.lng, a.rank, a.region_slug,
-            a.website, a.wikipedia_url, a.wikidata_id, a.osm_ref, a.heritage, a.venue_ref, a.attribution,
-            r.name as region_name,
-            i.id as image_id, i.lqip, i.credit_line, i.licence, i.licence_url,
-            i.source_page_url, i.attribution_required
-       from attractions a
-       join regions r on r.slug = a.region_slug
-       left join image_links l on l.subject_type = 'attraction' and l.subject_id = a.id::text and l.role = 'hero'
-       left join image_assets i on i.id = l.image_id and i.moderation = 'approved'
-      where a.state = 'published'
-        and a.lat between $1 and $2 and a.lng between $3 and $4
-        ${illustratedOnly ? 'and i.id is not null' : ''}
-      order by a.score desc
-      limit $5`,
-    [lat - dLat, lat + dLat, lng - dLng, lng + dLng, limit]);
+    `with candidates as (
+       select a.id, a.name, a.slug, a.summary, a.category, a.lat, a.lng, a.rank, a.region_slug,
+              a.website, a.wikipedia_url, a.wikidata_id, a.osm_ref, a.heritage, a.venue_ref,
+              a.attribution, a.score, r.name as region_name,
+              i.id as image_id, i.lqip, i.credit_line, i.licence, i.licence_url,
+              i.source_page_url, i.attribution_required,
+              sqrt(power((a.lat - $1) * 111.0, 2)
+                 + power((a.lng - $2) * 111.0 * cos(radians($1)), 2)) as km
+         from attractions a
+         join regions r on r.slug = a.region_slug
+         left join image_links l on l.subject_type = 'attraction' and l.subject_id = a.id::text and l.role = 'hero'
+         left join image_assets i on i.id = l.image_id and i.moderation = 'approved'
+        where a.state = 'published'
+          and a.lat between $3 and $4 and a.lng between $5 and $6
+          ${illustratedOnly ? 'and i.id is not null' : ''}
+     )
+     select * from candidates
+      -- The box's corners reach ~40% further than its edges; this is the ring.
+      where km <= $7
+      order by score * (1 - ${NEARNESS_WEIGHT} * least(1.0, km / $7)) desc
+      limit $8`,
+    [lat, lng, lat - dLat, lat + dLat, lng - dLng, lng + dLng, km, limit]);
   return rows;
 }
 
