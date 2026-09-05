@@ -867,6 +867,28 @@ async function claimDeviceCopy(account: AccountSummary | null | undefined): Prom
   setCopyHolder(holder);
 }
 
+/**
+ * What the running API can actually see, and where from — Settings › Providers
+ * shows it when a key that is "in Doppler" is not in the process.
+ *
+ * Names and shapes only. No value, or part of one, crosses this boundary; a
+ * `kind` is a published vendor prefix (`sand_`, `prod_`, `sk-ant-`) and nothing
+ * that anybody chose.
+ */
+export type KeyReport = {
+  service: { railwayService: string | null; railwayEnvironment: string | null; railwayProject: string | null; commit: string | null; startedAt: string };
+  /** Blank on every line means the Doppler sync is not reaching this service at all. */
+  doppler: { project: string | null; config: string | null; environment: string | null };
+  expected: {
+    name: string; set: boolean; length?: number; kind?: string | null;
+    /** The three ways a value can be present and still be wrong. */
+    quoted?: boolean; padded?: boolean; unresolvedReference?: boolean;
+  }[];
+  /** Other names on the process that look like credentials — a near miss shows up here. */
+  otherSecretNames: string[];
+  note: string;
+};
+
 export const api = {
   health: () => request<{ ok: boolean; db: string }>('/health'),
   sources: () => request<SourcesStatus>('/api/sources'),
@@ -975,6 +997,9 @@ export const api = {
    * looked for in the open map first, so what the trip keeps is a place we may
    * keep rather than a provider's record (api/routes/trips.js).
    */
+  /** Which keys this process can see, and which Doppler config fed it. Owner only; 404 to anybody else. */
+  keys: () => request<KeyReport>('/api/keys'),
+
   setTripStay: (tripId: string, b: { venueRef: string; label: string; lat: number; lng: number; checkIn?: string; checkOut?: string }) =>
     post<TripDetail & { stay: { named: 'open' | 'household'; how: string | null } }>(`/api/trips/${tripId}/stay`, b),
 

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { api, SourcesStatus, SpendLine, SpendResponse, SpendSeries } from '../api';
+import { api, KeyReport, SourcesStatus, SpendLine, SpendResponse, SpendSeries } from '../api';
 import { Comparison, MonthBars } from './SpendChart';
 import { colors, radius, spacing, TARGET, type } from '../theme';
-import { Button, Card, Chip, Meter, Row, Segmented, StatusLine, Wrap } from './ui';
+import { Button, Card, Chip, FoldLine, Meter, Row, Segmented, StatusLine, Wrap } from './ui';
 import { useViewport } from '../hooks/useViewport';
 
 /**
@@ -126,8 +126,94 @@ export function ProvidersTable() {
       ) : null}
       <Text style={type.tiny}>Free counts against each provider's own window (a month, a day, or the account's lifetime) whatever period is shown. A source without a key cannot be switched on here; the owner adds keys through Doppler. Places and addresses: © OpenStreetMap contributors. Travel times: {sources?.routing === 'google-routes' ? 'Google Routes' : 'estimated from distance'}.</Text>
 
+      <KeyWiring />
+
       {open ? <ProviderDrawer line={open} period={period} spend={spend!} series={series} initialMonth={month} source={sources?.available.find((a) => a.key === open.source) ?? null} onClose={() => setOpenKey(null)} onToggle={(on) => toggle(open.source, on)} busy={busyKey === open.key} /> : null}
     </View>
+  );
+}
+
+/**
+ * Why a key that is in Doppler is not in the API.
+ *
+ * "The key is in Doppler" and "the API can read the key" are two different
+ * facts and the gap between them has cost hours more than once. This is that
+ * gap, on screen: which Railway service answered, which Doppler config was
+ * pulled into it, and for each key whether it is set — and if it is set but
+ * still not working, which of the three ways it can be wrong applies.
+ *
+ * Folded shut, because it is only interesting when something is missing.
+ */
+function KeyWiring() {
+  const [report, setReport] = useState<KeyReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try { setReport(await api.keys()); setError(null); }
+    catch (e: any) { setError(e.message); } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const missing = report?.expected.filter((k) => !k.set) ?? [];
+  const wrong = report?.expected.filter((k) => k.set && (k.quoted || k.padded || k.unresolvedReference)) ?? [];
+  // Every Doppler config carries these; all three blank means the sync is not
+  // reaching this service, whatever the Doppler dashboard says about it.
+  const noSync = report ? !report.doppler.project && !report.doppler.config : false;
+  const summary = !report ? (loading ? 'Reading…' : error ?? '—')
+    : wrong.length ? `${wrong.length} set but malformed`
+      : noSync ? 'No Doppler sync on this service'
+        : missing.length ? `${missing.length} not set` : 'All present';
+
+  return (
+    <FoldLine label="Keys the API can actually see" value={summary} icon="settings">
+      {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+      {report ? (
+        <View style={{ gap: spacing.sm }}>
+          <Text style={type.tiny}>
+            Answered by Railway service <Text style={{ color: colors.ink }}>{report.service.railwayService ?? '?'}</Text> in{' '}
+            <Text style={{ color: colors.ink }}>{report.service.railwayEnvironment ?? '?'}</Text>, build {report.service.commit ?? '?'}, running since{' '}
+            {new Date(report.service.startedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.
+          </Text>
+
+          {noSync ? (
+            <StatusLine tone="warn">
+              No Doppler config reached this service: DOPPLER_PROJECT and DOPPLER_CONFIG are both absent, and every Doppler config carries them.
+              The keys that do work here were set on the service directly. If the Doppler sync uses “Shared across all services”, Railway drops the
+              secrets into the project's Shared Variables and each service still has to be told to take each one — a key added later is not picked up
+              by a service that was wired up before it.
+            </StatusLine>
+          ) : (
+            <Text style={type.tiny}>Doppler config: {report.doppler.project ?? '?'} / {report.doppler.config ?? '?'}.</Text>
+          )}
+
+          <View style={styles.table}>
+            {report.expected.map((k) => (
+              <View key={k.name} style={styles.tr2}>
+                <Text style={[styles.td, { flex: 2, textAlign: 'left', color: colors.ink }]} numberOfLines={1}>{k.name}</Text>
+                <Text style={[styles.td, { flex: 1, color: k.set ? colors.like : colors.inkMuted }]}>{k.set ? 'set' : 'not set'}</Text>
+                <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>
+                  {!k.set ? '—'
+                    : k.unresolvedReference ? 'unresolved ${{ }} reference'
+                      : k.quoted ? 'wrapped in quotes'
+                        : k.padded ? 'has stray whitespace'
+                          : `${k.length} chars${k.kind ? ` · ${k.kind}` : ''}`}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          {report.otherSecretNames.length ? (
+            <Text style={type.tiny}>Other credential-looking names here, in case one is a misspelling of the above: {report.otherSecretNames.join(', ')}.</Text>
+          ) : null}
+          <Row>
+            <Button label={loading ? 'Checking…' : 'Check again'} kind="secondary" icon="refresh" onPress={load} loading={loading} />
+          </Row>
+          <Text style={type.tiny}>{report.note}</Text>
+        </View>
+      ) : null}
+    </FoldLine>
   );
 }
 
