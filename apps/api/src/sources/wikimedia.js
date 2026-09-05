@@ -139,6 +139,13 @@ const qid = (uri) => (uri ? String(uri).split('/').pop() : null);
  * A restaurant is not here on purpose — the owner: "I don't care about
  * restaurant images… with restaurants it's more about reviews and the menus."
  */
+/**
+ * The catch-all roots: true of almost anything worth visiting, and therefore
+ * never the interesting answer. A place is a "tourist attraction" when nothing
+ * more specific fits, not instead of being a zoo.
+ */
+const GENERIC_LAST = new Set(['Q570116', 'Q4989906', 'Q22698']);
+
 export const ATTRACTION_ROOTS = {
   Q570116: 'landmark',   // tourist attraction
   Q33506: 'museum',      // museum
@@ -220,12 +227,28 @@ export async function attractionKinds() {
   // This used to take whichever row the query service happened to return first,
   // which is not an order at all — so which category a type ended up in was
   // effectively arbitrary and changed between refreshes.
-  const priority = new Map(Object.keys(ATTRACTION_ROOTS).map((q, i) => [q, i]));
+  //
+  // Two rules, and the second is the one that mattered. `P279*` matches zero
+  // steps as well as many, so every root is also returned as a subclass of
+  // itself *and* of anything above it. Amusement park is a subclass of tourist
+  // attraction, and tourist attraction sat first in the table — so amusement
+  // park was filed as a landmark, and with it every zoo, aquarium and heritage
+  // railway in the country. `family` and `animals` were empty in all 250 of
+  // Surrey's attractions, and Thorpe Park was a landmark.
+  //
+  //   1. A root is always itself. Nothing above it can claim it.
+  //   2. Otherwise the first root declared wins, and GENERIC_LAST puts the
+  //      catch-all roots at the back where they belong: "tourist attraction"
+  //      is what something is when nothing more specific fits.
+  const order = Object.keys(ATTRACTION_ROOTS)
+    .sort((a, b) => (GENERIC_LAST.has(a) ? 1 : 0) - (GENERIC_LAST.has(b) ? 1 : 0));
+  const priority = new Map(order.map((q, i) => [q, i]));
   const byType = new Map();
   for (const r of rows) {
     const t = qid(r.type); const root = qid(r.root);
     const rank = priority.get(root);
     if (rank == null) continue;
+    if (t in ATTRACTION_ROOTS && t !== root) continue;      // rule 1
     const held = byType.get(t);
     if (held && priority.get(held.rootQid) <= rank) continue;
     byType.set(t, { qid: t, rootQid: root, category: ATTRACTION_ROOTS[root] });
