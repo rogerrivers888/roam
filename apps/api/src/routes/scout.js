@@ -17,6 +17,7 @@ import { requires } from '../access.js';
 import * as scout from '../repositories/scout.js';
 import { fillMenus, readFoundMenus, rescore, sweep } from '../sources/scoutArea.js';
 import { geocode } from '../sources/geocode.js';
+import { outcodesIn } from '../sources/postcodeAreas.js';
 import { currentHousehold } from './household.js';
 
 const router = express.Router();
@@ -152,6 +153,46 @@ router.get('/cost', requires('view_library'), async (_req, res, next) => {
       totals: { usd: Math.round(usd * 10000) / 10000, places, menus,
         perPlaceUsd: places ? Math.round((usd / places) * 10000) / 10000 : null,
         perMenuUsd: menus ? Math.round((usd / menus) * 10000) / 10000 : null },
+    });
+  } catch (err) { next(err); }
+});
+
+
+/**
+ * Queue a whole county at once.
+ *
+ * Owner, 5 Sep 2026: "get all the restaurants in Surrey and Berkshire, and
+ * then, once we're happy with that, we can move to London."
+ *
+ * Adding is not sweeping. This writes the areas and their centroids and leaves
+ * them for the loop, because a county is a hundred sweeps and the licensed
+ * search has a daily ceiling — the queue is what turns "the whole county" into
+ * something that finishes on its own over a few days rather than failing in one
+ * afternoon.
+ */
+router.post('/counties/:name', requires('manage_library'), async (req, res, next) => {
+  try {
+    const { place, outcodes } = await outcodesIn(req.params.name);
+    const keep = Number(req.body?.keep) || 25;
+    const radiusKm = Number(req.body?.radiusKm) || 2.5;
+    const added = [];
+    for (const [i, o] of outcodes.entries()) {
+      const existing = await scout.areaFor(o.code);
+      // Spread the first sweeps out rather than making them all due at once:
+      // the loop takes one at a time and the daily ceiling is real.
+      const area = await scout.upsertArea({
+        code: o.code,
+        label: existing?.label ?? o.districts[0] ?? place,
+        lat: o.lat, lng: o.lng, radiusKm, keep,
+        nextSweepAt: existing?.next_sweep_at ?? new Date(Date.now() + i * 60_000),
+      });
+      added.push({ code: area.code, label: area.label, swept: Boolean(existing?.swept_at) });
+    }
+    res.status(201).json({
+      place,
+      queued: added.length,
+      alreadySwept: added.filter((a) => a.swept).length,
+      areas: added,
     });
   } catch (err) { next(err); }
 });
