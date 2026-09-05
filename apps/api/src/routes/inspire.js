@@ -57,6 +57,7 @@ import { thingsAround, THINGS_RADIUS_KM } from './plan.js';
 import { estimateTravelMinutes, kmBetween, TRAVEL_MODES } from '../domain/travel.js';
 import { dwellFor } from '../domain/options.js';
 import { MOODS, moodsFor, moodsForAtlas } from '../domain/moods.js';
+import { rules as shelfRules } from '../repositories/shelfRules.js';
 import { publishedNear } from '../repositories/library.js';
 import { enabledSources } from '../sources/index.js';
 
@@ -169,6 +170,11 @@ inspire.get('/near', async (req, res, next) => {
       .filter((v) => v.lat != null && v.lng != null && kmBetween(centre, v) <= THINGS_RADIUS_KM + 1)
       .sort((a, b) => weight(b) - weight(a) || kmBetween(centre, a) - kmBetween(centre, b));
 
+    // What the back office has taught about which shelf a place belongs on.
+    // One small read, cached in the process, and the only thing standing
+    // between "Wikidata calls this a sports venue" and "this is a day out".
+    const taught = await shelfRules();
+
     const attendees = toAttendees(members);
     // A source states its credit either as a line or as { text, … }; the card only wants the line.
     const lines = Object.fromEntries(enabledSources({ includeOptIn: true }).map((s) => [s.key, typeof s.attribution === 'string' ? s.attribution : s.attribution?.text ?? null]));
@@ -177,7 +183,7 @@ inspire.get('/near', async (req, res, next) => {
       source: v.source,
       name: v.name,
       category: v.category,
-      moods: moodsFor(v),
+      moods: moodsFor(v, taught),
       experiences: v.experiences ?? [],
       cuisines: v.cuisines ?? [],
       rating: v.rating ?? null,
@@ -238,7 +244,7 @@ inspire.get('/near', async (req, res, next) => {
         source: 'atlas',
         name: a.name,
         category: 'attraction',
-        moods: moodsForAtlas(a.category),
+        moods: moodsForAtlas({ ref: a.osm_ref ? `osm:${a.osm_ref}` : `wikidata:${a.wikidata_id}`, category: a.category, kinds: a.kinds ?? [] }, taught),
         // What the atlas calls this place — heritage, outdoors, family, museum,
         // arts, animals, active, landmark. Its own field rather than smuggled
         // into `experiences`, which is a closed vocabulary that voice is

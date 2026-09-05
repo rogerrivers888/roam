@@ -1184,6 +1184,18 @@ export const api = {
   librarySetKind: (qid: string, body: { admit?: boolean; category?: string }) =>
     patch<{ kind: LibraryKind }>(`/api/admin/library/kinds/${qid}`, body),
   libraryContributors: () => request<LibraryContributor[]>('/api/admin/library/contributors').then((r: any) => r.contributors ?? r),
+  // --- the shelves: teaching what the home screen calls a place -------------
+  shelfVocabulary: () => request<ShelfVocabulary>('/api/admin/shelves/'),
+  shelfContents: (p: { mood: MoodKey; lat?: number; lng?: number; km?: number }) =>
+    request<{ mood: MoodKey; place: { lat: number; lng: number; label: string | null }; km: number; items: ShelfPlace[]; nearly: ShelfPlace[]; pool: number }>(`/api/admin/shelves/shelf${qs(p)}`),
+  shelfFindPlaces: (q: string) => request<{ places: ShelfPlace[] }>(`/api/admin/shelves/places${qs({ q })}`),
+  shelfTeach: (body: { scope: ShelfRule['scope']; subject: string; subjectLabel?: string | null; weights: ShelfWeights; reason?: string | null }) =>
+    put<{ rule: ShelfRule }>('/api/admin/shelves/rules', body),
+  shelfForget: (id: string) => del<{ removed: boolean; rule: ShelfRule }>(`/api/admin/shelves/rules/${id}`),
+  shelfRead: (body: { said: string; subject?: string | null; subjectLabel?: string | null; scope?: ShelfRule['scope'] | null; current?: ShelfWeights | null }) =>
+    post<{ proposal: ShelfProposal }>('/api/admin/shelves/read', body),
+  shelfNameKinds: (limit = 400) => post<{ named: number; asked: number; remaining: number }>('/api/admin/shelves/kinds/name', { limit }),
+
   libraryHarvest: (body: { scope?: 'all' | 'never' | 'failed'; regions?: string[]; withImages?: boolean; refreshTypes?: boolean }) =>
     post<{ run: HarvestRun }>('/api/admin/library/harvest', body),
   libraryRun: (id: string) => request<{ run: HarvestRun }>(`/api/admin/library/harvest/${id}`),
@@ -1284,6 +1296,73 @@ export type LibraryImage = {
 export type LibraryKind = {
   qid: string; label: string | null; root_qid: string | null; category: string | null;
   admit: boolean; overridden: boolean; overridden_by: string | null; seen_count: number;
+};
+
+// ---------------------------------------------------------------------------
+// the shelves: what the home screen calls a place, and how it is taught
+// ---------------------------------------------------------------------------
+
+/**
+ * A weight per shelf. A shelf that is absent is a shelf the place is not on at
+ * all; a shelf below the floor is true but not worth a card.
+ */
+export type ShelfWeights = Partial<Record<MoodKey, number>>;
+
+export type ShelfRule = {
+  id: string;
+  scope: 'place' | 'kind' | 'category' | 'experience';
+  subject: string;
+  subject_label: string | null;
+  weights: ShelfWeights;
+  reason: string | null;
+  taught_by: string | null;
+  seeded: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Why a place is where it is: the rules that decided it, narrowest first. */
+export type ShelfBecause = {
+  scope: string;
+  subject: string | null;
+  subject_label: string | null;
+  weights: ShelfWeights;
+  reason: string | null;
+};
+
+export type ShelfPlace = {
+  ref: string;
+  id: string;
+  name: string;
+  region: string | null;
+  category: string | null;
+  summary: string | null;
+  score: number | null;
+  lat: number | null;
+  lng: number | null;
+  imageId: string | null;
+  shelves: MoodKey[];
+  weights: ShelfWeights;
+  because: ShelfBecause[];
+  kinds: { qid: string; label: string | null; category: string | null; rule: ShelfRule | null }[];
+  rule: ShelfRule | null;
+  distanceKm?: number;
+};
+
+export type ShelfVocabulary = {
+  shelves: { key: MoodKey; label: string }[];
+  floor: number;
+  maxShelves: number;
+  defaults: { category: Record<string, ShelfWeights>; experience: Record<string, ShelfWeights> };
+  rules: ShelfRule[];
+  counts: Record<string, number>;
+};
+
+export type ShelfProposal = {
+  scope: ShelfRule['scope'];
+  suggestedScope: ShelfRule['scope'];
+  reason: string;
+  weights: ShelfWeights;
 };
 
 export type LibraryContributor = {

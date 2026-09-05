@@ -24,6 +24,7 @@ import { menu as menuRoutes, orders as orderRoutes } from './routes/menus.js';
 import { offline as offlineRoutes } from './routes/offline.js';
 import { startOwnLoop } from './sources/own.js';
 import scoutRoutes, { areaRouter } from './routes/scout.js';
+import shelfRoutes from './routes/shelves.js';
 import { startScoutLoop } from './sources/scoutArea.js';
 import { photoFor } from './sources/google.js';
 import { currentHousehold } from './routes/household.js';
@@ -104,6 +105,7 @@ app.use('/api/accounts', requireDoor('admin'), accountRoutes);
 app.use('/api/admin', requireDoor('admin'), adminRoutes);
 app.use('/api/admin/scout', requireDoor('admin'), scoutRoutes);
 app.use('/api/admin/library', requireDoor('admin'), libraryAdminRoutes);
+app.use('/api/admin/shelves', requireDoor('admin'), shelfRoutes);
 
 // Telemetry is the household's own — which screen, and still here — and is
 // always written against the session's own household (routes/activity.js).

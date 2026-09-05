@@ -540,6 +540,28 @@ The fix is in `publishedNear`, not in the score: ordering damps by distance, gen
 
 Files: `api/migrations/036_image_library.sql`, `api/migrations/039_image_pass_state.sql`, `api/src/sources/wikimedia.js`, `api/src/sources/harvest.js`, `api/src/repositories/library.js`, `api/src/routes/library.js`, `api/src/routes/inspire.js`, `web/src/admin/screens/Library.tsx`.
 
+### 13.13 Shelves: what a place is *for* — **built** (owner, 5 Sep 2026)
+
+> "Currently, on the homepage under the adrenaline section, it's showing football stadiums. That's not what I consider adrenaline. Adrenaline might be an activity like a flying lesson… if there are any water skiing-type activities or anything like that around, that would be adrenaline… parachuting, anything like that. Go-karting, etc. I would like to be able to train it on anything that appears in the categorisation where I believe it's wrong."
+
+**Two vocabularies, and they answer different questions.** The atlas has eight words for what a thing *is* (§13.12, `ATTRACTION_ROOTS`); the home screen has six for what a day there is *like*. Roam had been deriving the second from the first by table lookup, and `active` — one of the eight — covers a Formula One circuit and a football ground alike. So the Adrenaline shelf near London was Wembley, Tottenham Hotspur Stadium, Twickenham, Stamford Bridge and the Royal Military Academy Sandhurst: every place in the county whose Wikidata type descends from *sports venue*.
+
+That is not a mapping that can be re-guessed correctly. Watching sport and doing something dangerous are the same word in every taxonomy that describes *things*, and different words in the only taxonomy that matters here, which describes *afternoons*.
+
+**Weights, not lists.** A rule gives a place a number from 0 to 1 on each of the six shelves. At `SHELF_FLOOR` (0.6) and above it draws a card; below it the claim is recorded and not shown; and only the `MAX_SHELVES` (2) strongest ever draw. The second half of that is the owner's own constraint — "something could be adrenaline and it also could be fun… we don't want to have lots of duplication between the categories, and that will also annoy people" — and it is enforced at composition, not by asking whoever writes a rule to be disciplined.
+
+**Narrowest wins, and it wins outright.** Four scopes, resolved in order: one place, a Wikidata type from `attractions.kinds`, an atlas category, an OpenStreetMap experience. The first scope that says anything is the answer; a place rule is never blended with the type rule underneath it, because somebody who named the place has said something more specific and a blend would let the type outvote them. *Within* a scope the strongest claim per shelf wins, so Alexandra Palace being both an event venue and a theatre building lands on Fun and Culture rather than on the average of the two.
+
+**Type rules are the point.** The complaint was never about one ground. `attractions.kinds` keeps the raw P31 QIDs precisely so a reclassification can be replayed, and one rule against `association football venue` answers for every ground in the country. The back office offers the types first and the individual place last.
+
+**What is seeded, and what is not.** Migration 040 seeds only the types that were demonstrably wrong on the screen — the stadium family, arenas, horse racing, the military academy — plus motorsport circuits, which are the one thing on that shelf that had earned its place. Nothing speculative: seeding a list of what *might* be adrenaline is the guessing this table exists to replace.
+
+**A consequence worth stating.** Once the stadiums leave, Adrenaline near London holds almost nothing, and that is an honest answer rather than a bug. Flying lessons, karting circuits, wake parks and parachute centres are businesses, not Wikidata-notable places, so the atlas does not hold them. Fixing the shelf's *contents* is a sourcing problem (OpenStreetMap `leisure=*` operators, or a licensed activity source) and is not the same problem as fixing its *meaning*.
+
+**Every rule carries its reason**, and the reason is shown wherever the rule is. A weight nobody can account for is a weight nobody dares change, and this table is meant to be changed. A sentence typed into the screen can be turned into weights by one Claude call (`domain/teaching.js`), which fills the form and never writes: the owner reads and saves, or does not.
+
+Files: `api/migrations/040_shelf_teaching.sql`, `api/src/domain/moods.js`, `api/src/domain/teaching.js`, `api/src/repositories/shelfRules.js`, `api/src/routes/shelves.js`, `web/src/admin/screens/Shelves.tsx`.
+
 ### 13.5 Closed-vocabulary matching for voice
 
 Used twice, for the same reason: rating capture interprets against known attendees and known ordered items; trip assembly interprets against the stops on screen. Constraining to a small known set matters more than ASR vendor choice.

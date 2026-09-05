@@ -33,10 +33,11 @@ import { Reporting } from './screens/Reporting';
 import { Audit, Plans, Roles } from './screens/Governance';
 import { Library } from './screens/Library';
 import { Scout } from './screens/Scout';
+import { Shelves } from './screens/Shelves';
 
 const DESKTOP = 900;
 
-type Screen = 'overview' | 'accounts' | 'households' | 'activity' | 'reporting' | 'library' | 'scout' | 'roles' | 'plans' | 'audit';
+type Screen = 'overview' | 'accounts' | 'households' | 'activity' | 'reporting' | 'library' | 'shelves' | 'scout' | 'roles' | 'plans' | 'audit';
 
 /**
  * The rail.
@@ -52,6 +53,7 @@ const NAV: { key: Screen; label: string; icon: IconName; needs?: string; sub: st
   { key: 'activity', label: 'Activity', icon: 'list', needs: 'view_activity', sub: 'Everything that has happened' },
   { key: 'reporting', label: 'Reporting', icon: 'places', needs: 'view_reporting', sub: 'Engagement, revenue and usage' },
   { key: 'library', label: 'Atlas', icon: 'owned', needs: 'view_library', sub: 'Attractions by county, and the pictures we own' },
+  { key: 'shelves', label: 'Shelves', icon: 'themePark', needs: 'view_library', sub: 'What the home screen calls a place, and how to teach it' },
   { key: 'scout', label: 'The sweep', icon: 'search', needs: 'view_library', sub: 'Postcode areas, their best restaurants and their menus' },
   { key: 'roles', label: 'Roles', icon: 'locked', needs: 'view_accounts', sub: 'Doors and capabilities' },
   { key: 'plans', label: 'Plans', icon: 'money', needs: 'view_accounts', sub: 'What a household can be on' },
@@ -82,6 +84,7 @@ export function AdminApp({ access, onLeave }: { access: Access | null; onLeave: 
       {screen === 'activity' ? <Activity /> : null}
       {screen === 'reporting' ? <Reporting canSeeMoney={can('view_financials')} /> : null}
       {screen === 'library' ? <Library canManage={can('manage_library')} /> : null}
+      {screen === 'shelves' ? <Shelves canManage={can('manage_library')} /> : null}
       {screen === 'scout' ? <Scout canManage={can('manage_library')} /> : null}
       {screen === 'roles' ? <Roles canManage={can('manage_roles')} /> : null}
       {screen === 'plans' ? <Plans canManage={can('manage_plans')} /> : null}
