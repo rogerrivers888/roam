@@ -5,18 +5,23 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Roam · The back office — three ways to hold a million places</title>
 <style>
+  /* The palette is theme.ts "Mint", not an invention. Ground is white, one mint
+     field carries a header, the single accent is leaf #2E8A63, tone is a rule or
+     an outline and never a fill, and red belongs to the heart — so the only red
+     here is `overrun`, which the guide licenses for meaning that must still read. */
   :root{
-    --bg:#F7F6F2;--surface:#fff;--muted:#F0EEE8;--well:#EDEBE4;
-    --ink:#1D1B16;--ink2:#6B675E;--ink3:#A8A399;--line:#E4E0D6;
-    --accent:#1F5F5B;--accentSoft:#DCEBE9;
-    --ok:#15803D;--okSoft:#DCF0E2;
-    --warn:#B0771E;--warnSoft:#F8EEDA;
-    --crit:#C0392B;--critSoft:#FAE3E0;
-    --plum:#5B21B6;--plumSoft:#EDE5FB;
-    --blue:#2563A8;--blueSoft:#DEEAF7;
+    --bg:#FFFFFF;--surface:#FFFFFF;--muted:#EFF8F3;--well:#EFF8F3;--mint:#B6E3CF;
+    --ink:#201E1D;--ink2:#6B6663;--ink3:#8B8784;--line:#E5EFEA;
+    --accent:#2E8A63;--accentSoft:#EFF8F3;--deep:#2F6A52;
+    --ok:#2E8A63;--okSoft:#EFF8F3;
+    --warn:#6B6663;--warnSoft:#F3F2F2;
+    --crit:#C0392B;--critSoft:#FBE9E7;
+    /* the coverage ramp: tints of the one green, never a red-to-green rainbow.
+       Every cell also prints its number, so the colour is redundant. */
+    --c0:#F3F2F2;--c1:#EFF8F3;--c2:#DCEFE5;--c3:#C4E5D5;--c4:#9CD2B8;--c5:#63B48F;--c6:#2E8A63;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:#E9E6DF;color:var(--ink);padding:28px 32px 80px;
+  body{margin:0;background:#E8F1EC;color:var(--ink);padding:28px 32px 80px;
        font:13.5px/1.45 -apple-system,Inter,"Segoe UI",Helvetica,Arial,sans-serif}
   h1{font-size:28px;margin:0 0 6px;letter-spacing:-.4px}
   h2{font-size:21px;margin:0 0 4px;letter-spacing:-.2px}
@@ -24,11 +29,11 @@
   .lede{color:var(--ink2);max-width:940px;margin:0 0 8px;font-size:15px;line-height:1.5}
   section{margin:0 0 52px}
   .sub{color:var(--ink2);margin:0 0 18px;max-width:980px;line-height:1.5}
-  .rule{height:1px;background:#D6D2C7;margin:34px 0 30px;border:0}
+  .rule{height:1px;background:#CFE2D8;margin:34px 0 30px;border:0}
   a{color:var(--accent)}
 
   /* the desktop frame every option is drawn in */
-  .frame{width:1240px;max-width:100%;background:var(--bg);border:8px solid #2A2823;border-radius:14px;
+  .frame{width:1240px;max-width:100%;background:var(--bg);border:8px solid #201E1D;border-radius:14px;
          overflow:hidden;box-shadow:0 20px 44px rgba(0,0,0,.20);display:flex;min-height:660px}
   .rail{width:176px;flex:none;background:var(--surface);border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:1px}
   .rail .brand{font:italic 700 20px/1 Caveat,cursive;color:var(--accent);padding:2px 6px 2px}
@@ -40,10 +45,10 @@
   .rail i.gone{color:var(--ink3);text-decoration:line-through}
   .rail .foot{margin-top:auto;border-top:1px solid var(--line);padding-top:10px;font-size:11px;color:var(--ink3)}
   .page{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
-  .head{padding:14px 18px 12px;border-bottom:1px solid var(--line);background:var(--surface)}
+  .head{padding:14px 18px 12px;border-bottom:1px solid var(--line);background:var(--mint)}
   .head .t{font-size:19px;font-weight:700;letter-spacing:-.2px}
-  .head .s{font-size:12px;color:var(--ink2);margin-top:2px}
-  .body{flex:1;overflow:hidden;padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+  .head .s{font-size:12px;color:var(--deep);margin-top:2px}
+  .body{flex:1;overflow:hidden;padding:14px 18px;display:flex;flex-direction:column;gap:12px;background:#FBFDFC}
   .split{display:flex;gap:14px;flex:1;min-height:0}
 
   /* kit */
@@ -61,15 +66,15 @@
   .panel > .ph .r{margin-left:auto;display:flex;gap:6px}
   .panel .pb{padding:10px 12px;overflow:hidden}
   .panel .pb.flush{padding:0}
-  .pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;
-        background:var(--muted);color:var(--ink2);white-space:nowrap}
-  .pill.ok{background:var(--okSoft);color:var(--ok)} .pill.warn{background:var(--warnSoft);color:var(--warn)}
-  .pill.crit{background:var(--critSoft);color:var(--crit)} .pill.acc{background:var(--accentSoft);color:var(--accent)}
-  .pill.plum{background:var(--plumSoft);color:var(--plum)} .pill.blue{background:var(--blueSoft);color:var(--blue)}
+  .pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:600;
+        border:1px solid var(--line);color:var(--ink);background:var(--surface);white-space:nowrap}
+  .pill.ok{border-color:var(--ok)} .pill.warn{border-color:var(--warn)}
+  .pill.crit{border-color:var(--crit)} .pill.acc{border-color:var(--accent)}
+  .pill.plum{border-color:var(--deep)} .pill.blue{border-color:var(--line)}
   .btn{display:inline-flex;align-items:center;gap:5px;height:29px;padding:0 11px;border-radius:8px;font-size:12px;font-weight:700;
        background:var(--ink);color:#fff;white-space:nowrap}
   .btn.g{background:transparent;color:var(--ink);border:1px solid var(--line)}
-  .btn.a{background:var(--accent)}
+  .btn.a{background:var(--ink)}
   .btn.sm{height:24px;font-size:11px;padding:0 9px;border-radius:6px}
   .chip{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);
         background:var(--surface);font-size:11.5px;font-weight:600;color:var(--ink2);white-space:nowrap}
@@ -81,7 +86,7 @@
 
   /* tables */
   table{width:100%;border-collapse:collapse;font-size:12px}
-  th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink3);font-weight:700;
+  th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink2);font-weight:700;
      padding:7px 8px;border-bottom:1px solid var(--line);background:var(--muted);white-space:nowrap}
   td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
   tr.sel td{background:var(--accentSoft)}
@@ -92,14 +97,14 @@
   .thumb{width:34px;height:26px;border-radius:5px;background:var(--well);flex:none;display:flex;align-items:center;justify-content:center;color:var(--ink3);overflow:hidden}
   .thumb.p1{background:linear-gradient(140deg,#9DB7AE,#5E7C73)} .thumb.p2{background:linear-gradient(140deg,#C3B091,#8A7150)}
   .thumb.p3{background:linear-gradient(140deg,#A8B8CC,#6A7D94)} .thumb.p4{background:linear-gradient(140deg,#C9A5A0,#96six)}
-  .thumb.p4{background:linear-gradient(140deg,#C9A5A0,#96706B)} .thumb.p5{background:linear-gradient(140deg,#B3C29A,#7E8F63)}
+  .thumb.p4{background:linear-gradient(140deg,#C9A5A0,#8E8A87)} .thumb.p5{background:linear-gradient(140deg,#B3C29A,#7E8F63)}
   .cellrow{display:flex;align-items:center;gap:8px;min-width:0}
 
   /* completeness dots — the one invention this file is arguing for */
   .dots{display:flex;gap:3px}
   .dots b{width:9px;height:9px;border-radius:2.5px;background:var(--line);display:inline-block}
-  .dots b.y{background:var(--ok)} .dots b.n{background:var(--critSoft);box-shadow:inset 0 0 0 1px #E9BDB6}
-  .dots b.p{background:var(--warnSoft);box-shadow:inset 0 0 0 1px #E0C78B}
+  .dots b.y{background:var(--ok)} .dots b.n{background:transparent;box-shadow:inset 0 0 0 1px #D9C2BE}
+  .dots b.p{background:var(--c3)}
   .legend{display:flex;gap:12px;font-size:10.5px;color:var(--ink2);flex-wrap:wrap;align-items:center}
   .legend span{display:flex;align-items:center;gap:4px}
 
@@ -110,9 +115,11 @@
   .matrix td{border:0;padding:0}
   .matrix td.rh{padding:0 8px 0 2px;font-weight:700;font-size:11.5px;white-space:nowrap;width:1px}
   .cell{height:26px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10.5px;color:#fff}
-  .h0{background:#C0392B}.h1{background:#D9694F}.h2{background:#E09B4E}.h3{background:#C9B24B;color:#3A3312}
-  .h4{background:#8FB870;color:#22331A}.h5{background:#4E9C63}.h6{background:#2E7D4F}
-  .hna{background:var(--muted);color:var(--ink3)}
+  .h0{background:var(--c0);color:var(--ink2);box-shadow:inset 0 0 0 1px #E2DFDF}
+  .h1{background:var(--c1);color:var(--ink2)}.h2{background:var(--c2);color:var(--ink)}
+  .h3{background:var(--c3);color:var(--ink)}.h4{background:var(--c4);color:var(--ink)}
+  .h5{background:var(--c5)}.h6{background:var(--c6)}
+  .hna{background:transparent;color:var(--ink3);box-shadow:inset 0 0 0 1px var(--line)}
 
   /* inspector drawer */
   .drawer{width:430px;flex:none;background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
@@ -128,8 +135,8 @@
   .fact .v .src{font-size:10.5px;color:var(--ink3);margin-top:2px}
   .fact .act{display:flex;gap:4px;flex:none}
   .ico{width:22px;height:22px;border-radius:6px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--ink2)}
-  .ico.bad{border-color:#E9BDB6;color:var(--crit)}
-  .ico.good{border-color:#A9D3B7;color:var(--ok)}
+  .ico.bad{border-color:var(--crit);color:var(--crit)}
+  .ico.good{border-color:var(--ok);color:var(--ok)}
 
   /* score working */
   .bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;display:flex}
@@ -158,7 +165,7 @@
   .notes .bad{color:var(--crit);font-weight:700}
   .cap{font-size:11.5px;color:var(--ink2);margin:9px 0 0;max-width:1240px}
 
-  .find{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:10px;padding:12px 15px;margin:0 0 12px;max-width:1240px}
+  .find{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--ink3);border-radius:10px;padding:12px 15px;margin:0 0 12px;max-width:1240px}
   .find.crit{border-left-color:var(--crit)} .find.ok{border-left-color:var(--ok)} .find.acc{border-left-color:var(--accent)}
   .find h4{margin:0 0 4px;font-size:14px}
   .find p{margin:0 0 6px;color:var(--ink2);line-height:1.5}
@@ -237,7 +244,7 @@
   <div class="rail">
     <div class="brand">Roam</div><div class="badge">Back office</div>
     <div class="grp">The catalogue</div>
-    <i class="on"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Places</div>
+    <i class="on"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>Places</i>
     <i class="new"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>Coverage</i>
     <i class="new"><svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/></svg>Jobs &amp; spend</i>
     <i class="new"><svg viewBox="0 0 24 24"><path d="M12 20h9M4 4h16v12H4z"/></svg>Teaching</i>
@@ -247,7 +254,7 @@
     <i><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="8"/><rect x="14" y="6" width="3" height="12"/></svg>Reporting</i>
     <i><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>Roles</i>
     <div class="foot">
-      <div style="text-decoration:line-through;color:#C0392B">Atlas · Shelves · The sweep</div>
+      <div style="text-decoration:line-through;color:var(--ink3)">Atlas · Shelves · The sweep</div>
       <div style="margin-top:3px">folded into the four above</div>
     </div>
   </div>
@@ -334,26 +341,26 @@
               <tr class="hov">
                 <td><div class="thumb p5"><svg viewBox="0 0 24 24"><path d="M3 7h18v13H3z"/><path d="M8 7V5a4 4 0 018 0v2"/></svg></div></td>
                 <td><div class="nm">Antalya</div><div class="dim">antalyarestaurantwindsor.co.uk</div></td>
-                <td><span class="pill plum">Restaurant</span> <span class="pill">Turkish</span></td>
+                <td><span class="pill acc">Restaurant</span> <span class="pill">Turkish</span></td>
                 <td>SL4 Windsor <span class="dim">· 1st</span></td>
                 <td><div class="dots"><b class="y"></b><b class="n"></b><b class="n"></b><b class="y"></b><b class="y"></b><b class="p"></b></div></td>
-                <td class="num" style="color:var(--warn)">3.4</td><td class="num">6.7</td><td class="dim">14h</td>
+                <td class="num">3.4</td><td class="num">6.7</td><td class="dim">14h</td>
               </tr>
               <tr>
                 <td><div class="thumb p5"></div></td>
                 <td><div class="nm">Sebastian's</div><div class="dim">sebastianswindsor.com</div></td>
-                <td><span class="pill plum">Restaurant</span> <span class="pill">Italian</span></td>
+                <td><span class="pill acc">Restaurant</span> <span class="pill">Italian</span></td>
                 <td>SL4 Windsor <span class="dim">· 3rd</span></td>
                 <td><div class="dots"><b class="y"></b><b class="n"></b><b class="n"></b><b class="y"></b><b class="y"></b><b class="p"></b></div></td>
-                <td class="num" style="color:var(--warn)">3.9</td><td class="num">6.5</td><td class="dim">14h</td>
+                <td class="num">3.9</td><td class="num">6.5</td><td class="dim">14h</td>
               </tr>
               <tr>
                 <td><div class="thumb"><svg viewBox="0 0 24 24"><path d="M3 7h18v13H3z"/><circle cx="12" cy="13" r="3"/></svg></div></td>
                 <td><div class="nm">Sushi Point</div><div class="dim">sushipoint.uk</div></td>
-                <td><span class="pill plum">Restaurant</span> <span class="pill">Sushi</span></td>
+                <td><span class="pill acc">Restaurant</span> <span class="pill">Sushi</span></td>
                 <td>SL4 Windsor <span class="dim">· 10th</span></td>
                 <td><div class="dots"><b class="n"></b><b class="n"></b><b class="n"></b><b class="y"></b><b class="n"></b><b class="p"></b></div></td>
-                <td class="num" style="color:var(--crit)">1.7</td><td class="num">5.9</td><td class="dim">14h</td>
+                <td class="num">1.7</td><td class="num">5.9</td><td class="dim">14h</td>
               </tr>
               <tr>
                 <td><div class="thumb p3"></div></td>
@@ -582,8 +589,8 @@
         <span class="chip">SL6 Maidenhead <span class="n">25</span></span>
         <span class="chip">SL1 Slough <span class="n">25</span></span>
         <span class="chip">SL5 Ascot <span class="n">25</span></span>
-        <span class="chip" style="border-color:#E0C78B;color:var(--warn)">Menu unread <span class="n">128</span></span>
-        <span class="chip" style="border-color:#E9BDB6;color:var(--crit)">Rating disputed <span class="n">31</span></span>
+        <span class="chip" style="border-color:var(--warn);color:var(--warn)">Menu unread <span class="n">128</span></span>
+        <span class="chip" style="border-color:var(--crit);color:var(--crit)">Rating disputed <span class="n">31</span></span>
       </div>
 
       <div class="split">
@@ -599,37 +606,37 @@
                 <td><div class="nm">Antalya</div><div class="dim">Peascod Street · SL4 1DG</div></td>
                 <td><span class="pill">Turkish</span></td>
                 <td><span class="pill ok">84 dishes</span></td>
-                <td class="num" style="color:var(--warn)">3.4</td><td class="num">6.7</td><td class="num dim">4.7 <span style="font-weight:400">·1.1k</span></td></tr>
+                <td class="num">3.4</td><td class="num">6.7</td><td class="num dim">4.7 <span style="font-weight:400">·1.1k</span></td></tr>
               <tr><td class="dim">2</td>
                 <td><div class="nm">Meimo</div><div class="dim">High Street · SL4 1LD</div></td>
                 <td><span class="pill">Moroccan</span></td>
                 <td><span class="pill ok">100 dishes</span></td>
-                <td class="num" style="color:var(--warn)">3.5</td><td class="num">6.7</td><td class="num dim">4.6 <span style="font-weight:400">·900</span></td></tr>
+                <td class="num">3.5</td><td class="num">6.7</td><td class="num dim">4.6 <span style="font-weight:400">·900</span></td></tr>
               <tr><td class="dim">3</td>
                 <td><div class="nm">Sebastian's</div><div class="dim">Thames Street · SL4 1PL</div></td>
                 <td><span class="pill">Italian</span> <span class="pill">European</span></td>
                 <td><span class="pill ok">215 dishes</span></td>
-                <td class="num" style="color:var(--warn)">3.9</td><td class="num">6.5</td><td class="num dim">4.6 <span style="font-weight:400">·480</span></td></tr>
+                <td class="num">3.9</td><td class="num">6.5</td><td class="num dim">4.6 <span style="font-weight:400">·480</span></td></tr>
               <tr><td class="dim">6</td>
                 <td><div class="nm">A La Russe</div><div class="dim">Peascod Street · SL4 1DE</div></td>
                 <td><span class="pill">French</span></td>
-                <td><span class="pill warn">16 dishes</span></td>
+                <td><span class="pill">16 dishes</span></td>
                 <td class="num">2.6</td><td class="num">6.2</td><td class="num dim">4.8 <span style="font-weight:400">·210</span></td></tr>
               <tr><td class="dim">9</td>
                 <td><div class="nm">50nine</div><div class="dim">Thames Street · SL4 1QN</div></td>
                 <td><span class="pill">Lebanese</span></td>
-                <td><span class="pill crit">5 dishes</span></td>
-                <td class="num" style="color:var(--crit)">1.9</td><td class="num">6.1</td><td class="num dim">4.5 <span style="font-weight:400">·640</span></td></tr>
+                <td><span class="pill">5 dishes</span></td>
+                <td class="num">1.9</td><td class="num">6.1</td><td class="num dim">4.5 <span style="font-weight:400">·640</span></td></tr>
               <tr><td class="dim">10</td>
                 <td><div class="nm">Sushi Point</div><div class="dim">Peascod Street · SL4 1EA</div></td>
                 <td><span class="pill">Sushi</span></td>
                 <td><span class="pill crit">no menu</span><div class="dim" style="margin-top:2px">nothing on sushipoint.uk says menu</div></td>
-                <td class="num" style="color:var(--crit)">1.7</td><td class="num">5.9</td><td class="num dim">4.6 <span style="font-weight:400">·380</span></td></tr>
+                <td class="num">1.7</td><td class="num">5.9</td><td class="num dim">4.6 <span style="font-weight:400">·380</span></td></tr>
               <tr><td class="dim">11</td>
                 <td><div class="nm">Best Meze Grill</div><div class="dim">St Leonards Rd · SL4 3BP</div></td>
                 <td><span class="pill">Turkish</span></td>
                 <td><span class="pill crit">no menu</span><div class="dim" style="margin-top:2px">followed “Menu”, page was empty</div></td>
-                <td class="num" style="color:var(--crit)">1.7</td><td class="num">5.8</td><td class="num dim">4.7 <span style="font-weight:400">·290</span></td></tr>
+                <td class="num">1.7</td><td class="num">5.8</td><td class="num dim">4.7 <span style="font-weight:400">·290</span></td></tr>
             </table>
           </div>
           <div class="ph" style="border-top:1px solid var(--line);border-bottom:0">
@@ -659,15 +666,15 @@
                 <div style="font-size:30px;font-weight:800;letter-spacing:-1px">6.7</div>
                 <div style="font-size:12px;color:var(--ink2)">composite</div>
                 <div style="margin-left:auto;text-align:right">
-                  <div style="font-size:19px;font-weight:800;color:var(--warn)">3.4</div>
+                  <div style="font-size:19px;font-weight:800">3.4</div>
                   <div style="font-size:10px;color:var(--ink2)">without Google</div>
                 </div>
               </div>
-              <div class="bar"><i style="width:72%;background:var(--blue)"></i><i style="width:0%;background:var(--warn)"></i><i style="width:28%;background:var(--ok)"></i></div>
+              <div class="bar"><i style="width:72%;background:var(--c6)"></i><i style="width:0%;background:var(--c3)"></i><i style="width:28%;background:var(--c3)"></i></div>
               <div class="legend" style="margin-top:5px">
-                <span><span class="dots"><b style="background:var(--blue)"></b></span> crowd 72%</span>
-                <span><span class="dots"><b style="background:var(--warn)"></b></span> accolades 0%</span>
-                <span><span class="dots"><b style="background:var(--ok)"></b></span> what we own 28%</span>
+                <span><span class="dots"><b style="background:var(--c6)"></b></span> crowd 72% <b>(theirs)</b></span>
+                <span><span class="dots"><b style="box-shadow:inset 0 0 0 1px var(--line);background:transparent"></b></span> accolades 0%</span>
+                <span><span class="dots"><b style="background:var(--c3)"></b></span> what we own 28%</span>
               </div>
             </div>
 
@@ -678,7 +685,7 @@
               <div class="term"><span class="k">Menu (84 dishes)</span><span class="t"><i style="width:100%"></i></span><span class="v">0.45</span></div>
               <div class="term"><span class="k">Named cuisine</span><span class="t"><i style="width:100%"></i></span><span class="v">0.20</span></div>
               <div class="term"><span class="k">Their own site</span><span class="t"><i style="width:100%"></i></span><span class="v">0.15</span></div>
-              <div class="term"><span class="k">Opening hours</span><span class="t"><i style="width:0%"></i></span><span class="v" style="color:var(--crit)">0.00</span></div>
+              <div class="term"><span class="k">Opening hours</span><span class="t"><i style="width:0%"></i></span><span class="v">0.00</span></div>
               <div class="term"><span class="k">Chain weight</span><span class="t"><i style="width:100%"></i></span><span class="v">×1.00</span></div>
             </div>
 
@@ -687,7 +694,7 @@ accolade = Σpoints · 0.7            = 0.000
 substance= 0.45+0.20+0.15+0+0       = 0.800
 composite= (0.970·0.5 + 0·0.3 + 0.800·0.2) · 1.00 · 10
          = <b style="color:var(--ink)">6.7</b>
-owned    = (0·0.6 + 0.800·0.4) · 10 = <b style="color:var(--warn)">3.2</b></div>
+owned    = (0·0.6 + 0.800·0.4) · 10 = <b style="color:var(--ink)">3.2</b></div>
 
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <span class="btn g sm">Open scoring.js</span>
@@ -824,7 +831,7 @@ owned    = (0·0.6 + 0.800·0.4) · 10 = <b style="color:var(--warn)">3.2</b></d
             <div class="fact">
               <div class="k">Standing</div>
               <div class="v">
-                <span class="pill acc" style="background:var(--plumSoft);color:var(--plum)">Pinned — stays 1st and survives the next harvest</span>
+                <span class="pill acc">Pinned — stays 1st and survives the next harvest</span>
                 <div class="src">Pin holds a row against pruning and sorts it first. Hide takes it out of the app entirely.</div></div>
               <div class="act"><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 17v5M9 2h6l-1 7 4 3v2H6v-2l4-3z"/></svg></span></div>
             </div>
@@ -905,12 +912,12 @@ owned    = (0·0.6 + 0.800·0.4) · 10 = <b style="color:var(--warn)">3.2</b></d
         <div class="pb flush">
           <table>
             <tr><th>Restaurant</th><th class="num">Our rank</th><th class="num">Their rank</th><th class="num">Δ</th><th class="num">Roam</th><th class="num">Ours</th><th class="num">Google</th><th>Why we differ</th></tr>
-            <tr><td class="nm">Sushi Point</td><td class="num">10</td><td class="num">3</td><td class="num" style="color:var(--crit)">+7</td><td class="num">5.9</td><td class="num">1.7</td><td class="num">4.6 ·380</td><td class="dim">No menu read, no hours — substance 0.35</td></tr>
-            <tr><td class="nm">A La Russe</td><td class="num">6</td><td class="num">1</td><td class="num" style="color:var(--crit)">+5</td><td class="num">6.2</td><td class="num">2.6</td><td class="num">4.8 ·210</td><td class="dim">16 dishes read of a much longer menu</td></tr>
-            <tr><td class="nm">50nine</td><td class="num">9</td><td class="num">14</td><td class="num" style="color:var(--warn)">−5</td><td class="num">6.1</td><td class="num">1.9</td><td class="num">4.5 ·640</td><td class="dim">5 dishes — the crawler read a drinks list</td></tr>
+            <tr><td class="nm">Sushi Point</td><td class="num">10</td><td class="num">3</td><td class="num">+7</td><td class="num">5.9</td><td class="num">1.7</td><td class="num">4.6 ·380</td><td class="dim">No menu read, no hours — substance 0.35</td></tr>
+            <tr><td class="nm">A La Russe</td><td class="num">6</td><td class="num">1</td><td class="num">+5</td><td class="num">6.2</td><td class="num">2.6</td><td class="num">4.8 ·210</td><td class="dim">16 dishes read of a much longer menu</td></tr>
+            <tr><td class="nm">50nine</td><td class="num">9</td><td class="num">14</td><td class="num">−5</td><td class="num">6.1</td><td class="num">1.9</td><td class="num">4.5 ·640</td><td class="dim">5 dishes — the crawler read a drinks list</td></tr>
             <tr><td class="nm">Sebastian's</td><td class="num">3</td><td class="num">7</td><td class="num">−4</td><td class="num">6.5</td><td class="num">3.9</td><td class="num">4.6 ·480</td><td class="dim">215 dishes lifts substance to its cap</td></tr>
-            <tr><td class="nm">Antalya</td><td class="num">1</td><td class="num">2</td><td class="num" style="color:var(--ok)">−1</td><td class="num">6.7</td><td class="num">3.4</td><td class="num">4.7 ·1.1k</td><td class="dim">agrees</td></tr>
-            <tr><td class="nm">Meimo</td><td class="num">2</td><td class="num">4</td><td class="num" style="color:var(--ok)">−2</td><td class="num">6.7</td><td class="num">3.5</td><td class="num">4.6 ·900</td><td class="dim">agrees</td></tr>
+            <tr><td class="nm">Antalya</td><td class="num">1</td><td class="num">2</td><td class="num">−1</td><td class="num">6.7</td><td class="num">3.4</td><td class="num">4.7 ·1.1k</td><td class="dim">agrees</td></tr>
+            <tr><td class="nm">Meimo</td><td class="num">2</td><td class="num">4</td><td class="num">−2</td><td class="num">6.7</td><td class="num">3.5</td><td class="num">4.6 ·900</td><td class="dim">agrees</td></tr>
           </table>
         </div>
         <div class="ph" style="border-top:1px solid var(--line);border-bottom:0;gap:10px">
