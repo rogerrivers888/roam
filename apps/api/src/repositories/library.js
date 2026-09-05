@@ -179,6 +179,41 @@ export async function upsertAttractions(regionSlug, rows) {
  * cascade to rely on, and an orphaned link is an image that shows up attached
  * to nothing.
  */
+/**
+ * Record what the image pass found, so it is not asked again for ever.
+ *
+ * 'none' is a real answer about a real place — Commons has no freely licensed
+ * photograph of it — and is the difference between a harvest that converges and
+ * one that re-examines the same hopeless cases on every run.
+ */
+export async function noteImagePass(id, state) {
+  await query(
+    `update attractions set image_state = $2, image_checked_at = now() where id = $1`,
+    [id, state]);
+}
+
+/**
+ * Regions with work outstanding: never listed, or listed and still holding
+ * published attractions nobody has looked for a picture for.
+ *
+ * The second half is the one that matters. `harvest_state = 'done'` only ever
+ * meant "listed", so a region whose target was raised from 18 to 250 counted as
+ * finished while 186 of its places had no photograph and nothing was ever going
+ * to go back for them.
+ */
+export async function regionsNeedingWork() {
+  const { rows } = await query(
+    `select slug, name, harvest_state,
+            (select count(*) from attractions a
+              where a.region_slug = r.slug and a.state = 'published' and a.image_state is null) as unillustrated
+       from regions r
+      where r.harvest_state = 'never'
+         or exists (select 1 from attractions a
+                     where a.region_slug = r.slug and a.state = 'published' and a.image_state is null)
+      order by r.position`);
+  return rows;
+}
+
 export async function sweepUnseen(slug, since) {
   const { rows } = await query(
     `with gone as (

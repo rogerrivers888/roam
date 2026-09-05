@@ -313,7 +313,9 @@ export async function harvestImages(slug, { onLine, cancelled, leads = new Map()
 
   for (const a of attractions) {
     if (cancelled?.()) throw Object.assign(new Error('cancelled'), { cancelled: true });
-    if (a.hero_id) { counts.already += 1; continue; }
+    // Already illustrated, or already looked at and found to have nothing worth
+    // keeping. Both are settled; only `image_state is null` is outstanding.
+    if (a.hero_id || a.image_state) { counts.already += 1; continue; }
     counts.looked += 1;
 
     const lead = leads.get(a.wikidata_id) ?? null;
@@ -325,13 +327,15 @@ export async function harvestImages(slug, { onLine, cancelled, leads = new Map()
       } catch { /* an article that will not list its images is not a failure of the run */ }
     }
     titles = [...new Set(titles)].slice(0, 12);
-    if (!titles.length) continue;
+    if (!titles.length) { await lib.noteImagePass(a.id, 'none'); continue; }
 
     let details;
     try {
       details = await wm.fileDetails(titles, { widths: WIDTHS.hero });
     } catch (err) {
       onLine?.(`${a.name}: could not read image licences — ${err.message}`);
+      // The looking broke rather than came back empty; worth another go.
+      await lib.noteImagePass(a.id, 'failed');
       continue;
     }
 
@@ -342,7 +346,7 @@ export async function harvestImages(slug, { onLine, cancelled, leads = new Map()
       if (!f.mayStore) counts.refused += 1;
       return f.mayStore;
     });
-    if (!usable.length) continue;
+    if (!usable.length) { await lib.noteImagePass(a.id, 'none'); continue; }
 
     for (const [n, file] of usable.slice(0, 1 + gallery).entries()) {
       const role = n === 0 ? 'hero' : 'gallery';
@@ -358,7 +362,12 @@ export async function harvestImages(slug, { onLine, cancelled, leads = new Map()
           mime: got.mime, bytes: got.body.length, body: got.body,
         });
       }
-      if (!variants.length) continue;
+      if (!variants.length) {
+        // Nothing downloadable at any width. Settled only if this was the card
+        // image; a gallery picture failing says nothing about the place.
+        if (role === 'hero') await lib.noteImagePass(a.id, 'none');
+        continue;
+      }
       const smallest = variants.find((v) => v.width === 20) ?? variants[0];
       const largest = variants[variants.length - 1];
 
@@ -395,6 +404,7 @@ export async function harvestImages(slug, { onLine, cancelled, leads = new Map()
       }
 
       await lib.linkImage(image.id, { subjectType: 'attraction', subjectId: a.id, role, position: n });
+      if (role === 'hero') await lib.noteImagePass(a.id, 'found');
       counts.stored += 1;
       counts.bytes += variants.reduce((n2, v) => n2 + v.bytes, 0);
       if (role === 'hero') counts.heroes += 1;
@@ -418,7 +428,7 @@ const add = (into, from) => { for (const [k, v] of Object.entries(from)) into[k]
  * One region at a time, deliberately. Concurrency here would buy minutes on a
  * job that runs weekly and would spend them out of Wikimedia's goodwill.
  */
-export async function runHarvest({ slugs, withImages = true, refreshTypes = false, runId, startedBy, onLine } = {}) {
+export async function runHarvest({ slugs, withImages = true, refreshTypes = false, relistDone = true, runId, startedBy, onLine } = {}) {
   const run = runId ? await lib.runById(runId) : await lib.startRun(`regions:${slugs.length}`, startedBy);
   // Cancellation has to reach inside a region, not only between them: London
   // is a hundred attractions and several hundred requests. The run's state is
@@ -453,9 +463,23 @@ export async function runHarvest({ slugs, withImages = true, refreshTypes = fals
       // the reason is written to the log, and the run carries on. "Retry
       // failures" on the Coverage screen is what picks them up.
       try {
-        await lib.noteRun(run.id, { stage: `listing ${slug}` });
-        const { counts, leads } = await harvestRegion(slug, { onLine: line, cancelled: check });
-        add(totals, { regions: 1, candidates: counts.candidates, admitted: counts.admitted, published: counts.published });
+        // A region that has already been listed and is only short of pictures
+        // does not need listing again. Re-listing is a SPARQL round trip and a
+        // pageview lookup per candidate — a minute and a half spent to learn
+        // what we already know — and it would put `rankRegion` and
+        // `sweepUnseen` over rows somebody may have curated by hand.
+        const region = await lib.regionBySlug(slug);
+        const listed = region?.harvest_state === 'done';
+        let leads = new Map();
+        if (!listed || relistDone) {
+          await lib.noteRun(run.id, { stage: `listing ${slug}` });
+          const listing = await harvestRegion(slug, { onLine: line, cancelled: check });
+          leads = listing.leads;
+          add(totals, { regions: 1, candidates: listing.counts.candidates, admitted: listing.counts.admitted, published: listing.counts.published });
+        } else {
+          await line(`${region.name}: already listed, going straight to the pictures`);
+          add(totals, { regions: 1 });
+        }
         if (withImages) {
           if (await cancelled()) { stop = true; break; }
           await lib.noteRun(run.id, { stage: `pictures for ${slug}` });
@@ -554,12 +578,19 @@ export async function resumeInterrupted({ atBoot = false, startedBy = 'Roam (res
     return { resumed: false, reason: 'a run started moments ago; waiting rather than resuming into a restart loop' };
   }
 
-  const left = (await lib.listRegions({ state: 'never' })).map((r) => r.slug);
+  // Not just the counties nobody has listed: also the ones that were listed and
+  // still have published places with no photograph. A region whose target was
+  // raised is 'done' and nowhere near finished.
+  const outstanding = await lib.regionsNeedingWork();
+  const left = outstanding.map((r) => r.slug);
   if (!left.length) return { resumed: false, reason: 'nothing left to harvest' };
 
   const run = await lib.startRun(`resume:${left.length}`, startedBy);
-  await lib.noteRun(run.id, { line: `Picking up ${left.length} regions the last run did not reach.` });
-  runHarvest({ slugs: left, withImages: true, runId: run.id, startedBy })
+  const shortOfPictures = outstanding.filter((r) => r.harvest_state !== 'never').length;
+  await lib.noteRun(run.id, {
+    line: `Picking up ${left.length} regions: ${left.length - shortOfPictures} not listed yet, ${shortOfPictures} listed but short of pictures.`,
+  });
+  runHarvest({ slugs: left, withImages: true, relistDone: false, runId: run.id, startedBy })
     .catch((err) => lib.endRun(run.id, { state: 'failed', error: err.message?.slice(0, 500) }));
   return { resumed: true, regions: left.length, runId: run.id };
 }
