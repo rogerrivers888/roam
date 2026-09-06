@@ -142,12 +142,28 @@ export function MapGL({ markers, routes = [], padding, fitKey, focusId, onMapPre
     // The credit goes top-right, because the bottom of the map is under the
     // sheet and OpenStreetMap's credit being visible is a condition of using
     // the tiles, not a decoration that may be covered up.
-    m.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-right');
-    // Collapsed to its ⓘ to begin with. The credit is one tap away and always
-    // reachable, which is what the licence asks; a banner across the top of the
-    // map on first paint is not what it asks for.
+    const credit = new maplibregl.AttributionControl({ compact: true });
+    m.addControl(credit, 'top-right');
+    /**
+     * Collapsed to its ⓘ, and kept that way until somebody taps it.
+     *
+     * MapLibre opens the compact control on load and on every style change, and
+     * a banner of source names across the top of the map is not what the
+     * licence asks for — it asks that the credit be *reachable*, which one tap
+     * is. So the class is taken off whenever it comes back, and the ⓘ still
+     * opens it.
+     */
+    const collapse = () => {
+      const el = host.current?.querySelector('.maplibregl-ctrl-attrib');
+      if (el && !el.getAttribute('data-roam-opened')) el.classList.remove('maplibregl-compact-show');
+    };
+    const watch = new MutationObserver(collapse);
     requestAnimationFrame(() => {
-      host.current?.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
+      const el = host.current?.querySelector('.maplibregl-ctrl-attrib');
+      collapse();
+      // A tap on the ⓘ is somebody asking for it, and it stays open after that.
+      el?.querySelector('.maplibregl-ctrl-attrib-button')?.addEventListener('click', () => el.setAttribute('data-roam-opened', '1'));
+      if (el) watch.observe(el, { attributes: true, attributeFilter: ['class'] });
     });
     m.on('load', () => { ready.current = true; });
     // The same rule for the map itself: a click that began somewhere else — the
@@ -157,7 +173,7 @@ export function MapGL({ markers, routes = [], padding, fitKey, focusId, onMapPre
     m.on('touchstart', () => { pressed = true; });
     m.on('click', () => { if (!pressed) return; pressed = false; onMapPress?.(); });
     map.current = m;
-    return () => { m.remove(); map.current = null; ready.current = false; };
+    return () => { watch.disconnect(); m.remove(); map.current = null; ready.current = false; };
   }, []);
 
   // The palette changed under it (light ↔ dark).
