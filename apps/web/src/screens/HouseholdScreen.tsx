@@ -670,6 +670,11 @@ function AccessGroup({ member, senders, refresh }: {
           </Text>
           {/* Said once, and only to whoever can act on it. */}
           {missing.map((s) => <Text key={s!.reason} style={type.tiny}>{s!.setup ?? s!.message}</Text>)}
+          {/* Configured, but something about it looks wrong enough to say so
+              before a send fails on it. Not an error — the buttons still work. */}
+          {(['sms', 'email'] as const).map((k) => senders?.[k]?.caution
+            ? <Text key={`caution-${k}`} style={[type.tiny, { color: colors.dislike }]}>{senders[k].caution}</Text>
+            : null)}
 
           {error ? <Text style={[type.small, { color: colors.dislike }]}>{error}</Text> : null}
 

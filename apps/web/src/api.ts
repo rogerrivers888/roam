@@ -177,7 +177,7 @@ export type HouseholdInvitation = {
  * what will happen instead, `setup` names what to add and is shown once, and
  * `message` is the full form the back office has always shown.
  */
-export type SenderStatus = { configured: boolean; reason?: string; short?: string; setup?: string; message?: string; from?: string };
+export type SenderStatus = { configured: boolean; reason?: string; short?: string; setup?: string; message?: string; from?: string; signingWith?: string; caution?: string | null };
 
 export type Member = {
   id: string;

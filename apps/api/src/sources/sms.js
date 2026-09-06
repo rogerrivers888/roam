@@ -134,7 +134,25 @@ export function smsStatus() {
       message: 'Twilio keys are set but TWILIO_FROM is not, so there is no number to send from. It is either a number you own or a messaging service SID beginning MG.',
     };
   }
-  return { configured: true, from: FROM(), signingWith: KEY_SID() ? 'api_key' : 'auth_token' };
+  return {
+    configured: true,
+    from: FROM(),
+    signingWith: KEY_SID() ? 'api_key' : 'auth_token',
+    // Told, not enforced. Twilio's two secrets are the same length and go in
+    // the same box, and only their alphabet tells them apart: an Auth Token is
+    // 32 lowercase hex, an API key's secret is 32 mixed-case alphanumerics. So
+    // a secret that is not hex, with no API key SID beside it, is a key's
+    // secret signing as the account — which Twilio refuses with a 20003 that
+    // names neither of them.
+    //
+    // A caution rather than a refusal, deliberately. This is a guess about a
+    // format Twilio has never promised to keep, and a wrong guess must not
+    // stop a working sender from sending. It is worth saying and not worth
+    // enforcing.
+    caution: !KEY_SID() && !/^[0-9a-f]{32}$/.test(TOKEN())
+      ? "TWILIO_AUTH_TOKEN does not look like an account Auth Token, which is 32 lowercase hexadecimal characters. It looks like an API key's secret — if it is, add its SK… as TWILIO_API_KEY_SID, or replace it with the Auth Token from the Twilio dashboard under Account Info."
+      : null,
+  };
 }
 
 /**

@@ -342,3 +342,37 @@ test('a refused credential blames the half that is actually likely to be wrong',
     assert.match(explain(20003, null, 401), /TWILIO_ACCOUNT_SID is the AC/);
   });
 });
+
+test('an API key secret sitting in the Auth Token box is noticed, but not enforced', async () => {
+  // What actually happened, 6 Sep 2026. The two secrets are the same length
+  // and go in the same box; only the alphabet distinguishes them, and Twilio's
+  // 20003 names neither. It cost four redeploys to find.
+  await withEnv({
+    TWILIO_ACCOUNT_SID: 'AC' + '3'.repeat(32), TWILIO_API_KEY_SID: null,
+    TWILIO_AUTH_TOKEN: 'rLNmQx7ZbK2wY9tD4fH8jS6vC1nP0aGe', TWILIO_FROM: '+447723371807',
+  }, () => {
+    const status = smsStatus();
+    // Still configured: the guess must never stop a working sender sending.
+    assert.equal(status.configured, true, 'a guess about a format must not refuse a send');
+    assert.match(status.caution, /32 lowercase hexadecimal/);
+    assert.match(status.caution, /TWILIO_API_KEY_SID/);
+  });
+});
+
+test('a real Auth Token draws no caution', async () => {
+  await withEnv({
+    TWILIO_ACCOUNT_SID: 'AC' + '4'.repeat(32), TWILIO_API_KEY_SID: null,
+    TWILIO_AUTH_TOKEN: 'a1b2c3d4e5f60718293a4b5c6d7e8f90', TWILIO_FROM: '+447723371807',
+  }, () => {
+    assert.equal(smsStatus().caution, null);
+  });
+});
+
+test('an API key secret is unremarkable when its key is configured beside it', async () => {
+  await withEnv({
+    TWILIO_ACCOUNT_SID: 'AC' + '5'.repeat(32), TWILIO_API_KEY_SID: 'SK' + '6'.repeat(32),
+    TWILIO_AUTH_TOKEN: 'rLNmQx7ZbK2wY9tD4fH8jS6vC1nP0aGe', TWILIO_FROM: '+447723371807',
+  }, () => {
+    assert.equal(smsStatus().caution, null, 'that is exactly the right pairing');
+  });
+});
