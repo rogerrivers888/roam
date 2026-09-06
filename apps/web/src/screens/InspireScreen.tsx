@@ -184,14 +184,18 @@ type Drawers = Map<string, string>;
  * because it is the researched one — "Heritage", "Outdoors" — and a search's
  * tags follow it.
  */
-const kindsOf = (item: InspireItem, drawers?: Drawers): string[] => [
-  // The subcategory first when the place has one: "Castles & forts" is a
-  // better word for what this is than either vocabulary underneath it, and it
-  // is the one the household has actually chosen.
-  item.subcategory ? drawers?.get(item.subcategory) ?? null : null,
-  item.atlasCategory ? ATLAS_WORD[item.atlasCategory] ?? item.atlasCategory : null,
-  ...(item.experiences ?? []),
-].filter(Boolean) as string[];
+const kindsOf = (item: InspireItem, drawers?: Drawers): string[] => {
+  // The subcategory instead of, not as well as, the vocabularies underneath it.
+  // "Historic houses & palaces" is the household's own word for this place;
+  // adding "Heritage" after it says the same thing again in Wikidata's words,
+  // and "Museums · Museum" says it twice in one breath.
+  const drawer = item.subcategory ? drawers?.get(item.subcategory) : null;
+  if (drawer) return [drawer];
+  return [
+    item.atlasCategory ? ATLAS_WORD[item.atlasCategory] ?? item.atlasCategory : null,
+    ...(item.experiences ?? []),
+  ].filter(Boolean) as string[];
+};
 
 /** What kind of place this is, in its own words: "Heritage", "Castle · History", "Italian". */
 function kindLine(item: InspireItem, drawers?: Drawers): string | null {
