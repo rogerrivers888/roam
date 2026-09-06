@@ -28,6 +28,8 @@ import { requireOwner } from '../auth.js';
 import { hotelsNear, vocabularies, liteapiEnabled } from '../sources/liteapi.js';
 import { bedRatesOn } from '../sources/index.js';
 import { whatIsOnOffer, wantsOnOffer, centreOfPlans } from '../domain/stays.js';
+import * as transit from '../sources/transit.js';
+import * as transitRepo from '../repositories/transit.js';
 
 const router = Router();
 
@@ -148,6 +150,39 @@ router.get('/probe', requireOwner, async (req, res, next) => {
       },
     });
   } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/stays/transit — what we hold, and where we have looked.
+ * POST /api/stays/transit/harvest — fill or refresh a region.
+ *
+ * The owner's, and only the owner's. The harvest is a few minutes of somebody
+ * else's free server and it writes to a table every stay search reads, so it is
+ * not a thing a household sets off by tapping something.
+ */
+router.get('/transit', requireOwner, async (_req, res, next) => {
+  try { res.json(await transitRepo.stopCounts()); } catch (err) { next(err); }
+});
+
+router.post('/transit/harvest', requireOwner, async (req, res, next) => {
+  try {
+    const box = req.body?.south != null ? req.body : { ...transit.UK, countryCode: 'GB' };
+    // Answered before it finishes: the United Kingdom is thirty-odd cells with
+    // a pause between them, which is minutes, and an HTTP request that waits
+    // that long is one a proxy will cut in half.
+    res.status(202).json({ started: true, area: box.area ?? 'uk', label: box.label ?? null });
+    const started = Date.now();
+    const out = await transit.harvestRegion(box, {
+      cellDeg: Number(req.body?.cellDeg) || 2,
+      upsert: transitRepo.upsertStops,
+      record: transitRepo.recordCoverage,
+      covered: (cell) => transitRepo.cellCovered(transit.cellArea(cell)),
+      refresh: req.body?.refresh === true,
+    });
+    console.log(`transit harvest ${box.area ?? 'uk'}: ${out.stored} stops, ${out.cells} cells, ${out.failed.length} failed, ${Math.round((Date.now() - started) / 1000)}s`);
+  } catch (err) {
+    console.error(`transit harvest failed: ${err.message}`);
+  }
 });
 
 export default router;

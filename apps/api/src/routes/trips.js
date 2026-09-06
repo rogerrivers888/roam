@@ -1119,7 +1119,12 @@ router.get('/:id/stays', async (req, res, next) => {
       // Reads the held table (repositories/transit.js); only an area nobody has
       // harvested touches the network at all, and even then a failure hands
       // back whatever we hold rather than throwing.
-      const got = await stationsNear(centre.lat, centre.lng, Math.round(Math.min(15, radiusKm + 6) * 1000))
+      // Which kinds count as "a station" here. All four by default — a tram
+      // stop in Manchester is as much a way to get about as a platform is
+      // (owner, 6 Sep 2026: "add trams as well") — and narrowable for somebody
+      // who means a train and only a train.
+      const stationKinds = String(req.query.stationKinds || '').split(',').map((k) => k.trim()).filter((k) => ['rail', 'subway', 'tram', 'light_rail'].includes(k));
+      const got = await stationsNear(centre.lat, centre.lng, Math.round(Math.min(15, radiusKm + 6) * 1000), { kinds: stationKinds.length ? stationKinds : null })
         .catch((err) => ({ stops: [], source: 'error', error: String(err?.message || err) }));
       stations = got.stops;
       stationSource = got.source;
@@ -1139,6 +1144,8 @@ router.get('/:id/stays', async (req, res, next) => {
         if (!best || km < best.km) best = { ...st, km };
       }
       // On foot at 4.8 km/h, which is what `walking` means everywhere else.
+      // `kind` and `network` travel with it so a row can say "6 min walk to
+      // Piccadilly Gardens (Metrolink tram)" rather than calling it a station.
       return best ? { ...best, walkMinutes: Math.max(1, Math.round((best.km / 4.8) * 60)) } : null;
     };
 

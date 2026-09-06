@@ -9,7 +9,8 @@
 // a station name and a postcode district are open data, not licensed content.
 
 import * as providerCalls from '../repositories/providerCalls.js';
-import { overpassQuery } from './overpass.js';
+import * as transit from './transit.js';
+import * as transitRepo from '../repositories/transit.js';
 import * as atlasRepo from '../repositories/atlas.js';
 import { reverseGeocode } from './geocode.js';
 
@@ -53,69 +54,74 @@ async function tflStation(lat, lng) {
   return { name: cleanName(s.commonName), lines: [...new Set(s.lines.map((l) => l.name))], kind, distanceM: Math.round(s.distance) };
 }
 
-const haversineM = (a, b) => {
-  const R = 6371000, toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-};
+
+// Which OSM tags are a stop somebody could travel from, and which are a ride:
+// sources/transit.js `isServiceStop`. One copy, under test, used both by the
+// harvest that fills the table and by anything reading it.
 
 /**
- * A station you could actually catch a train from, rather than a ride.
+ * Every stop within reach of a point — trains, tube, tram and light rail.
  *
- * `railway=station` covers a lot of things that are not transport: Legoland's
- * Hill Train is tagged as one, and a stay ranked "4 min walk to Hill Train
- * Bottom · plans about 21 min by train" is nonsense dressed up as a fact
- * (6 Sep 2026). A miniature, funicular or preserved line is a day out, not a
- * commute, and a disused or abandoned one is not even that.
+ * Read from our own table, not from Overpass. That is the whole reliability
+ * story: the old version asked a volunteer server on every search, and on
+ * 6 Sep 2026 three of its four mirrors were failing at once, so the station
+ * criteria silently returned nothing and the Stay tab emptied. Stations are
+ * ODbL open data we may keep for good, Britain is about 3,500 rows, and a
+ * bounding-box query cannot time out.
+ *
+ * Overpass is still the source of the data, just not on the critical path. An
+ * area nobody has harvested falls back to a live lookup and what comes back is
+ * written down, so the table fills itself in as the app is used. When that
+ * fallback fails, whatever we already hold is returned rather than an
+ * exception: half an answer from the database beats none from the network.
+ *
+ * Returns `{ stops, source, coverage }`. `source` is 'held' when it came from
+ * the table, 'live' when Overpass was asked, and 'held-stale' when Overpass
+ * was asked and refused — which is the one case a screen should mention.
  */
-const RIDE = new Set(['miniature', 'funicular', 'monorail', 'cable_car', 'chair_lift']);
-function isServiceStation(t) {
-  if (RIDE.has(t.station)) return false;
-  if (t.railway !== 'station' && t.railway !== 'halt') return false;
-  if (t.usage === 'tourism' || t.tourism === 'attraction') return false;
-  if (t.disused === 'yes' || t.abandoned === 'yes' || t['disused:railway'] || t['abandoned:railway']) return false;
-  // Narrow gauge and preserved lines run for the ride; a service line runs to
-  // get somewhere. `gauge` under a metre is a garden railway, not Southern.
-  if (t.gauge && Number(t.gauge) && Number(t.gauge) < 1000) return false;
-  if (/\b(miniature|heritage|steam|model|preserved)\b/i.test(t.name || '')) return false;
-  return true;
+export async function stationsNear(lat, lng, radiusM = 8000, { kinds = null } = {}) {
+  const held = await transitRepo.stopsNear(lat, lng, radiusM, { kinds });
+  const coverage = await transitRepo.coverageAt(lat, lng);
+  if (coverage) return { stops: held, source: 'held', coverage };
+
+  // Never looked here. Ask once, keep what comes back, and record that this
+  // patch is now covered so the next search is a database read.
+  try {
+    const box = transit.boxAround(lat, lng, Math.max(radiusM, 12_000));
+    const found = await transit.fetchStops(box, { timeoutMs: 20_000 });
+    await transitRepo.upsertStops(found);
+    await transitRepo.recordCoverage(
+      { ...box, area: `live:${lat.toFixed(2)},${lng.toFixed(2)}`, label: 'filled in by a search' },
+      found.length,
+      'live',
+    );
+    return { stops: await transitRepo.stopsNear(lat, lng, radiusM, { kinds }), source: 'live', coverage: null };
+  } catch (err) {
+    // Nothing held and nothing fetched is the only genuinely empty case, and it
+    // is still not an exception: the caller drops the condition and says so.
+    return { stops: held, source: 'held-stale', coverage: null, error: String(err?.message || err) };
+  }
 }
 
 /**
- * Every station within reach of a point, not just the nearest.
+ * The nearest stop to a place, for the line under its name.
  *
- * `osmStation` below answers "which station is this place near", which is what
- * a row needs. Choosing where to *stay* is the other question — "which of these
- * beds is by a station, and how far is the walk" — and that needs all of them
- * (design handoff, 6 Sep 2026, screen 19).
+ * The same held table as `stationsNear`, for the same reason, and with one bug
+ * fixed on the way: this used to take the nearest `railway=station` of any
+ * kind, so a place beside Legoland got "Hill Train Bottom" as its station. The
+ * shared classifier (sources/transit.js) never let those into the table.
  */
-export async function stationsNear(lat, lng, radiusM = 8000) {
-  const body = `[out:json][timeout:20];(node["railway"="station"](around:${radiusM},${lat},${lng});node["railway"="halt"](around:${radiusM},${lat},${lng}););out body 120;`;
-  // Throws when every mirror is down, and that is deliberate. Returning [] made
-  // "there is no station near here" and "we could not ask" the same answer, and
-  // the second one silently emptied the whole station tile.
-  const data = await overpassQuery(body, { timeoutMs: 15_000 });
-  return (data.elements || [])
-    .filter((n) => n.tags?.name && isServiceStation(n.tags))
-    .map((n) => ({
-      name: cleanName(n.tags.name),
-      lat: n.lat,
-      lng: n.lon,
-      kind: n.tags.station === 'subway' ? 'metro' : n.tags.station === 'light_rail' ? 'tram' : 'rail',
-    }));
-}
-
 async function osmStation(lat, lng) {
-  const body = `[out:json][timeout:12];node["railway"="station"](around:5000,${lat},${lng});out body 40;`;
-  const data = await overpassQuery(body, { timeoutMs: 15_000 });
-  const nodes = (data.elements || []).filter((n) => n.tags?.name).map((n) => ({ ...n, d: haversineM({ lat, lng }, { lat: n.lat, lng: n.lon }) })).sort((a, b) => a.d - b.d);
-  const n = nodes[0];
+  const { stops } = await stationsNear(lat, lng, 5000);
+  const n = stops[0];
   if (!n) return null;
-  const t = n.tags;
-  const lines = String(t.line || t['line:name'] || '').split(';').map((x) => x.trim()).filter(Boolean);
-  const kind = t.station === 'subway' ? 'metro' : t.station === 'light_rail' ? 'tram' : 'rail';
-  return { name: cleanName(t.name), lines, kind, distanceM: Math.round(n.d) };
+  return {
+    name: n.name,
+    lines: n.network ? [n.network] : [],
+    // The word the rest of Roam has always used for each of these.
+    kind: n.kind === 'subway' ? 'metro' : n.kind === 'rail' ? 'rail' : n.kind === 'tram' ? 'tram' : 'light-rail',
+    distanceM: n.distanceM,
+  };
 }
 
 /**
