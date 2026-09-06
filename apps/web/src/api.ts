@@ -240,6 +240,13 @@ export type Stay = Venue & {
   offer?: StayOffer | null;
   /** The price source's own id for this bed, where it is a different one from the row's. */
   bookRef?: string | null;
+  /** Where it came in the ranking, drawn as the badge on the row and on the pin. */
+  rank?: number;
+  /** The green line on the row: why this one, in the terms the placement was chosen on. */
+  fit?: string;
+  /** Set only under the station placement: the platform, and the walk to it. */
+  station?: { name: string; lat: number; lng: number; kind: string; km: number; walkMinutes: number } | null;
+  typicalTrainMinutes?: number | null;
   reviewCount?: number | null;
 };
 
@@ -584,6 +591,13 @@ export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; ki
  * a browse costs nothing (owner, 6 Sep 2026). The real number is fetched for
  * the one place somebody actually adds.
  */
+/**
+ * Where you want to be, when Roam is finding you somewhere to stay (design
+ * handoff, 6 Sep 2026, screen 16). Three genuinely different questions, not
+ * three sorts of one list.
+ */
+export type StayPlacement = 'plans' | 'town' | 'station';
+
 export type TripAlongPlace = {
   venueRef: string; source: string; name: string; category: string | null;
   lat: number; lng: number;
@@ -1103,11 +1117,14 @@ export const api = {
    * front door. Open map only — no prices, no availability (those need a
    * booking provider with a key, which is the owner's to add).
    */
-  tripStays: (tripId: string, p: { radiusKm?: number; mode?: 'walking' | 'driving'; rooms?: number; adults?: number; children?: string } = {}) =>
+  tripStays: (tripId: string, p: { radiusKm?: number; mode?: 'walking' | 'driving'; rooms?: number; adults?: number; children?: string; placement?: StayPlacement; maxAvgMin?: number; maxWalkMin?: number } = {}) =>
     request<{
       near: { lat: number; lng: number; label: string };
       radiusKm: number; mode: 'walking' | 'driving'; cached: boolean; attribution: string; attributions: string[];
       anchors: { label: string; lat: number; lng: number }[];
+      placement: StayPlacement;
+      /** Set when the planned days are so far apart that no one of them is worth being near. */
+      spread: { minutes: number; between: [string, string]; places: string[] } | null;
       results: Stay[];
       pricing: StayPricing;
     }>(`/api/trips/${tripId}/stays${qs(p)}`),

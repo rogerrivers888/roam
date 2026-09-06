@@ -59,6 +59,41 @@ const haversineM = (a, b) => {
   return 2 * R * Math.asin(Math.sqrt(h));
 };
 
+/**
+ * Every station within reach of a point, not just the nearest.
+ *
+ * `osmStation` below answers "which station is this place near", which is what
+ * a row needs. Choosing where to *stay* is the other question — "which of these
+ * beds is by a station, and how far is the walk" — and that needs all of them
+ * (design handoff, 6 Sep 2026, screen 19).
+ */
+export async function stationsNear(lat, lng, radiusM = 8000) {
+  const body = `[out:json][timeout:20];(node["railway"="station"](around:${radiusM},${lat},${lng});node["railway"="halt"](around:${radiusM},${lat},${lng}););out body 120;`;
+  let data = null;
+  for (const url of OVERPASS) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        body: `data=${encodeURIComponent(body)}`,
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Roam/0.1 (+https://github.com/rogerrivers888/roam)' },
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (!res.ok) throw new Error(`Overpass ${res.status}`);
+      data = await res.json();
+      break;
+    } catch { /* the next mirror */ }
+  }
+  if (!data) return [];
+  return (data.elements || [])
+    .filter((n) => n.tags?.name)
+    .map((n) => ({
+      name: cleanName(n.tags.name),
+      lat: n.lat,
+      lng: n.lon,
+      kind: n.tags.station === 'subway' ? 'metro' : n.tags.station === 'light_rail' ? 'tram' : 'rail',
+    }));
+}
+
 async function osmStation(lat, lng) {
   const body = `[out:json][timeout:12];node["railway"="station"](around:5000,${lat},${lng});out body 40;`;
   let data = null, lastErr = null;

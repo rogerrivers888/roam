@@ -28,10 +28,10 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { api, BrowseItem, HouseholdResponse, TripAlongPlace, TripDetail, TripPlace } from '../api';
+import { api, BrowseItem, HouseholdResponse, Stay, StayPlacement, TripAlongPlace, TripDetail, TripPlace } from '../api';
 import { useViewport } from '../hooks/useViewport';
 import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
-import { Button, Card, StatusLine } from '../components/ui';
+import { Button, Card, Row, Segmented, StatusLine } from '../components/ui';
 import { Icon, IconName, Stars } from '../components/Icon';
 import { VenueThumb } from '../components/VenueThumb';
 import { BottomSheet, Detent, detentHeights } from '../components/BottomSheet';
@@ -46,11 +46,17 @@ const clock = (iso: string) => { const d = new Date(iso); return `${String(d.get
 const mins = (m: number) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60 ? `${m % 60}m` : ''}`.trim());
 const money = (level?: number | null) => (level == null ? null : '£'.repeat(Math.max(1, Math.min(4, level))));
 
-/** Which of the three pills is lit. Null is Trip home. */
-type Pill = 'activities' | 'food' | 'shortlist';
-const PILLS: { key: Pill; label: string; icon: IconName }[] = [
+/** Which pill is lit. Null is Trip home. */
+type Pill = 'activities' | 'food' | 'stay' | 'shortlist';
+/**
+ * Stay sits between Food and Shortlist, and only on a trip with nights in it —
+ * a day out has nowhere to sleep by definition. With four across a 390px phone
+ * the food label shortens to "Food", which is what the handoff draws (§15).
+ */
+const pillsFor = (withStay: boolean): { key: Pill; label: string; icon: IconName }[] => [
   { key: 'activities', label: 'Activities', icon: 'inspire' },
-  { key: 'food', label: 'Food & drink', icon: 'restaurant' },
+  { key: 'food', label: withStay ? 'Food' : 'Food & drink', icon: 'restaurant' },
+  ...(withStay ? [{ key: 'stay' as Pill, label: 'Stay', icon: 'hotel' as IconName }] : []),
   { key: 'shortlist', label: 'Shortlist', icon: 'shortlist' },
 ];
 
@@ -72,7 +78,12 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const { setQuery } = useRouter();
   const { trip, days, shortlist, attendees } = d;
 
-  const [pill, setPill] = useQueryState<Pill | null>('pill', null, asOneOf(['activities', 'food', 'shortlist'] as const, null));
+  const [pill, setPill] = useQueryState<Pill | null>('pill', null, asOneOf(['activities', 'food', 'stay', 'shortlist'] as const, null));
+  // How you want to stay, and how far you will go. All of it in the address, so
+  // "the beds by a station under a ten-minute walk" is a page somebody can send.
+  const [placement, setPlacement] = useQueryState<StayPlacement>('where', 'plans', asOneOf(['plans', 'town', 'station'] as const, 'plans'));
+  const [stayMode, setStayMode] = useQueryState<'driving' | 'walking'>('go', 'driving', asOneOf(['driving', 'walking'] as const, 'driving'));
+  const [criteria, setCriteria] = useState(false);
   const [scope, setScope] = useQueryState<'route' | 'there' | null>('scope', null, asOneOf(['route', 'there'] as const, null));
   const [detour, setDetour] = useQueryState<string | null>('detour', null, asText);
   const maxDetourMin = Number(detour) || 15;
@@ -103,11 +114,34 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       .catch((e) => setAlong({ loading: false, places: [], counts: { route: 0, there: 0 }, error: e.message, degraded: [] }));
   }, [alongKey, trip.id, pill, scope, maxDetourMin]);
 
+  // Somewhere to sleep, ranked the way the criteria asked. Only fetched when
+  // the Stay pill is lit — it is an Overpass call and sometimes a price call.
+  const [stays, setStays] = useState<{ loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; error: string | null }>(
+    { loading: false, results: [], spread: null, error: null },
+  );
+  const stayKey = pill === 'stay' ? `${placement}|${stayMode}` : null;
+  const lastStay = useRef<string | null>(null);
+  useEffect(() => {
+    if (!stayKey || stayKey === lastStay.current) return;
+    lastStay.current = stayKey;
+    setStays((v) => ({ ...v, loading: true, error: null }));
+    api.tripStays(trip.id, { placement, mode: stayMode })
+      .then((r) => setStays({ loading: false, results: r.results, spread: r.spread, error: null }))
+      .catch((e) => setStays({ loading: false, results: [], spread: null, error: e.message }));
+  }, [stayKey, trip.id, placement, stayMode]);
+
   const isTrip = trip.kind === 'trip';
   const base = trip.base && trip.base.kind !== 'centre' ? trip.base : null;
   const start = base && isTrip ? base : trip.origin;
   const dest = trip.destination ?? (trip.base?.lat != null ? trip.base : null);
   const day = days[0] ?? null;
+  const nights = isTrip && trip.startDate && trip.endDate
+    ? Math.max(0, Math.round((+new Date(`${trip.endDate}T12:00:00`) - +new Date(`${trip.startDate}T12:00:00`)) / 86400000))
+    : 0;
+  /** Somewhere to sleep is only a question on a trip with a night in it. */
+  const wantsStay = nights > 0;
+  /** And it is an open question until a real bed is set as the base. */
+  const stayChosen = !!base;
 
   // ---- the map ------------------------------------------------------------
 
@@ -123,7 +157,19 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     if (dest?.lat != null && dest !== start) {
       out.push({ id: 'dest', lat: dest.lat as number, lng: dest.lng as number, kind: 'dest', icon: 'flag', label: trip.locality ?? dest.label.split(',')[0] });
     }
-    if (pill && pill !== 'shortlist') {
+    if (pill === 'stay') {
+      for (const st of stays.results.slice(0, 20)) {
+        if (st.lat == null) continue;
+        out.push({
+          id: st.venueRef, lat: st.lat, lng: st.lng,
+          kind: st.rank === 1 ? 'dest' : 'added',
+          icon: 'bed',
+          label: selected === st.venueRef ? `${st.rank ?? ''} · ${st.name}` : String(st.rank ?? ''),
+          selected: selected === st.venueRef,
+          onPress: () => { setSelected(st.venueRef); setDetent('half'); },
+        });
+      }
+    } else if (pill && pill !== 'shortlist') {
       for (const p of along.places.slice(0, 40)) {
         if (p.lat == null) continue;
         out.push({
@@ -230,7 +276,25 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     </View>
   );
 
-  const body = pill ? (
+  const body = pill === 'stay' ? (
+    <StayList
+      stays={stays}
+      placement={placement}
+      onPlacement={setPlacement}
+      mode={stayMode}
+      onMode={setStayMode}
+      onCriteria={() => setCriteria(true)}
+      nights={nights}
+      selected={selected}
+      onSelect={setSelected}
+      onChoose={async (st) => {
+        try {
+          await api.setTripStay(trip.id, { venueRef: st.venueRef, label: st.name, lat: st.lat, lng: st.lng });
+          setPill(null); await onChanged();
+        } catch (e: any) { setError(e.message); }
+      }}
+    />
+  ) : pill ? (
     <BrowseList
       pill={pill}
       along={along}
@@ -249,13 +313,28 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     <SheetTabs section={section} counts={places?.counts.all ?? 0} onSection={onSection}>
       {section === 'places' ? <TripPlacesList data={places} onSelect={(ref) => { setSelected(ref); setDetent('half'); }} />
         : section === 'group' ? <View style={{ padding: spacing.lg }}><GroupPanel d={d} onChanged={onChanged} /></View>
-          : <TheDay d={d} onAdd={() => { setPill('food'); setDetent('half'); }} />}
+          : (
+            <>
+              {/* The signpost (handoff §15): a trip with nights and nowhere to
+                  sleep says so, once, above the day — and offers the two ways
+                  in rather than making somebody find the pill. */}
+              {wantsStay && !stayChosen ? (
+                <StaySignpost
+                  planned={places?.places.filter((x) => x.scheduled).length ?? 0}
+                  days={days.length}
+                  onFind={() => { setPill('stay'); setDetent('half'); }}
+                  onCriteria={() => { setPill('stay'); setCriteria(true); setDetent('half'); }}
+                />
+              ) : null}
+              <TheDay d={d} onAdd={() => { setPill('food'); setDetent('half'); }} />
+            </>
+          )}
     </SheetTabs>
   );
 
   const pills = (
     <View style={[styles.pills, wide && { left: 24, right: undefined }]}>
-      {PILLS.map((p) => {
+      {pillsFor(wantsStay).map((p) => {
         const on = pill === p.key;
         // Shortlist is exclusive with the other two, and dims them (handoff §7).
         const dim = pill === 'shortlist' && p.key !== 'shortlist';
@@ -341,6 +420,17 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
         onAdd={(item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); setOpen(null); if (p) setAdding(p); }}
         onShortlist={async (item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); if (p) await shortlistIt(p); }}
       />
+
+      {criteria ? (
+        <StayCriteria
+          placement={placement} onPlacement={setPlacement}
+          mode={stayMode} onMode={setStayMode}
+          nights={nights} startDate={trip.startDate} endDate={trip.endDate}
+          count={stays.results.length}
+          onClose={() => setCriteria(false)}
+          onShow={() => { setCriteria(false); setPill('stay'); setDetent('half'); }}
+        />
+      ) : null}
 
       {adding ? (
         <AddSheet
@@ -639,6 +729,185 @@ function Chip({ label, on, chevron, onPress }: { label: string; on?: boolean; ch
 }
 
 // ---------------------------------------------------------------------------
+// Stay
+// ---------------------------------------------------------------------------
+
+/**
+ * The signpost (handoff §15). A trip made with "find us somewhere" has nowhere
+ * to sleep, and the day is not the place to discover that. It says how much of
+ * the trip is planned, because that is what makes the answer better — the whole
+ * point of "near my plans" is that it improves as the plans fill in.
+ */
+function StaySignpost({ planned, days, onFind, onCriteria }: { planned: number; days: number; onFind: () => void; onCriteria: () => void }) {
+  return (
+    <View style={styles.signpost}>
+      <Row style={{ gap: 10 }}>
+        <View style={styles.signIcon}><Icon name="hotel" size={17} color={colors.primaryFg} /></View>
+        <Text style={[styles.bookingName, { flex: 1 }]}>Where will you stay?</Text>
+      </Row>
+      <Text style={type.small}>
+        {planned
+          ? `${planned} of ${days} day${days === 1 ? '' : 's'} planned · Roam can place you near them`
+          : 'Nothing planned yet · Roam can place you near the middle of it, or by a station'}
+      </Text>
+      <Row style={{ gap: 8 }}>
+        <View style={{ flex: 1.3 }}><Button label="Find stays near my plans" icon="hotel" onPress={onFind} /></View>
+        <View style={{ flex: 1 }}><Button label="Set criteria" kind="secondary" onPress={onCriteria} /></View>
+      </Row>
+      <Text style={type.tiny}>Or keep planning — the more days you fill, the better the fit.</Text>
+    </View>
+  );
+}
+
+const PLACEMENTS: { key: StayPlacement; title: string; blurb: string; recommended?: boolean }[] = [
+  { key: 'plans', title: 'Near my plans', blurb: 'Best placed for the days you have planned so far. Gets better as you add days.', recommended: true },
+  { key: 'town', title: 'Near a town or city', blurb: 'Within a short hop of a centre, with everything else a drive away.' },
+  { key: 'station', title: 'Near a station, anywhere', blurb: 'Happy to be further out if the train is a short walk. Usually much cheaper.' },
+];
+
+/** How you want to stay (handoff §16/17), as a sheet over the map. */
+function StayCriteria({ placement, onPlacement, mode, onMode, nights, startDate, endDate, count, onClose, onShow }: {
+  placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
+  mode: 'driving' | 'walking'; onMode: (m: 'driving' | 'walking') => void;
+  nights: number; startDate?: string | null; endDate?: string | null; count: number;
+  onClose: () => void; onShow: () => void;
+}) {
+  const { width, height, framed, origin } = useViewport();
+  const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height } : null;
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={[{ flex: 1, justifyContent: 'flex-end' }, frameBox]}>
+        <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel="Cancel" />
+        <View style={[styles.addSheet, { maxHeight: '86%' }]}>
+          <View style={styles.grabSmall} />
+          <View style={styles.addHead}>
+            <Text style={styles.addTitle}>How do you want to stay?</Text>
+            <Pressable onPress={onClose} accessibilityRole="button"><Text style={[type.small, { fontWeight: '600' }]}>Cancel</Text></Pressable>
+          </View>
+          <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 8 }}>
+            {/* Getting around sets the units everywhere else: a drive or a walk. */}
+            <Row style={{ justifyContent: 'space-between', gap: 12 }}>
+              <Text style={type.small}>Getting around</Text>
+              <View style={{ width: 236 }}>
+                <Segmented
+                  value={mode}
+                  options={[{ value: 'driving' as const, label: 'Car' }, { value: 'walking' as const, label: 'Walk & train' }]}
+                  onChange={onMode}
+                />
+              </View>
+            </Row>
+
+            {PLACEMENTS.map((o) => {
+              const on = placement === o.key;
+              return (
+                <Pressable key={o.key} onPress={() => onPlacement(o.key)} style={[styles.option, on && styles.optionOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
+                  <View style={[styles.radio, on && styles.radioOn]}>{on ? <Icon name="check" size={12} color={colors.primaryFg} strokeWidth={3} /> : null}</View>
+                  <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                    <Row style={{ gap: 8 }}>
+                      <Text style={styles.optionTitle}>{o.title}</Text>
+                      {o.recommended ? <Text style={styles.recommend}>RECOMMENDED</Text> : null}
+                    </Row>
+                    <Text style={type.small}>{o.blurb}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+
+            <Text style={type.tiny}>
+              {nights ? `${nights} night${nights === 1 ? '' : 's'}${startDate && endDate ? ` · ${fmtDate(startDate)} – ${fmtDate(endDate)}` : ''}` : 'No nights on this trip yet.'}
+            </Text>
+          </ScrollView>
+          <Button label={count ? `Show ${count} stays` : 'Show stays'} icon="hotel" onPress={onShow} />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/** The results (handoff §18/19): ranked, with the fit line the ranking was made from. */
+function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nights, selected, onSelect, onChoose }: {
+  stays: { loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; error: string | null };
+  placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
+  mode: 'driving' | 'walking'; onMode: (m: 'driving' | 'walking') => void;
+  onCriteria: () => void; nights: number;
+  selected: string | null; onSelect: (ref: string) => void;
+  onChoose: (s: Stay) => Promise<void>;
+}) {
+  const label = placement === 'station' ? 'Near a station' : placement === 'town' ? 'Near the centre' : 'Near my plans';
+  return (
+    <View>
+      <View style={styles.chips}>
+        <Chip label={label} on chevron onPress={onCriteria} />
+        <Chip label={mode === 'driving' ? 'Car' : 'Walk & train'} onPress={() => onMode(mode === 'driving' ? 'walking' : 'driving')} />
+      </View>
+
+      {/* Screen 19: when the days are an hour apart, no one of them is worth
+          being near, and the app should say so rather than ranking against a
+          middle that does not exist. */}
+      {stays.spread ? (
+        <View style={styles.spread}>
+          <Text style={[type.small, { color: colors.ink }]}>
+            <Text style={{ fontWeight: '700' }}>Your plans are spread out</Text>
+            {` — ${stays.spread.between.join(' and ')} are about ${stays.spread.minutes} minutes apart. A stay near a station may beat being near any single day.`}
+          </Text>
+          {placement !== 'station' ? (
+            <Pressable onPress={() => onPlacement('station')} accessibilityRole="button">
+              <Text style={styles.spreadLink}>Rank by station instead →</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {stays.loading ? <Text style={[type.small, { padding: spacing.lg }]}>Looking for somewhere to stay…</Text> : null}
+      {stays.error ? <View style={{ padding: spacing.lg }}><StatusLine tone="warn">{stays.error}</StatusLine></View> : null}
+      {!stays.loading && !stays.error && !stays.results.length ? (
+        <View style={{ padding: spacing.lg }}><Card><Text style={type.small}>No beds found around here yet. The open map may be busy — try again in a moment.</Text></Card></View>
+      ) : null}
+
+      {stays.results.length ? (
+        <Text style={[type.small, { paddingHorizontal: 16, paddingTop: 8 }]}>
+          {placement === 'station' ? 'Ranked by the walk to the platform, then the journey from it.'
+            : placement === 'town' ? 'Ranked by how close they are to the centre.'
+              : 'Ranked by the typical journey to the places you have planned.'}
+        </Text>
+      ) : null}
+
+      <View style={{ paddingHorizontal: 16 }}>
+        {stays.results.map((st) => (
+          <Pressable key={st.venueRef} onPress={() => onSelect(st.venueRef)} style={[styles.row, selected === st.venueRef && styles.rowOn]} accessibilityRole="button">
+            <View>
+              <VenueThumb name={st.name} photos={st.photos} category="hotel" width={64} height={64} rounded={6} credit={false} />
+              {st.rank ? <View style={styles.rank}><Text style={styles.rankText}>{st.rank}</Text></View> : null}
+            </View>
+            <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+              <Text style={styles.rowName} numberOfLines={1}>{st.name}</Text>
+              <View style={styles.rowMeta}>
+                <Text style={type.small} numberOfLines={1}>{[st.stayKind ? cap(st.stayKind) : 'Hotel', money(st.priceLevel)].filter(Boolean).join(' · ')}</Text>
+                {st.rating != null ? (
+                  <Stars value={st.rating} size={12}><Text style={styles.ratingText}>{st.rating.toFixed(1)}</Text></Stars>
+                ) : null}
+              </View>
+              {st.fit ? <Text style={styles.detourGreen} numberOfLines={2}>{st.fit}</Text> : null}
+              <View style={styles.rowActions}>
+                {st.offer?.perNight != null ? (
+                  <Text style={[type.small, { flex: 1, color: colors.ink, fontWeight: '600' }]} numberOfLines={1}>
+                    {`£${Math.round(st.offer.perNight)} / night${nights ? ` · ${nights} night${nights === 1 ? '' : 's'}` : ''}`}
+                  </Text>
+                ) : <Text style={[type.tiny, { flex: 1 }]} numberOfLines={1}>no price for these nights</Text>}
+                <Pressable onPress={() => onChoose(st)} style={styles.add} accessibilityRole="button">
+                  <Icon name="check" size={13} color={colors.ink} />
+                  <Text style={styles.addText}>Choose</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Add
 // ---------------------------------------------------------------------------
 
@@ -790,6 +1059,19 @@ const styles = StyleSheet.create({
   add: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 11, height: 30, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.ink },
   addText: { fontFamily: fonts.body, fontSize: 12, fontWeight: '700', color: colors.ink },
 
+  signpost: { marginTop: 12, padding: 14, borderWidth: 1.5, borderColor: colors.ink, borderRadius: 14, gap: 10 },
+  signIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  option: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', padding: 12, borderRadius: 12, borderWidth: 1.5, borderColor: colors.line },
+  optionOn: { borderColor: colors.ink, backgroundColor: colors.surfaceMuted },
+  optionTitle: { fontFamily: fonts.heading, fontSize: 15, fontWeight: '700', color: colors.ink },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: colors.line, marginTop: 2, alignItems: 'center', justifyContent: 'center' },
+  radioOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  recommend: { fontFamily: fonts.heading, fontSize: 10, fontWeight: '700', letterSpacing: 0.6, color: colors.accent },
+  spread: { marginHorizontal: 16, marginTop: 10, padding: 12, borderRadius: 12, backgroundColor: colors.surfaceMuted, gap: 6 },
+  spreadLink: { fontFamily: fonts.body, fontSize: 13, fontWeight: '700', color: colors.accent },
+  detourGreen: { fontFamily: fonts.body, fontSize: 12, fontWeight: '600', color: colors.accent },
+  rank: { position: 'absolute', left: -4, top: -4, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  rankText: { fontFamily: fonts.body, fontSize: 11, fontWeight: '700', color: colors.primaryFg },
   scrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(32,30,29,0.45)' },
   addSheet: { backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 28, gap: 14 },
   grabSmall: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.line, alignSelf: 'center' },

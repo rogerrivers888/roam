@@ -13,6 +13,7 @@ import { searchAreas } from '../sources/areas.js';
 import { optInFrom, enabledSources } from '../sources/index.js';
 import { searchCached } from '../sources/cache.js';
 import { bedsNear, OSM_ATTRIBUTION, LITEAPI_ATTRIBUTION } from '../sources/stays.js';
+import { stationsNear } from '../sources/where.js';
 import { rankStays, middleOf, partyForStay } from '../domain/stays.js';
 import { occupanciesFor, liteapiEnabled, liteapiKeyKind } from '../sources/liteapi.js';
 import { kmBetween, detourMinutes, estimateTravelMinutes, reachRadiusKm } from '../domain/travel.js';
@@ -712,9 +713,89 @@ router.get('/:id/stays', async (req, res, next) => {
       // somebody can act on rather than passing on a timeout code.
       return res.status(504).json({ error: 'map_busy', message: 'The open map took too long to answer. Try again in a moment — or say where you are staying and we will work around it.' });
     }
-    const ranked = rankStays(look.beds, { anchors, centre: anchors.length ? heart : centre, mode, availabilityFirst: look.priced })
-      .filter((s) => s.distanceKm == null || s.distanceKm <= radiusKm + 1)
-      .slice(0, 40);
+    /**
+     * Where you want to be (design handoff, 6 Sep 2026, screen 16). Three
+     * answers, and they are genuinely different questions rather than three
+     * sorts of the same one:
+     *
+     *   plans    — best placed for the days already planned. The default, and
+     *              the only one only Roam can answer, because it is the only
+     *              thing that holds the shortlist.
+     *   town     — near a centre, when the plans are thin or scattered.
+     *   station  — happy to be further out if the train is a short walk, which
+     *              is usually much cheaper. Ranked on the walk to the platform
+     *              first and the journey from it second.
+     */
+    const placement = ['plans', 'town', 'station'].includes(req.query.placement) ? req.query.placement : 'plans';
+    const maxAvgMin = Math.min(120, Math.max(5, Number(req.query.maxAvgMin) || 20));
+    const maxWalkMin = Math.min(40, Math.max(3, Number(req.query.maxWalkMin) || 10));
+
+    /**
+     * Are the plans spread out? Screen 19: when the days are an hour apart from
+     * each other, no single one of them is worth being near, and a bed by a
+     * station beats all of them. Measured between the two furthest apart.
+     */
+    let spread = null;
+    if (anchors.length >= 2) {
+      let worst = { minutes: 0, a: null, b: null };
+      for (let i = 0; i < anchors.length; i += 1) {
+        for (let j = i + 1; j < anchors.length; j += 1) {
+          const minutes = estimateTravelMinutes(anchors[i], anchors[j], 'driving');
+          if (minutes > worst.minutes) worst = { minutes, a: anchors[i], b: anchors[j] };
+        }
+      }
+      if (worst.minutes >= 45) {
+        spread = {
+          minutes: worst.minutes,
+          between: [worst.a.label, worst.b.label],
+          places: anchors.map((a) => a.label),
+        };
+      }
+    }
+
+    // Stations, only for the placement that needs them: it is an Overpass call
+    // and nothing else on this screen wants it.
+    let stations = [];
+    if (placement === 'station') {
+      stations = await stationsNear(centre.lat, centre.lng, Math.round(Math.min(15, radiusKm + 6) * 1000)).catch(() => []);
+    }
+    const nearestStation = (bed) => {
+      if (!stations.length) return null;
+      let best = null;
+      for (const st of stations) {
+        const km = kmBetween(bed, st);
+        if (!best || km < best.km) best = { ...st, km };
+      }
+      // On foot at 4.8 km/h, which is what `walking` means everywhere else.
+      return best ? { ...best, walkMinutes: Math.max(1, Math.round((best.km / 4.8) * 60)) } : null;
+    };
+
+    let ranked = rankStays(look.beds, { anchors, centre: anchors.length ? heart : centre, mode, availabilityFirst: look.priced })
+      .filter((s) => s.distanceKm == null || s.distanceKm <= radiusKm + 1);
+
+    if (placement === 'station') {
+      ranked = ranked
+        .map((s) => {
+          const st = nearestStation(s);
+          // From the platform, by train, to each planned place.
+          const legs = anchors.map((a) => (st ? estimateTravelMinutes(st, a, 'transit') : null)).filter((n) => n != null);
+          const typicalTrain = legs.length ? [...legs].sort((x, y) => x - y)[Math.floor((legs.length - 1) / 2)] : null;
+          return { ...s, station: st, typicalTrainMinutes: typicalTrain };
+        })
+        .sort((a, b) => {
+          const aw = a.station?.walkMinutes ?? 999;
+          const bw = b.station?.walkMinutes ?? 999;
+          // Inside the walk you said you would do, the train time decides.
+          const aOk = aw <= maxWalkMin, bOk = bw <= maxWalkMin;
+          if (aOk !== bOk) return aOk ? -1 : 1;
+          if (aOk && (a.typicalTrainMinutes ?? 999) !== (b.typicalTrainMinutes ?? 999)) return (a.typicalTrainMinutes ?? 999) - (b.typicalTrainMinutes ?? 999);
+          return aw - bw;
+        });
+    } else if (placement === 'town') {
+      ranked = [...ranked].sort((a, b) => (a.distanceKm ?? 99) - (b.distanceKm ?? 99));
+    }
+
+    ranked = ranked.slice(0, 40);
     const status = await householdStatus(household.id, ranked.map((s) => s.venueRef));
     // Every outbound call is attributed (Technical Constraints §2). LiteAPI is
     // free to search — they earn on the booking — so the units are requests and
@@ -726,7 +807,26 @@ router.get('/:id/stays', async (req, res, next) => {
       radiusKm,
       mode,
       anchors: anchors.map((a) => ({ label: a.label, lat: a.lat, lng: a.lng })),
-      results: ranked.map((s) => ({ ...s, household: status[s.venueRef] ?? null })),
+      placement,
+      spread,
+      results: ranked.map((s, i) => ({
+        ...s,
+        household: status[s.venueRef] ?? null,
+        rank: i + 1,
+        /**
+         * The green line on the row: why this one, in the terms the placement
+         * was chosen on. Written here rather than on the screen because it is
+         * the same sentence the ranking was made from, and the two must not be
+         * able to disagree.
+         */
+        fit: placement === 'station' && s.station
+          ? [`${s.station.walkMinutes} min walk to ${s.station.name}`, s.typicalTrainMinutes != null ? `plans about ${s.typicalTrainMinutes} min by train` : null].filter(Boolean).join(' · ')
+          : placement === 'town'
+            ? `${s.distanceKm != null ? `${s.distanceKm} km from` : 'near'} ${trip.locality ?? 'the centre'}`
+            : s.plansTotal
+              ? `${s.typicalMinutes} min ${mode === 'driving' ? 'drive' : 'walk'} to your ${s.plansTotal} planned place${s.plansTotal === 1 ? '' : 's'}${s.plansNear ? ` · ${s.plansNear} on foot` : ''}`
+              : 'Nothing planned yet — this is the middle of town',
+      })),
       cached: look.cached,
       // What was asked of the price source, and what came back — enough for the
       // screen to say "for 2 adults and 2 children, 1 room, 3 nights" and to be
