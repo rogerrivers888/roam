@@ -130,6 +130,14 @@ export function causeOf({ why = null, state = null, website = null, menuUrl = nu
   if (/could not resolve authentication|api[_ ]?key|unauthori[sz]ed|rate.?limit|quota|429|credit balance|overloaded|insufficient|ECONNRESET|socket hang up|internal server error/i.test(w)) {
     return 'ours';
   }
+  // A crash in Roam's own code, which is the same class of thing and the one
+  // this cause was worth adding for. `searchTheWeb is not defined` — a
+  // parameter added to two call sites and never to the function that holds them
+  // — failed a hundred and one reads on production and sat in the backlog
+  // looking exactly like a hundred and one restaurants with broken websites.
+  if (/is not defined|is not a function|cannot read propert|undefined is not|null is not an object|Unexpected token/i.test(w)) {
+    return 'ours';
+  }
 
   // The crawler's own codes, thrown from menuRead.js, are already causes.
   if (w === 'menu_had_no_items') return 'menu_empty';

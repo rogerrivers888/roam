@@ -325,7 +325,7 @@ export async function fillMenus({ limit = 3, householdId = null } = {}) {
  * function that runs over a number of weeks", and a few menus every quarter of
  * an hour builds the dataset without a bill arriving in one afternoon.
  */
-export async function readFoundMenus({ limit = 2, householdId = null, sessionId = null, ref = null } = {}) {
+export async function readFoundMenus({ limit = 2, householdId = null, sessionId = null, ref = null, searchTheWeb = false } = {}) {
   if (!householdId) return { read: 0, done: [], why: 'no household to attribute the reads to' };
   const due = await scout.menusToRead(limit, ref);
   const done = [];

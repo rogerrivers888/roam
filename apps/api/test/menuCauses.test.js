@@ -57,6 +57,13 @@ test('a failure of ours is never counted as a place we cannot read', () => {
     'Request failed with status 429',
     'Your credit balance is too low',
     'socket hang up',
+    // The one this cause was worth adding for: a parameter added to two call
+    // sites and never to the function holding them failed a hundred and one
+    // reads, and every one of them sat in the backlog looking like a restaurant
+    // with a broken website.
+    'searchTheWeb is not defined',
+    'Cannot read properties of undefined (reading \'url\')',
+    'menuFor is not a function',
   ];
   for (const why of ours) assert.equal(causeOf({ why, state: 'none' }), 'ours', why.slice(0, 40));
 });
