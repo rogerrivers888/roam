@@ -184,7 +184,21 @@ export async function osmElement(ref, { meter = null } = {}) {
  * Returns `{ ref, tags, lat, lng, distanceM, confidence, how }` or null. The
  * caller decides what to do with a low confidence; nothing here writes.
  */
-export async function matchOsm({ venueRef, name, lat, lng, locality = null, meter = null } = {}) {
+/**
+ * The words that are true of everywhere around here, and so prove nothing about
+ * which place this is: the town and the district, but not the street.
+ *
+ * The household's own row carries the district — "Windsor and Maidenhead" — and
+ * that is not the word a Sunningdale business shares with its neighbours. The
+ * village is in the address, after the street and before the postcode.
+ */
+export function placeWords(locality, address) {
+  const parts = String(address ?? '').split(',').map((s) => s.trim()).filter(Boolean).slice(1);
+  const towns = parts.filter((p) => !/\d/.test(p) && !/^(england|scotland|wales|northern ireland|united kingdom|uk)$/i.test(p));
+  return [locality, ...towns].filter(Boolean);
+}
+
+export async function matchOsm({ venueRef, name, lat, lng, locality = null, address = null, meter = null } = {}) {
   // A place that is already an OSM place needs no matching — it is its own
   // match, as long as the element is where the place is. A reference that was
   // written by hand rather than read off the map may point at a real way with a
@@ -227,7 +241,7 @@ export async function matchOsm({ venueRef, name, lat, lng, locality = null, mete
     const distanceM = metresBetween(here, { lat: elat, lng: elng });
     if (distanceM > MAX_M) continue;
     // Names agree first; distance only separates two that both do.
-    const dull = locality ? [locality] : [];
+    const dull = placeWords(locality, address);
     const n = Math.max(nameScore(name, tags.name, dull), ...(['int_name', 'official_name', 'alt_name', 'brand', 'operator'].map((k) => (tags[k] ? nameScore(name, tags[k], dull) : 0))));
     if (n < 0.6) continue;
     const confidence = Math.min(1, n * (1 - Math.min(distanceM, MAX_M) / (MAX_M * 4)));
