@@ -114,7 +114,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
    */
   const [crit, setCrit] = useQueryState<string | null>('stay', null, asText);
   const criteriaState: StayCriteriaState = useMemo(() => {
-    const d: StayCriteriaState = { maxAvgMin: 20, townMin: 15, maxTrainMin: 25, maxWalkMin: 10, budget: [80, 180], types: [], must: [], nice: [] };
+    const d: StayCriteriaState = { maxAvgMin: 20, townMin: 15, maxTrainMin: 25, maxWalkMin: 10, budget: [80, 180], types: [], must: [], nice: [], town: null };
     if (!crit) return d;
     try { return { ...d, ...JSON.parse(decodeURIComponent(crit)) }; } catch { return d; }
   }, [crit]);
@@ -175,8 +175,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
 
   // Somewhere to sleep, ranked the way the criteria asked. Only fetched when
   // the Stay pill is lit — it is an Overpass call and sometimes a price call.
-  const [stays, setStays] = useState<{ loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; error: string | null }>(
-    { loading: false, results: [], spread: null, error: null },
+  const [stays, setStays] = useState<{ loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; error: string | null }>(
+    { loading: false, results: [], spread: null, anchors: [], error: null },
   );
   // Counted while the wizard is open as well as while the list is: the button
   // says how many match, and it cannot say it without asking.
@@ -190,13 +190,20 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       placement, mode: stayMode,
       maxAvgMin: criteriaState.maxAvgMin, townMin: criteriaState.townMin,
       maxTrainMin: criteriaState.maxTrainMin, maxWalkMin: criteriaState.maxWalkMin,
+      townAt: criteriaState.town ? `${criteriaState.town.lat},${criteriaState.town.lng}` : undefined,
       budgetMax: criteriaState.budget[1], budgetMin: criteriaState.budget[0],
       types: criteriaState.types.join(',') || undefined,
       must: criteriaState.must.join(',') || undefined,
       nice: criteriaState.nice.join(',') || undefined,
     })
-      .then((r) => setStays({ loading: false, results: r.results, spread: r.spread, error: null }))
-      .catch((e) => setStays({ loading: false, results: [], spread: null, error: e.message }));
+      .then((r) => {
+        setStays({ loading: false, results: r.results, spread: r.spread, anchors: r.anchors, error: null });
+        // Plans an hour apart have no middle worth being near, so the server
+        // ranks by station instead — and the chips must say what was done
+        // rather than what was asked for (§20).
+        if (r.placement !== placement) setPlacement(r.placement);
+      })
+      .catch((e) => setStays({ loading: false, results: [], spread: null, anchors: [], error: e.message }));
   }, [stayKey, trip.id, placement, stayMode, criteriaState]);
 
   const isTrip = trip.kind === 'trip';
@@ -267,6 +274,11 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       });
     }
     if (pill === 'stay') {
+      // The days the ranking is made from, so the numbers on the beds can be
+      // read against something (§19: "Polignano · Sun").
+      for (const a of stays.anchors) {
+        out.push({ id: `plan:${a.label}`, lat: a.lat, lng: a.lng, kind: 'browse', icon: 'sparkles', label: a.label });
+      }
       for (const st of stays.results.slice(0, 20)) {
         if (st.lat == null) continue;
         out.push({
@@ -629,7 +641,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           mode={stayMode} onMode={setStayMode}
           nights={nights} startDate={trip.startDate} endDate={trip.endDate}
           count={stays.results.length} loading={stays.loading}
-          town={trip.locality ?? tripName(trip)}
+          town={criteriaState.town?.label ?? trip.locality ?? tripName(trip)}
+          ownTown={trip.locality ?? tripName(trip)}
           planned={plannedCount}
           plannedNames={plannedNames}
           line={null}
@@ -964,6 +977,8 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, anchorLabel, onCl
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/[-_]/g, ' ');
+/** "Bari, Polignano, Matera and Lecce" — the handoff's own phrasing (§20). */
+const andList = (xs: string[]) => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** Something already on the trip, in the drawer's shape. */
 function tripPlaceToItem(p: TripPlace): BrowseItem {
@@ -1249,6 +1264,8 @@ const PLACEMENTS: { key: StayPlacement; icon: IconName; title: string; blurb: st
 export type StayCriteriaState = {
   maxAvgMin: number; townMin: number; maxTrainMin: number; maxWalkMin: number;
   budget: [number, number]; types: string[]; must: string[]; nice: string[];
+  /** The town "Near {town}" means, when it is not the trip's own area (§16). */
+  town: { label: string; lat: number; lng: number } | null;
 };
 
 /** The three answers screen 16 offers for "how far", whichever tile is lit. */
@@ -1333,19 +1350,20 @@ function MinuteBox({ label, value, min, max, step, onChange }: {
  */
 function StayCriteria({
   step, onStep, placement, onPlacement, mode, onMode, nights, startDate, endDate, count, loading,
-  town, planned, plannedNames, line, criteria, onCriteria, onClose, onShow,
+  town, ownTown, planned, plannedNames, line, criteria, onCriteria, onClose, onShow,
 }: {
   step: 1 | 2; onStep: (s: 1 | 2) => void;
   placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
   mode: 'driving' | 'walking'; onMode: (m: 'driving' | 'walking') => void;
   nights: number; startDate?: string | null; endDate?: string | null; count: number; loading: boolean;
-  town: string; planned: number; plannedNames: string[]; line: string | null;
+  town: string; ownTown: string; planned: number; plannedNames: string[]; line: string | null;
   criteria: StayCriteriaState; onCriteria: (next: Partial<StayCriteriaState>) => void;
   onClose: () => void; onShow: () => void;
 }) {
   const { width, height, framed, origin } = useViewport();
   const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height } : null;
   const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+  const [swapping, setSwapping] = useState(false);
   const names = plannedNames.length
     ? plannedNames.slice(0, 3).join(', ') + (plannedNames.length > 3 ? ` and ${plannedNames.length - 3} more` : '')
     : 'the days you plan';
@@ -1396,7 +1414,7 @@ function StayCriteria({
                     return (
                       <Pressable
                         key={o.key}
-                        onPress={() => onPlacement(o.key)}
+                        onPress={() => { if (on && o.key === 'town') setSwapping((v) => !v); else onPlacement(o.key); }}
                         style={[styles.tile, on && styles.tileOn]}
                         accessibilityRole="radio"
                         accessibilityState={{ checked: on }}
@@ -1432,11 +1450,22 @@ function StayCriteria({
                     </>
                   ) : placement === 'town' ? (
                     <>
-                      <Text style={styles.tintLine}>
-                        Everything within a short hop of <Text style={{ fontWeight: '700' }}>{town}</Text>, with the rest of the trip a drive away.
-                      </Text>
+                      <Row style={{ gap: 8, alignItems: 'flex-start' }}>
+                        <Text style={[styles.tintLine, { flex: 1 }]}>
+                          Everything within a short hop of <Text style={{ fontWeight: '700' }}>{town}</Text>, with the rest of the trip a drive away.
+                        </Text>
+                        <Pressable onPress={() => setSwapping((v) => !v)} accessibilityRole="button">
+                          <Text style={styles.spreadLink}>{swapping ? 'Keep' : 'Change'}</Text>
+                        </Pressable>
+                      </Row>
+                      {swapping ? (
+                        <TownPick
+                          own={ownTown}
+                          onPick={(t) => { onCriteria({ town: t }); setSwapping(false); }}
+                        />
+                      ) : null}
                       <Row style={{ justifyContent: 'space-between', gap: 8 }}>
-                        <Text style={type.small}>Max {mode === 'driving' ? 'drive' : 'walk'} from {town}</Text>
+                        <Text style={type.small} numberOfLines={1}>Max {mode === 'driving' ? 'drive' : 'walk'}</Text>
                         <Row style={{ gap: 6 }}>
                           {MINUTE_CHIPS.map((n) => (
                             <Chip key={n} label={`${n} min`} on={criteria.townMin === n} onPress={() => onCriteria({ townMin: n })} />
@@ -1531,9 +1560,58 @@ function StayCriteria({
   );
 }
 
+/**
+ * Swapping the town "Near {town}" means (§16: "Your trip's area · change the
+ * town"). The area index, not the address one — a town is a place with a
+ * boundary, and asking the address geocoder for "Ostuni" gets you a street in
+ * it (see the note on Photon in sources/areas.js).
+ */
+function TownPick({ own, onPick }: { own: string; onPick: (t: { label: string; lat: number; lng: number } | null) => void }) {
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState<{ label: string; lat: number; lng: number }[]>([]);
+  const [looking, setLooking] = useState(false);
+  useEffect(() => {
+    const text = q.trim();
+    if (text.length < 2) { setFound([]); return; }
+    let live = true;
+    setLooking(true);
+    const t = setTimeout(() => {
+      api.geocode(text, 6, { kind: 'area' })
+        .then((r) => { if (live) setFound(r.results.map((x) => ({ label: x.label, lat: x.lat, lng: x.lng }))); })
+        .catch(() => { if (live) setFound([]); })
+        .finally(() => { if (live) setLooking(false); });
+    }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [q]);
+  return (
+    <View style={{ gap: 8 }}>
+      <TextInput
+        value={q}
+        onChangeText={setQ}
+        placeholder="Which town or city?"
+        placeholderTextColor={colors.inkMuted}
+        autoFocus
+        style={styles.townField}
+        accessibilityLabel="Which town or city"
+      />
+      {looking && !found.length ? <Text style={type.tiny}>Looking…</Text> : null}
+      {found.map((f) => (
+        <Pressable key={`${f.lat},${f.lng}`} onPress={() => onPick(f)} style={styles.optRow} accessibilityRole="button">
+          <Icon name="address" size={15} color={colors.ink} />
+          <Text style={[type.body, { flex: 1, marginLeft: 8 }]} numberOfLines={1}>{f.label}</Text>
+        </Pressable>
+      ))}
+      <Pressable onPress={() => onPick(null)} style={styles.optRow} accessibilityRole="button">
+        <Icon name="refresh" size={15} color={colors.ink} />
+        <Text style={[type.body, { flex: 1, marginLeft: 8 }]} numberOfLines={1}>Back to {own}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 /** The results (handoff §18/19): ranked, with the fit line the ranking was made from. */
 function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nights, budget, planned, selected, onSelect, onOpen, onChoose }: {
-  stays: { loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; error: string | null };
+  stays: { loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; error: string | null };
   placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
   mode: 'driving' | 'walking'; onMode: (m: 'driving' | 'walking') => void;
   /** Each chip re-opens the wizard at the step it came from (§19). */
@@ -1562,7 +1640,7 @@ function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nig
         <View style={styles.spread}>
           <Text style={[type.small, { color: colors.ink }]}>
             <Text style={{ fontWeight: '700' }}>Your plans are spread out</Text>
-            {` — ${stays.spread.between.join(' and ')} are about ${stays.spread.minutes} minutes apart. A stay near a station may beat being near any single day.`}
+            {` — ${andList(stays.spread.places)} are about ${stays.spread.minutes} minutes apart at the widest. A stay by a station beats being near any single day.`}
           </Text>
           {placement !== 'station' ? (
             <Pressable onPress={() => onPlacement('station')} accessibilityRole="button">
@@ -1850,6 +1928,7 @@ const styles = StyleSheet.create({
   tileSub: { fontFamily: fonts.body, fontSize: 11.5, lineHeight: 15.5, color: colors.inkMuted },
   tint: { gap: 10, padding: 14, borderRadius: 12, backgroundColor: colors.surfaceMuted },
   tintLine: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.ink },
+  townField: { height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, paddingHorizontal: 12, fontFamily: fonts.body, fontSize: 14, color: colors.ink },
   minuteBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 52, borderWidth: 1.5, borderColor: colors.ink, borderRadius: 10, paddingHorizontal: 6, backgroundColor: colors.surface },
   minuteNudge: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   minuteValue: { fontFamily: fonts.heading, fontSize: 20, fontWeight: '800', letterSpacing: -0.4, color: colors.ink, minWidth: 28, textAlign: 'center', padding: 0 },

@@ -906,7 +906,18 @@ router.get('/:id/stays', async (req, res, next) => {
      *              is usually much cheaper. Ranked on the walk to the platform
      *              first and the journey from it second.
      */
-    const placement = ['plans', 'town', 'station'].includes(req.query.placement) ? req.query.placement : 'plans';
+    let placement = ['plans', 'town', 'station'].includes(req.query.placement) ? req.query.placement : 'plans';
+    /**
+     * The town "Near {town}" means, when it is not the trip's own area. The
+     * tile is swappable (§16: "Your trip's area · change the town") and the
+     * answer is a point, so it can come back as one rather than as a name the
+     * server would have to geocode again.
+     */
+    const townPoint = (() => {
+      const m = /^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/.exec(String(req.query.townAt || ''));
+      return m ? { lat: Number(m[1]), lng: Number(m[3]) } : null;
+    })();
+    const town = townPoint ?? centre;
     const maxAvgMin = Math.min(120, Math.max(5, Number(req.query.maxAvgMin) || 20));
     const maxWalkMin = Math.min(40, Math.max(3, Number(req.query.maxWalkMin) || 10));
     const maxTrainMin = Math.min(120, Math.max(5, Number(req.query.maxTrainMin) || 25));
@@ -955,6 +966,14 @@ router.get('/:id/stays', async (req, res, next) => {
       }
     }
 
+    /**
+     * Plans an hour apart have no middle worth being near (§20), so unless
+     * somebody has said otherwise the ranking moves to the stations by itself
+     * rather than offering a link and hoping. An explicit `placement` in the
+     * query always wins — this only fires on the default.
+     */
+    if (spread && req.query.placement == null) placement = 'station';
+
     // Stations, only for the placement that needs them: it is an Overpass call
     // and nothing else on this screen wants it.
     let stations = [];
@@ -994,7 +1013,9 @@ router.get('/:id/stays', async (req, res, next) => {
           return aw - bw;
         });
     } else if (placement === 'town') {
-      ranked = [...ranked].sort((a, b) => (a.distanceKm ?? 99) - (b.distanceKm ?? 99));
+      ranked = [...ranked]
+        .map((s) => ({ ...s, townKm: kmBetween(town, s) }))
+        .sort((a, b) => a.townKm - b.townKm);
     }
 
     /**
@@ -1009,7 +1030,7 @@ router.get('/:id/stays', async (req, res, next) => {
      */
     ranked = ranked.filter((st) => {
       if (placement === 'plans' && anchors.length && st.typicalMinutes != null && st.typicalMinutes > maxAvgMin) return false;
-      if (placement === 'town' && st.distanceKm != null && estimateTravelMinutes(centre, st, mode) > townMin) return false;
+      if (placement === 'town' && estimateTravelMinutes(town, st, mode) > townMin) return false;
       if (placement === 'station') {
         if ((st.station?.walkMinutes ?? 999) > maxWalkMin) return false;
         if (st.typicalTrainMinutes != null && st.typicalTrainMinutes > maxTrainMin) return false;
@@ -1059,7 +1080,7 @@ router.get('/:id/stays', async (req, res, next) => {
         fit: placement === 'station' && s.station
           ? [`${s.station.walkMinutes} min walk to ${s.station.name}`, s.typicalTrainMinutes != null ? `plans about ${s.typicalTrainMinutes} min by train` : null].filter(Boolean).join(' · ')
           : placement === 'town'
-            ? `${s.distanceKm != null ? `${s.distanceKm} km from` : 'near'} ${trip.locality ?? 'the centre'}`
+            ? `${estimateTravelMinutes(town, s, mode)} min ${mode === 'driving' ? 'drive' : 'walk'} from the centre`
             : s.plansTotal
               ? `${s.typicalMinutes} min ${mode === 'driving' ? 'drive' : 'walk'} to your ${s.plansTotal} planned place${s.plansTotal === 1 ? '' : 's'}${s.plansNear ? ` · ${s.plansNear} on foot` : ''}`
               : 'Nothing planned yet — this is the middle of town',
