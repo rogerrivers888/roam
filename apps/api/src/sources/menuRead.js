@@ -896,7 +896,10 @@ export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun
 
   if (dryRun) return { dryRun: true, kind, how: steps, sourceUrl: res?.url || url, chars: text.length, sample: text.slice(0, 600) };
 
-  const menu = await parseMenuText({ text, venueLabel, householdId, sessionId });
+  // A ceiling reached here still carries what we managed on the way, so the
+  // drawer can say we opened their page and got as far as reading it.
+  const menu = await parseMenuText({ text, venueLabel, householdId, sessionId })
+    .catch((err) => { if (err?.steps == null) err.steps = steps; throw err; });
   let items = menu.sections.reduce((n, s) => n + s.items.length, 0);
   if (menu.failed?.length) steps.push(`${menu.failed.length} of ${Math.ceil(text.length / CHUNK_CHARS)} parts would not read`);
 
