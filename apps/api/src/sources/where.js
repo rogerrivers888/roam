@@ -60,6 +60,28 @@ const haversineM = (a, b) => {
 };
 
 /**
+ * A station you could actually catch a train from, rather than a ride.
+ *
+ * `railway=station` covers a lot of things that are not transport: Legoland's
+ * Hill Train is tagged as one, and a stay ranked "4 min walk to Hill Train
+ * Bottom · plans about 21 min by train" is nonsense dressed up as a fact
+ * (6 Sep 2026). A miniature, funicular or preserved line is a day out, not a
+ * commute, and a disused or abandoned one is not even that.
+ */
+const RIDE = new Set(['miniature', 'funicular', 'monorail', 'cable_car', 'chair_lift']);
+function isServiceStation(t) {
+  if (RIDE.has(t.station)) return false;
+  if (t.railway !== 'station' && t.railway !== 'halt') return false;
+  if (t.usage === 'tourism' || t.tourism === 'attraction') return false;
+  if (t.disused === 'yes' || t.abandoned === 'yes' || t['disused:railway'] || t['abandoned:railway']) return false;
+  // Narrow gauge and preserved lines run for the ride; a service line runs to
+  // get somewhere. `gauge` under a metre is a garden railway, not Southern.
+  if (t.gauge && Number(t.gauge) && Number(t.gauge) < 1000) return false;
+  if (/\b(miniature|heritage|steam|model|preserved)\b/i.test(t.name || '')) return false;
+  return true;
+}
+
+/**
  * Every station within reach of a point, not just the nearest.
  *
  * `osmStation` below answers "which station is this place near", which is what
@@ -85,7 +107,7 @@ export async function stationsNear(lat, lng, radiusM = 8000) {
   }
   if (!data) return [];
   return (data.elements || [])
-    .filter((n) => n.tags?.name)
+    .filter((n) => n.tags?.name && isServiceStation(n.tags))
     .map((n) => ({
       name: cleanName(n.tags.name),
       lat: n.lat,

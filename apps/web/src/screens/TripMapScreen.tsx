@@ -175,8 +175,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
 
   // Somewhere to sleep, ranked the way the criteria asked. Only fetched when
   // the Stay pill is lit — it is an Overpass call and sometimes a price call.
-  const [stays, setStays] = useState<{ loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; error: string | null }>(
-    { loading: false, results: [], spread: null, anchors: [], error: null },
+  const [stays, setStays] = useState<{ loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; ranked: StayPlacement; error: string | null }>(
+    { loading: false, results: [], spread: null, anchors: [], ranked: 'plans', error: null },
   );
   // Counted while the wizard is open as well as while the list is: the button
   // says how many match, and it cannot say it without asking.
@@ -196,14 +196,16 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       must: criteriaState.must.join(',') || undefined,
       nice: criteriaState.nice.join(',') || undefined,
     })
-      .then((r) => {
-        setStays({ loading: false, results: r.results, spread: r.spread, anchors: r.anchors, error: null });
-        // Plans an hour apart have no middle worth being near, so the server
-        // ranks by station instead — and the chips must say what was done
-        // rather than what was asked for (§20).
-        if (r.placement !== placement) setPlacement(r.placement);
-      })
-      .catch((e) => setStays({ loading: false, results: [], spread: null, anchors: [], error: e.message }));
+      /**
+       * `ranked` is what the answer was actually ranked by, which is not always
+       * what was asked for: plans an hour apart have no middle worth being near,
+       * so the server moves to the stations by itself (§20). The chip says what
+       * was done. Adopting it into the address instead raced the address write
+       * that opens the list, and the chip ended up disagreeing with the rows
+       * under it (deployed, 6 Sep 2026).
+       */
+      .then((r) => setStays({ loading: false, results: r.results, spread: r.spread, anchors: r.anchors, ranked: r.placement, error: null }))
+      .catch((e) => setStays({ loading: false, results: [], spread: null, anchors: [], ranked: placement, error: e.message }));
   }, [stayKey, trip.id, placement, stayMode, criteriaState]);
 
   const isTrip = trip.kind === 'trip';
@@ -445,6 +447,12 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       selected={selected}
       onSelect={setSelected}
       onOpen={(st) => setDrawer(stayToItem(st))}
+      onShortlist={async (st) => {
+        try {
+          await api.addToShortlist(trip.id, { venueRef: st.venueRef, venueLabel: st.name, category: 'hotel', lat: st.lat, lng: st.lng });
+          await onChanged();
+        } catch (e: any) { setError(e.message); }
+      }}
       onChoose={async (st) => {
         try {
           await api.setTripStay(trip.id, { venueRef: st.venueRef, label: st.name, lat: st.lat, lng: st.lng });
@@ -1622,8 +1630,8 @@ function TownPick({ own, onPick }: { own: string; onPick: (t: { label: string; l
 }
 
 /** The results (handoff §18/19): ranked, with the fit line the ranking was made from. */
-function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nights, budget, planned, selected, onSelect, onOpen, onChoose }: {
-  stays: { loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; error: string | null };
+function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nights, budget, planned, selected, onSelect, onOpen, onChoose, onShortlist }: {
+  stays: { loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; ranked: StayPlacement; error: string | null };
   placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
   mode: 'driving' | 'walking'; onMode: (m: 'driving' | 'walking') => void;
   /** Each chip re-opens the wizard at the step it came from (§19). */
@@ -1632,8 +1640,11 @@ function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nig
   /** Tapping a stay opens it, the same as tapping its pin. */
   onOpen: (s: Stay) => void;
   onChoose: (s: Stay) => Promise<void>;
+  /** Ring ahead before you commit: the same bookmark as everywhere else (§19). */
+  onShortlist: (s: Stay) => Promise<void>;
 }) {
-  const label = placement === 'station' ? 'Near a station' : placement === 'town' ? 'Near the centre' : 'Near my plans';
+  const by = stays.ranked;
+  const label = by === 'station' ? 'Near a station' : by === 'town' ? 'Near the centre' : 'Near my plans';
   // The budget chip says the band, not the numbers: £££ reads at a glance and
   // "£80 – £180" does not, at 12.5px next to two other chips.
   const band = '£'.repeat(Math.max(1, Math.min(4, Math.ceil(Math.min(300, budget[1]) / 75))));
@@ -1654,7 +1665,7 @@ function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nig
             <Text style={{ fontWeight: '700' }}>Your plans are spread out</Text>
             {` — ${andList(stays.spread.places)} are about ${stays.spread.minutes} minutes apart at the widest. A stay by a station beats being near any single day.`}
           </Text>
-          {placement !== 'station' ? (
+          {by !== 'station' ? (
             <Pressable onPress={() => onPlacement('station')} accessibilityRole="button">
               <Text style={styles.spreadLink}>Rank by station instead →</Text>
             </Pressable>
@@ -1670,9 +1681,11 @@ function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nig
 
       {stays.results.length ? (
         <Text style={[type.small, { paddingHorizontal: 16, paddingTop: 8 }]}>
-          {placement === 'station' ? 'Ranked by the walk to the platform, then the journey from it.'
-            : placement === 'town' ? 'Ranked by how close they are to the centre.'
-              : `Ranked by average drive to your ${planned || ''}${planned ? ' ' : ''}planned place${planned === 1 ? '' : 's'}.`}
+          {by === 'station' ? 'Ranked by the walk to the platform, then the journey from it.'
+            : by === 'town' ? 'Ranked by how close they are to the centre.'
+              : planned
+                ? `Ranked by average drive to your ${planned} planned place${planned === 1 ? '' : 's'}.`
+                : 'Ranked by the drive to the middle of the trip — plan a day and it gets sharper.'}
         </Text>
       ) : null}
 
@@ -1698,6 +1711,9 @@ function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nig
                     {`£${Math.round(st.offer.perNight)} / night${nights ? ` · ${nights} night${nights === 1 ? '' : 's'}` : ''}`}
                   </Text>
                 ) : <Text style={[type.tiny, { flex: 1 }]} numberOfLines={1}>no price for these nights</Text>}
+                <Pressable onPress={() => onShortlist(st)} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel={`Save ${st.name}`}>
+                  <Icon name="shortlist" size={16} color={colors.ink} />
+                </Pressable>
                 <Pressable onPress={() => onChoose(st)} style={styles.add} accessibilityRole="button">
                   <Icon name="check" size={13} color={colors.ink} />
                   <Text style={styles.addText}>Choose</Text>
@@ -1906,6 +1922,7 @@ const styles = StyleSheet.create({
   rowName: { fontFamily: fonts.heading, fontSize: 15, fontWeight: '700', color: colors.ink },
   detour: { fontFamily: fonts.body, fontSize: 12, fontWeight: '600', color: colors.ink },
   add: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 11, height: 30, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.ink },
+  iconBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   addText: { fontFamily: fonts.body, fontSize: 12, fontWeight: '700', color: colors.ink },
 
   searchSheet: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: colors.surface, paddingTop: ('calc(20px + env(safe-area-inset-top))' as any), paddingHorizontal: 16, paddingBottom: 16, gap: 10 },
