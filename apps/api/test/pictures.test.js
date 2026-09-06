@@ -27,13 +27,22 @@ const { bearing, headingError, metresBetween, scoreFrame } = await import('../sr
 const { dimensions, sniff } = await import('../src/sources/pictureBytes.js');
 const { LOGO_BASIS } = await import('../src/sources/logo.js');
 
-// A restaurant on the north side of a street running east–west.
+// A restaurant on the north side of a street running east–west, with the road
+// about six metres from its front door.
 const VENUE = { lat: 51.48400, lng: -0.60440 };
-/** A camera `m` metres west of the venue on the road, pointing `heading`. */
-const camera = (metresWest, heading, extra = {}) => ({
-  lat: VENUE.lat - 0.00018,                       // ~20m south: the road
-  lng: VENUE.lng - metresWest / 69_500,           // metres → degrees at this latitude
-  heading, width: 3000, shotAt: Date.now() - 365 * 24 * 3600 * 1000, ...extra,
+const SOUTH_OF = (m) => VENUE.lat - m / 111_320;
+const WEST_OF = (m) => VENUE.lng - m / 69_500;
+
+/** A camera on the road, `west` metres before the venue, pointing `heading`. */
+const onTheRoad = (west, heading, extra = {}) => ({
+  lat: SOUTH_OF(6), lng: WEST_OF(west), heading,
+  width: 3000, shotAt: Date.now() - 365 * 24 * 3600 * 1000, ...extra,
+});
+
+/** A camera on the pavement opposite, turned to face the building. */
+const facingIt = (metresAway, extra = {}) => ({
+  lat: SOUTH_OF(metresAway), lng: VENUE.lng, heading: 0, // due north, straight at it
+  width: 3000, shotAt: Date.now() - 365 * 24 * 3600 * 1000, ...extra,
 });
 
 test('the maths agrees with the compass', () => {
@@ -45,30 +54,39 @@ test('the maths agrees with the compass', () => {
   assert.ok(Math.abs(metresBetween({ lat: 51.484, lng: -0.6044 }, { lat: 51.485, lng: -0.6044 }) - 111) < 3);
 });
 
-test('a frame pointing away from the restaurant is not a picture of it', () => {
-  // Driving east, twenty-five metres short of it: the venue is ahead and a
-  // little left, which is in shot.
-  assert.ok(scoreFrame(camera(25, 75), VENUE) > 0, 'approaching, looking at it');
-  // The same spot, driving west: the venue is behind the camera.
-  assert.equal(scoreFrame(camera(25, 255), VENUE), null, 'driving away from it');
-  // Alongside it, pointing up the road: the front of the building is off to one
-  // side, outside the lens. This is the common case and the one that matters.
-  assert.equal(scoreFrame(camera(2, 90), VENUE), null, 'level with it, looking up the road');
+test('a camera pointed at the building is what counts, not one that merely contains it', () => {
+  // The case the rung exists for: somebody stood opposite and photographed it.
+  assert.ok(scoreFrame(facingIt(12), VENUE) > 0, 'facing it from across the road');
+
+  // The case that produced fourteen photographs of roads (6 Sep 2026). A dashcam
+  // driving east past a shopfront six metres to its left has the building inside
+  // the frame and is not photographing it — it is photographing the street, and
+  // at card size nobody can tell which of a dozen shopfronts was meant.
+  assert.equal(scoreFrame(onTheRoad(12, 90), VENUE), null, 'driving past, venue off to the side');
+  assert.equal(scoreFrame(onTheRoad(40, 88), VENUE), null, 'far enough back to be nearly head-on, and far too far away');
+  assert.equal(scoreFrame(onTheRoad(12, 270), VENUE), null, 'driving away from it');
 });
 
-test('among frames that are looking at it, nearer and newer wins', () => {
-  const near = scoreFrame(camera(22, 70), VENUE);
-  const far = scoreFrame(camera(58, 78), VENUE);
-  assert.ok(near > far, 'a frame from across the junction is worse than one from the kerb');
+test('among frames that really are of it, nearer and newer wins', () => {
+  const near = scoreFrame(facingIt(9), VENUE);
+  const far = scoreFrame(facingIt(20), VENUE);
+  assert.ok(near > far, 'from across a narrow street beats from across a wide one');
 
-  const fresh = scoreFrame(camera(25, 75, { shotAt: Date.now() - 200 * 24 * 3600 * 1000 }), VENUE);
-  const stale = scoreFrame(camera(25, 75, { shotAt: Date.now() - 7 * 365 * 24 * 3600 * 1000 }), VENUE);
+  const fresh = scoreFrame(facingIt(12, { shotAt: Date.now() - 200 * 24 * 3600 * 1000 }), VENUE);
+  const stale = scoreFrame(facingIt(12, { shotAt: Date.now() - 7 * 365 * 24 * 3600 * 1000 }), VENUE);
   assert.ok(fresh > stale, 'a restaurant that closed in 2019 is not what to show');
 });
 
+test('a frame from the far end of the street is refused however well aimed', () => {
+  // 50m dead-on was the commonest shape of the bad batch: geometrically perfect,
+  // and a picture of an entire street with the venue somewhere in it.
+  assert.equal(scoreFrame(facingIt(50), VENUE), null);
+  assert.ok(scoreFrame(facingIt(18), VENUE) > 0, 'and 18m is still a shopfront');
+});
+
 test('a frame with no heading is unusable, however close it is', () => {
-  assert.equal(scoreFrame({ ...camera(10, 75), heading: null }, VENUE), null);
-  assert.equal(scoreFrame({ lat: null, lng: null, heading: 75 }, VENUE), null);
+  assert.equal(scoreFrame({ ...facingIt(10), heading: null }, VENUE), null);
+  assert.equal(scoreFrame({ lat: null, lng: null, heading: 0 }, VENUE), null);
 });
 
 test('bytes are believed over content-types', () => {

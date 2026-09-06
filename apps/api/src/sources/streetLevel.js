@@ -35,14 +35,37 @@ const TIMEOUT_MS = 9000;
 // How far away a frame may have been taken. Beyond this the building is a
 // smudge behind traffic; the useful band is roughly 8–35m and the scoring
 // below prefers it.
-const MAX_METRES = 60;
-const IDEAL_MIN = 8;
-const IDEAL_MAX = 35;
+//
+// These were 60/8/35 and produced road photographs. See the note on
+// HALF_FOV_DEG below: a frame from 50m that is "looking at" a point is looking
+// at an entire street, and we cannot crop to the venue, so the only frames
+// worth keeping are the ones where the venue fills a good part of what the
+// camera saw. That is close, and nearly head-on.
+const MAX_METRES = 22;
+const IDEAL_MIN = 6;
+const IDEAL_MAX = 18;
 // Half the horizontal field of view of a typical dashcam or phone (KartaView's
 // own camera parameters report ~62° horizontal), plus margin for GPS drift on
 // the camera position. A frame whose heading is further off than this than the
 // venue is not pointing at it.
-const HALF_FOV_DEG = 38;
+//
+// This was 38 — half the horizontal field of a dashcam, which is the right
+// number for "is the venue inside the frame" and the wrong question entirely.
+//
+// The rung passed its own test and failed its purpose (6 Sep 2026). Its first
+// fourteen pictures were dashcam frames of roads: "Chef Zhu" was a dark street
+// of a dozen indistinguishable shopfronts at 45 degrees, and "Chung Ying House"
+// was a wet road, a hedge and a windscreen wiper with no building in it at all.
+// Every one of them satisfied the geometry. The owner's whole reason for this
+// ladder was that a picture which is not of the place is worse than no picture
+// (5 Sep 2026), and those qualify.
+//
+// Being in frame is not being the subject. Without the ability to crop to the
+// venue, the only frames worth having are the ones pointed nearly straight at
+// it from close up, so that it is most of what the camera saw. That is a much
+// smaller number of frames and it should be: the honest yield of this rung is
+// low, and the icon is a better answer than a photograph of somebody's hedge.
+const HALF_FOV_DEG = 15;
 // A frame from 2013 shows a restaurant that closed in 2015. Newer is better and
 // this is where "newer" stops being worth much more.
 const FRESH_YEARS = 8;
