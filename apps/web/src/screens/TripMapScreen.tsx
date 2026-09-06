@@ -28,7 +28,7 @@
 
 import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, BrowseItem, HouseholdResponse, Stay, StayPlacement, TripAlongPlace, TripDay, TripDetail, TripPlace } from '../api';
+import { api, BrowseItem, HouseholdResponse, Stay, StayPlacement, StayPricing, TripAlongPlace, TripDay, TripDetail, TripPlace } from '../api';
 import { useViewport } from '../hooks/useViewport';
 import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip as UiChip, Row, Segmented, StatusLine, Wrap } from '../components/ui';
@@ -163,8 +163,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
 
   // Somewhere to sleep, ranked the way the criteria asked. Only fetched when
   // the Stay pill is lit — it is an Overpass call and sometimes a price call.
-  const [stays, setStays] = useState<{ loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; ranked: StayPlacement; unanswered: string[]; error: string | null }>(
-    { loading: false, results: [], spread: null, anchors: [], ranked: 'plans', unanswered: [], error: null },
+  const [stays, setStays] = useState<{ loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; ranked: StayPlacement; unanswered: string[]; pricing: StayPricing | null; error: string | null }>(
+    { loading: false, results: [], spread: null, anchors: [], ranked: 'plans', unanswered: [], pricing: null, error: null },
   );
   // Counted while the wizard is open as well as while the list is: the button
   // says how many match, and it cannot say it without asking.
@@ -203,8 +203,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
        * that opens the list, and the chip ended up disagreeing with the rows
        * under it (deployed, 6 Sep 2026).
        */
-      .then((r) => { if (mine()) setStays({ loading: false, results: r.results, spread: r.spread, anchors: r.anchors, ranked: r.placement, unanswered: r.criteria?.mustUnanswered ?? [], error: null }); })
-      .catch((e) => { if (mine()) setStays({ loading: false, results: [], spread: null, anchors: [], ranked: placement, unanswered: [], error: e.message }); });
+      .then((r) => { if (mine()) setStays({ loading: false, results: r.results, spread: r.spread, anchors: r.anchors, ranked: r.placement, unanswered: r.criteria?.mustUnanswered ?? [], pricing: r.pricing ?? null, error: null }); })
+      .catch((e) => { if (mine()) setStays({ loading: false, results: [], spread: null, anchors: [], ranked: placement, unanswered: [], pricing: null, error: e.message }); });
   }, [stayKey, trip.id, placement, stayMode, criteriaState]);
 
   const isTrip = trip.kind === 'trip';
@@ -377,6 +377,32 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     } catch (e: any) { setError(e.message); }
   }, [day, trip.id, onChanged, setPill]);
 
+  /**
+   * Something already saved to this trip, in the shape the browse list works
+   * in, so the drawer and the Add sheet do not need to learn a second one.
+   *
+   * A saved place has no detour on it: it was saved from a search whose numbers
+   * are long gone, and the corridor is not what it is for any more. The sheet
+   * reads `detourMinutes` as null and simply offers the legs without a costing,
+   * which is the honest answer.
+   */
+  const savedAsCandidate = useCallback((p: TripPlace): TripAlongPlace => ({
+    venueRef: p.venueRef, source: p.venueRef.split(':')[0], name: p.name ?? 'A place', category: p.category,
+    lat: p.lat ?? 0, lng: p.lng ?? 0, cuisines: [], experiences: [],
+    rating: null, ratingCount: null, priceLevel: null,
+    openingHours: null, phone: null, website: null, address: null,
+    photos: [], attribution: null,
+    detourMinutes: null, detourMiles: 0, estimated: true,
+    onShortlist: p.shortlisted, onDay: p.scheduled,
+  }), []);
+
+  const unshortlist = useCallback(async (p: TripPlace) => {
+    const item = shortlist.find((x) => x.venueRef === p.venueRef);
+    if (!item) return;
+    try { await api.removeFromShortlist(trip.id, item.id); await onChanged(); }
+    catch (e: any) { setError(e.message); }
+  }, [shortlist, trip.id, onChanged]);
+
   const shortlistIt = useCallback(async (p: TripAlongPlace) => {
     try {
       await api.addToShortlist(trip.id, { venueRef: p.venueRef, venueLabel: p.name, category: p.category, lat: p.lat, lng: p.lng });
@@ -384,6 +410,20 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       await onChanged();
     } catch (e: any) { setError(e.message); }
   }, [trip.id, onChanged]);
+
+  /**
+   * What the drawer is looking at, as something that can be acted on.
+   *
+   * It used to be "one of the places the current search returned", and nothing
+   * else — so a place opened from the shortlist had no Add button and no way
+   * back onto the day (owner, 6 Sep 2026). A place on this trip is just as
+   * actionable as one found a moment ago, and it is the *same* place: the
+   * search pool first, because it carries the reviews and the detour, then what
+   * the trip already holds.
+   */
+  const drawerSaved = drawer ? (places?.places ?? []).find((x) => x.venueRef === drawer.venueRef) ?? null : null;
+  const drawerCandidate = (drawer ? along.places.find((x) => x.venueRef === drawer.venueRef) : null)
+    ?? (drawerSaved ? savedAsCandidate(drawerSaved) : null);
 
   // ---- the sheet ----------------------------------------------------------
 
@@ -472,12 +512,9 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       pill={pill}
       along={along}
       shortlisted={(places?.places ?? []).filter(stillSaved)}
-      onUnshortlist={async (p) => {
-        const item = shortlist.find((x) => x.venueRef === p.venueRef);
-        if (!item) return;
-        try { await api.removeFromShortlist(trip.id, item.id); await onChanged(); }
-        catch (e: any) { setError(e.message); }
-      }}
+      onUnshortlist={unshortlist}
+      onOpenSaved={(p) => { setSelected(p.venueRef); setDrawer(tripPlaceToItem(p)); }}
+      onAddSaved={(p) => setAdding(savedAsCandidate(p))}
       anchorLabel={anchor?.label ?? null}
       onClearAnchor={() => setAnchor(null)}
       maxDetourMin={maxDetourMin}
@@ -626,15 +663,22 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
         onClose={() => setDrawer(null)}
         addLabel="Add to the day"
         addIcon="add"
-        added={drawer ? along.places.find((x) => x.venueRef === drawer.venueRef)?.onDay : false}
-        shortlisted={drawer ? along.places.find((x) => x.venueRef === drawer.venueRef)?.onShortlist : false}
-        // Only a candidate can be added to a day; a stay is chosen, and
-        // something already on the trip is already on it.
-        onAdd={along.places.some((x) => x.venueRef === drawer?.venueRef)
-          ? (item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); setDrawer(null); if (p) setAdding(p); }
+        added={drawerCandidate?.onDay ?? false}
+        shortlisted={drawerCandidate?.onShortlist ?? false}
+        // Anything not already on the day can be added to it — whether it came
+        // from the search along the route or off the shortlist. A stay is
+        // chosen rather than added, and something already on the day is on it.
+        onAdd={drawerCandidate && !drawerCandidate.onDay
+          ? () => { const p = drawerCandidate; setDrawer(null); setAdding(p); }
           : undefined}
-        onShortlist={along.places.some((x) => x.venueRef === drawer?.venueRef)
-          ? async (item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); if (p) await shortlistIt(p); }
+        onShortlist={drawerCandidate
+          ? async () => {
+            const saved = drawerSaved;
+            // Filled means saved: tapping it again takes it off, which is what
+            // the same bookmark does on the row behind the drawer.
+            if (saved && saved.shortlisted) { setDrawer(null); await unshortlist(saved); return; }
+            await shortlistIt(drawerCandidate);
+          }
           : undefined}
       />
 
@@ -1790,7 +1834,7 @@ function TownPick({ own, near, onPick }: {
 
 /** The results (handoff §18/19): ranked, with the fit line the ranking was made from. */
 function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nights, budget, planned, selected, onSelect, onOpen, onChoose, onShortlist }: {
-  stays: { loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; ranked: StayPlacement; unanswered: string[]; error: string | null };
+  stays: { loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; ranked: StayPlacement; unanswered: string[]; pricing: StayPricing | null; error: string | null };
   placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
   mode: 'driving' | 'walking'; onMode: (m: 'driving' | 'walking') => void;
   /** Each chip re-opens the wizard at the step it came from (§19). */
@@ -1838,6 +1882,36 @@ function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nig
         <View style={{ padding: spacing.lg }}><Card><Text style={type.small}>No beds found around here yet. The open map may be busy — try again in a moment.</Text></Card></View>
       ) : null}
 
+      {/*
+        Where the money comes from, said once, above the rows.
+
+        LiteAPI is on a sandbox key: it answers with invented hotels at invented
+        prices. The API has always reported that (`pricing.sandbox`) and this
+        sheet was ignoring it, which is the one thing the rule forbids — a
+        made-up price with nothing saying so is a lie. A live key is the owner's
+        to add (CLAUDE.md: anything that holds a secret or spends money).
+
+        And where a real key answers for some beds and not others, say how many,
+        rather than leaving two-thirds of the list reading "no price".
+      */}
+      {stays.results.length && stays.pricing ? (
+        <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 4 }}>
+          {stays.pricing.sandbox ? (
+            <StatusLine tone="warn">
+              These prices are the booking provider's test data, not real rates — the live key is not on yet.
+            </StatusLine>
+          ) : !stays.pricing.on ? (
+            <Text style={type.tiny}>No price source is connected, so these are beds without rates.</Text>
+          ) : stays.pricing.reason === 'no_dates' ? (
+            <Text style={type.tiny}>No nights on this trip yet, so there is nothing to price.</Text>
+          ) : stays.pricing.withPrice < stays.results.length ? (
+            <Text style={type.tiny}>
+              {`${stays.pricing.withPrice} of these have a room free on your nights; the rest we could not price.`}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
       {stays.results.length ? (
         <Text style={[type.small, { paddingHorizontal: 16, paddingTop: 8 }]}>
           {by === 'station' ? 'Ranked by the walk to the platform, then the journey from it.'
@@ -1858,9 +1932,25 @@ function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nig
             <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
               <Text style={styles.rowName} numberOfLines={1}>{st.name}</Text>
               <View style={styles.rowMeta}>
-                <Text style={type.small} numberOfLines={1}>{[st.stayKind ? cap(st.stayKind) : 'Hotel', money(st.priceLevel)].filter(Boolean).join(' · ')}</Text>
+                <Text style={type.small} numberOfLines={1}>
+                  {[
+                    st.stayKind ? cap(st.stayKind) : 'Hotel',
+                    money(st.priceLevel),
+                    // Two different facts that must not be confused. `rating` is
+                    // what guests thought — an opinion, and a rented one. `stars`
+                    // is the classification the operator is graded at, which is a
+                    // fact about the building, like its address. Where there is no
+                    // guest rating the classification is still worth saying, and
+                    // saying nothing at all left a third of the list bare.
+                    st.rating == null && st.stars ? `${st.stars}-star` : null,
+                  ].filter(Boolean).join(' · ')}
+                </Text>
                 {st.rating != null ? (
-                  <Stars value={st.rating} size={12}><Text style={styles.ratingText}>{st.rating.toFixed(1)}</Text></Stars>
+                  <Stars value={st.rating} size={12}>
+                    <Text style={styles.ratingText}>
+                      {st.rating.toFixed(1)}{st.reviewCount ? ` (${st.reviewCount >= 1000 ? `${(st.reviewCount / 1000).toFixed(1)}k` : st.reviewCount})` : ''}
+                    </Text>
+                  </Stars>
                 ) : null}
               </View>
               {st.fit ? <Text style={styles.detourGreen} numberOfLines={2}>{st.fit}</Text> : null}

@@ -84,6 +84,13 @@ const SECTIONS: Section[] = [
         where: 'apps/api/src/sources/osm.js · stayAmenities · apps/api/src/routes/trips.js · GET /:id/stays',
       },
       {
+        title: 'A price from a sandbox key says so on the screen it appears on',
+        rule: 'LiteAPI is currently on a sandbox key, which answers with invented hotels at invented prices. Every stay list says so above the rows. Where a live key prices some beds and not others, the line says how many were priced rather than leaving most of the list reading "no price for these nights". A stay with no guest rating shows the operator\u2019s star classification instead — a fact about the building, not a rented opinion.',
+        why: 'A made-up number with nothing next to it is a lie, and it is the kind of lie somebody books a holiday on. The API has always reported `pricing.sandbox`; the sheet was ignoring it. Moving to a live key is the owner\u2019s — it holds a secret and it spends money.',
+        state: 'partial',
+        where: 'apps/api/src/sources/liteapi.js \u00b7 apps/web/src/screens/TripMapScreen.tsx \u00b7 StayList',
+      },
+      {
         title: 'The stay wizard is three steps, and the third is the list itself',
         rule: 'Where it should be (with the minutes attached to the answer they belong to), then budget and must-haves, then the ranked results. The three chips over the results re-open the step they came from. Every answer is in the address, so a worked-through set of criteria is a page somebody can be sent.',
         why: 'What counts as a reasonable price depends on whether you said “in the middle of my plans” or “anywhere with a station”, so the money cannot come first. Making the results the third step rather than a fourth screen means the wizard is never a thing you have to finish before you see anything.',
