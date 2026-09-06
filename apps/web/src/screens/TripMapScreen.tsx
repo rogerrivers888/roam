@@ -392,6 +392,16 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     return added ? `${mins(there)} + ${added} stop${added === 1 ? '' : 's'}` : mins(there);
   })();
 
+  /**
+   * Configuring the group is not a thing to do through a letterbox (owner,
+   * 6 Sep 2026: "it should expand the bottom drawer to be almost full page. I
+   * don't need the map at this point… You've got the menu in the bottom:
+   * Inspire, Places, and Trips, that make it almost impossible to view
+   * anything"). So on a phone the group takes the whole screen: the sheet
+   * covers the map, the shell drops the tab bar (`isImmersive`, routes.ts), and
+   * the way out is the header's own Back.
+   */
+  const covering = !wide && section === 'group';
   const heights = detentHeights(height, wide ? 0 : TABBAR);
   const mapPadding = wide
     ? { top: 40, bottom: 40, left: 40, right: 460 }
@@ -665,7 +675,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       ) : null}
 
       {/* The nudge and the search pill, both only when the map has the screen. */}
-      {!wide && detent === 'peek' ? (
+      {!wide && !covering && detent === 'peek' ? (
         <View style={styles.searchWrap} pointerEvents="box-none">
           <Pressable onPress={() => setSearching(true)} style={styles.search} accessibilityRole="button">
             <Icon name="search" size={16} color={colors.inkMuted} />
@@ -678,7 +688,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           the pills go with it (owner, 6 Sep 2026: "When I'm in full bottom
           drawer mode… I should not see the activities, food, and drink pills").
           The sheet's own header carries the way back. */}
-      {!wide && detent !== 'full' ? (
+      {!wide && !covering && detent !== 'full' ? (
         <View style={{ position: 'absolute', left: 0, right: 0, bottom: heights[detent] + TABBAR + 10, zIndex: 2 }} pointerEvents="box-none">
           {!pill && detent === 'peek' ? <Text style={styles.nudge}>Pick one — we'll search along the route</Text> : null}
           {pills}
@@ -698,7 +708,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           </View>
         </View>
       ) : (
-        <BottomSheet detent={detent} onDetent={setDetent} header={header} screenHeight={height} insetBottom={TABBAR}>
+        <BottomSheet detent={covering ? 'full' : detent} onDetent={setDetent} header={header} screenHeight={height} insetBottom={TABBAR} cover={covering}>
           {body}
         </BottomSheet>
       )}

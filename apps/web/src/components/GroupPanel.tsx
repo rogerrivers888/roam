@@ -122,6 +122,9 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
   // The invite page is a page, not a panel: writing it or looking at it takes
   // the whole screen, because that is the shape the guest will see it in.
   const [page, setPage] = useState<null | 'edit' | 'preview'>(null);
+  // Adding an event takes the panel over, so it is held here rather than inside
+  // the row that starts it.
+  const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<InviteEdit | null>(null);
 
   const load = useCallback(async () => {
@@ -226,7 +229,9 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
   // settings page shows them folded.
   const content: Record<StepKey, React.ReactNode> = {
     what: <WhatThisIs group={g} onChange={(body) => run(() => api.updateGroup(group.id, body))} />,
-    wanted: (
+    wanted: adding ? (
+      <AddEvent group={g} onClose={() => setAdding(false)} onAdd={(body) => { setAdding(false); return run(() => api.addGroupItem(group.id, body)); }} />
+    ) : (
       <>
         {wanted.map((i) => (
           <View key={i.id} style={styles.wantedRow}>
@@ -241,7 +246,11 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
           </View>
         ))}
         {wanted.length === 0 ? <Text style={type.small}>Nothing on this trip yet.</Text> : null}
-        <AddEvent group={g} onAdd={(body) => run(() => api.addGroupItem(group.id, body))} />
+        <Pressable onPress={() => setAdding(true)} style={styles.addRow} accessibilityRole="button">
+          <Icon name="add" size={16} />
+          <Text style={[type.h3, { flex: 1 }]}>Add your own event</Text>
+          <Icon name="more" size={16} />
+        </Pressable>
       </>
     ),
     costs: (
@@ -262,9 +271,16 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
           <Text style={type.label}>How you get paid</Text>
           <Segmented
             value={group.paymentMode}
-            options={[{ value: 'direct' as const, label: 'They pay you directly' }, { value: 'roam' as const, label: 'Roam collects, pays you out' }]}
+            // Two of these have to fit side by side on a 390px phone, so the
+            // sentence is under the control rather than inside it.
+            options={[{ value: 'direct' as const, label: 'Straight to you' }, { value: 'roam' as const, label: 'Roam collects' }]}
             onChange={(mode) => run(() => api.updateGroup(group.id, { paymentMode: mode }))}
           />
+          <Text style={type.small}>
+            {group.paymentMode === 'roam'
+              ? 'Roam takes the money with the booking and pays it out to you after each cost settles.'
+              : 'Everyone pays you directly — bank transfer, cash, however you already do it — and you tick it off here.'}
+          </Text>
         </View>
       </>
     ),
@@ -328,6 +344,7 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
         <Wizard
           content={content}
           summaries={summaries}
+          bare={adding}
           onDone={() => run(() => api.updateGroup(group.id, { setupDone: true }))}
           onSkip={(key) => { if (key === 'chasing' && group.remindersOn) void run(() => api.updateGroup(group.id, { remindersOn: false })); }}
         />
@@ -470,9 +487,11 @@ function costLine(i: GroupItem) {
  * it, and a way past anything that does not apply. Nothing here is compulsory —
  * every step can be skipped and changed later from the same five blocks.
  */
-function Wizard({ content, summaries, onDone, onSkip }: {
+function Wizard({ content, summaries, onDone, onSkip, bare }: {
   content: Record<StepKey, React.ReactNode>; summaries: Record<StepKey, string>; onDone: () => void;
   onSkip?: (key: StepKey) => void;
+  /** A step that has handed the panel to a form of its own: its title and its footer would be two conversations at once. */
+  bare?: boolean;
 }) {
   const [at, setAt] = useState(0);
   const step = STEPS[at];
@@ -485,20 +504,33 @@ function Wizard({ content, summaries, onDone, onSkip }: {
       <View style={styles.progress}>
         {STEPS.map((s, i) => <View key={s.key} style={[styles.progressBar, i <= at && { backgroundColor: colors.accent }]} />)}
       </View>
-      <Text style={type.h2}>{step.title}</Text>
-      <Text style={type.small}>{step.blurb}</Text>
+      {bare ? null : (
+        <>
+          <Text style={type.h2}>{step.title}</Text>
+          <Text style={type.small}>{step.blurb}</Text>
+        </>
+      )}
       <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>{content[step.key]}</View>
-      <Row style={{ marginTop: spacing.md, alignItems: 'center' }}>
-        {at > 0 ? <Button label="Back" icon="back" kind="ghost" onPress={() => setAt(at - 1)} /> : null}
-        <View style={{ flex: 1 }} />
-        {/* Skipping is a sentence you can read, not a button competing with Next. */}
-        {!last && step.skip ? (
-          <Pressable onPress={() => { onSkip?.(step.key); setAt(at + 1); }} accessibilityRole="button" style={{ paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
-            <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>{step.skip}</Text>
-          </Pressable>
-        ) : null}
+      {/* Next names where it goes, which is a sentence, not a word: on a phone
+          it takes its own line and Back and Skip sit under it, rather than
+          three controls sharing 390px and the third running off the edge
+          (owner, 6 Sep 2026: "The 'What must everyone do?' goes off the side of
+          the page"). */}
+      {bare ? null : (
+      <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
         <Button label={step.next} icon={last ? 'check' : 'forward'} onPress={() => (last ? onDone() : setAt(at + 1))} />
-      </Row>
+        <Row style={{ alignItems: 'center' }}>
+          {at > 0 ? <Button label="Back" icon="back" kind="ghost" onPress={() => setAt(at - 1)} /> : null}
+          <View style={{ flex: 1 }} />
+          {/* Skipping is a sentence you can read, not a button competing with Next. */}
+          {!last && step.skip ? (
+            <Pressable onPress={() => { onSkip?.(step.key); setAt(at + 1); }} accessibilityRole="button" style={{ paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
+              <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]} numberOfLines={1}>{step.skip}</Text>
+            </Pressable>
+          ) : null}
+        </Row>
+      </View>
+      )}
     </Card>
   );
 }
@@ -747,8 +779,13 @@ function itemMeta(i: GroupItem) {
 }
 
 /** Adding an event of the organiser's own: its own screen, from the v2 handover. */
-function AddEvent({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupItemInput) => void }) {
-  const [open, setOpen] = useState(false);
+/**
+ * Adding your own event is its own screen, not a form grown at the foot of the
+ * list (handover screen 07; owner, 6 Sep 2026: "Adding your own event then
+ * takes you into a part where you can't see anything"). On a phone that is the
+ * difference between a form and a form you have to scroll six rows to find.
+ */
+function AddEvent({ group: g, onAdd, onClose }: { group: TripGroup; onAdd: (body: GroupItemInput) => void; onClose: () => void }) {
   const [label, setLabel] = useState('');
   const [on, setOn] = useState(g.trip.startDate ?? '');
   const [at, setAt] = useState('');
@@ -759,20 +796,11 @@ function AddEvent({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIt
   const [perHead, setPerHead] = useState(true);
   const [note, setNote] = useState('');
 
-  if (!open) {
-    return (
-      <Pressable onPress={() => setOpen(true)} style={styles.addRow} accessibilityRole="button">
-        <Icon name="add" size={16} />
-        <Text style={[type.h3, { flex: 1 }]}>Add your own event</Text>
-        <Icon name="more" size={16} />
-      </Pressable>
-    );
-  }
   return (
-    <Card>
+    <View style={{ gap: spacing.sm }}>
       <Row style={{ justifyContent: 'space-between' }}>
         <Text style={type.h2}>Add your own event</Text>
-        <Pressable onPress={() => setOpen(false)} accessibilityRole="button"><Icon name="close" size={18} /></Pressable>
+        <Pressable onPress={onClose} accessibilityRole="button" hitSlop={10}><Icon name="close" size={18} /></Pressable>
       </Row>
       <TextInput value={label} onChangeText={setLabel} placeholder="Live band · Saturday night" placeholderTextColor={colors.inkFaint} style={styles.input} autoFocus />
       <Row style={{ gap: spacing.sm }}>
@@ -788,7 +816,10 @@ function AddEvent({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIt
       <Text style={type.label}>Price</Text>
       <Segmented
         value={price}
-        options={[{ value: 'free' as const, label: 'Free' }, { value: 'fixed' as const, label: 'Same each' }, { value: 'variable' as const, label: 'Depends on numbers' }]}
+        // "Depends on numbers" is the sentence, but three of them do not fit a
+        // 390px row and a truncated option is not an option (owner, 6 Sep 2026).
+        // The line under the box says the whole of it once it is chosen.
+        options={[{ value: 'free' as const, label: 'Free' }, { value: 'fixed' as const, label: 'Same each' }, { value: 'variable' as const, label: 'By numbers' }]}
         onChange={setPrice}
       />
       {price !== 'free' ? (
@@ -800,7 +831,7 @@ function AddEvent({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIt
             prefix="£"
             width={116}
           />
-          <Text style={[type.small, { flex: 1 }]}>{price === 'fixed' ? 'each' : 'to get back in total'}</Text>
+          <Text style={[type.small, { flex: 1 }]}>{price === 'fixed' ? 'each' : 'in total, split by how many come'}</Text>
           <Wrap>
             <Chip label="Person" selected={perHead} onPress={() => setPerHead(true)} />
             <Chip label="Household" selected={!perHead} onPress={() => setPerHead(false)} />
@@ -823,11 +854,11 @@ function AddEvent({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIt
             bookWhere: price === 'free' ? null : 'roam',
             closesOn: price === 'variable' ? (g.group.wantedBy ?? null) : null,
           });
-          setOpen(false); setLabel(''); setAmount(''); setTotal(''); setNote('');
+          setLabel(''); setAmount(''); setTotal(''); setNote(''); onClose();
         }}
       />
-      <Button label="Cancel" kind="ghost" onPress={() => setOpen(false)} />
-    </Card>
+      <Button label="Cancel" kind="ghost" onPress={onClose} />
+    </View>
   );
 }
 

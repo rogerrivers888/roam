@@ -12,7 +12,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hrefOf, legacyHref, parseRoute, paths, parentOf, splitHref, tabOf, titleOf, withQuery } from '../src/routes.ts';
+import { hrefOf, isFullBleed, isImmersive, legacyHref, parseRoute, paths, parentOf, splitHref, tabOf, titleOf, withQuery } from '../src/routes.ts';
 
 /** Read it, write it back, and get the same address. */
 const roundTrip = (href: string, expected?: string) => {
@@ -210,4 +210,24 @@ test('the sheet’s three detents fit the screen they are on', async () => {
   // And an absurdly short one still leaves something to hold on to.
   const tiny = detentHeights(200, 70);
   assert.ok(tiny.full >= 320, 'the sheet never collapses to nothing');
+});
+
+/**
+ * Which addresses give up the shell's chrome, and how much of it. Getting this
+ * wrong strands somebody on a screen with no way out, so both are pinned to the
+ * addresses they belong to rather than to a screen's own idea of itself.
+ */
+test('the trip is full-bleed; configuring its group is immersive', () => {
+  const trip = parseRoute('/trips/abc');
+  const group = parseRoute('/trips/abc/group');
+  const shortlist = parseRoute('/trips/abc/shortlist');
+  const newTrip = parseRoute('/trips/new');
+
+  assert.ok(isFullBleed(trip) && isFullBleed(group), 'the trip and its group are the map, edge to edge');
+  assert.ok(!isFullBleed(shortlist) && !isFullBleed(newTrip), 'the working surfaces keep the chrome');
+
+  // Only the group gives up the tab bar, and only inside a trip.
+  assert.ok(isImmersive(group));
+  assert.ok(!isImmersive(trip) && !isImmersive(shortlist) && !isImmersive(newTrip));
+  assert.ok(!isImmersive(parseRoute('/places/home')));
 });

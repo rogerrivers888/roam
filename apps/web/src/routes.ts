@@ -280,6 +280,20 @@ export function isFullBleed(route: Route): boolean {
     && (route.section == null || TRIP_TABS.includes(route.section));
 }
 
+/**
+ * Screens that take the phone whole: no tab bar either.
+ *
+ * The group is a form — five steps, a dozen fields, an event to write — and on
+ * a phone a form under a keyboard has no room to spare (owner, 6 Sep 2026:
+ * "You've got the menu in the bottom: Inspire, Places, and Trips, that make it
+ * almost impossible to view anything, and I've got a tiny window to do
+ * anything"). The way out is the header's own Back, which is on screen the
+ * whole time; the tabs come back the moment the group is left.
+ */
+export function isImmersive(route: Route): boolean {
+  return route.name === 'trips' && !route.creating && route.tripId != null && route.section === 'group';
+}
+
 /** Which tab in the shell a route belongs under, so the rail can light up. */
 export function tabOf(route: Route): Tab | null {
   switch (route.name) {

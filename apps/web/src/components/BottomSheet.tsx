@@ -47,6 +47,7 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Animated, PanResponder, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { colors, spacing } from '../theme';
+import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { detentHeights, type Detent } from './detents';
 
 export { DETENTS, detentHeights } from './detents';
@@ -61,7 +62,7 @@ const FLICK_VELOCITY = 0.4;
 
 const isWeb = Platform.OS === 'web';
 
-export function BottomSheet({ detent, onDetent, header, children, screenHeight, insetBottom = 0 }: {
+export function BottomSheet({ detent, onDetent, header, children, screenHeight, insetBottom = 0, cover = false }: {
   detent: Detent;
   onDetent: (d: Detent) => void;
   /** Always visible, at every detent, and the place a drag always moves the sheet. */
@@ -70,8 +71,20 @@ export function BottomSheet({ detent, onDetent, header, children, screenHeight, 
   children: React.ReactNode;
   screenHeight: number;
   insetBottom?: number;
+  /**
+   * The sheet takes the whole screen and stops being a sheet: no detents, no
+   * grabber, nothing of the map behind it (owner, 6 Sep 2026, on configuring a
+   * group: "it should expand the bottom drawer to be almost full page. I don't
+   * need the map at this point"). A form is not something to peer at through a
+   * letterbox, and half a phone with a keyboard over it is a letterbox.
+   */
+  cover?: boolean;
 }) {
-  const heights = useMemo(() => detentHeights(screenHeight, insetBottom), [screenHeight, insetBottom]);
+  const keyboard = useKeyboardInset();
+  const heights = useMemo(
+    () => (cover ? { peek: screenHeight, half: screenHeight, full: screenHeight } : detentHeights(screenHeight, insetBottom)),
+    [cover, screenHeight, insetBottom],
+  );
   const height = heights.full;
 
   // The sheet is always `full` tall and slid down to show less of itself, so
@@ -150,6 +163,8 @@ export function BottomSheet({ detent, onDetent, header, children, screenHeight, 
   // nothing about a re-render can interrupt a gesture.
   const fns = useRef({ mine, nearest, offsetFor, settle });
   fns.current = { mine, nearest, offsetFor, settle };
+  const coverRef = useRef(cover);
+  coverRef.current = cover;
 
   useEffect(() => {
     if (!isWeb) return;
@@ -176,6 +191,7 @@ export function BottomSheet({ detent, onDetent, header, children, screenHeight, 
     };
 
     const down = (e: PointerEvent) => {
+      if (coverRef.current) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       const d = drag.current;
       d.from = where(e); d.decided = false; d.taken = false;
@@ -252,6 +268,42 @@ export function BottomSheet({ detent, onDetent, header, children, screenHeight, 
     return { header: make(true), body: make(false) };
   }, [mine, nearest, offsetFor, settle, y]);
 
+  /**
+   * A tapped field puts itself where it can still be seen.
+   *
+   * `scrollIntoView` is no use here: it aims at the layout viewport, which does
+   * not know a keyboard is covering the bottom half of it, so it happily
+   * "reveals" a field underneath one. The visual viewport does know, so the
+   * scroll is worked out against that — how far below the visible edge the
+   * field has landed, plus a line of room — and applied to the body's own
+   * scroller. The delay is the keyboard's own animation: measuring during it
+   * measures the wrong screen.
+   */
+  useEffect(() => {
+    if (!isWeb) return;
+    const body = bodyRef.current as HTMLElement | null;
+    if (!body) return;
+    const reveal = (el: HTMLElement) => {
+      const scroller = (body.firstElementChild as HTMLElement | null) ?? body;
+      const vv = window.visualViewport;
+      const rect = el.getBoundingClientRect();
+      const bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+      const below = rect.bottom + 24 - bottom;
+      if (below > 0) scroller.scrollTop += below;
+      else if (rect.top < 8) scroller.scrollTop += rect.top - 8;
+    };
+    const onFocus = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (!el?.getBoundingClientRect) return;
+      // Once when the field is tapped, and again once the keyboard has finished
+      // coming up, because only the second measurement is of the real screen.
+      setTimeout(() => reveal(el), 60);
+      setTimeout(() => reveal(el), 400);
+    };
+    body.addEventListener('focusin', onFocus);
+    return () => body.removeEventListener('focusin', onFocus);
+  }, []);
+
   /** The tap equivalent: the grabber walks up to full, then back down to peek. */
   const up = useRef(true);
   const cycle = () => {
@@ -265,25 +317,36 @@ export function BottomSheet({ detent, onDetent, header, children, screenHeight, 
   };
 
   return (
-    <Animated.View style={[styles.sheet, { height, bottom: insetBottom, transform: [{ translateY: y }] }]}>
-      <View ref={headerRef} {...responder.header} style={styles.headerZone}>
-        <Pressable
-          onPress={cycle}
-          accessibilityRole="button"
-          accessibilityLabel={`Sheet, ${detent}. Tap to ${detent === 'full' ? 'shrink' : 'expand'}.`}
-          style={styles.grabHit}
-        >
-          <View style={styles.grab} />
-        </Pressable>
+    <Animated.View
+      style={[
+        styles.sheet,
+        { height, bottom: cover ? 0 : insetBottom, transform: [{ translateY: y }] },
+        cover && { borderTopLeftRadius: 0, borderTopRightRadius: 0, zIndex: 5 },
+      ]}
+    >
+      <View ref={headerRef} {...(cover ? {} : responder.header)} style={[styles.headerZone, cover && styles.headerZoneCover]}>
+        {cover ? null : (
+          <Pressable
+            onPress={cycle}
+            accessibilityRole="button"
+            accessibilityLabel={`Sheet, ${detent}. Tap to ${detent === 'full' ? 'shrink' : 'expand'}.`}
+            style={styles.grabHit}
+          >
+            <View style={styles.grab} />
+          </Pressable>
+        )}
         {header}
       </View>
       <View ref={bodyRef} style={{ flex: 1, minHeight: 0 }} {...responder.body}>
         <ScrollView
-          scrollEnabled={detent !== 'peek'}
+          scrollEnabled={cover || detent !== 'peek'}
           onScroll={(e) => { scrollTop.current = e.nativeEvent.contentOffset.y; }}
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingBottom: spacing.xl }}
+          keyboardDismissMode="on-drag"
+          // The last field must be able to come up above the keyboard, so the
+          // body is as much taller than the sheet as the keyboard is tall.
+          contentContainerStyle={{ paddingBottom: spacing.xl + keyboard }}
         >
           {children}
         </ScrollView>
@@ -296,6 +359,8 @@ const styles = StyleSheet.create({
   sheet: {
     position: 'absolute', left: 0, right: 0,
     backgroundColor: colors.surface,
+    // Squared off and raised over the tab bar by `cover`, where it is not a
+    // sheet over anything but the screen itself.
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     // The handoff's shadow: 0 -6px 24px rgba(32,30,29,0.14).
     shadowColor: '#201E1D', shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.14, shadowRadius: 24, elevation: 16,
@@ -303,6 +368,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   headerZone: { paddingBottom: 2 },
+  // Covering the screen, the sheet's top edge is the top of the screen: it
+  // keeps clear of the notch itself rather than of a grabber that is not there.
+  headerZoneCover: { paddingTop: (isWeb ? 'calc(8px + env(safe-area-inset-top))' : 8) as any },
   // The grabber is 40×4, and its hit area is the 44 the rest of the app uses.
   grabHit: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 24 },
   grab: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.line },

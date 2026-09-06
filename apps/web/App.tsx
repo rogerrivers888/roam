@@ -24,7 +24,7 @@ import { useOutbox } from './src/hooks/useOutbox';
 import { useSession } from './src/hooks/useSession';
 import { Icon, IconName } from './src/components/Icon';
 import { RouterProvider, rememberedAddress, useRememberedAddress, useRouter } from './src/router';
-import { isFullBleed, legacyHref, parseRoute, paths, Route, splitHref, Tab, TripSection, tabOf, titleOf } from './src/routes';
+import { isFullBleed, isImmersive, legacyHref, parseRoute, paths, Route, splitHref, Tab, TripSection, tabOf, titleOf } from './src/routes';
 
 // Roam opens on Inspire (owner, 5 Sep 2026, "Supporting docs/Roam Inspire"):
 // what there is to do, with one search bar above it. The conversational planner
@@ -274,6 +274,8 @@ function Shell({ route, isOwner, mayAdminister = false }: { route: Route; isOwne
    * over it rather than under it. A trip is one, because the trip is a map now.
    */
   const fullBleed = !desktop && isFullBleed(route);
+  // A screen that is all form takes the tab bar's strip too.
+  const immersive = !desktop && isImmersive(route);
   /**
    * Where each tab was left (owner, 4 Sep 2026: "I come back 10 minutes later
    * after navigating off that tab, everything's disappeared").
@@ -508,7 +510,7 @@ function Shell({ route, isOwner, mayAdminister = false }: { route: Route; isOwne
           {desktop && showingSaved ? offlineBanner : desktop && health === 'down' ? banner : null}
           {screen}
         </View>
-        {!desktop ? (
+        {!desktop && !immersive ? (
           // On a full-bleed screen the tab bar floats over the map instead of
           // taking a strip off the bottom of it, so the map really does reach
           // every edge (owner, 6 Sep 2026).
