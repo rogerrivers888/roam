@@ -104,6 +104,9 @@ function markerEl(m: MapMarker): HTMLElement {
       'box-shadow:0 1px 4px rgba(32,30,29,0.18)',
     ].join(';');
     inner.appendChild(tag);
+    // Kept on the element so the de-collision pass below can find it without
+    // walking the DOM on every frame of a pan.
+    (wrap as any).__tag = tag;
   }
   if (m.onPress) {
     /**
@@ -243,6 +246,43 @@ export function MapGL({ markers, routes = [], padding, fitKey, focusId, onMapPre
     if (ready.current) apply(); else m.once('load', apply);
   }, [JSON.stringify(routes.map((r) => [r.id, r.points.length, r.dashed]))]);
 
+  /**
+   * Labels that would sit on top of each other, thinned out.
+   *
+   * A trip whose home, base and destination are all the same town drew three
+   * ink pills over one another and none of them could be read (owner, 6 Sep
+   * 2026). So the labels are laid out in order of how much they matter — what
+   * you have selected, then where you are going, then what is on the day, then
+   * the rest — and one that would overlap a label already kept is hidden until
+   * the map moves and it has room again.
+   *
+   * The width of a pill is measured once, when it is made, and everything after
+   * that is arithmetic on projected points. Reading the DOM on every frame of a
+   * pan is what makes a map feel cheap.
+   */
+  const RANK: Record<string, number> = { dest: 0, added: 1, base: 2, home: 3, saved: 4, browse: 5 };
+  const layout = useRef<() => void>(() => {});
+  layout.current = () => {
+    const m = map.current;
+    if (!m) return;
+    const boxes: { l: number; r: number; t: number; b: number }[] = [];
+    const order = [...markers].sort((a, b) =>
+      (b.selected ? 1 : 0) - (a.selected ? 1 : 0) || (RANK[a.kind] ?? 9) - (RANK[b.kind] ?? 9));
+    for (const spec of order) {
+      const el = drawn.current.get(spec.id)?.getElement() as any;
+      const tag: HTMLElement | undefined = el?.__tag;
+      if (!tag) continue;
+      if (!el.__tagW) el.__tagW = tag.offsetWidth || 80;
+      const p = m.project([spec.lng, spec.lat]);
+      const w = el.__tagW as number;
+      const top = p.y + 12;
+      const box = { l: p.x - w / 2, r: p.x + w / 2, t: top, b: top + 18 };
+      const clash = boxes.some((o) => box.l < o.r && box.r > o.l && box.t < o.b && box.b > o.t);
+      tag.style.visibility = clash ? 'hidden' : 'visible';
+      if (!clash) boxes.push(box);
+    }
+  };
+
   // Markers, diffed by id so a re-render does not tear the map apart.
   useEffect(() => {
     const m = map.current;
@@ -257,7 +297,19 @@ export function MapGL({ markers, routes = [], padding, fitKey, focusId, onMapPre
         .addTo(m);
       drawn.current.set(spec.id, marker);
     }
+    layout.current();
   }, [markers]);
+
+  // Panning and zooming move the pills relative to each other, so the thinning
+  // is re-run as the map settles rather than only when the markers change.
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const run = () => layout.current();
+    m.on('move', run);
+    m.on('idle', run);
+    return () => { m.off('move', run); m.off('idle', run); };
+  }, []);
 
   // Fit everything into the part of the map that is not under the sheet.
   useEffect(() => {

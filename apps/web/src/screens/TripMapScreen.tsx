@@ -641,8 +641,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           mode={stayMode} onMode={setStayMode}
           nights={nights} startDate={trip.startDate} endDate={trip.endDate}
           count={stays.results.length} loading={stays.loading}
-          town={criteriaState.town?.label ?? trip.locality ?? tripName(trip)}
-          ownTown={trip.locality ?? tripName(trip)}
+          town={shortTown(criteriaState.town?.label ?? trip.locality ?? tripName(trip))}
+          ownTown={shortTown(trip.locality ?? tripName(trip))}
           planned={plannedCount}
           plannedNames={plannedNames}
           line={null}
@@ -978,6 +978,16 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, anchorLabel, onCl
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/[-_]/g, ' ');
 /** "Bari, Polignano, Matera and Lecce" — the handoff's own phrasing (§20). */
+/**
+ * A town, short enough for a third of a phone. Councils and districts have
+ * names nobody says out loud — "Windsor and Maidenhead", "Bath and North East
+ * Somerset" — and the tile drew "Near Windsor and …", which names nowhere.
+ */
+export const shortTown = (label: string) => {
+  const first = label.split(',')[0].trim();
+  const half = first.split(/\s+and\s+/i)[0].trim();
+  return (half.length >= 3 ? half : first).replace(/\s*\(centre\)$/i, '');
+};
 const andList = (xs: string[]) => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** Something already on the trip, in the drawer's shape. */
@@ -1315,7 +1325,7 @@ function MinuteBox({ label, value, min, max, step, onChange }: {
         <Pressable onPress={() => onChange(clamp(value - step))} style={styles.minuteNudge} accessibilityRole="button" accessibilityLabel={`Less ${label}`}>
           <Icon name="minus" size={15} color={colors.ink} />
         </Pressable>
-        <Row style={{ gap: 3, alignItems: 'baseline' }}>
+        <View style={{ flex: 1, minWidth: 0, flexDirection: 'row', gap: 3, alignItems: 'baseline', justifyContent: 'center' }}>
           <TextInput
             value={text}
             onChangeText={setText}
@@ -1326,7 +1336,7 @@ function MinuteBox({ label, value, min, max, step, onChange }: {
             accessibilityLabel={label}
           />
           <Text style={styles.minuteUnit}>min</Text>
-        </Row>
+        </View>
         <Pressable onPress={() => onChange(clamp(value + step))} style={styles.minuteNudge} accessibilityRole="button" accessibilityLabel={`More ${label}`}>
           <Icon name="add" size={15} color={colors.ink} />
         </Pressable>
@@ -1424,7 +1434,9 @@ function StayCriteria({
                           {o.title.replace('{town}', town)}
                         </Text>
                         <Text style={[styles.tileSub, on && { color: '#C9C5C2' }]}>
-                          {o.blurb.replace('{n}', String(planned))}
+                          {o.key === 'plans' && !planned
+                            ? 'Best placed for whatever you plan — it improves as you fill days in'
+                            : o.blurb.replace('{n}', String(planned)).replace('{n} places', planned === 1 ? 'one place' : `${planned} places`)}
                         </Text>
                       </Pressable>
                     );
@@ -1930,8 +1942,8 @@ const styles = StyleSheet.create({
   tintLine: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.ink },
   townField: { height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, paddingHorizontal: 12, fontFamily: fonts.body, fontSize: 14, color: colors.ink },
   minuteBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 52, borderWidth: 1.5, borderColor: colors.ink, borderRadius: 10, paddingHorizontal: 6, backgroundColor: colors.surface },
-  minuteNudge: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
-  minuteValue: { fontFamily: fonts.heading, fontSize: 20, fontWeight: '800', letterSpacing: -0.4, color: colors.ink, minWidth: 28, textAlign: 'center', padding: 0 },
+  minuteNudge: { width: 36, height: 36, flexShrink: 0, borderRadius: 18, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
+  minuteValue: { fontFamily: fonts.heading, fontSize: 20, fontWeight: '800', letterSpacing: -0.4, color: colors.ink, width: 30, textAlign: 'right', padding: 0 },
   minuteUnit: { fontFamily: fonts.body, fontSize: 12, fontWeight: '600', color: colors.inkMuted },
   budgetValue: { fontFamily: fonts.heading, fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
   kickerFlat: { fontFamily: fonts.heading, fontSize: 11, fontWeight: '700', letterSpacing: 0.66, textTransform: 'uppercase', color: colors.inkMuted },

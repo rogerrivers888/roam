@@ -132,7 +132,7 @@ export function Segmented<T extends string>({
             {/* One line, always. Four tabs across a 390px phone leaves about
                 86px each, and a label that does not fit must shorten rather
                 than wrap the control to two rows or run out of it. */}
-            {o.icon ? <Icon name={o.icon} size={14} color={active ? colors.primaryFg : colors.ink} /> : null}
+            {o.icon ? <Icon name={o.icon} size={13} color={active ? colors.primaryFg : colors.ink} /> : null}
             <Text numberOfLines={1} style={[styles.segmentText, active && styles.segmentTextActive]}>{o.label}</Text>
           </Pressable>
         );
@@ -287,10 +287,10 @@ export const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: 3,
   },
-  segment: { flex: 1, minWidth: 0, minHeight: 38, paddingHorizontal: 4, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
+  segment: { flex: 1, minWidth: 0, minHeight: 38, paddingHorizontal: 4, flexDirection: 'row', gap: 5, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
   // The selected segment is ink with white type, like a selected chip (style guide).
   segmentActive: { backgroundColor: colors.primary },
-  segmentText: { fontFamily: fonts.body, fontSize: 13, color: colors.inkMuted, fontWeight: '600' },
+  segmentText: { fontFamily: fonts.body, fontSize: 12.5, color: colors.inkMuted, fontWeight: '600', flexShrink: 1 },
   segmentTextActive: { color: colors.primaryFg },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: TARGET },
   numberBox: {
