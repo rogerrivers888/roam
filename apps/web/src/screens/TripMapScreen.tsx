@@ -250,12 +250,18 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
    * the 4 places you've planned" is only worth reading if it says which four.
    */
   const plannedDays = useMemo(() => days.filter((dd) => dd.slots.some((sl) => sl.stops.length)).length, [days]);
-  const plannedNames = useMemo(() => {
-    const seen = new Set<string>();
-    for (const dd of days) for (const sl of dd.slots) for (const st of sl.stops) if (st.name) seen.add(st.name);
-    return [...seen];
-  }, [days]);
-  const plannedCount = days.length > 1 ? plannedDays : plannedNames.length;
+  /**
+   * The places the stay ranking is actually made against, which is the
+   * shortlist with a point on the map — not what has been given a time on a
+   * day. The API ranks on `shortlistAnchors`, and the sheet said "plan a day
+   * and it gets sharper" over rows reading "10 min drive to your 5 planned
+   * places" (deployed, 6 Sep 2026). One count, from the same list.
+   */
+  const plannedNames = useMemo(
+    () => shortlist.filter((x) => x.lat != null && x.lng != null).map((x) => x.name),
+    [shortlist],
+  );
+  const plannedCount = plannedNames.length;
 
   // ---- the map ------------------------------------------------------------
 
@@ -508,10 +514,11 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
               ) : null}
               {/* The signpost (§15): a trip with nights and nowhere to sleep
                   says so, once, above the day — one ink banner, and the whole
-                  of it opens the wizard. */}
+                  of it opens the wizard. It counts days, where the wizard
+                  counts places: "3 of 8 days planned". */}
               {wantsStay && !stayChosen ? (
                 <StaySignpost
-                  planned={plannedCount}
+                  planned={plannedDays}
                   days={days.length}
                   weekNote={days.length > 8 ? 'week 1 so far' : null}
                   onFind={() => { setCriteriaStep(1); setCriteria(true); }}
