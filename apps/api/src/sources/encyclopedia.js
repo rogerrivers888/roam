@@ -83,9 +83,14 @@ async function entity(qid) {
  * there is an article, three when it also has a Wikidata entity; all free, all
  * keepable.
  */
-export async function encyclopediaFor({ name, lat, lng } = {}) {
+export async function encyclopediaFor({ name, lat, lng, locality = null, address = null } = {}) {
   if (lat == null || lng == null || !String(name || '').trim()) return null;
-  const { nameScore } = await import('./openMatch.js');
+  const { nameScore, placeWords } = await import('./openMatch.js');
+  // The village's name is in half the articles written about the village, so it
+  // is not evidence that this article is about this place: "Sunningdale Bistro
+  // Bar" was given Sunningdale railway station's article (found 6 Sep 2026).
+  // The same list the open map is matched against (openMatch.js).
+  const dull = placeWords(locality, address);
 
   const near = await geosearch(lat, lng);
   if (!near.length) return null;
@@ -93,7 +98,7 @@ export async function encyclopediaFor({ name, lat, lng } = {}) {
   for (const cand of near) {
     // Wikipedia disambiguates in brackets — "Roman Baths (Bath)" is the Roman Baths.
     const bare = cand.title.replace(/\s*\([^)]*\)\s*$/, '');
-    const n = Math.max(nameScore(name, cand.title), nameScore(name, bare));
+    const n = Math.max(nameScore(name, cand.title, dull), nameScore(name, bare, dull));
     if (n < 0.7) continue;
     const confidence = Number(Math.min(1, n * (1 - cand.distanceM / (MAX_M * 4))).toFixed(2));
     if (!best || confidence > best.confidence) best = { ...cand, confidence };

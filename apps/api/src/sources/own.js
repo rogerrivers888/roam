@@ -586,7 +586,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   // 4. The encyclopedias, for the places that have an article.
   try {
     let enc;
-    try { enc = await encyclopediaFor({ name: seed.name, lat: osm?.lat ?? seed.lat, lng: osm?.lng ?? seed.lng }); }
+    try { enc = await encyclopediaFor({ name: seed.name, lat: osm?.lat ?? seed.lat, lng: osm?.lng ?? seed.lng, locality: seed.locality ?? null, address: seed.address ?? null }); }
     finally { await logCall(householdId, 'wikipedia', 'own.encyclopedia'); }
     // Wikidata is a second service and gets its own line, so the usage table
     // says who was actually asked.
