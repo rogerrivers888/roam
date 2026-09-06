@@ -300,7 +300,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       for (const a of stays.anchors) {
         out.push({ id: `plan:${a.label}`, lat: a.lat, lng: a.lng, kind: 'browse', icon: 'sparkles', label: a.label });
       }
-      for (const st of stays.results.slice(0, 20)) {
+      for (const st of stays.results.slice(0, 8)) {
         if (st.lat == null) continue;
         out.push({
           id: st.venueRef, lat: st.lat, lng: st.lng,
@@ -533,7 +533,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   );
 
   const pills = (
-    <View style={[styles.pills, wide && { left: 24, right: undefined }]}>
+    <View style={[styles.pills, wantsStay && styles.pillsFour, wide && { left: 24, right: undefined }]}>
       {pillsFor(wantsStay).map((p) => {
         const on = pill === p.key;
         // Shortlist is exclusive with the other two, and dims them (handoff §7).
@@ -542,7 +542,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           <Pressable
             key={p.key}
             onPress={() => { setPill(on ? null : p.key); setSelected(null); setDetent('half'); }}
-            style={[styles.pill, on && styles.pillOn, dim && { opacity: 0.45 }]}
+            style={[styles.pill, wantsStay && styles.pillFour, on && styles.pillOn, dim && { opacity: 0.45 }]}
             accessibilityRole="button"
             accessibilityState={{ selected: on }}
           >
@@ -1896,7 +1896,11 @@ const styles = StyleSheet.create({
   tabText: { fontFamily: fonts.body, fontSize: 12.5, fontWeight: '600', color: colors.inkMuted },
 
   // The three pills over the map.
+  // Four pills (§15: padding 9px 9px, gap 6px, label "Food") have to fit 390px
+  // with the edges clear; three can breathe.
   pills: { flexDirection: 'row', gap: 8, paddingHorizontal: 20 },
+  pillsFour: { gap: 6, paddingHorizontal: 14 },
+  pillFour: { paddingHorizontal: 9 },
   pill: {
     flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, height: 38, borderRadius: radius.pill,
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
