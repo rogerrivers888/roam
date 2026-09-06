@@ -628,7 +628,12 @@ const styles = StyleSheet.create({
   bannerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   bannerDown: { backgroundColor: colors.overrunSoft },
   tabs: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.tabbar, paddingBottom: 4 },
-  tabsOver: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  // Floating over the map, and clear of the home indicator on a phone that has
+  // one — the map runs under the indicator, the labels must not.
+  tabsOver: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    paddingBottom: (Platform.OS === 'web' ? 'calc(4px + env(safe-area-inset-bottom))' : 20) as any,
+  },
   tab: { flex: 1, minHeight: TARGET + 10, alignItems: 'center', justifyContent: 'center', gap: 2 },
   tabText: { fontSize: 11, fontWeight: '600', color: colors.inkMuted },
   tabTextActive: { color: colors.ink },
