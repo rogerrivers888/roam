@@ -1117,7 +1117,7 @@ export const api = {
    * front door. Open map only — no prices, no availability (those need a
    * booking provider with a key, which is the owner's to add).
    */
-  tripStays: (tripId: string, p: { radiusKm?: number; mode?: 'walking' | 'driving'; rooms?: number; adults?: number; children?: string; placement?: StayPlacement; maxAvgMin?: number; maxWalkMin?: number; maxTrainMin?: number; townMin?: number; budgetMin?: number; budgetMax?: number; types?: string } = {}) =>
+  tripStays: (tripId: string, p: { radiusKm?: number; mode?: 'walking' | 'driving'; rooms?: number; adults?: number; children?: string; placement?: StayPlacement; maxAvgMin?: number; maxWalkMin?: number; maxTrainMin?: number; townMin?: number; budgetMin?: number; budgetMax?: number; types?: string; must?: string; nice?: string } = {}) =>
     request<{
       near: { lat: number; lng: number; label: string };
       radiusKm: number; mode: 'walking' | 'driving'; cached: boolean; attribution: string; attributions: string[];

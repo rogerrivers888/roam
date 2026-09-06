@@ -77,10 +77,17 @@ const SECTIONS: Section[] = [
         said: { who: 'the owner', on: '6 Sep 2026', words: 'I shouldn’t have any going in the opposite direction from my home, for example. That doesn’t make any sense.' },
       },
       {
-        title: 'A stay’s must-haves are not asked for, because they cannot be honoured',
-        rule: 'The criteria sheet asks for the placement, how far you will travel, a budget and the kind of place. It does not offer pool, kitchen, parking, family room, breakfast, air con, pet-friendly or washing machine, and says why on the sheet.',
-        why: 'Neither the open map nor the price source returns amenities, so those filters would silently do nothing — the household would set them, believe the list had been narrowed, and be shown exactly what they would have been shown anyway. A control that lies about what it did is worse than one that is missing. It comes back the day a source carries the facts.',
-        state: 'planned',
+        title: 'A stay’s must-haves filter on what a mapper positively said, and silence is not a yes',
+        rule: 'Pool, kitchen, parking, family room, breakfast, air con and pet-friendly are read off the open map’s tags. A must-have leaves out every bed that has not said it has the thing — including the ones that do and were never tagged. The nice-to-haves reorder and never remove, which the screen says under the kicker. The wizard’s button carries the live count, so ticking Pool shows what it costs before anybody taps it.',
+        why: 'OpenStreetMap has a tag for a pool and no tag for the absence of one, and the tagging is sparse. Keeping untagged beds in would mean inventing a pool; leaving them out is the honest half of an incomplete map, and the live count on the button is what stops that being a surprise. LiteAPI’s list endpoint carries no facilities either — the per-hotel detail call does, and that is a call per row, which is why it is not made.',
+        state: 'partial',
+        where: 'apps/api/src/sources/osm.js · stayAmenities · apps/api/src/routes/trips.js · GET /:id/stays',
+      },
+      {
+        title: 'The stay wizard is three steps, and the third is the list itself',
+        rule: 'Where it should be (with the minutes attached to the answer they belong to), then budget and must-haves, then the ranked results. The three chips over the results re-open the step they came from. Every answer is in the address, so a worked-through set of criteria is a page somebody can be sent.',
+        why: 'What counts as a reasonable price depends on whether you said “in the middle of my plans” or “anywhere with a station”, so the money cannot come first. Making the results the third step rather than a fourth screen means the wizard is never a thing you have to finish before you see anything.',
+        state: 'live',
         where: 'apps/web/src/screens/TripMapScreen.tsx · StayCriteria',
       },
       {

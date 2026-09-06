@@ -824,6 +824,28 @@ router.get('/:id/along', async (req, res, next) => {
  * open map's wherever the two agree, and offline/policy.ts does not save this
  * path to a device.
  */
+/**
+ * "Type of place" (Hotels 2 §18) against what the sources actually call things.
+ *
+ * The wizard asks in household words — a house or a flat, a farm stay, a villa
+ * with a pool — and the open map answers in `tourism=` values. One word does
+ * not map to one value: a flat is `apartment` or `chalet`, and a villa is a
+ * name and a pool rather than a tag at all. So the match is a small table
+ * rather than a string comparison, which is what it used to be — and which
+ * quietly returned nothing for every option but Hotel.
+ */
+const STAY_KINDS = {
+  'hotel': ['hotel', 'motel', 'resort', 'inn'],
+  'house or flat': ['apartment', 'chalet', 'hut', 'house', 'flat', 'cottage', 'villa'],
+  'b&b': ['guest house', 'guesthouse', 'bed and breakfast', 'b&b', 'bnb'],
+  'farm stay': ['farm', 'farm stay', 'agriturismo', 'masseria'],
+  'villa with pool': ['villa', 'masseria', 'chalet'],
+};
+export function stayKindMatches(stayKind, want) {
+  const kind = String(stayKind || 'hotel').toLowerCase();
+  return want.some((w) => (STAY_KINDS[w.toLowerCase()] ?? [w.toLowerCase()]).some((v) => kind.includes(v)));
+}
+
 router.get('/:id/stays', async (req, res, next) => {
   const started = Date.now();
   try {
@@ -893,6 +915,22 @@ router.get('/:id/stays', async (req, res, next) => {
     // The top of the slider is "and above", so a ceiling at the maximum is no ceiling.
     const budgetMax = Number(req.query.budgetMax) >= 400 ? Infinity : Number(req.query.budgetMax) || Infinity;
     const wantTypes = String(req.query.types || '').split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+    /**
+     * Must-haves and nice-to-haves (Hotels 2 §18), and they are deliberately
+     * two different mechanisms because the screen says they are: "Must have"
+     * filters, "Nice to have · reorders, doesn't filter".
+     *
+     * What a bed has comes from the open map's tags (sources/osm.js
+     * `stayAmenities`), which are sparse: a mapper says there is a pool, never
+     * that there is not one. So a must-have leaves out every bed that has not
+     * said it has the thing — including the ones that do and were never tagged.
+     * That is the right way round for a filter, and the wizard's live count is
+     * what makes it safe: tick Pool and the button says how many are left
+     * before anybody taps it.
+     */
+    const wantMust = String(req.query.must || '').split(',').map((t) => t.trim()).filter(Boolean);
+    const wantNice = String(req.query.nice || '').split(',').map((t) => t.trim()).filter(Boolean);
+    const has = (st, want) => (st.amenities ?? []).some((a) => a.toLowerCase() === want.toLowerCase());
 
     /**
      * Are the plans spread out? Screen 19: when the days are an hour apart from
@@ -978,9 +1016,19 @@ router.get('/:id/stays', async (req, res, next) => {
       }
       const night = st.offer?.perNight ?? null;
       if (night != null && (night < budgetMin || night > budgetMax)) return false;
-      if (wantTypes.length && !wantTypes.includes(String(st.stayKind || 'hotel').toLowerCase())) return false;
+      if (wantTypes.length && !stayKindMatches(st.stayKind, wantTypes)) return false;
+      if (wantMust.length && !wantMust.every((m) => has(st, m))) return false;
       return true;
     });
+
+    // The nice-to-haves reorder what survived: how many of them a bed has, and
+    // the ranking it already had settles the rest.
+    if (wantNice.length) {
+      ranked = ranked
+        .map((st, i) => ({ st, i, hits: wantNice.filter((n) => has(st, n)).length }))
+        .sort((a, b) => b.hits - a.hits || a.i - b.i)
+        .map((x) => x.st);
+    }
 
     ranked = ranked.slice(0, 40);
     const status = await householdStatus(household.id, ranked.map((s) => s.venueRef));
@@ -997,7 +1045,7 @@ router.get('/:id/stays', async (req, res, next) => {
       placement,
       spread,
       /** What was asked for, echoed back so the sheet can show it rather than its defaults. */
-      criteria: { maxAvgMin, townMin, maxTrainMin, maxWalkMin, budget: [budgetMin, Number.isFinite(budgetMax) ? budgetMax : null], types: wantTypes },
+      criteria: { maxAvgMin, townMin, maxTrainMin, maxWalkMin, budget: [budgetMin, Number.isFinite(budgetMax) ? budgetMax : null], types: wantTypes, must: wantMust, nice: wantNice },
       results: ranked.map((s, i) => ({
         ...s,
         household: status[s.venueRef] ?? null,

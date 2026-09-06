@@ -43,6 +43,31 @@ const STAY_WORDS = {
   apartment: 'apartment', chalet: 'chalet', alpine_hut: 'hut',
 };
 
+/**
+ * The seven must-haves and four nice-to-haves the stay wizard asks about
+ * (Hotels 2 §18), read off the open map's tags.
+ *
+ * Every one of these is a positive statement by a mapper. There is no "no
+ * pool" tag in practice, so the absence of a word here means *unknown*, not
+ * absent — and because a must-have filters, an unknown bed is left out. That
+ * is the honest way round: showing a place because nobody said it lacked a
+ * kitchen would be inventing a kitchen.
+ */
+export function stayAmenities(t) {
+  const yes = (v) => v != null && v !== 'no' && v !== 'none' && v !== 'false';
+  const out = [];
+  if (yes(t.swimming_pool) || yes(t['leisure:swimming_pool'])) out.push('Pool');
+  if (yes(t.kitchen) || t.tourism === 'apartment' || t.tourism === 'chalet') out.push('Kitchen');
+  if (yes(t.parking) || yes(t['amenity:parking'])) out.push('Parking');
+  if (yes(t['rooms:family']) || yes(t.family_rooms)) out.push('Family room');
+  if (yes(t.breakfast)) out.push('Breakfast');
+  if (yes(t.air_conditioning)) out.push('Air con');
+  if (yes(t.dog) || yes(t.dogs) || yes(t.pets)) out.push('Pet-friendly');
+  if (/sea|coast|ocean|beach/i.test(t.view || '')) out.push('Sea view');
+  if (yes(t.garden) || t.leisure === 'garden') out.push('Garden');
+  return out;
+}
+
 const CATEGORY_FILTERS = {
   food: `nwr["amenity"~"^(restaurant|cafe|pub|bar|fast_food|ice_cream|biergarten)$"]["name"]`,
   stay: `nwr["tourism"~"^(hotel|guest_house|hostel|motel|apartment|chalet|alpine_hut)$"]["name"]`,
@@ -141,6 +166,12 @@ export function venueFromOsmElement(el) {
     // Somewhere to sleep: what kind of bed it is, and the rating the operator
     // is allowed to advertise. Both are facts in the open map, not a review.
     stayKind: STAY_WORDS[t.tourism] ?? null,
+    // What the bed has, in the words the stay wizard asks in (Hotels 2 §18).
+    // Only what a mapper has positively said: an absent tag means unknown, and
+    // a must-have is a filter, so a bed nobody has tagged does not claim a pool
+    // it may not have. Sparse by nature — the wizard's live count is what tells
+    // somebody that ticking three of these leaves them two beds.
+    amenities: t.tourism ? stayAmenities(t) : undefined,
     stars: t.stars && /^\d/.test(t.stars) ? Number(String(t.stars).match(/\d+/)[0]) : null,
     rooms: t.rooms ? Number(t.rooms) || null : null,
     // A sight you look at rather than go into (a bath house, a statue, a
