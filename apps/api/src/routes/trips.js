@@ -1083,10 +1083,30 @@ router.get('/:id/stays', async (req, res, next) => {
      */
     if (spread && req.query.placement == null) placement = 'station';
 
-    // Stations, only for the placement that needs them: it is an Overpass call
-    // and nothing else on this screen wants it.
+    /**
+     * The three placements above answer "what should this be ranked by". They
+     * are not three boxes a household has to choose between (owner, 6 Sep 2026:
+     * "I want to have a place that's less than 20 minutes' travel to the centre
+     * of whatever town, and I want it to be less than a 10-minute walk to the
+     * train station"). That is one bed satisfying two conditions, and until now
+     * each condition only applied when its own tile happened to be selected.
+     *
+     * So a condition applies when it was **asked for** — named in the query —
+     * and, as before, when the placement implies it. Ranking stays the
+     * placement's job; the conditions are independent of it and of each other,
+     * and any number of them can hold at once.
+     */
+    // `asked` is already the party on this handler; this one is about the query.
+    const wasAsked = (name) => req.query[name] != null && req.query[name] !== '';
+    const wantsStationWalk = placement === 'station' || wasAsked('maxWalkMin');
+    const wantsTrain = placement === 'station' || wasAsked('maxTrainMin');
+    const wantsTownMinutes = placement === 'town' || wasAsked('townMin');
+    const wantsPlanMinutes = anchors.length > 0 && (placement === 'plans' || wasAsked('maxAvgMin'));
+
+    // Stations, only when something actually asks about them: it is an Overpass
+    // call and nothing else on this screen wants it.
     let stations = [];
-    if (placement === 'station') {
+    if (wantsStationWalk || wantsTrain) {
       stations = await stationsNear(centre.lat, centre.lng, Math.round(Math.min(15, radiusKm + 6) * 1000)).catch(() => []);
     }
     const nearestStation = (bed) => {
@@ -1111,10 +1131,23 @@ router.get('/:id/stays', async (req, res, next) => {
     let ranked = rankStays(look.beds, { anchors, centre: from, mode, availabilityFirst: look.priced })
       .filter((s) => s.distanceKm == null || s.distanceKm <= radiusKm + 1);
 
+    // The walk to the platform and the train from it are facts about a bed, not
+    // a mode of the screen: worked out whenever anything asks about them, so a
+    // list ranked by the plans can still be filtered down to the ones by a
+    // station.
+    if (stations.length) {
+      ranked = ranked.map((s) => {
+        const st = nearestStation(s);
+        const legs = anchors.map((a) => (st ? estimateTravelMinutes(st, a, 'transit') : null)).filter((n) => n != null);
+        const typicalTrain = legs.length ? [...legs].sort((x, y) => x - y)[Math.floor((legs.length - 1) / 2)] : null;
+        return { ...s, station: st, typicalTrainMinutes: typicalTrain };
+      });
+    }
+
     if (placement === 'station') {
       ranked = ranked
         .map((s) => {
-          const st = nearestStation(s);
+          const st = s.station ?? nearestStation(s);
           // From the platform, by train, to each planned place.
           const legs = anchors.map((a) => (st ? estimateTravelMinutes(st, a, 'transit') : null)).filter((n) => n != null);
           const typicalTrain = legs.length ? [...legs].sort((x, y) => x - y)[Math.floor((legs.length - 1) / 2)] : null;
@@ -1149,12 +1182,15 @@ router.get('/:id/stays', async (req, res, next) => {
     const mustKnown = wantMust.filter((m) => ranked.some((st) => has(st, m)));
 
     ranked = ranked.filter((st) => {
-      if (placement === 'plans' && anchors.length && st.typicalMinutes != null && st.typicalMinutes > maxAvgMin) return false;
-      if (placement === 'town' && estimateTravelMinutes(town, st, mode) > townMin) return false;
-      if (placement === 'station') {
-        if ((st.station?.walkMinutes ?? 999) > maxWalkMin) return false;
-        if (st.typicalTrainMinutes != null && st.typicalTrainMinutes > maxTrainMin) return false;
-      }
+      // Each of these holds if it was asked for, whatever the list is ranked
+      // by. "Twenty minutes from the middle of town and ten from a platform" is
+      // two of them at once, which is the whole point.
+      if (wantsPlanMinutes && st.typicalMinutes != null && st.typicalMinutes > maxAvgMin) return false;
+      if (wantsTownMinutes && estimateTravelMinutes(town, st, mode) > townMin) return false;
+      // A bed with no station within reach fails a walk condition; it cannot
+      // pass one by having nothing to measure against.
+      if (wantsStationWalk && (st.station?.walkMinutes ?? 999) > maxWalkMin) return false;
+      if (wantsTrain && st.typicalTrainMinutes != null && st.typicalTrainMinutes > maxTrainMin) return false;
       const night = st.offer?.perNight ?? null;
       if (night != null && (night < budgetMin || night > budgetMax)) return false;
       if (wantTypes.length && !stayKindMatches(st.stayKind, wantTypes)) return false;
@@ -1198,6 +1234,18 @@ router.get('/:id/stays', async (req, res, next) => {
        */
       criteria: {
         maxAvgMin, townMin, maxTrainMin, maxWalkMin,
+        /**
+         * Which conditions were actually applied, as opposed to which controls
+         * have a value. The sheet has a number in every box whether or not it
+         * is doing anything, and a household reading "20 min" beside a list
+         * that was never filtered by it has been misled.
+         */
+        applied: [
+          ...(wantsPlanMinutes ? [{ key: 'plans', label: `within ${maxAvgMin} min of your plans` }] : []),
+          ...(wantsTownMinutes ? [{ key: 'town', label: `within ${townMin} min of the centre` }] : []),
+          ...(wantsStationWalk ? [{ key: 'stationWalk', label: `${maxWalkMin} min walk of a station` }] : []),
+          ...(wantsTrain ? [{ key: 'train', label: `${maxTrainMin} min by train` }] : []),
+        ],
         budget: [budgetMin, Number.isFinite(budgetMax) ? budgetMax : null],
         types: wantTypes, must: wantMust, nice: wantNice,
         mustUnanswered: wantMust.filter((m) => !mustKnown.includes(m)),
