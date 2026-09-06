@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tripName } from '../src/screens/tripName';
+import { tripName } from '../src/screens/tripName.ts';
 
 // Every record below was read off production on 6 Sep 2026, unchanged.
 
@@ -65,7 +65,7 @@ test('nothing at all still reads as something', () => {
 // The name on a card, and the name of a place inside one.
 
 test('a title auto-made from the council gets its head swapped, and keeps the month', async () => {
-  const { tripTitle } = await import('../src/screens/tripName');
+  const { tripTitle } = await import('../src/screens/tripName.ts');
   assert.equal(tripTitle({
     title: 'Bath and North East Somerset · Sep 2026',
     locality: 'Bath and North East Somerset',
@@ -74,19 +74,19 @@ test('a title auto-made from the council gets its head swapped, and keeps the mo
 });
 
 test('a title somebody typed is left alone', async () => {
-  const { tripTitle } = await import('../src/screens/tripName');
+  const { tripTitle } = await import('../src/screens/tripName.ts');
   assert.equal(tripTitle({ title: 'Bath · pub lunch', locality: 'Bath', place: { label: 'Bath' } }), 'Bath · pub lunch');
   assert.equal(tripTitle({ title: 'Home → Thorpe Park', locality: 'Runnymede', destination: { label: 'Thorpe Park' } }), 'Home → Thorpe Park');
   assert.equal(tripTitle({ title: 'Thorpe Park · Sep 2026', locality: 'Runnymede', place: { label: 'Thorpe Park' } }), 'Thorpe Park · Sep 2026');
 });
 
 test('a trip with no title at all is named the same way as everything else', async () => {
-  const { tripTitle } = await import('../src/screens/tripName');
+  const { tripTitle } = await import('../src/screens/tripName.ts');
   assert.equal(tripTitle({ locality: 'Runnymede', place: { label: 'Thorpe Park' } }), 'Thorpe Park');
 });
 
 test('an address reads by its town; a place reads by its own name', async () => {
-  const { shortPlaceName } = await import('../src/screens/tripName');
+  const { shortPlaceName } = await import('../src/screens/tripName.ts');
   assert.equal(shortPlaceName({ label: 'Fairways, Titlarks Hill, Ascot, SL5 0JD', locality: 'Ascot' }), 'Ascot');
   assert.equal(shortPlaceName({ label: 'Bath', locality: 'Bath and North East Somerset' }), 'Bath');
   assert.equal(shortPlaceName({ label: 'Henley-on-Thames, South Oxfordshire', locality: 'South Oxfordshire' }), 'Henley-on-Thames');
@@ -95,7 +95,7 @@ test('an address reads by its town; a place reads by its own name', async () => 
 });
 
 test('a council reads as the town inside it', async () => {
-  const { tripName, shortPlaceName } = await import('../src/screens/tripName');
+  const { tripName, shortPlaceName } = await import('../src/screens/tripName.ts');
   // Made on production before the naming rule landed: every field is the council.
   assert.equal(tripName({
     title: 'Bath and North East Somerset · Sep 2026',
@@ -111,7 +111,7 @@ test('a council reads as the town inside it', async () => {
 });
 
 test('the swapped title still keeps what somebody wrote after it', async () => {
-  const { tripTitle } = await import('../src/screens/tripName');
+  const { tripTitle } = await import('../src/screens/tripName.ts');
   assert.equal(tripTitle({
     title: 'Bath and North East Somerset · Sep 2026',
     locality: 'Bath and North East Somerset',

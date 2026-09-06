@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { weeksOf } from '../src/screens/tripWeeks';
+import { weeksOf } from '../src/screens/tripWeeks.ts';
 
 const days = (n: number, from = '2026-08-09') =>
   Array.from({ length: n }, (_, i) => {
