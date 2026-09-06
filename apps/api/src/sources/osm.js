@@ -232,6 +232,21 @@ export const osmSource = {
    * (`rest()` below), so the next search does not pay for it again.
    */
   deadlineMs: 11_000,
+  /**
+   * Slow by nature, not slow today.
+   *
+   * Overpass answered three tries in five on production (6 Sep 2026) at 5.0s,
+   * 7.2s and 9.8s, the other two running out the cap above. There is no grace
+   * window that both waits for that and feels like an app, so the fan-out stops
+   * waiting for this one the moment the rest have answered — and picks its
+   * answer up afterwards instead (sources/index.js `settling`, cache.js).
+   *
+   * This is not "OpenStreetMap does not matter". It is the widest source we
+   * have: a hundred and twenty restaurants in central Manchester where Google
+   * returns seven. It is exactly because the answer is worth having that it is
+   * kept rather than raced.
+   */
+  slow: true,
   retention: { placeId: 'indefinite', displayFields: 'indefinite (ODbL, attribution required)' },
   attribution: { text: OSM_ATTRIBUTION, requiresAuthorCredit: false },
 

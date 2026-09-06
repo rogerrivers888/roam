@@ -11,7 +11,8 @@ import { Router } from 'express';
 import { withTransaction } from '../db.js';
 import * as visitsRepo from '../repositories/visits.js';
 import * as menusRepo from '../repositories/menus.js';
-import { searchAllSources, enabledSources, recallVenue, optInFrom } from '../sources/index.js';
+import { enabledSources, recallVenue, optInFrom } from '../sources/index.js';
+import { searchCached } from '../sources/cache.js';
 import { geocode, reverseGeocode, providerCalls as geocodeCalls } from '../sources/geocode.js';
 import { searchAreas, AREA_ATTRIBUTION, providerCalls as areaCalls } from '../sources/areas.js';
 import { findMenuUrl } from '../sources/menuLink.js';
@@ -325,10 +326,17 @@ places.get('/search', async (req, res, next) => {
     // running out its own clock). Nothing is lost: settleBy still waits
     // properly when not one source has found anything.
     const deadlineMs = Math.min(20_000, Math.max(2_000, Number(req.query.deadlineMs) || 6_000));
-    const { venues, degraded, sourcesQueried, units } = await searchAllSources({
+    // Through the cache, not around it (owner, 6 Sep 2026). This was the one
+    // search path that called the sources directly, so looking at the same area
+    // twice in an afternoon asked Google twice and billed twice — for an answer
+    // held in memory the whole time. The other three searches (Plan, the taste
+    // tables, a trip's Find tab) have gone through here since it was written.
+    const { venues, degraded, sourcesQueried, units, fetched } = await searchCached({
       center: { lat: near.lat, lng: near.lng }, radiusKm, categories, query: q, includeEvents: false, sources, deadlineMs,
     });
-    await visitsRepo.recordProviderCall(household.id, sourcesQueried.join('+') || 'none', 'places.search', units);
+    // Only the search that actually asked pays and is logged. A hit, or a
+    // search joined while another was already running, bills nobody.
+    if (fetched) await visitsRepo.recordProviderCall(household.id, sourcesQueried.join('+') || 'none', 'places.search', units);
 
     // A name is not a place on the map: searching "Sebastian's" from home must
     // not throw the restaurant away for being 10.75 km out when the radius says

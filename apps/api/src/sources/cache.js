@@ -91,11 +91,25 @@ export async function searchCached(params, { refresh = false, onProgress = null 
     cachedSay(r);
     return { ...r, cached: true, fetchedAt: new Date().toISOString(), fetched: false };
   }
+  const hold = (result) => {
+    kept.delete(key);
+    kept.set(key, { at: Date.now(), result });
+    while (kept.size > MAX) kept.delete(kept.keys().next().value);
+  };
   const run = searchAllSources(params, { onProgress })
     .then((result) => {
-      kept.delete(key);
-      kept.set(key, { at: Date.now(), result });
-      while (kept.size > MAX) kept.delete(kept.keys().next().value);
+      hold(result);
+      // A source too slow to hold the screen for was still running when this
+      // answered (sources/index.js). Nobody is waiting on it, but when it lands
+      // the fuller answer replaces the one held here — so the second look at
+      // the same place gets OpenStreetMap's hundred and twenty for nothing,
+      // having paid for them once, in the background, while the first screen
+      // was already up.
+      result.settling?.then((full) => {
+        // Only if this is still the answer being held. A `refresh` may have
+        // overwritten it in the meantime, and a straggler must not undo that.
+        if (kept.get(key)?.result === result) hold({ ...full, cached: true, latecomers: true });
+      }).catch(() => null);
       return result;
     })
     .finally(() => inFlight.delete(key));

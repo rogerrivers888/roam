@@ -298,11 +298,35 @@ function withDeadline(source, work) {
 // answer, and far less than the fourteen to twenty-five OpenStreetMap needs.
 const GRACE_MS = Number(process.env.ROAM_SOURCE_GRACE_MS || 2500);
 
-async function settleBy(sources, started, deadlineMs, isUseful) {
+/**
+ * Exported for the tests. This is concurrency with money and a spinner on the
+ * other end of it, and the two things that matter — answering without waiting
+ * for a source that cannot make it, and still waiting when nothing else found
+ * anything — are invisible until they are wrong on somebody's screen.
+ */
+export async function settleBy(sources, started, deadlineMs, isUseful) {
   const results = new Array(sources.length).fill(null);
   let releaseGrace = null;
   const grace = new Promise((r) => { releaseGrace = r; });
   let graceRunning = false;
+
+  // A source marked `slow` is one we already know cannot answer inside a grace
+  // window — Overpass takes five to eleven seconds when it answers at all
+  // (measured on production, 6 Sep 2026: three tries in five, 5.0s / 7.2s /
+  // 9.8s, the other two hitting the cap). Waiting the grace out for it is two
+  // and a half seconds spent on a source that was never going to arrive.
+  //
+  // So the grace is for sources that are *merely late*, and this is for the one
+  // that is slow by nature: once something useful has arrived and every source
+  // we are actually willing to wait for has settled, answer. Nothing is thrown
+  // away — the slow one keeps running, and `settling` below hands its answer to
+  // the cache when it lands.
+  let releaseQuick = null;
+  const quick = new Promise((r) => { releaseQuick = r; });
+  let quickLeft = sources.filter((s) => !s.slow).length;
+  const anythingUsefulYet = () => results.some((r) => r?.status === 'fulfilled' && r.value.some(isUseful));
+  const maybeAnswer = () => { if (quickLeft <= 0 && anythingUsefulYet()) releaseQuick(); };
+
   const each = started.map((p, i) => p.then(
     (value) => {
       results[i] = { status: 'fulfilled', value };
@@ -318,13 +342,20 @@ async function settleBy(sources, started, deadlineMs, isUseful) {
         graceRunning = true;
         setTimeout(releaseGrace, Math.min(GRACE_MS, deadlineMs));
       }
+      if (!sources[i].slow) quickLeft -= 1;
+      if (deadlineMs) maybeAnswer();
     },
-    (reason) => { results[i] = { status: 'rejected', reason }; },
+    (reason) => {
+      results[i] = { status: 'rejected', reason };
+      // A source that failed has settled just as surely as one that answered.
+      if (!sources[i].slow) quickLeft -= 1;
+      if (deadlineMs) maybeAnswer();
+    },
   ));
   const all = Promise.all(each);
   if (deadlineMs) {
     let timer;
-    await Promise.race([all, grace, new Promise((r) => { timer = setTimeout(r, deadlineMs); })]);
+    await Promise.race([all, quick, grace, new Promise((r) => { timer = setTimeout(r, deadlineMs); })]);
     clearTimeout(timer);
     const anythingUseful = results.some((r) => r?.status === 'fulfilled' && r.value.some(isUseful));
     if (!anythingUseful) await all;
@@ -354,7 +385,17 @@ export async function searchAllSources(params, { onProgress = null } = {}) {
   const near = (v) => v.lat != null && v.lng != null
     && (!params.center || !params.radiusKm || kmBetween(params.center, v) <= params.radiusKm);
   say({ type: 'asking', sources: sources.map((s) => ({ key: s.key, label: s.label })) });
-  const started = sources.map((s) => withDeadline(s, s.search({ ...params, meter, sources: sources.map((x) => x.key) }))
+  // The work itself, before any clock is put on it. `started` races each of
+  // these against its deadline; this list is what is still running afterwards,
+  // and it is the only way a slow source's answer can be picked up rather than
+  // abandoned. Nothing awaits these directly, so each is given a catch — an
+  // unobserved rejection here would take the process down.
+  const work = sources.map((s) => {
+    const p = s.search({ ...params, meter, sources: sources.map((x) => x.key) });
+    p.catch(() => null);
+    return p;
+  });
+  const started = sources.map((s, i) => withDeadline(s, work[i])
     .then((found) => {
       const kept = found.filter(near);
       say({ type: 'answered', source: s.key, label: s.label, count: kept.length, points: kept.slice(0, 60).map((v) => [Number(v.lat.toFixed(5)), Number(v.lng.toFixed(5))]) });
@@ -364,37 +405,68 @@ export async function searchAllSources(params, { onProgress = null } = {}) {
 
   const settled = await settleBy(sources, started, params.deadlineMs ?? null, near);
 
-  const raw = [];
-  const degraded = [];
-  // How many records each source returned, before the resolver folds them (the admin source view).
-  const rawCounts = {};
-  settled.forEach((outcome, i) => {
-    if (outcome.status === 'fulfilled') {
-      raw.push(...outcome.value);
-      rawCounts[sources[i].key] = outcome.value.length;
-    } else {
-      degraded.push({ source: sources[i].key, error: String(outcome.reason?.message || outcome.reason), slow: Boolean(outcome.reason?.slow) });
-    }
-  });
+  // An enriching source bills per record it looks up, so it runs once for this
+  // search and both composings share the answer. Composing twice must cost the
+  // household once: Tripadvisor is about fifteen cents a search.
+  let enriched = null;
 
-  // Second pass: a source that enriches (Tripadvisor) looks up what the others
-  // found and adds its own records for the resolver to merge.
-  for (const s of sources) {
-    if (typeof s.enrich !== 'function' || sources.length < 2) continue;
-    try {
-      const extra = await withDeadline(s, s.enrich(raw, { ...params, meter }));
-      rawCounts[s.key] = (rawCounts[s.key] || 0) + extra.length;
-      raw.push(...extra);
-    } catch (err) {
-      degraded.push({ source: s.key, error: String(err?.message || err) });
+  const compose = async (outcomes) => {
+    const raw = [];
+    const degraded = [];
+    // How many records each source returned, before the resolver folds them (the admin source view).
+    const rawCounts = {};
+    outcomes.forEach((outcome, i) => {
+      if (outcome.status === 'fulfilled') {
+        raw.push(...outcome.value);
+        rawCounts[sources[i].key] = outcome.value.length;
+      } else {
+        degraded.push({ source: sources[i].key, error: String(outcome.reason?.message || outcome.reason), slow: Boolean(outcome.reason?.slow) });
+      }
+    });
+
+    // Second pass: a source that enriches (Tripadvisor) looks up what the others
+    // found and adds its own records for the resolver to merge.
+    if (enriched === null) {
+      enriched = [];
+      for (const s of sources) {
+        if (typeof s.enrich !== 'function' || sources.length < 2) continue;
+        try {
+          const extra = await withDeadline(s, s.enrich(raw, { ...params, meter }));
+          enriched.push({ key: s.key, extra });
+        } catch (err) {
+          enriched.push({ key: s.key, error: String(err?.message || err) });
+        }
+      }
     }
+    for (const e of enriched) {
+      if (e.error) { degraded.push({ source: e.key, error: e.error }); continue; }
+      rawCounts[e.key] = (rawCounts[e.key] || 0) + e.extra.length;
+      raw.push(...e.extra);
+    }
+
+    rememberVenues(raw);
+    const venues = resolveVenues(raw);
+    const resolvedCounts = {};
+    for (const v of venues) for (const k of v.contributingSources || [v.source]) resolvedCounts[k] = (resolvedCounts[k] || 0) + 1;
+    return { venues, degraded, sourcesQueried: sources.map((s) => s.key), units: meter, rawCounts, resolvedCounts };
+  };
+
+  const answer = await compose(settled);
+
+  // Somebody was still looking when we answered. Their work is still running,
+  // and throwing it away is how OpenStreetMap's hundred and twenty places have
+  // never once reached a screen: every search pays five to eleven seconds for
+  // it, gives up, and the next search starts again from nothing.
+  //
+  // So the caller is handed a second promise. It is not awaited here and no
+  // screen waits on it — `sources/cache.js` takes it, and when the stragglers
+  // land it replaces what it holds with the fuller answer. The first look is
+  // fast; the next look at the same place is fast *and* complete.
+  if (settled.some((o) => o.status === 'rejected' && o.reason?.slow)) {
+    answer.settling = Promise.allSettled(work).then(compose);
+    answer.settling.catch(() => null);
   }
-
-  rememberVenues(raw);
-  const venues = resolveVenues(raw);
-  const resolvedCounts = {};
-  for (const v of venues) for (const k of v.contributingSources || [v.source]) resolvedCounts[k] = (resolvedCounts[k] || 0) + 1;
-  return { venues, degraded, sourcesQueried: sources.map((s) => s.key), units: meter, rawCounts, resolvedCounts };
+  return answer;
 }
 
 // ---------------------------------------------------------------------------
