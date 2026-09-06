@@ -26,7 +26,7 @@
  *     rather than views of a day.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api, BrowseItem, HouseholdResponse, Stay, StayPlacement, TripAlongPlace, TripDay, TripDetail, TripPlace } from '../api';
 import { useViewport } from '../hooks/useViewport';
@@ -43,24 +43,7 @@ import { VenueDrawer } from '../components/VenueDrawer';
 import { asOneOf, asText, useQueryState, useRouter } from '../router';
 import { paths, type TripSection } from '../routes';
 import { weeksOf } from './tripWeeks';
-
-/**
- * What this trip is called on screen.
- *
- * The destination first, because it is the thing they chose. Reverse-geocoding
- * a point gives the borough it stands in, and a trip built from Thorpe Park was
- * calling itself "Runnymede" — which is true, and is not what anybody picked
- * (owner, 6 Sep 2026: "when I create a trip from Thorpe Park, it says
- * 'Runnymede all day'. It's supposed to say 'Thorpe Park'").
- *
- * A trip away has no destination — you are staying somewhere and going out from
- * it — so there the town is the right answer and comes next.
- */
-function tripName(trip: TripDetail['trip']): string {
-  const dest = trip.destination?.label?.split(',')[0]?.trim();
-  if (dest) return dest.replace(/\s*\(centre\)\s*$/, '');
-  return trip.locality ?? trip.place?.label?.split(',')[0] ?? trip.title ?? trip.origin.label.split(',')[0];
-}
+import { fromName, tripName } from './tripName';
 
 const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 const clock = (iso: string) => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
@@ -96,7 +79,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
 }) {
   const { width, height } = useViewport();
   const wide = width >= 900;
-  const { setQuery } = useRouter();
+  const { setQuery, navigate } = useRouter();
   const { trip, days, shortlist, attendees } = d;
 
   const [pill, setPill] = useQueryState<Pill | null>('pill', null, asOneOf(['activities', 'food', 'stay', 'shortlist'] as const, null));
@@ -120,8 +103,13 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   }, [crit]);
   const setCriteriaState = (next: Partial<StayCriteriaState>) =>
     setCrit(encodeURIComponent(JSON.stringify({ ...criteriaState, ...next })));
-  /** Who's coming, over whatever is on screen (handoff §12). */
-  const [who, setWho] = useState(false);
+  /**
+   * Who's coming, over whatever is on screen (§12) — and in the address, so
+   * the sheet a group trip is started from is a page somebody can be sent.
+   */
+  const [whoQ, setWhoQ] = useQueryState<string | null>('who', null, asText);
+  const who = whoQ === '1';
+  const setWho = (v: boolean) => setWhoQ(v ? '1' : null);
   /** Which day of a holiday is being looked at — the day strip (handoff §13/14). */
   const [dayId, setDayId] = useQueryState<string | null>('day', null, asText);
   /**
@@ -336,7 +324,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       // Trip home, and the Shortlist pill: what is already on this trip.
       for (const p of places?.places ?? []) {
         if (p.lat == null || p.venueRef.startsWith('base:')) continue;
-        if (pill === 'shortlist' && !p.shortlisted) continue;
+        if (pill === 'shortlist' && !stillSaved(p)) continue;
         out.push({
           id: p.venueRef, lat: p.lat as number, lng: p.lng as number,
           kind: p.scheduled ? 'added' : 'saved',
@@ -363,7 +351,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
    */
   const driveChip = (() => {
     if (pill === 'stay') return stays.results.length ? `${stays.results.length} to stay` : null;
-    if (pill === 'shortlist') return `${(places?.places ?? []).filter((x) => x.shortlisted).length} saved`;
+    if (pill === 'shortlist') return `${(places?.places ?? []).filter(stillSaved).length} saved`;
     if (pill) return along.loading ? null : `${along.places.length} ${along.hasRoute ? 'on the route' : 'nearby'}`;
     if (!dest || !start || dest === start) return null;
     const there = Math.max(1, Math.round(estimateMinutes(start, dest)));
@@ -403,10 +391,10 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const header = (
     <View style={styles.header}>
       <Pressable
-        onPress={() => (pill ? setPill(null) : onBack())}
+        onPress={() => (pill ? setPill(null) : section === 'group' ? onSection('itinerary') : onBack())}
         style={styles.round}
         accessibilityRole="button"
-        accessibilityLabel={pill ? 'Back to the trip' : 'Trips'}
+        accessibilityLabel={pill || section === 'group' ? 'Back to the trip' : 'Trips'}
       >
         <Icon name="back" size={18} color={colors.ink} />
       </Pressable>
@@ -483,7 +471,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     <BrowseList
       pill={pill}
       along={along}
-      shortlisted={(places?.places ?? []).filter((p) => p.shortlisted)}
+      shortlisted={(places?.places ?? []).filter(stillSaved)}
       onUnshortlist={async (p) => {
         const item = shortlist.find((x) => x.venueRef === p.venueRef);
         if (!item) return;
@@ -503,10 +491,20 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       onShortlist={shortlistIt}
     />
   ) : (
+    section === 'group' ? (
+      /* The group is reached from Who's coming, not from a tab, so it carries
+         its own way back rather than a row of tabs none of which is lit. */
+      <View style={{ padding: spacing.lg, gap: 12 }}>
+        <Pressable onPress={() => onSection('itinerary')} style={styles.backRow} accessibilityRole="button">
+          <Icon name="back" size={16} color={colors.ink} />
+          <Text style={styles.linkText}>Back to the day</Text>
+        </Pressable>
+        <GroupPanel d={d} onChanged={onChanged} />
+      </View>
+    ) : (
     <SheetTabs section={section} counts={places?.counts.all ?? 0} onSection={onSection}>
       {section === 'places' ? <TripPlacesList data={places} onSelect={(ref) => { setSelected(ref); setDetent('half'); }} />
-        : section === 'group' ? <View style={{ padding: spacing.lg }}><GroupPanel d={d} onChanged={onChanged} /></View>
-          : (
+        : (
             <>
               {/* The day strip, on a holiday only — a day out has one day and a
                   row of one chip is furniture (§13/14), and past a week it
@@ -530,6 +528,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
             </>
           )}
     </SheetTabs>
+    )
   );
 
   const pills = (
@@ -658,6 +657,9 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
         <WhosComing
           household={household}
           attending={attendees.map((a) => a.id)}
+          hasCar={trip.hasCar !== false}
+          onInvite={() => { setWho(false); navigate(paths.household()); }}
+          onGroup={() => { setWho(false); onSection('group'); }}
           onClose={() => setWho(false)}
           onSave={async (ids) => { try { await api.setTripAttendees(trip.id, ids); setWho(false); await onChanged(); } catch (e: any) { setError(e.message); } }}
         />
@@ -716,10 +718,18 @@ function estimateMinutes(a: { lat: number; lng: number }, b: { lat: number; lng:
 function SheetTabs({ section, counts, onSection, children }: {
   section: TripSection; counts: number; onSection: (s: TripSection) => void; children: React.ReactNode;
 }) {
+  /**
+   * Two tabs, not three. Group was put here on 5 Sep at the owner's request —
+   * "We've lost the group tab. When I go into a trip, can you please add group
+   * into the boxes at the top?" — and he corrected that on 6 Sep against the
+   * screens: "you can actually select a group, and therefore we didn't have a
+   * group tab. We just select the group when we select the number of people."
+   * So it moved to Who's coming (§12), where the handoff draws it. The page
+   * keeps its address; only the tab is gone.
+   */
   const tabs: { value: TripSection; label: string }[] = [
     { value: 'itinerary', label: 'The day' },
     { value: 'places', label: `Places${counts ? ` · ${counts}` : ''}` },
-    { value: 'group', label: 'Group' },
   ];
   const on = tabs.some((t) => t.value === section) ? section : 'itinerary';
   return (
@@ -749,6 +759,28 @@ function TheDay({ d, day, onAdd }: { d: TripDetail; day: TripDay | null; onAdd: 
   const dayIndex = day ? days.findIndex((x) => x.id === day.id) : -1;
   const dest = trip.destination ?? trip.base;
   const back = trip.returnAt ? clock(trip.returnAt) : trip.dayEnd ?? null;
+  /**
+   * Where the destination goes when the day has not got it as a stop.
+   *
+   * A day out to a venue now carries that venue on the day, so it is one of the
+   * beats below and this draws nothing. A day out to a *place* — Bath, typed
+   * into the form — has no venue to be a stop, and without this the middle of
+   * the day would be the drive there, a pub, and the drive home.
+   *
+   * It used to be drawn only while the day was empty, which made the reason for
+   * the trip vanish the moment anything was added to it (owner, 6 Sep 2026:
+   * "the name of the trip is still Wembley, but Wembley is no longer in the
+   * list… there is no stop at Wembley Stadium"). Now it is drawn whenever the
+   * day has not got it, and it is drawn where it belongs: after whatever
+   * happens on the way there, before whatever happens on the way home.
+   */
+  const anchorAt = (() => {
+    if (!dest || tripName(trip) === fromName(trip)) return -1;
+    const near = (a: { lat: number | null; lng: number | null }) => a.lat != null && dest.lat != null
+      && Math.abs(a.lat - (dest.lat as number)) < 0.004 && Math.abs((a.lng ?? 0) - (dest.lng as number)) < 0.006;
+    if (stops.some(near)) return -1;
+    return (day?.slots ?? []).find((sl) => sl.slot === 'morning')?.stops.length ?? 0;
+  })();
 
   return (
     <View style={{ paddingHorizontal: 16 }}>
@@ -762,12 +794,29 @@ function TheDay({ d, day, onAdd }: { d: TripDetail; day: TripDay | null; onAdd: 
           : stops.length ? `The day · ${stops.length} stop${stops.length === 1 ? '' : 's'}` : 'The day'}
       </Text>
 
-      <Beat time={isTrip ? trip.dayStart ?? null : clock(trip.departAt)} icon="driving" title="Leave home"
-        detail={[trip.origin.label.split(',')[0], dest ? tripName(trip) : null].filter(Boolean).join(' → ')} />
-      {stops.map((s) => (
-        <Beat key={s.id} time={s.startTime} icon="place" title={s.name} detail={s.dwellMinutes ? mins(s.dwellMinutes) : null} />
+      {/* On a holiday the day starts where you are sleeping, so there is no
+          journey to draw — "Legoland Windsor (centre) → Legoland Windsor" is
+          the same place twice with an arrow between it. */}
+      <Beat
+        time={isTrip ? trip.dayStart ?? null : clock(trip.departAt)}
+        icon="driving"
+        title={isTrip && !trip.destination ? 'Start the day' : 'Leave home'}
+        detail={(() => {
+          const from = fromName(trip);
+          const to = dest ? tripName(trip) : null;
+          return to && to !== from ? `${from} → ${to}` : from;
+        })()}
+      />
+      {stops.map((s, i) => (
+        <Fragment key={s.id}>
+          {i === anchorAt ? <Beat time={null} icon="pinned" title={tripName(trip)} detail={isTrip ? null : 'All day'} /> : null}
+          <Beat time={s.startTime} icon="place" title={s.name} detail={s.dwellMinutes ? mins(s.dwellMinutes) : null} />
+        </Fragment>
       ))}
-      {!stops.length && dest ? <Beat time={null} icon="pinned" title={tripName(trip)} detail={isTrip ? null : 'All day'} /> : null}
+      {/* The one thing the day is for, where the day has not got it as a stop.
+          On a holiday whose base *is* the place, that row is the same word
+          again, so it is not drawn. */}
+      {anchorAt >= stops.length ? <Beat time={null} icon="pinned" title={tripName(trip)} detail={isTrip ? null : 'All day'} /> : null}
       <Beat time={back} icon="home" title="Head home" detail={null} last />
 
       <Pressable onPress={onAdd} style={styles.cta} accessibilityRole="button">
@@ -821,11 +870,15 @@ function TripPlacesList({ data, onSelect }: { data: { places: TripPlace[] } | nu
 
 const DETOURS = [5, 10, 15, 30];
 
-function BrowseList({ pill, along, shortlisted, onUnshortlist, anchorLabel, onClearAnchor, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist, kindOf, onKind }: {
+function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAddSaved, anchorLabel, onClearAnchor, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist, kindOf, onKind }: {
   pill: Pill;
   along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean; beyond: number };
   shortlisted: TripPlace[];
   onUnshortlist: (p: TripPlace) => Promise<void>;
+  /** A saved row opens the same drawer a browsed one does. */
+  onOpenSaved: (p: TripPlace) => void;
+  /** And puts it on the day through the same sheet. */
+  onAddSaved: (p: TripPlace) => void;
   /** The name of the place being looked around, when one has been tapped. */
   anchorLabel: string | null;
   onClearAnchor: () => void;
@@ -849,8 +902,19 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, anchorLabel, onCl
         <Text style={[type.small, { paddingVertical: spacing.sm }]}>
           {shortlisted.length ? `${shortlisted.length} saved · ring ahead, then Add the one you want` : 'Nothing saved for this trip yet.'}
         </Text>
+        {/* A saved row is the same row as a browsed one: it opens the place,
+            and it has the Add that puts it on the day. It had neither (owner,
+            6 Sep 2026: "for the 2 others that I've shortlisted, there is no add
+            button to add it to the trip, so I have no way of selecting from the
+            shortlist. Also, they don't open any side drawer"). A shortlist you
+            cannot choose from is a list of regrets. */}
         {shortlisted.map((p) => (
-          <View key={p.venueRef} style={styles.row}>
+          <Pressable
+            key={p.venueRef}
+            onPress={() => onOpenSaved(p)}
+            style={[styles.row, selected === p.venueRef && styles.rowOn]}
+            accessibilityRole="button"
+          >
             <VenueThumb name={p.name} image={p.image} category={p.category} width={56} height={56} rounded={6} credit={false} />
             <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
               <Text style={styles.rowName} numberOfLines={1}>{p.name ?? 'A place'}</Text>
@@ -866,9 +930,13 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, anchorLabel, onCl
                 <Pressable onPress={() => onUnshortlist(p)} hitSlop={8} style={styles.bookmark} accessibilityRole="button" accessibilityLabel={`Take ${p.name ?? 'this'} off the shortlist`}>
                   <Icon name="shortlisted" size={17} color={colors.ink} fill />
                 </Pressable>
+                <Pressable onPress={() => onAddSaved(p)} style={styles.add} accessibilityRole="button" accessibilityLabel={`Add ${p.name ?? 'this'} to the day`}>
+                  <Icon name="add" size={13} color={colors.ink} />
+                  <Text style={styles.addText}>Add</Text>
+                </Pressable>
               </View>
             </View>
-          </View>
+          </Pressable>
         ))}
       </View>
     );
@@ -1006,6 +1074,19 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, anchorLabel, onCl
     </View>
   );
 }
+
+/**
+ * On the day, or on the shortlist — never both (owner, 6 Sep 2026: "when it's
+ * already selected, it should either be in the trip or in the shortlist. It
+ * can't be in both").
+ *
+ * The row stays in `trip_shortlist` either way, because that is where its
+ * position, its booking state and the day it is meant for live, and the journey
+ * planner runs on all three. What changes is what the shortlist *shows*: the
+ * things still in the running. Once something is on the day it is on the day,
+ * and the place to see it is the day.
+ */
+const stillSaved = (p: TripPlace) => p.shortlisted && !p.scheduled;
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/[-_]/g, ' ');
 /** "Bari, Polignano, Matera and Lecce" — the handoff's own phrasing (§20). */
@@ -1208,9 +1289,10 @@ function DayStrip({ days, chosen, onPick, narrow }: { days: TripDay[]; chosen: s
  * settings page: tickets, table sizes and the car all follow this, which is why
  * the note says so and why it is one tap from everywhere.
  */
-function WhosComing({ household, attending, onClose, onSave }: {
-  household: HouseholdResponse | null; attending: string[];
+function WhosComing({ household, attending, hasCar, onClose, onSave, onInvite, onGroup }: {
+  household: HouseholdResponse | null; attending: string[]; hasCar: boolean;
   onClose: () => void; onSave: (ids: string[]) => Promise<void>;
+  onInvite: () => void; onGroup: () => void;
 }) {
   const [ids, setIds] = useState<string[]>(attending);
   const [busy, setBusy] = useState(false);
@@ -1219,11 +1301,23 @@ function WhosComing({ household, attending, onClose, onSave }: {
   const members = household?.members ?? [];
   const adults = members.filter((m) => ids.includes(m.id) && !m.isMinor).length;
   const children = members.filter((m) => ids.includes(m.id) && m.isMinor).length;
+
+  /**
+   * The line under a name, in the terms this sheet is about: the note says
+   * tickets, table sizes and the car all follow this, so the sub-line says
+   * which of those the person changes.
+   */
+  const about = (m: HouseholdResponse['members'][number], on: boolean) => {
+    if (!on) return 'Not this time';
+    if (m.isMinor) return m.age != null ? `${m.age} · child ticket` : 'Child ticket';
+    return hasCar ? 'Adult · in the car' : 'Adult';
+  };
+
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={[{ flex: 1, justifyContent: 'flex-end' }, frameBox]}>
         <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel="Close" />
-        <View style={[styles.addSheet, { maxHeight: '82%' }]}>
+        <View style={[styles.addSheet, { maxHeight: '88%', gap: 6 }]}>
           <View style={styles.grabSmall} />
           <View style={styles.addHead}>
             <Text style={styles.addTitle}>Who's coming?</Text>
@@ -1231,8 +1325,9 @@ function WhosComing({ household, attending, onClose, onSave }: {
               <Text style={[type.small, { fontWeight: '700', color: colors.accent }]}>{busy ? 'Saving…' : 'Done'}</Text>
             </Pressable>
           </View>
-          <Text style={type.small}>Tickets, table sizes and the car all follow this.</Text>
-          <ScrollView contentContainerStyle={{ gap: 4 }}>
+          <Text style={[type.small, { paddingBottom: 6 }]}>Tickets, table sizes and the car all follow this.</Text>
+
+          <ScrollView contentContainerStyle={{ paddingBottom: 4 }}>
             {members.map((m, i) => {
               const on = ids.includes(m.id);
               return (
@@ -1244,16 +1339,35 @@ function WhosComing({ household, attending, onClose, onSave }: {
                   accessibilityState={{ checked: on }}
                 >
                   <Avatar name={m.name} index={i} size={44} url={m.avatarUrl} />
-                  <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                     <Text style={styles.rowName} numberOfLines={1}>{m.name}</Text>
-                    <Text style={type.tiny}>{m.isMinor ? 'Child' : 'Adult'}</Text>
+                    <Text style={type.small} numberOfLines={1}>{about(m, on)}</Text>
                   </View>
                   <View style={[styles.check, on && styles.checkOn]}>{on ? <Icon name="check" size={14} color={colors.primaryFg} strokeWidth={3} /> : null}</View>
                 </Pressable>
               );
             })}
+
+            {/*
+              Beyond the household (§12). This is where a group trip is made —
+              the owner's correction of 6 Sep 2026: "you can actually select a
+              group, and therefore we didn't have a group tab. We just select
+              the group when we select the number of people." Which is right:
+              a group trip is an answer to "who's coming", not a view of a
+              trip, and putting it on the tab row made it look like one.
+            */}
+            <Text style={[styles.kickerFlat, { paddingTop: 14 }]}>Beyond the household</Text>
+            <Pressable onPress={onInvite} style={styles.linkRow} accessibilityRole="button">
+              <Text style={styles.linkText}>Invite a friend or family member</Text>
+              <Icon name="more" size={17} color={colors.ink} />
+            </Pressable>
+            <Pressable onPress={onGroup} style={styles.linkRow} accessibilityRole="button">
+              <Text style={styles.linkText}>Make it a group trip</Text>
+              <Icon name="more" size={17} color={colors.ink} />
+            </Pressable>
           </ScrollView>
-          <Text style={type.tiny}>
+
+          <Text style={[type.small, { paddingTop: 10 }]}>
             {ids.length} going · {adults} adult{adults === 1 ? '' : 's'}{children ? `, ${children} child${children === 1 ? '' : 'ren'}` : ''}
           </Text>
         </View>
@@ -1988,7 +2102,10 @@ const styles = StyleSheet.create({
   dayChipNum: { fontFamily: fonts.heading, fontSize: 16, fontWeight: '800', color: colors.ink },
   dayDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.accent },
   dayDotGap: { height: 5 },
-  whoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  whoRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.line },
+  linkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.line, minHeight: TARGET },
+  linkText: { fontFamily: fonts.body, fontSize: 14, fontWeight: '600', color: colors.ink, flexShrink: 1 },
+  backRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: TARGET },
   check: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   checkOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   // The banner (Hotels 2 §15): ink, one row, the whole of it a tap.

@@ -30,6 +30,7 @@ import { recallScreen, rememberScreen } from '../screenState';
 import { asOneOf, asText, useQueryState, useRouter } from '../router';
 import { paths, TRIP_TABS, type Route, type TripSection } from '../routes';
 import { accuracyWords, useHere } from '../hooks/useHere';
+import { tripName } from './tripName';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
 const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
@@ -226,8 +227,16 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
               // A trip made from a place opens with that place already on it.
               // Failing to seed is not a reason to lose the trip they just
               // made, so it is tried and the trip opens either way.
+              //
+              // On a day out the API has already put it on the day, as the stop
+              // the day is built around, so shortlisting it as well would put
+              // the same place in two lists — which is what the owner found on
+              // the Wembley trip (6 Sep 2026). It goes on the shortlist only
+              // where it is not already on the trip: a trip away, where the
+              // place somebody tapped is one must-do in a city of them.
               const must = seed?.seed;
-              if (must) {
+              const onTheDay = t.days.some((day) => day.slots.some((sl) => sl.stops.some((st) => st.venueRef === must?.venueRef)));
+              if (must && !onTheDay) {
                 try {
                   await api.addToShortlist(t.trip.id, {
                     venueRef: must.venueRef, venueLabel: must.name, category: must.category ?? null,
@@ -707,7 +716,9 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
   // Where and when, big; then one short sentence (owner, 4 Sep 2026: "'Bath,
   // 4th of September to 6th of September' in big, bold, and then just 1
   // sentence… it could just say '4 people' or 'the whole family'").
-  const where = trip.locality ?? trip.place?.label ?? trip.title ?? trip.origin.label;
+  // A name somebody chose beats a name we derived: the borough the point falls
+  // in is not what they picked (owner, 6 Sep 2026). One rule, in tripName.ts.
+  const where = tripName(trip);
   const everyone = household ? attendees.length >= household.members.length : false;
   const who = !attendees.length ? null
     : everyone ? 'The whole family'
