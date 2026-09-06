@@ -45,6 +45,9 @@ const MAX_BYTES = 12_000_000;
 const RENDER_TIMEOUT_MS = Number(process.env.ROAM_RENDER_TIMEOUT_MS || 25_000);
 // Below this much readable text a page is a shell, not a menu.
 const THIN_TEXT = 700;
+// A page of markup this small has not been drawn for anybody: no menu, and no
+// pictures of one either.
+const THIN_HTML = 2_000;
 // One Claude call reads this much and answers with rather more than it read:
 // a chunk of menu text becomes JSON with a line per dish, so the piece has to
 // be small enough that the answer fits in one reply.
@@ -120,6 +123,15 @@ async function grab(url, { as = UA } = {}) {
       return { ok: false, url: res.url || url, type, status: res.status };
     }
     const buffer = Buffer.from(await res.arrayBuffer());
+    // Answered, and with nothing in it. Some sites do not refuse a robot, they
+    // just serve it an empty shell: thesunningdale.co.uk gave us fifty-one
+    // characters and gives a browser a hundred and forty kilobytes with five
+    // photographs of the menu in it (found 6 Sep 2026). One more request, and
+    // only where robots does not object.
+    if (as === UA && /html/i.test(type) && buffer.length < THIN_HTML && !(await robotsForbids(url))) {
+      const again = await grab(url, { as: BROWSER_UA });
+      if (again.ok && (again.buffer?.length ?? 0) > buffer.length) return again;
+    }
     return { ok: true, url: res.url || url, type, buffer: buffer.subarray(0, MAX_BYTES), as };
   } finally {
     clearTimeout(timer);
@@ -721,6 +733,41 @@ export async function describeDish({ name, hint, householdId, sessionId }) {
  * show — "read their PDF", "rendered their page", "read by Claude" — because
  * a household should be able to see where the dishes on their phone came from.
  */
+/**
+ * The pictures on a page, read as a menu — or null if there are none worth
+ * sending, or none of them was a menu.
+ *
+ * This is the last opener and it is the one the owner asked for by name (5 Sep
+ * 2026: "the menu is an image, and so I want to understand from you how
+ * complicated it is to extract that image… I do not want you to exclude
+ * something just because they have a basic website"). It is reached from two
+ * different dead ends — a page with words but no dishes, and a page with no
+ * words at all — because a menu published as a photograph looks like both.
+ */
+async function readThePictures({ html, url, venueLabel, householdId, sessionId, steps, why }) {
+  if (!html) return null;
+  const candidates = menuImageCandidates(html, url);
+  if (!candidates.length) return null;
+  steps.push(`${why}; ${candidates.length} picture(s) on the page look like a menu`);
+  try {
+    const shot = await readMenuImages({ urls: candidates.map((c) => c.url), venueLabel, householdId, sessionId });
+    const found = shot.sections.reduce((n, x) => n + x.items.length, 0);
+    if (found) {
+      steps.push(`read ${shot.images} picture(s) of their printed menu`);
+      return { sections: shot.sections, currency: shot.currency, note: shot.note, failed: [], kind: 'photo', items: found };
+    }
+    steps.push('the pictures were not menus');
+  } catch (err) {
+    // Being stopped by our own ceiling is not the same as a menu we cannot
+    // read, and it must not be reported as one: the pictures were found, and
+    // nothing was wrong with them (owner, 6 Sep 2026, on tapping to read the
+    // Sunningdale menu and being told to photograph it).
+    if (err?.code === 'spend_bound_reached') { err.steps = [...steps, `found ${candidates.length} picture(s) of their menu, and stopped at Roam's own ${err.scope} ceiling before reading them`]; throw err; }
+    steps.push(`reading the pictures failed (${String(err.message).slice(0, 80)})`);
+  }
+  return null;
+}
+
 export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun = false, searchTheWeb = false }) {
   if (!/^https?:\/\//i.test(String(url || ''))) throw Object.assign(new Error('menu_url_required'), { status: 400 });
 
@@ -798,6 +845,16 @@ export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun
   // the places worth it — the top few of an area, or one a household has
   // actually chosen. Everywhere else the honest answer is "they publish no
   // menu we could read", which is a fact worth recording (owner, 5 Sep 2026).
+  // Nothing readable. Before anything else is tried or given up on, look at the
+  // page's pictures: a menu published as a photograph has no text to fail on,
+  // which is exactly why it used to fall out here without the pictures ever
+  // being looked at (owner, 6 Sep 2026, tapping Menu on the Sunningdale).
+  // `dryRun` stops before anything is spent, and reading a picture is spending.
+  if (text.length < THIN_TEXT && !dryRun) {
+    const shot = await readThePictures({ html, url: res?.url || url, venueLabel, householdId, sessionId, steps, why: 'no readable text on the page' });
+    if (shot) return { ...shot, how: steps, sourceUrl: res?.url || url, chars: text.length };
+  }
+
   if (text.length < THIN_TEXT && !searchTheWeb) {
     const err = new Error('menu_unreadable');
     err.status = 422;
@@ -838,35 +895,12 @@ export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun
   let items = menu.sections.reduce((n, s) => n + s.items.length, 0);
   if (menu.failed?.length) steps.push(`${menu.failed.length} of ${Math.ceil(text.length / CHUNK_CHARS)} parts would not read`);
 
-  // The page had words but no dishes in them, which is what a page whose menu
-  // is a photograph looks like: kitchen hours, "click to enlarge each photo",
-  // and four pictures of a printed menu. Read the pictures (owner, 5 Sep 2026 —
-  // The Alma, and "I do not want you to exclude something just because they
-  // have a basic website").
-  if (!items && html) {
-    const candidates = menuImageCandidates(html, res?.url || url);
-    if (candidates.length) {
-      steps.push(`no dishes in the text; ${candidates.length} picture(s) on the page look like a menu`);
-      try {
-        const shot = await readMenuImages({ urls: candidates.map((c) => c.url), venueLabel, householdId, sessionId });
-        const found = shot.sections.reduce((n, x) => n + x.items.length, 0);
-        if (found) {
-          steps.push(`read ${shot.images} picture(s) of their printed menu`);
-          return {
-            sections: shot.sections, currency: shot.currency, note: shot.note, failed: [],
-            kind: 'photo', how: steps, sourceUrl: res?.url || url, chars: text.length, items: found,
-          };
-        }
-        steps.push('the pictures were not menus');
-      } catch (err) {
-        // Being stopped by our own ceiling is not the same as a menu we cannot
-        // read, and it must not be reported as one: the pictures were found,
-        // and nothing was wrong with them (owner, 6 Sep 2026, on tapping to
-        // read the Sunningdale menu and being told to photograph it).
-        if (err?.code === 'spend_bound_reached') { err.steps = [...steps, `found ${candidates.length} picture(s) of their menu, and stopped at Roam's own ${err.scope} ceiling before reading them`]; throw err; }
-        steps.push(`reading the pictures failed (${String(err.message).slice(0, 80)})`);
-      }
-    }
+  if (!items) {
+    // The page had words but no dishes in them, which is what a page whose menu
+    // is a photograph looks like: kitchen hours, "click to enlarge each photo",
+    // and four pictures of a printed menu.
+    const shot = await readThePictures({ html, url: res?.url || url, venueLabel, householdId, sessionId, steps, why: 'no dishes in the text' });
+    if (shot) return { ...shot, how: steps, sourceUrl: res?.url || url, chars: text.length };
   }
 
   if (!items) {
