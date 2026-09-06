@@ -365,8 +365,25 @@ places.get('/search', async (req, res, next) => {
       .map((v) => ({ ...v, distanceKm: Number(kmBetween(near, v).toFixed(2)) }))
       .filter((v) => v.distanceKm <= fence && isWanted(v))
       .sort((a, b) => a.distanceKm - b.distanceKm);
-    const status = await householdStatus(household.id, inRange.map((v) => `${v.source}:${v.sourcePlaceId}`));
-    const shown = inRange.slice(0, 120).map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, household: status[`${v.source}:${v.sourcePlaceId}`] ?? null }));
+    // The cap is a cap on the page, not a judgement about which places matter,
+    // and taking the nearest 120 made it into one. OpenStreetMap knows about a
+    // hundred and twenty restaurants within four kilometres of central
+    // Manchester and Google knows seven; sorted by distance alone, the seven
+    // that carry a rating and a photograph fell off the end and the screen was
+    // a hundred and twenty names with nothing to choose between them. It only
+    // started happening when OpenStreetMap began arriving at all (6 Sep 2026) —
+    // before that it timed out and the question never came up.
+    //
+    // So a place we know something about is never dropped in favour of one we
+    // know nothing about. Within the page the order is still distance: this
+    // decides *which* hundred and twenty, not what order they read in.
+    const KEEP = 120;
+    const withinPage = inRange.length <= KEEP ? inRange : [
+      ...inRange.filter((v) => v.rating != null),
+      ...inRange.filter((v) => v.rating == null),
+    ].slice(0, KEEP).sort((a, b) => a.distanceKm - b.distanceKm);
+    const status = await householdStatus(household.id, withinPage.map((v) => `${v.source}:${v.sourcePlaceId}`));
+    const shown = withinPage.map((v) => ({ ...v, venueRef: `${v.source}:${v.sourcePlaceId}`, household: status[`${v.source}:${v.sourcePlaceId}`] ?? null }));
     // A ride belongs to its park, not to the list beside it.
     markContained(shown);
 
@@ -376,7 +393,7 @@ places.get('/search', async (req, res, next) => {
       results: shown,
       sourcesQueried,
       degradedSources: degraded,
-      attribution: [...new Set(inRange.map((v) => v.attribution).filter(Boolean))],
+      attribution: [...new Set(withinPage.map((v) => v.attribution).filter(Boolean))],
     });
   } catch (err) {
     next(err);
