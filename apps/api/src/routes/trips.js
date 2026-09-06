@@ -1100,17 +1100,31 @@ router.get('/:id/stays', async (req, res, next) => {
      */
     // `asked` is already the party on this handler; this one is about the query.
     const wasAsked = (name) => req.query[name] != null && req.query[name] !== '';
-    const wantsStationWalk = placement === 'station' || wasAsked('maxWalkMin');
-    const wantsTrain = placement === 'station' || wasAsked('maxTrainMin');
+    let wantsStationWalk = placement === 'station' || wasAsked('maxWalkMin');
+    let wantsTrain = placement === 'station' || wasAsked('maxTrainMin');
     const wantsTownMinutes = placement === 'town' || wasAsked('townMin');
     const wantsPlanMinutes = anchors.length > 0 && (placement === 'plans' || wasAsked('maxAvgMin'));
 
     // Stations, only when something actually asks about them: it is an Overpass
     // call and nothing else on this screen wants it.
     let stations = [];
+    // Whether we could ask at all, which is not the same as whether there are
+    // any. `stationsNear` used to swallow every error and return an empty list,
+    // and the empty list then failed every bed's walk test — so an Overpass
+    // outage read on screen as "nowhere near here is by a station" and the
+    // whole list vanished. It throws now, and this is where that is decided.
+    let stationsUnavailable = null;
     if (wantsStationWalk || wantsTrain) {
-      stations = await stationsNear(centre.lat, centre.lng, Math.round(Math.min(15, radiusKm + 6) * 1000)).catch(() => []);
+      try {
+        stations = await stationsNear(centre.lat, centre.lng, Math.round(Math.min(15, radiusKm + 6) * 1000));
+      } catch (err) {
+        stationsUnavailable = String(err?.message || err);
+      }
     }
+    // A condition we could not evaluate is not a condition every bed fails.
+    // Dropped, and said out loud — the same rule the must-haves already follow
+    // when nobody around here has mapped the word.
+    if (stationsUnavailable) { wantsStationWalk = false; wantsTrain = false; }
     const nearestStation = (bed) => {
       if (!stations.length) return null;
       let best = null;
@@ -1242,6 +1256,8 @@ router.get('/:id/stays', async (req, res, next) => {
          * is doing anything, and a household reading "20 min" beside a list
          * that was never filtered by it has been misled.
          */
+        /** Set when a station condition was asked for and the map could not be reached. */
+        stationsUnavailable,
         applied: [
           ...(wantsPlanMinutes ? [{ key: 'plans', label: `within ${maxAvgMin} min of your plans` }] : []),
           ...(wantsTownMinutes ? [{ key: 'town', label: `within ${townMin} min of the centre` }] : []),
