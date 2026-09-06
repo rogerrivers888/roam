@@ -26,6 +26,18 @@ export const router = express.Router();
 /** Whether a pass is running, so two presses of the button do not make two runs. */
 let running = null;
 
+/**
+ * What the last pass did, kept so a failure is visible.
+ *
+ * A pass is fire-and-forget — a batch outlives the Railway proxy — and the
+ * answer has already gone out by the time it finishes, so a `.catch()` that
+ * returns null is the whole of its error handling. That is how a `namingPass`
+ * with an undefined variable in it ran for a day looking like it worked:
+ * the names were written, the recount never happened, and nothing anywhere
+ * said so. The result of the last run goes on the tree's answer instead.
+ */
+let lastPass = null;
+
 // ---------------------------------------------------------------------------
 // navigating
 // ---------------------------------------------------------------------------
@@ -41,7 +53,7 @@ let running = null;
 router.get('/', requires('view_library'), async (_req, res, next) => {
   try {
     const [tree, pending] = await Promise.all([loc.tree(), loc.pendingNaming()]);
-    res.json({ ...tree, remaining: pending, running: running ? { since: running } : null });
+    res.json({ ...tree, remaining: pending, running: running ? { since: running } : null, lastPass });
   } catch (err) { next(err); }
 });
 
@@ -138,8 +150,23 @@ router.post('/pass', requires('manage_library'), async (req, res, next) => {
     // The answer goes out now and the work carries on; the tree's `remaining`
     // is what says whether it is finished, which is a number that moves rather
     // than a spinner that does not.
+    const startedAt = running;
     res.status(202).json({ started: which, limit, region });
-    work.then(refreshCounts).catch(() => null).finally(() => { running = null; });
+
+    work
+      .then(async (out) => {
+        await refreshCounts();
+        lastPass = { which, region, at: new Date().toISOString(), startedAt, ok: true, ...out };
+      })
+      .catch((err) => {
+        // Said in the words the screen can print. A pass that fell over is a
+        // number that stopped moving, and the owner deserves to be told which.
+        lastPass = {
+          which, region, at: new Date().toISOString(), startedAt, ok: false,
+          error: String(err?.message ?? err).slice(0, 300),
+        };
+      })
+      .finally(() => { running = null; });
   } catch (err) { running = null; next(err); }
 });
 

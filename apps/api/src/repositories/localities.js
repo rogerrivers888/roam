@@ -77,13 +77,33 @@ export const findByName = async (q, limit = 12) => (await query(
 const FACTS = {
   picture:     { go: 'exists (select 1 from image_links li where li.subject_type = \'attraction\' and li.subject_id = a.id::text)', eat: 'false' },
   description: { go: 'a.summary is not null', eat: 'r.summary is not null' },
-  // An attraction's opening hours are not held yet — `score_parts.open` says
-  // whether the public may visit at all, which is a different fact — so the
-  // column is honestly zero until the reading pass fills it (migration 045).
-  hours:       { go: 'false', eat: 'r.opening_hours is not null' },
+  // Hours come from the research pass, not from the harvest: `attraction_details.visit`
+  // is where "how to go" lands (migration 041). `score_parts.open` was the wrong
+  // column — it says whether the public may visit at all, which is a different
+  // fact, and reading it here reported a column of nothing as a column of zero.
+  hours: {
+    go: "exists (select 1 from attraction_details d where d.attraction_id = a.id and coalesce(d.visit->>'openingHours', '') <> '')",
+    eat: 'r.opening_hours is not null',
+  },
   website:     { go: 'a.website is not null', eat: 'coalesce(r.website, s.website) is not null' },
   menu:        { go: 'false', eat: 'exists (select 1 from place_menus m where m.venue_ref = s.venue_ref and m.state = \'read\')' },
-  shelf:       { go: 'a.category is not null', eat: 'true' },
+  // A shelf is not "has a category" — that was true of almost every row and so
+  // reported 100% everywhere while telling nobody anything. It is whether this
+  // place would actually draw a card on the home screen: a rule that reaches it
+  // at some scope, carrying a weight at or above the floor two shelves are
+  // drawn from (domain/moods.js). A place with no such rule is invisible on
+  // Inspire however good it is, which is the gap worth counting.
+  shelf: {
+    go: `exists (
+           select 1 from shelf_rules sr
+            where ((sr.scope = 'kind' and sr.subject = any(a.kinds))
+                or (sr.scope = 'category' and sr.subject = a.category)
+                or (sr.scope = 'place' and sr.subject = a.venue_ref))
+              and exists (select 1 from jsonb_each_text(sr.weights) w
+                           where w.value ~ '^[0-9.]+$' and w.value::numeric >= 0.6))`,
+    // Everything the sweep keeps is somewhere to eat, and Food is a shelf.
+    eat: 'true',
+  },
 };
 
 /**
@@ -111,9 +131,15 @@ export async function contentsOf(loc, { kind = null, missing = null, limit = 200
               (select count(*) from image_links li
                 where li.subject_type = 'attraction' and li.subject_id = a.id::text)::int as image_count,
               (a.summary is not null) as has_description,
-              false as has_hours,
+              (exists (select 1 from attraction_details d
+                        where d.attraction_id = a.id and coalesce(d.visit->>'openingHours', '') <> '')) as has_hours,
               (a.website is not null) as has_website,
-              (a.category is not null) as has_shelf
+              (exists (select 1 from shelf_rules sr
+                        where ((sr.scope = 'kind' and sr.subject = any(a.kinds))
+                            or (sr.scope = 'category' and sr.subject = a.category)
+                            or (sr.scope = 'place' and sr.subject = a.venue_ref))
+                          and exists (select 1 from jsonb_each_text(sr.weights) w
+                                       where w.value ~ '^[0-9.]+$' and w.value::numeric >= 0.6))) as has_shelf
          from attractions a
         where ${where.join(' and ')}
         order by a.score desc nulls last, a.name

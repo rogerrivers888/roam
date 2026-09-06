@@ -518,6 +518,26 @@ export type AtlasPlace = { venueRef: string; name: string; unnamed?: boolean; ki
   /** Rented: the provider's photographs, sent only where we own none, fetched at display and never stored. */ photos?: VenuePhotoRef[] | null;
   /** What a day here is like, over the closed set of six (domain/moods.js) — the Mood filter's vocabulary. */ moods?: MoodKey[] };
 
+/**
+ * One place you could stop along the way (the map-first Browse mode).
+ *
+ * `detourMinutes` is the number the whole design turns on — how much longer the
+ * day gets if you stop here, rather than how far it is from home — and
+ * `estimated` is always true on it: it is worked out from the distance so that
+ * a browse costs nothing (owner, 6 Sep 2026). The real number is fetched for
+ * the one place somebody actually adds.
+ */
+export type TripAlongPlace = {
+  venueRef: string; source: string; name: string; category: string | null;
+  lat: number; lng: number;
+  cuisines: string[]; experiences: string[];
+  rating: number | null; ratingCount: number | null; priceLevel: number | null;
+  openingHours: string | null; phone: string | null; website: string | null; address: string | null;
+  photos: VenuePhotoRef[]; attribution: string | null;
+  detourMinutes: number | null; detourMiles: number;
+  estimated: boolean; onShortlist: boolean; onDay: boolean;
+};
+
 export type Trip = {
   kind?: TripKind; place?: { label: string } | null; startDate?: string | null; endDate?: string | null; dayStart?: string; dayEnd?: string;
   base?: (Place & { kind?: string | null; checkIn?: string | null; checkOut?: string | null }) | null; hasCar?: boolean;
@@ -1136,6 +1156,11 @@ export const api = {
   planDay: (tripId: string, dayId: string, body: { minActivities?: number; minFood?: number } = {}) => post<PlanResponse>('/api/plan/day', { tripId, dayId, ...body }),
   trip: (id: string) => request<TripDetail>(`/api/trips/${id}`),
   tripPlaces: (id: string) => request<{ places: TripPlace[]; counts: { all: number; do: number; eat: number; stay: number } }>(`/api/trips/${id}/places`),
+  /** Everywhere you could stop along the way. Nothing is routed: see TripAlongPlace. */
+  tripAlong: (id: string, p: { kind: 'food' | 'things'; scope?: 'route' | 'there'; maxDetourMin?: number; q?: string }) =>
+    request<{ origin: Place; destination: Place | null; mode: string; scope: string; kind: string; maxDetourMin: number; places: TripAlongPlace[]; counts: { route: number; there: number }; estimated: boolean; degradedSources: { source: string; error: string }[] }>(`/api/trips/${id}/along${qs(p as any)}`),
+  addStopToDay: (tripId: string, dayId: string, body: { venueRef: string; name: string; lat?: number | null; lng?: number | null; category?: string | null; startTime?: string | null; slot?: string; dwellMinutes?: number }) =>
+    post<TripDetail>(`/api/trips/${tripId}/days/${dayId}/stops`, body),
   createTrip: (body: { title?: string; notes?: string; origin?: Place; originText?: string; destination?: Place; destinationText?: string; departAt: string; returnAt: string; travelMode?: Trip['travelMode']; intensity?: Trip['intensity']; attendingMemberIds?: string[] }) =>
     post<TripDetail>('/api/trips', body),
   updateTrip: (id: string, body: Partial<Pick<Trip, 'title' | 'notes' | 'departAt' | 'returnAt' | 'travelMode' | 'intensity'>>) => patch<TripDetail>(`/api/trips/${id}`, body),
@@ -1647,6 +1672,11 @@ export type PlaceTree = {
   postcodes: Locality[];
   remaining: number;
   running: { since: string } | null;
+  /** What the last pass did. A pass is fire-and-forget, so this is how a failure is seen at all. */
+  lastPass: {
+    which: 'postal' | 'naming'; region: string | null; at: string; ok: boolean;
+    looked?: number; named?: number; placed?: number; requests?: number; error?: string;
+  } | null;
 };
 
 export type CoverageRow = {

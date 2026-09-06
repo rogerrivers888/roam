@@ -214,6 +214,12 @@ export function Places({ canManage }: { canManage: boolean }) {
           </Wrap>
           {running ? (
             <Banner tone="accent">A pass has been running since {ago(running.since)}. The counts above move as it goes.</Banner>
+          ) : tree?.lastPass ? (
+            <Banner tone={tree.lastPass.ok ? 'ok' : 'crit'}>
+              {tree.lastPass.ok
+                ? `Last ${tree.lastPass.which} pass${tree.lastPass.region ? ` over ${tree.lastPass.region}` : ''}, ${ago(tree.lastPass.at)}: looked at ${count(tree.lastPass.looked ?? tree.lastPass.placed ?? 0)}, ${tree.lastPass.which === 'naming' ? `named ${count(tree.lastPass.named ?? 0)}` : `placed ${count(tree.lastPass.placed ?? 0)}`}.`
+                : `The last ${tree.lastPass.which} pass fell over ${ago(tree.lastPass.at)}: ${tree.lastPass.error}`}
+            </Banner>
           ) : null}
         </Panel>
       ) : null}

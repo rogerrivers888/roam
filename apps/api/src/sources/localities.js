@@ -244,16 +244,36 @@ export async function postalPass({ limit = 4000, householdId = null } = {}) {
  * flight. Places already stamped are skipped, whether or not they got an answer
  * — a point in the sea is not worth asking about twice.
  */
-export async function namingPass({ limit = 200, householdId = null } = {}) {
+export async function namingPass({ limit = 200, householdId = null, region = null } = {}) {
   let looked = 0; let named = 0;
 
   for (const { table, key, match } of TABLES) {
     if (looked >= limit) break;
+
+    // A county at a time, when one is asked for. Unscoped, the pass walks tens
+    // of thousands of rows in id order and four hundred names scatter across
+    // the whole country, so nothing you are actually looking at ever fills.
+    //
+    // An attraction carries its county; a restaurant does not — the sweep files
+    // it under a postcode district — so a county's restaurants are the ones
+    // whose outward code its own attractions carry. That is a fact about our
+    // data rather than a claim about where the boundary runs, which is the only
+    // honest way to cross between the two ladders.
+    const args = [limit - looked];
+    let scope = '';
+    if (region) {
+      args.push(region);
+      scope = table === 'attractions'
+        ? ` and p.region_slug = $${args.length}`
+        : ` and p.outcode in (select distinct upper(a.outcode) from attractions a
+                               where a.region_slug = $${args.length} and a.outcode is not null)`;
+    }
+
     const { rows } = await query(
       `select distinct on (p.${match}) p.${key} as id, p.lat, p.lng, p.outcode
          from ${table} p
-        where p.lat is not null and p.lng is not null and p.located_at is null
-        order by p.${match} limit $1`, [limit - looked]);
+        where p.lat is not null and p.lng is not null and p.located_at is null${scope}
+        order by p.${match} limit $1`, args);
 
     for (const row of rows) {
       looked++;
@@ -267,7 +287,7 @@ export async function namingPass({ limit = 200, householdId = null } = {}) {
             // A town's county is the region the atlas already put it in, which
             // is a decision somebody has checked. Deriving it again from the
             // point would produce a second answer for the same question.
-            parentSlug: table === 'attractions' ? await regionOf(row.id) : null,
+            parentSlug: table === 'attractions' ? await regionOf(row.id) : await regionOfOutcode(row.outcode),
           });
           named++;
         }
@@ -287,11 +307,35 @@ export async function namingPass({ limit = 200, householdId = null } = {}) {
   // else's problem.
   const { rows: left } = region
     ? await query(
-      'select count(*) as n from attractions where lat is not null and located_at is null and region_slug = $1', [region])
+      `select (select count(*) from attractions
+                where lat is not null and located_at is null and region_slug = $1)
+            + (select count(distinct venue_ref) from scout_places
+                where lat is not null and located_at is null
+                  and outcode in (select distinct upper(a.outcode) from attractions a
+                                   where a.region_slug = $1 and a.outcode is not null)) as n`, [region])
     : await query(
       `select (select count(*) from attractions  where lat is not null and located_at is null)
             + (select count(*) from scout_places where lat is not null and located_at is null) as n`);
   return { looked, named, remaining: Number(left[0].n), region };
+}
+
+/**
+ * The county an outward code mostly sits in, for a restaurant.
+ *
+ * The sweep files a restaurant under a postcode district and never under a
+ * county, so its town has nothing to hang from. The county its own attractions
+ * are filed under is the nearest true answer — "mostly", because SL4 reaches
+ * into five councils and one of them has to be the parent for a tree to exist
+ * at all. Where the answer is genuinely split the town keeps whichever county
+ * holds more of it, and the postal ladder is still there to say the rest.
+ */
+async function regionOfOutcode(outcode) {
+  if (!outcode) return null;
+  const { rows } = await query(
+    `select region_slug, count(*)::int as n from attractions
+      where upper(outcode) = upper($1) and region_slug is not null
+      group by 1 order by n desc limit 1`, [outcode]);
+  return rows[0]?.region_slug ?? null;
 }
 
 /** The county the atlas already filed an attraction under. */
