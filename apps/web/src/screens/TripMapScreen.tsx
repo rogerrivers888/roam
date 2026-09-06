@@ -27,7 +27,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api, BrowseItem, HouseholdResponse, Stay, StayPlacement, TripAlongPlace, TripDay, TripDetail, TripPlace } from '../api';
 import { useViewport } from '../hooks/useViewport';
 import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
@@ -283,6 +283,20 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     return [{ id: 'there', points: [{ lat: start.lat, lng: start.lng }, { lat: dest.lat, lng: dest.lng }] }];
   }, [start?.lat, start?.lng, dest?.lat, dest?.lng]);
 
+  /**
+   * What the chip on the map says. Browsing, it is what came back; on the trip
+   * itself it is the drive there and what the stops have added to it.
+   */
+  const driveChip = (() => {
+    if (pill === 'stay') return stays.results.length ? `${stays.results.length} to stay` : null;
+    if (pill === 'shortlist') return `${(places?.places ?? []).filter((x) => x.shortlisted).length} saved`;
+    if (pill) return along.loading ? null : `${along.places.length} ${along.hasRoute ? 'on the route' : 'nearby'}`;
+    if (!dest || !start || dest === start) return null;
+    const there = Math.max(1, Math.round(estimateMinutes(start, dest)));
+    const added = (places?.places ?? []).filter((x) => x.scheduled && x.venueRef !== 'base').length;
+    return added ? `${mins(there)} + ${added} stop${added === 1 ? '' : 's'}` : mins(there);
+  })();
+
   const heights = detentHeights(height, wide ? 0 : TABBAR);
   const mapPadding = wide
     ? { top: 40, bottom: 40, left: 40, right: 460 }
@@ -380,6 +394,12 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       pill={pill}
       along={along}
       shortlisted={(places?.places ?? []).filter((p) => p.shortlisted)}
+      onUnshortlist={async (p) => {
+        const item = shortlist.find((x) => x.venueRef === p.venueRef);
+        if (!item) return;
+        try { await api.removeFromShortlist(trip.id, item.id); await onChanged(); }
+        catch (e: any) { setError(e.message); }
+      }}
       anchorLabel={anchor?.label ?? null}
       onClearAnchor={() => setAnchor(null)}
       maxDetourMin={maxDetourMin}
@@ -457,6 +477,17 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
         // finished. The sheet is moved by the sheet.
         onMapPress={() => setSelected(null)}
       />
+
+      {/* The drive chip (handoff §01): how long the day's driving is, and what
+          the stops added to it. Top right, clear of the status bar. */}
+      {!wide && driveChip ? (
+        <View style={styles.chipWrap} pointerEvents="none">
+          <View style={styles.driveChip}>
+            <Icon name={trip.travelMode === 'transit' ? 'transit' : 'driving'} size={13} color={colors.ink} />
+            <Text style={styles.driveChipText}>{driveChip}</Text>
+          </View>
+        </View>
+      ) : null}
 
       {/* The nudge and the search pill, both only when the map has the screen. */}
       {!wide && detent === 'peek' ? (
@@ -557,6 +588,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
         <AddSheet
           place={adding}
           trip={d}
+          party={party}
           onCancel={() => setAdding(null)}
           onSave={addToDay}
         />
@@ -689,10 +721,11 @@ function TripPlacesList({ data, onSelect }: { data: { places: TripPlace[] } | nu
 
 const DETOURS = [5, 10, 15, 30];
 
-function BrowseList({ pill, along, shortlisted, anchorLabel, onClearAnchor, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist, kindOf, onKind }: {
+function BrowseList({ pill, along, shortlisted, onUnshortlist, anchorLabel, onClearAnchor, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist, kindOf, onKind }: {
   pill: Pill;
   along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean; beyond: number };
   shortlisted: TripPlace[];
+  onUnshortlist: (p: TripPlace) => Promise<void>;
   /** The name of the place being looked around, when one has been tapped. */
   anchorLabel: string | null;
   onClearAnchor: () => void;
@@ -719,11 +752,22 @@ function BrowseList({ pill, along, shortlisted, anchorLabel, onClearAnchor, maxD
         {shortlisted.map((p) => (
           <View key={p.venueRef} style={styles.row}>
             <VenueThumb name={p.name} image={p.image} category={p.category} width={56} height={56} rounded={6} credit={false} />
-            <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+            <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
               <Text style={styles.rowName} numberOfLines={1}>{p.name ?? 'A place'}</Text>
               <Text style={type.small} numberOfLines={1}>{p.day ?? 'no time yet'}</Text>
+              <View style={styles.rowActions}>
+                {/* The handoff puts a phone button here, and it is the right
+                    idea — ringing ahead is what a shortlist is for. It is not
+                    drawn yet because nothing on a trip place carries a number:
+                    the owned record has no phone column and a provider's is
+                    rented, fetched at display. The drawer opens on the row and
+                    has the number in it. */}
+                {/* Here the bookmark takes it off the list (handoff §07). */}
+                <Pressable onPress={() => onUnshortlist(p)} hitSlop={8} style={styles.bookmark} accessibilityRole="button" accessibilityLabel={`Take ${p.name ?? 'this'} off the shortlist`}>
+                  <Icon name="shortlisted" size={17} color={colors.ink} fill />
+                </Pressable>
+              </View>
             </View>
-            <Icon name="shortlisted" size={18} color={colors.ink} fill />
           </View>
         ))}
       </View>
@@ -1374,12 +1418,14 @@ function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nig
  * way back is the end of the day plus the drive; no time yet saves it to the
  * day without a slot.
  */
-function AddSheet({ place, trip, onCancel, onSave }: {
-  place: TripAlongPlace; trip: TripDetail; onCancel: () => void;
+function AddSheet({ place, trip, party, onCancel, onSave }: {
+  place: TripAlongPlace; trip: TripDetail; party: number; onCancel: () => void;
   onSave: (p: TripAlongPlace, leg: 'out' | 'back' | null, startTime: string | null) => Promise<void>;
 }) {
   const [leg, setLeg] = useState<'out' | 'back' | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Typed over the computed time. Null means "whatever the leg works out". */
+  const [typed, setTyped] = useState<string | null>(null);
   const { width, height, framed, origin } = useViewport();
   const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height } : null;
 
@@ -1391,7 +1437,23 @@ function AddSheet({ place, trip, onCancel, onSave }: {
   const detour = place.detourMinutes ?? 0;
   const out = trip.trip.dayStart ?? (trip.trip.departAt ? clock(trip.trip.departAt) : '09:00');
   const home = trip.trip.dayEnd ?? (trip.trip.returnAt ? clock(trip.trip.returnAt) : '17:30');
-  const arriveAt = leg === 'out' ? addMinutes(out, detour) : leg === 'back' ? addMinutes(home, detour) : null;
+  const computed = leg === 'out' ? addMinutes(out, detour) : leg === 'back' ? addMinutes(home, detour) : null;
+  const arriveAt = typed ?? computed;
+
+  /**
+   * The line under the legs, and only when the hours actually matter (handoff
+   * §10). A pub that opens at noon is a fact about which leg is possible, not
+   * a detail for the drawer — and saying it on every place would train people
+   * to stop reading it.
+   */
+  const opensAt = (() => {
+    const hours = place.openingHours ?? '';
+    const m = /(\d{1,2})[:.](\d{2})/.exec(String(hours));
+    if (!m) return null;
+    const opens = `${m[1].padStart(2, '0')}:${m[2]}`;
+    const outAt = addMinutes(out, detour);
+    return opens > outAt ? `Opens ${opens} — not open on the way there` : null;
+  })();
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onCancel}>
@@ -1410,21 +1472,38 @@ function AddSheet({ place, trip, onCancel, onSave }: {
 
           <View style={styles.legs}>
             {([['out', 'On the way', 0.95], ['back', 'On the way back', 1.35], [null, 'No time yet', 1]] as const).map(([k, label, flex]) => (
-              <Pressable key={String(k)} onPress={() => setLeg(k as any)} style={[styles.leg, { flex }, leg === k && styles.legOn]} accessibilityRole="button" accessibilityState={{ selected: leg === k }}>
+              <Pressable key={String(k)} onPress={() => { setLeg(k as any); setTyped(null); }} style={[styles.leg, { flex }, leg === k && styles.legOn]} accessibilityRole="button" accessibilityState={{ selected: leg === k }}>
                 <Text style={[styles.legText, leg === k && { color: colors.primaryFg }]} numberOfLines={1}>{label}</Text>
               </Pressable>
             ))}
           </View>
 
+          {opensAt ? <Text style={[type.tiny, { color: colors.inkMuted }]}>{opensAt}</Text> : null}
+
+          {/* Always editable: typing wins over the arithmetic, and Roam moves
+              the drive to match rather than arguing (handoff § Interactions). */}
           <View style={[styles.arrive, arriveAt && { borderColor: colors.ink }]}>
             <Icon name="hours" size={17} color={arriveAt ? colors.ink : colors.inkMuted} />
             <View style={{ flex: 1 }}>
               <Text style={styles.kicker}>Arrive at</Text>
-              <Text style={[styles.arriveTime, !arriveAt && { color: colors.inkMuted, fontWeight: '600' }]}>{arriveAt ?? 'No time set'}</Text>
+              <TextInput
+                value={arriveAt ?? ''}
+                onChangeText={(t) => setTyped(t.replace(/[^0-9:]/g, '').slice(0, 5))}
+                placeholder="Tap to set a time"
+                placeholderTextColor={colors.inkMuted}
+                keyboardType="numbers-and-punctuation"
+                accessibilityLabel="Arrive at"
+                style={styles.arriveInput}
+              />
             </View>
+            <Icon name="edit" size={15} color={colors.inkMuted} />
           </View>
 
-          {/* The real number, once there is a real decision behind it. */}
+          <Row style={{ gap: 10 }}>
+            <Text style={type.small}>Table for</Text>
+            <View style={styles.tableChip}><Text style={styles.tableChipText}>{party} · the household</Text></View>
+          </Row>
+
           <Text style={type.tiny}>
             The {place.detourMinutes} minutes above is worked out from the distance. The day is re-timed properly the moment this is on it.
           </Text>
@@ -1432,7 +1511,7 @@ function AddSheet({ place, trip, onCancel, onSave }: {
           <Button
             label={busy ? 'Adding…' : arriveAt ? `Add at ${arriveAt}` : 'Save to the day'}
             icon="add"
-            onPress={async () => { if (busy) return; setBusy(true); try { await onSave(place, leg, arriveAt); } finally { setBusy(false); } }}
+            onPress={async () => { if (busy) return; setBusy(true); try { await onSave(place, leg, /^\d{1,2}:\d{2}$/.test(arriveAt ?? '') ? arriveAt : null); } finally { setBusy(false); } }}
           />
         </View>
       </View>
@@ -1511,6 +1590,14 @@ const styles = StyleSheet.create({
   rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   ratingText: { fontFamily: fonts.body, fontSize: 12.5, fontWeight: '600', color: colors.ink },
   rowActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 2 },
+  phone: { width: 34, height: 34, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  chipWrap: { position: 'absolute', right: 16, top: ('calc(16px + env(safe-area-inset-top))' as any) },
+  driveChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, height: 28, borderRadius: radius.pill,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
+    shadowColor: '#201E1D', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 10, elevation: 3,
+  },
+  driveChipText: { fontFamily: fonts.body, fontSize: 11, fontWeight: '600', color: colors.ink },
   bookmark: { width: 34, height: 34, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   rowOn: { backgroundColor: colors.accentSoft },
   rowName: { fontFamily: fonts.heading, fontSize: 15, fontWeight: '700', color: colors.ink },
@@ -1558,5 +1645,7 @@ const styles = StyleSheet.create({
   legOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   legText: { fontFamily: fonts.body, fontSize: 13, fontWeight: '700', color: colors.ink },
   arrive: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 56, borderRadius: 10, borderWidth: 1.5, borderColor: colors.line },
-  arriveTime: { fontFamily: fonts.heading, fontSize: 15, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
+  arriveInput: { fontFamily: fonts.heading, fontSize: 15, fontWeight: '800', letterSpacing: -0.3, color: colors.ink, padding: 0, outlineStyle: 'none' as any },
+  tableChip: { paddingHorizontal: 12, height: 32, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  tableChipText: { fontFamily: fonts.body, fontSize: 12.5, fontWeight: '600', color: colors.primaryFg },
 });
