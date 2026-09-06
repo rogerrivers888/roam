@@ -40,26 +40,58 @@ export function metresBetween(a, b) {
 // "The Ivy" and "Ivy Restaurant" are the same restaurant.
 const NOISE = /\b(the|a|an|le|la|les|el|il|restaurant|ristorante|trattoria|osteria|cafe|caf[eé]|coffee|bar|pub|inn|tavern|kitchen|bistro|brasserie|grill|house|co|company|ltd|limited|llp|plc|and)\b/g;
 
-export function normalise(name) {
-  return String(name || '')
+export function normalise(name, { noise = true } = {}) {
+  const flat = String(name || '')
     .toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')          // café -> cafe
     .replace(/&/g, ' and ')
     .replace(/['’`]/g, '')                                   // Nando's → nandos
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(NOISE, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/[^a-z0-9]+/g, ' ');
+  return (noise ? flat.replace(NOISE, ' ') : flat).replace(/\s+/g, ' ').trim();
 }
 
-/** 0–1: how much two names agree once the noise is gone. */
-export function nameScore(a, b) {
+/**
+ * 0–1: how much two names agree once the noise is gone.
+ *
+ * `ignore` is the words that are true of everything nearby — the name of the
+ * town, above all. "Sunningdale Bistro Bar" loses both bistro and bar to the
+ * noise list and comes down to "sunningdale", which is the first half of every
+ * business in Sunningdale: it matched Sunningdale Pharmacy at 0.9, and before
+ * that Sunningdale railway station (found 6 Sep 2026). Sharing the town's name
+ * is not evidence of being the same place.
+ */
+export function nameScore(a, b, ignore = []) {
+  // Written the same way, word for word, is the same place — whatever those
+  // words are. This is checked before the noise comes out, because the noise
+  // list holds the words that tell a bistro from a pharmacy.
+  if (normalise(a, { noise: false }) === normalise(b, { noise: false }) && normalise(a, { noise: false })) return 1;
   const x = normalise(a), y = normalise(b);
   if (!x || !y) return 0;
-  if (x === y) return 1;
-  if (x.startsWith(y) || y.startsWith(x)) return 0.9;
+  const dull = new Set(ignore.flatMap((w) => normalise(w).split(' ')).filter(Boolean));
   const ax = [...new Set(x.split(' '))], by = [...new Set(y.split(' '))];
-  const shared = ax.filter((t) => by.includes(t));
+  const worthIt = (tokens) => tokens.some((t) => !dull.has(t));
+  // When the town is all the two have left in common, the words the noise list
+  // took out are the only ones that can tell them apart, so they are read back
+  // in: "Sunningdale Bistro Bar" and "Sunningdale Bistro" are one place, and
+  // "Sunningdale Pharmacy" is another.
+  const onWhatIsLeft = () => {
+    const fx = normalise(a, { noise: false }).split(' ').filter((t) => t && !dull.has(t));
+    const fy = normalise(b, { noise: false }).split(' ').filter((t) => t && !dull.has(t));
+    if (!fx.length || !fy.length) return 0.35;
+    const sx = fx.join(' '), sy = fy.join(' ');
+    if (sx === sy) return 1;
+    if (sx.startsWith(sy) || sy.startsWith(sx)) return 0.9;
+    const both = fx.filter((t) => fy.includes(t));
+    return both.length ? Math.min(0.85, (both.length / Math.min(fx.length, fy.length)) * 0.85) : 0;
+  };
+  if (x === y) return worthIt(ax) ? 1 : onWhatIsLeft();
+  if (x.startsWith(y) || y.startsWith(x)) {
+    const shorter = ax.length <= by.length ? ax : by;
+    // "Kokoro" inside "Kokoro Windsor" is the restaurant; "Sunningdale" inside
+    // "Sunningdale Pharmacy" is the village.
+    return worthIt(shorter) ? 0.9 : onWhatIsLeft();
+  }
+  const shared = ax.filter((t) => by.includes(t) && !dull.has(t));
   if (!shared.length) return 0;
   const jaccard = shared.length / new Set([...ax, ...by]).size;
 
@@ -152,11 +184,18 @@ export async function osmElement(ref, { meter = null } = {}) {
  * Returns `{ ref, tags, lat, lng, distanceM, confidence, how }` or null. The
  * caller decides what to do with a low confidence; nothing here writes.
  */
-export async function matchOsm({ venueRef, name, lat, lng, meter = null } = {}) {
-  // A place that is already an OSM place needs no matching — it is its own match.
+export async function matchOsm({ venueRef, name, lat, lng, locality = null, meter = null } = {}) {
+  // A place that is already an OSM place needs no matching — it is its own
+  // match, as long as the element is where the place is. A reference that was
+  // written by hand rather than read off the map may point at a real way with a
+  // low number somewhere else entirely: `osm:way/1001` is a road in another
+  // county, and taking it at its word renamed the Roman Baths after it
+  // (found 6 Sep 2026).
   if (String(venueRef || '').startsWith('osm:')) {
     const el = await osmElement(String(venueRef).slice(4), { meter });
-    return el ? { ...el, distanceM: 0, confidence: 1, how: 'It is an OpenStreetMap place already.' } : null;
+    if (!el) return null;
+    if (lat != null && lng != null && el.lat != null && metresBetween({ lat, lng }, el) > MAX_M) return null;
+    return { ...el, distanceM: 0, confidence: 1, how: 'It is an OpenStreetMap place already.' };
   }
   if (lat == null || lng == null || !String(name || '').trim()) return null;
 
@@ -188,7 +227,8 @@ export async function matchOsm({ venueRef, name, lat, lng, meter = null } = {}) 
     const distanceM = metresBetween(here, { lat: elat, lng: elng });
     if (distanceM > MAX_M) continue;
     // Names agree first; distance only separates two that both do.
-    const n = Math.max(nameScore(name, tags.name), ...(['int_name', 'official_name', 'alt_name', 'brand', 'operator'].map((k) => (tags[k] ? nameScore(name, tags[k]) : 0))));
+    const dull = locality ? [locality] : [];
+    const n = Math.max(nameScore(name, tags.name, dull), ...(['int_name', 'official_name', 'alt_name', 'brand', 'operator'].map((k) => (tags[k] ? nameScore(name, tags[k], dull) : 0))));
     if (n < 0.6) continue;
     const confidence = Math.min(1, n * (1 - Math.min(distanceM, MAX_M) / (MAX_M * 4)));
     if (!best || confidence > best.confidence) {

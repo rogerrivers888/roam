@@ -421,7 +421,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     // Attributed whether or not it answers: a refused request still went out,
     // and provider_calls is the record of what we asked of whom, not of what we
     // got back (Technical Constraints §2).
-    try { osm = await matchOsm({ venueRef, name: seed.name, lat: seed.lat, lng: seed.lng }); }
+    try { osm = await matchOsm({ venueRef, name: seed.name, lat: seed.lat, lng: seed.lng, locality: seed.locality ?? null }); }
     finally { await logCall(householdId, 'osm-overpass', 'own.match'); }
     // Replace, do not erase.
     //
