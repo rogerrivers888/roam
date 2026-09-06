@@ -883,16 +883,6 @@ router.get('/:id/stays', async (req, res, next) => {
     };
     const occupancies = occupanciesFor({ adults: asked.adults, childAges: asked.childAges, rooms: asked.rooms });
 
-    let look;
-    try {
-      look = await bedsNear(centre, radiusKm, {
-        stay: nights > 0 && checkin && checkout ? { checkin, checkout, occupancies } : null,
-      });
-    } catch (err) {
-      // The open map's servers are shared and sometimes busy. Say so in words
-      // somebody can act on rather than passing on a timeout code.
-      return res.status(504).json({ error: 'map_busy', message: 'The open map took too long to answer. Try again in a moment — or say where you are staying and we will work around it.' });
-    }
     /**
      * Where you want to be (design handoff, 6 Sep 2026, screen 16). Three
      * answers, and they are genuinely different questions rather than three
@@ -918,6 +908,24 @@ router.get('/:id/stays', async (req, res, next) => {
       return m ? { lat: Number(m[1]), lng: Number(m[3]) } : null;
     })();
     const town = townPoint ?? centre;
+
+    /**
+     * Where to look, which is not always where the trip is. Swapping the town
+     * on §16's middle tile has to move the search as well as the ranking —
+     * otherwise picking Bath from a Windsor trip filters a list of Windsor beds
+     * by their distance from Bath and finds nothing, which reads as broken.
+     */
+    const lookAt = placement === 'town' && townPoint ? townPoint : centre;
+    let look;
+    try {
+      look = await bedsNear(lookAt, radiusKm, {
+        stay: nights > 0 && checkin && checkout ? { checkin, checkout, occupancies } : null,
+      });
+    } catch (err) {
+      // The open map's servers are shared and sometimes busy. Say so in words
+      // somebody can act on rather than passing on a timeout code.
+      return res.status(504).json({ error: 'map_busy', message: 'The open map took too long to answer. Try again in a moment — or say where you are staying and we will work around it.' });
+    }
     const maxAvgMin = Math.min(120, Math.max(5, Number(req.query.maxAvgMin) || 20));
     const maxWalkMin = Math.min(40, Math.max(3, Number(req.query.maxWalkMin) || 10));
     const maxTrainMin = Math.min(120, Math.max(5, Number(req.query.maxTrainMin) || 25));

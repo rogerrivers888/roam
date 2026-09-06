@@ -651,6 +651,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           count={stays.results.length} loading={stays.loading}
           town={shortTown(criteriaState.town?.label ?? trip.locality ?? tripName(trip))}
           ownTown={shortTown(trip.locality ?? tripName(trip))}
+          at={dest?.lat != null ? { lat: dest.lat as number, lng: dest.lng as number } : null}
           planned={plannedCount}
           plannedNames={plannedNames}
           line={null}
@@ -1368,13 +1369,15 @@ function MinuteBox({ label, value, min, max, step, onChange }: {
  */
 function StayCriteria({
   step, onStep, placement, onPlacement, mode, onMode, nights, startDate, endDate, count, loading,
-  town, ownTown, planned, plannedNames, line, criteria, onCriteria, onClose, onShow,
+  town, ownTown, at, planned, plannedNames, line, criteria, onCriteria, onClose, onShow,
 }: {
   step: 1 | 2; onStep: (s: 1 | 2) => void;
   placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
   mode: 'driving' | 'walking'; onMode: (m: 'driving' | 'walking') => void;
   nights: number; startDate?: string | null; endDate?: string | null; count: number; loading: boolean;
   town: string; ownTown: string; planned: number; plannedNames: string[]; line: string | null;
+  /** Where the trip is, so the town list puts the near ones first. */
+  at: { lat: number; lng: number } | null;
   criteria: StayCriteriaState; onCriteria: (next: Partial<StayCriteriaState>) => void;
   onClose: () => void; onShow: () => void;
 }) {
@@ -1481,6 +1484,7 @@ function StayCriteria({
                       {swapping ? (
                         <TownPick
                           own={ownTown}
+                          near={at}
                           onPick={(t) => { onCriteria({ town: t }); setSwapping(false); }}
                         />
                       ) : null}
@@ -1586,9 +1590,12 @@ function StayCriteria({
  * boundary, and asking the address geocoder for "Ostuni" gets you a street in
  * it (see the note on Photon in sources/areas.js).
  */
-function TownPick({ own, onPick }: { own: string; onPick: (t: { label: string; lat: number; lng: number } | null) => void }) {
+function TownPick({ own, near, onPick }: {
+  own: string; near: { lat: number; lng: number } | null;
+  onPick: (t: { label: string; lat: number; lng: number } | null) => void;
+}) {
   const [q, setQ] = useState('');
-  const [found, setFound] = useState<{ label: string; lat: number; lng: number }[]>([]);
+  const [found, setFound] = useState<{ label: string; where: string; lat: number; lng: number }[]>([]);
   const [looking, setLooking] = useState(false);
   useEffect(() => {
     const text = q.trim();
@@ -1596,8 +1603,11 @@ function TownPick({ own, onPick }: { own: string; onPick: (t: { label: string; l
     let live = true;
     setLooking(true);
     const t = setTimeout(() => {
-      api.geocode(text, 6, { kind: 'area' })
-        .then((r) => { if (live) setFound(r.results.map((x) => ({ label: x.label, lat: x.lat, lng: x.lng }))); })
+      api.geocode(text, 6, { kind: 'area', near: near as any })
+        // Six rows all reading "Bath" is not a choice. The area index says
+        // which one each is ("Somerset · England · United Kingdom") and the row
+        // is unreadable without it.
+        .then((r) => { if (live) setFound(r.results.map((x) => ({ label: x.label, where: x.where ?? x.country ?? '', lat: x.lat, lng: x.lng }))); })
         .catch(() => { if (live) setFound([]); })
         .finally(() => { if (live) setLooking(false); });
     }, 250);
@@ -1616,9 +1626,12 @@ function TownPick({ own, onPick }: { own: string; onPick: (t: { label: string; l
       />
       {looking && !found.length ? <Text style={type.tiny}>Looking…</Text> : null}
       {found.map((f) => (
-        <Pressable key={`${f.lat},${f.lng}`} onPress={() => onPick(f)} style={styles.optRow} accessibilityRole="button">
+        <Pressable key={`${f.lat},${f.lng}`} onPress={() => onPick({ label: f.label, lat: f.lat, lng: f.lng })} style={styles.optRow} accessibilityRole="button">
           <Icon name="address" size={15} color={colors.ink} />
-          <Text style={[type.body, { flex: 1, marginLeft: 8 }]} numberOfLines={1}>{f.label}</Text>
+          <View style={{ flex: 1, minWidth: 0, marginLeft: 8 }}>
+            <Text style={type.body} numberOfLines={1}>{f.label}</Text>
+            {f.where ? <Text style={type.tiny} numberOfLines={1}>{f.where}</Text> : null}
+          </View>
         </Pressable>
       ))}
       <Pressable onPress={() => onPick(null)} style={styles.optRow} accessibilityRole="button">
@@ -1957,7 +1970,7 @@ const styles = StyleSheet.create({
   tileSub: { fontFamily: fonts.body, fontSize: 11.5, lineHeight: 15.5, color: colors.inkMuted },
   tint: { gap: 10, padding: 14, borderRadius: 12, backgroundColor: colors.surfaceMuted },
   tintLine: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, color: colors.ink },
-  townField: { height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, paddingHorizontal: 12, fontFamily: fonts.body, fontSize: 14, color: colors.ink },
+  townField: { height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, paddingHorizontal: 12, fontFamily: fonts.body, fontSize: 14, color: colors.ink, outlineWidth: 0 } as any,
   minuteBox: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 52, borderWidth: 1.5, borderColor: colors.ink, borderRadius: 10, paddingHorizontal: 6, backgroundColor: colors.surface },
   minuteNudge: { width: 36, height: 36, flexShrink: 0, borderRadius: 18, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   minuteValue: { fontFamily: fonts.heading, fontSize: 20, fontWeight: '800', letterSpacing: -0.4, color: colors.ink, width: 30, textAlign: 'right', padding: 0 },
