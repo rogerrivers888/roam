@@ -42,6 +42,24 @@ import { VenueDrawer } from '../components/VenueDrawer';
 import { asOneOf, asText, useQueryState, useRouter } from '../router';
 import { paths, type TripSection } from '../routes';
 
+/**
+ * What this trip is called on screen.
+ *
+ * The destination first, because it is the thing they chose. Reverse-geocoding
+ * a point gives the borough it stands in, and a trip built from Thorpe Park was
+ * calling itself "Runnymede" — which is true, and is not what anybody picked
+ * (owner, 6 Sep 2026: "when I create a trip from Thorpe Park, it says
+ * 'Runnymede all day'. It's supposed to say 'Thorpe Park'").
+ *
+ * A trip away has no destination — you are staying somewhere and going out from
+ * it — so there the town is the right answer and comes next.
+ */
+function tripName(trip: TripDetail['trip']): string {
+  const dest = trip.destination?.label?.split(',')[0]?.trim();
+  if (dest) return dest;
+  return trip.locality ?? trip.place?.label?.split(',')[0] ?? trip.title ?? trip.origin.label.split(',')[0];
+}
+
 const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 const clock = (iso: string) => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const mins = (m: number) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60 ? `${m % 60}m` : ''}`.trim());
@@ -169,7 +187,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       });
     }
     if (dest?.lat != null && dest !== start) {
-      out.push({ id: 'dest', lat: dest.lat as number, lng: dest.lng as number, kind: 'dest', icon: 'flag', label: trip.locality ?? dest.label.split(',')[0] });
+      out.push({ id: 'dest', lat: dest.lat as number, lng: dest.lng as number, kind: 'dest', icon: 'flag', label: tripName(trip) });
     }
     if (pill === 'stay') {
       for (const st of stays.results.slice(0, 20)) {
@@ -266,7 +284,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       </Pressable>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <View style={styles.titleRow}>
-          <Text style={styles.title} numberOfLines={1}>{trip.locality ?? trip.place?.label ?? trip.title ?? trip.origin.label}</Text>
+          <Text style={styles.title} numberOfLines={1}>{tripName(trip)}</Text>
           {party ? (
             <Pressable onPress={() => setWho(true)} style={styles.party} accessibilityRole="button" accessibilityLabel="Who's coming">
               <Icon name="household" size={13} color={colors.ink} />
@@ -559,7 +577,7 @@ function TheDay({ d, day, onAdd }: { d: TripDetail; day: TripDay | null; onAdd: 
         <View style={styles.booking}>
           <VenueThumb name={dest.label} category="attraction" width={56} height={56} rounded={8} credit={false} />
           <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-            <Text style={styles.bookingName} numberOfLines={1}>{trip.locality ?? dest.label.split(',')[0]}{isTrip ? '' : ' · all day'}</Text>
+            <Text style={styles.bookingName} numberOfLines={1}>{tripName(trip)}{isTrip ? '' : ' · all day'}</Text>
             <Text style={type.small} numberOfLines={1}>{d.attendees.length} {d.attendees.length === 1 ? 'person' : 'people'}</Text>
             <Text style={[type.tiny, { color: colors.red, fontWeight: '700' }]}>Not booked yet</Text>
           </View>
@@ -574,11 +592,11 @@ function TheDay({ d, day, onAdd }: { d: TripDetail; day: TripDay | null; onAdd: 
       </Text>
 
       <Beat time={isTrip ? trip.dayStart ?? null : clock(trip.departAt)} icon="driving" title="Leave home"
-        detail={[trip.origin.label.split(',')[0], dest ? (trip.locality ?? dest.label.split(',')[0]) : null].filter(Boolean).join(' → ')} />
+        detail={[trip.origin.label.split(',')[0], dest ? tripName(trip) : null].filter(Boolean).join(' → ')} />
       {stops.map((s) => (
         <Beat key={s.id} time={s.startTime} icon="place" title={s.name} detail={s.dwellMinutes ? mins(s.dwellMinutes) : null} />
       ))}
-      {!stops.length && dest ? <Beat time={null} icon="pinned" title={trip.locality ?? dest.label.split(',')[0]} detail={isTrip ? null : 'All day'} /> : null}
+      {!stops.length && dest ? <Beat time={null} icon="pinned" title={tripName(trip)} detail={isTrip ? null : 'All day'} /> : null}
       <Beat time={back} icon="home" title="Head home" detail={null} last />
 
       <Pressable onPress={onAdd} style={styles.cta} accessibilityRole="button">

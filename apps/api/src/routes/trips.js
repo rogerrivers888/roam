@@ -587,6 +587,50 @@ router.get('/:id/along', async (req, res, next) => {
     const have = new Set(await trips.shortlistRefs(trip.id));
     const onDay = new Set((await trips.stopsOf(trip.id)).map((s) => s.venue_ref));
 
+    /**
+     * How far along the route a place sits: 0 at the origin, 1 at the
+     * destination. Flat earth, which is exact enough over a drive.
+     *
+     * The detour on its own is not enough of a test, and the owner found where
+     * it breaks (6 Sep 2026): "it's also coming up with activities that are in
+     * the opposite direction from my home, like Chobham Common". Chobham really
+     * is only about ten minutes extra by the arithmetic — go back past the
+     * house, out the other side, and round — but nobody would call it on the
+     * way to Thorpe Park, and a corridor that says so is not describing a
+     * corridor. So a place must also be *between*, give or take.
+     */
+    const alongTrack = (v) => {
+      if (!destination) return 0.5;
+      const kx = Math.cos((origin.lat * Math.PI) / 180);
+      const ax = (destination.lng - origin.lng) * kx;
+      const ay = destination.lat - origin.lat;
+      const bx = (v.lng - origin.lng) * kx;
+      const by = v.lat - origin.lat;
+      const len2 = ax * ax + ay * ay;
+      return len2 === 0 ? 0.5 : (ax * bx + ay * by) / len2;
+    };
+
+    /**
+     * The destination is not a thing to stop at on the way to the destination,
+     * and neither is anything standing inside it.
+     *
+     * Owner, 6 Sep 2026: "When I look for activities, it's bringing up Thorpe
+     * Park and then rides within Thorpe Park, which is also really weird… When
+     * I select Thorpe Park and add it as an activity, and I search for
+     * activities again, it comes up with Thorpe Park again." A theme park is
+     * one node on the map and forty more inside its fence, and every one of
+     * them answers a search for things to do near the middle of it.
+     *
+     * Six hundred metres for something to do, because that is the size of the
+     * grounds; a hundred and fifty for somewhere to eat, because a café at the
+     * gates is a genuine answer and a ride is not.
+     */
+    const insideDestination = (v) => {
+      if (!destination) return false;
+      const m = kmBetween(destination, v) * 1000;
+      return m <= (kind === 'food' ? 150 : 600);
+    };
+
     const rows = venues.map((v) => {
       const venueRef = `${v.source}:${v.sourcePlaceId}`;
       // Straight-line arithmetic, ours, free and instant. Never a routing call.
@@ -596,6 +640,8 @@ router.get('/:id/along', async (req, res, next) => {
       const from = scope === 'there' && destination ? destination : origin;
       return {
         venueRef, source: v.source, name: v.name, category: v.category ?? 'attraction',
+        /** Kept off the answer; only here so the filter below can read it. */
+        _t: alongTrack(v), _inside: insideDestination(v),
         lat: v.lat, lng: v.lng,
         cuisines: v.cuisines ?? [], experiences: v.experiences ?? [],
         rating: v.rating ?? null, ratingCount: v.ratingCount ?? null, priceLevel: v.priceLevel ?? null,
@@ -648,6 +694,16 @@ router.get('/:id/along', async (req, res, next) => {
     const standing = (r) => (r.rating ?? 0) * Math.log10((r.ratingCount ?? 0) + 10);
     const within = rows
       .filter((r) => r.detourMinutes != null && r.detourMinutes <= maxDetourMin)
+      // Not the destination, and not standing inside it.
+      .filter((r) => !r._inside)
+      /**
+       * And between the two ends of the journey, give or take: a tenth of the
+       * way back past home, and a third of the way beyond the destination,
+       * which is what "near the end" means to somebody who has just arrived.
+       * Without a destination there is no line to be beside and the detour is
+       * simply how far away it is, so the test does not apply.
+       */
+      .filter((r) => !destination || (r._t >= -0.1 && r._t <= 1.35))
       .sort((a, b) => band(a.detourMinutes) - band(b.detourMinutes)
         || standing(b) - standing(a)
         || (a.detourMinutes ?? 999) - (b.detourMinutes ?? 999));
@@ -660,7 +716,7 @@ router.get('/:id/along', async (req, res, next) => {
        * Bath" instead — the same number, named for what it actually is.
        */
       hasRoute: !!destination,
-      places: within.slice(0, 60),
+      places: within.slice(0, 60).map(({ _t, _inside, ...p }) => p),
       counts: {
         route: within.length,
         there: destination ? rows.filter((r) => kmBetween(destination, r) <= reach).length : 0,
