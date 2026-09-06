@@ -258,8 +258,10 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
    * places" (deployed, 6 Sep 2026). One count, from the same list.
    */
   const plannedNames = useMemo(
-    () => shortlist.filter((x) => x.lat != null && x.lng != null).map((x) => x.name),
-    [shortlist],
+    () => (stays.anchors.length
+      ? stays.anchors.map((a) => a.label)
+      : shortlist.filter((x) => x.lat != null && x.lng != null).map((x) => x.name)),
+    [stays.anchors, shortlist],
   );
   const plannedCount = plannedNames.length;
 
