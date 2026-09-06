@@ -233,6 +233,13 @@ const SECTIONS: Section[] = [
         where: 'apps/api/src/routes/inspire.js \u00b7 routes/atlas.js \u00b7 routes/places.js',
       },
       {
+        title: 'A page cap decides which hundred and twenty, not which places matter',
+        rule: 'A search returns at most 120 places. When there are more, the ones we know something about \u2014 a rating, a review count \u2014 are kept before the ones we do not, and the page is then ordered by distance as before.',
+        why: 'Taking the nearest 120 was fine until OpenStreetMap started arriving. It knows 120 restaurants within four kilometres of central Manchester and Google knows seven, so by distance alone the seven with a rating and a photograph fell off the end: the screen became 120 names with nothing to choose between them, and Dishoom \u2014 4.8 from ten thousand people \u2014 was not on it. Making a source answer is what exposed the cap as a judgement rather than a limit.',
+        state: 'live',
+        where: 'apps/api/src/routes/places.js',
+      },
+      {
         title: 'A slow source is told apart from a broken one',
         rule: 'A source we chose not to wait for is recorded as `slow`, not as a failure. The cache keeps a degraded answer for ten minutes but a merely-slow one for the full twelve hours.',
         why: 'They look identical on screen and mean opposite things. Treating \u201cwe did not wait\u201d as \u201cit let us down\u201d would re-ask Google every ten minutes all afternoon for a search that was already answered.',
