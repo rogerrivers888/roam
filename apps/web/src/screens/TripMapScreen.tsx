@@ -57,7 +57,7 @@ import { paths, type TripSection } from '../routes';
  */
 function tripName(trip: TripDetail['trip']): string {
   const dest = trip.destination?.label?.split(',')[0]?.trim();
-  if (dest) return dest;
+  if (dest) return dest.replace(/\s*\(centre\)\s*$/, '');
   return trip.locality ?? trip.place?.label?.split(',')[0] ?? trip.title ?? trip.origin.label.split(',')[0];
 }
 
@@ -193,7 +193,20 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   }, [stayKey, trip.id, placement, stayMode, criteriaState]);
 
   const isTrip = trip.kind === 'trip';
-  const base = trip.base && trip.base.kind !== 'centre' ? trip.base : null;
+  /**
+   * Somewhere they are actually staying, as opposed to the middle of the town
+   * standing in for one.
+   *
+   * The kind is the intended marker and older trips do not all carry it — this
+   * one had a base labelled "Bath (centre)" with a kind of `hotel`, so the app
+   * believed a hotel was booked and never offered to find one. The API writes
+   * that suffix itself and refuses to claim a place that has it
+   * (routes/trips.js `claimBase`), so the label is as good a signal as the kind
+   * and there is no reason to trust only the one that was missing.
+   */
+  const base = trip.base && trip.base.kind !== 'centre' && !/\(centre\)\s*$/.test(trip.base.label ?? '')
+    ? trip.base
+    : null;
   const start = base && isTrip ? base : trip.origin;
   const dest = trip.destination ?? (trip.base?.lat != null ? trip.base : null);
   const day = (dayId ? days.find((x) => x.id === dayId) : null) ?? days[0] ?? null;
@@ -350,12 +363,16 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
             says which day, and saying it twice made the header disagree with
             the picker (owner, 6 Sep 2026). */}
         <Text style={type.small} numberOfLines={1}>
-          {[isTrip && trip.startDate && trip.endDate && trip.startDate !== trip.endDate
-            ? `${fmtDate(trip.startDate)} – ${fmtDate(trip.endDate)}`
-            : fmtDate(trip.startDate ?? trip.departAt),
-          base ? base.label.split(',')[0] : 'from home',
-          !pill && dest && start ? `${mins(Math.max(1, Math.round(estimateMinutes(start, dest))))} each way` : null,
-          ].filter(Boolean).join(' · ')}
+          {(() => {
+            const range = isTrip && trip.startDate && trip.endDate && trip.startDate !== trip.endDate;
+            return [
+              range ? `${fmtDate(trip.startDate!)} – ${fmtDate(trip.endDate!)}` : fmtDate(trip.startDate ?? trip.departAt),
+              base ? base.label.split(',')[0] : 'from home',
+              // The drive each way is on the chip on the map; on a trip away the
+              // dates have the room instead, and the line was truncating.
+              !range && !pill && dest && start ? `${mins(Math.max(1, Math.round(estimateMinutes(start, dest))))} each way` : null,
+            ].filter(Boolean).join(' · ');
+          })()}
         </Text>
       </View>
       {pill ? (
