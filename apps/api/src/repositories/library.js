@@ -1134,7 +1134,15 @@ export async function placesNeedingPictures({ limit = 50, version = 1, force = f
         and ($2
              or p.venue_ref is null
              or (p.state = 'failed' and (p.next_attempt_at is null or p.next_attempt_at <= now()))
-             or (p.state = 'none' and coalesce(p.picture_version, 0) < $3))
+             or (p.state = 'none' and coalesce(p.picture_version, 0) < $3)
+             -- Settled as found, and yet the first clause proved there is no
+             -- card image: the picture it found has since been deleted or
+             -- refused moderation. Without this the place is stranded — the
+             -- queue skips anything marked found, so nothing ever looks again.
+             -- Twenty-three places reached exactly that state on 6 Sep 2026
+             -- when their street-level frames were removed for being
+             -- photographs of roads.
+             or p.state = 'found')
         -- Something for a rung to work from. A record with no website, nothing
         -- in the encyclopedias and no usable point cannot be helped by any of
         -- them, and returning it every run starves the ones that can.
