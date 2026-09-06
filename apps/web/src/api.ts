@@ -1263,7 +1263,7 @@ export const api = {
   tripPlaces: (id: string) => request<{ places: TripPlace[]; counts: { all: number; do: number; eat: number; stay: number } }>(`/api/trips/${id}/places`),
   /** Everywhere you could stop along the way. Nothing is routed: see TripAlongPlace. */
   tripAlong: (id: string, p: { kind: 'food' | 'things'; scope?: 'route' | 'there'; maxDetourMin?: number; q?: string }) =>
-    request<{ origin: Place; destination: Place | null; mode: string; scope: string; kind: string; maxDetourMin: number; places: TripAlongPlace[]; counts: { route: number; there: number }; estimated: boolean; degradedSources: { source: string; error: string }[] }>(`/api/trips/${id}/along${qs(p as any)}`),
+    request<{ origin: Place; destination: Place | null; mode: string; scope: string; kind: string; maxDetourMin: number; hasRoute: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; beyond: number; estimated: boolean; degradedSources: { source: string; error: string }[] }>(`/api/trips/${id}/along${qs(p as any)}`),
   addStopToDay: (tripId: string, dayId: string, body: { venueRef: string; name: string; lat?: number | null; lng?: number | null; category?: string | null; startTime?: string | null; slot?: string; dwellMinutes?: number }) =>
     post<TripDetail>(`/api/trips/${tripId}/days/${dayId}/stops`, body),
   createTrip: (body: { title?: string; notes?: string; origin?: Place; originText?: string; destination?: Place; destinationText?: string; departAt: string; returnAt: string; travelMode?: Trip['travelMode']; intensity?: Trip['intensity']; attendingMemberIds?: string[] }) =>

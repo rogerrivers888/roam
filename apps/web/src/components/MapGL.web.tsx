@@ -84,7 +84,10 @@ function markerEl(m: MapMarker): HTMLElement {
     m.selected ? 'outline:3px solid #2E8A63;outline-offset:2px' : '',
     'transition:width 120ms ease-out,height 120ms ease-out',
   ].join(';');
-  dot.innerHTML = `<svg width="${Math.round(size * 0.55)}" height="${Math.round(size * 0.55)}" viewBox="0 0 24 24" fill="none" stroke="${k.fg}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg>`;
+  // A numbered pin shows its number; everything else shows what it is.
+  dot.innerHTML = m.badge
+    ? `<span style="font:700 ${Math.round(size * 0.45)}px/1 Archivo,-apple-system,Segoe UI,Helvetica,sans-serif;color:${k.fg}">${m.badge}</span>`
+    : `<svg width="${Math.round(size * 0.55)}" height="${Math.round(size * 0.55)}" viewBox="0 0 24 24" fill="none" stroke="${k.fg}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg>`;
   inner.appendChild(dot);
   if (m.label) {
     const tag = document.createElement('div');

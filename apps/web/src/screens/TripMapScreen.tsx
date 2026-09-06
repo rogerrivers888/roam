@@ -100,8 +100,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   useEffect(() => { api.tripPlaces(trip.id).then(setPlaces).catch(() => null); }, [trip.id, shortlist.length, days.length]);
 
   // Browse: what is along the way. One fetch per (pill, scope, detour).
-  const [along, setAlong] = useState<{ loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[] }>(
-    { loading: false, places: [], counts: { route: 0, there: 0 }, error: null, degraded: [] },
+  const [along, setAlong] = useState<{ loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean }>(
+    { loading: false, places: [], counts: { route: 0, there: 0 }, error: null, degraded: [], hasRoute: false },
   );
   const alongKey = pill && pill !== 'shortlist' ? `${pill}|${scope ?? 'route'}|${maxDetourMin}` : null;
   const lastKey = useRef<string | null>(null);
@@ -110,8 +110,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     lastKey.current = alongKey;
     setAlong((a) => ({ ...a, loading: true, error: null }));
     api.tripAlong(trip.id, { kind: pill === 'food' ? 'food' : 'things', scope: scope ?? 'route', maxDetourMin })
-      .then((r) => setAlong({ loading: false, places: r.places, counts: r.counts, error: null, degraded: r.degradedSources ?? [] }))
-      .catch((e) => setAlong({ loading: false, places: [], counts: { route: 0, there: 0 }, error: e.message, degraded: [] }));
+      .then((r) => setAlong({ loading: false, places: r.places, counts: r.counts, error: null, degraded: r.degradedSources ?? [], hasRoute: r.hasRoute }))
+      .catch((e) => setAlong({ loading: false, places: [], counts: { route: 0, there: 0 }, error: e.message, degraded: [], hasRoute: false }));
   }, [alongKey, trip.id, pill, scope, maxDetourMin]);
 
   // Somewhere to sleep, ranked the way the criteria asked. Only fetched when
@@ -164,7 +164,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           id: st.venueRef, lat: st.lat, lng: st.lng,
           kind: st.rank === 1 ? 'dest' : 'added',
           icon: 'bed',
-          label: selected === st.venueRef ? `${st.rank ?? ''} · ${st.name}` : String(st.rank ?? ''),
+          badge: st.rank ? String(st.rank) : null,
+          label: selected === st.venueRef ? st.name : null,
           selected: selected === st.venueRef,
           onPress: () => { setSelected(st.venueRef); setDetent('half'); },
         });
@@ -575,7 +576,7 @@ const DETOURS = [5, 10, 15, 30];
 
 function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist }: {
   pill: Pill;
-  along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[] };
+  along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean };
   shortlisted: TripPlace[];
   scope: 'route' | 'there' | null;
   onScope: (s: 'route' | 'there' | null) => void;
@@ -617,13 +618,13 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
       <View style={styles.chips}>
         {scope == null ? (
           <>
-            <Chip label={`En route · ${along.counts.route}`} onPress={() => onScope('route')} />
-            <Chip label={`Near the end · ${along.counts.there}`} onPress={() => onScope('there')} />
+            <Chip label={`${along.hasRoute ? 'En route' : 'Nearby'} · ${along.counts.route}`} onPress={() => onScope('route')} />
+            {along.hasRoute ? <Chip label={`Near the end · ${along.counts.there}`} onPress={() => onScope('there')} /> : null}
           </>
         ) : (
           <>
             <Chip
-              label={scope === 'there' ? 'Near the end' : `En route · <${maxDetourMin} min`}
+              label={scope === 'there' ? 'Near the end' : `${along.hasRoute ? 'En route' : 'Within'} · <${maxDetourMin} min`}
               on
               chevron
               onPress={() => setOpenDetour((v) => !v)}
@@ -646,6 +647,11 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
       ) : null}
 
       {along.loading ? <Text style={[type.small, { padding: spacing.lg }]}>Looking along the route…</Text> : null}
+      {!along.loading && along.degraded.length && along.places.length ? (
+        <Text style={[type.tiny, { paddingHorizontal: 16, paddingTop: 8 }]}>
+          {along.degraded.map((x) => x.source).join(' and ')} did not answer, so some of these have no reviews.
+        </Text>
+      ) : null}
       {along.error ? <View style={{ padding: spacing.lg }}><StatusLine tone="warn">{along.error}</StatusLine></View> : null}
       {!along.loading && !along.error && !along.places.length ? (
         <View style={{ padding: spacing.lg }}>
@@ -683,8 +689,13 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
               </View>
               {/* The number the whole design turns on — and it says it is a
                   reckoning, not a routed answer (owner, 6 Sep 2026). */}
+              {/* "Off route" only where there is a route to be off. A trip away
+                  has a base and nowhere else to be, so the same number is named
+                  for what it is: how far out of your way. */}
               <Text style={styles.detour} numberOfLines={1}>
-                {p.detourMinutes != null ? `about ${p.detourMinutes} min off route` : 'off the route'}
+                {p.detourMinutes != null
+                  ? `about ${p.detourMinutes} min ${along.hasRoute ? 'off route' : 'away'}`
+                  : along.hasRoute ? 'off the route' : 'nearby'}
                 <Text style={{ color: colors.inkMuted, fontWeight: '400' }}>{` (${p.detourMiles} mi)`}</Text>
               </Text>
               {/* Bookmark and Add sit beside each other, at the bottom right of

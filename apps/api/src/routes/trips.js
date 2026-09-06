@@ -627,11 +627,39 @@ router.get('/:id/along', async (req, res, next) => {
      * hidden — the detour budget is a chip on screen, and widening it is one
      * tap.
      */
-    const byDetour = (a, b) => (a.detourMinutes ?? 999) - (b.detourMinutes ?? 999);
-    const within = rows.filter((r) => r.detourMinutes != null && r.detourMinutes <= maxDetourMin).sort(byDetour);
+    /**
+     * Inside the corridor, the order is the detour *banded* and then how well
+     * regarded the place is.
+     *
+     * Sorting on the raw detour looks right and is useless in a town: every
+     * restaurant in Bath is five minutes off a route that starts and ends in
+     * Bath, so the sort was a coin toss and the two hundred unrated
+     * OpenStreetMap rows came first by accident of arrival — which is what the
+     * owner saw (6 Sep 2026: "There are no reviews and no stars in any of the
+     * listings. That's not okay"). Google's seventeen rated ones were below the
+     * fold the whole time.
+     *
+     * Three-minute bands, because nobody chooses between eight minutes and
+     * nine, and everybody chooses between a 4.6 with three thousand reviews and
+     * a name on a map. Inside a band the better-known place wins; between bands
+     * the nearer one still does.
+     */
+    const band = (m) => Math.round((m ?? 999) / 3);
+    const standing = (r) => (r.rating ?? 0) * Math.log10((r.ratingCount ?? 0) + 10);
+    const within = rows
+      .filter((r) => r.detourMinutes != null && r.detourMinutes <= maxDetourMin)
+      .sort((a, b) => band(a.detourMinutes) - band(b.detourMinutes)
+        || standing(b) - standing(a)
+        || (a.detourMinutes ?? 999) - (b.detourMinutes ?? 999));
 
     res.json({
       origin, destination, mode, scope, kind, maxDetourMin,
+      /**
+       * Whether there is a route at all. A trip away has a base and no
+       * destination, so "off route" is meaningless there and the row says "from
+       * Bath" instead — the same number, named for what it actually is.
+       */
+      hasRoute: !!destination,
       places: within.slice(0, 60),
       counts: {
         route: within.length,

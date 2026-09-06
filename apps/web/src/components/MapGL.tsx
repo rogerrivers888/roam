@@ -40,6 +40,8 @@ export type MapMarker = {
   kind: MarkerKind;
   /** Drawn beside the marker in an ink pill. Left off where there would be too many to read. */
   label?: string | null;
+  /** A rank drawn inside the pin — the stay results are numbered (handoff §18). */
+  badge?: string | null;
   /** A Lucide name from the app's own set, drawn inside the marker. */
   icon?: string | null;
   selected?: boolean;
