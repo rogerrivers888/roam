@@ -167,6 +167,7 @@ router.get('/', async (_req, res, next) => {
         defaultIntensity: household.default_intensity,
         home: household.home_lat != null ? { label: household.home_label, lat: household.home_lat, lng: household.home_lng } : null,
         homeRadiusMiles: household.home_radius_miles ?? 10,
+        homePhotoUrl: household.home_photo_url ?? null,
         pace: paceOf(household),
         timezone: household.timezone,
       },
@@ -182,11 +183,18 @@ router.get('/', async (_req, res, next) => {
 router.patch('/', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { name, defaultVisitMinutes, maxTravelMinutes, defaultIntensity, home, homeText, pace, timezone, homeRadiusMiles } = req.body;
+    const { name, defaultVisitMinutes, maxTravelMinutes, defaultIntensity, home, homeText, pace, timezone, homeRadiusMiles, homePhotoUrl } = req.body;
     // How far "close to home" reaches, in miles (owner, 4 Sep 2026).
     const radius = homeRadiusMiles == null ? null : Math.min(200, Math.max(1, Math.round(Number(homeRadiusMiles))));
     if (homeRadiusMiles != null && !Number.isFinite(radius)) return res.status(400).json({ error: 'invalid_radius' });
     if (timezone && !isValidTimezone(timezone)) return res.status(400).json({ error: 'invalid_timezone' });
+    // The picture of home is the household's own photograph, taken on their
+    // device and sent as a data URI — the same way a person's face arrives. A
+    // link to somewhere else would be a picture we do not hold and cannot show
+    // when the signal goes, so only a data URI is stored; '' takes it down.
+    const photo = homePhotoUrl == null ? null : String(homePhotoUrl);
+    if (photo && photo !== '' && !/^data:image\/(jpeg|png|webp);base64,/.test(photo)) return res.status(400).json({ error: 'invalid_photo', message: 'A picture of home must be an image from this device.' });
+    if (photo && photo.length > 4_000_000) return res.status(413).json({ error: 'photo_too_large', message: 'That picture is too big. Try a smaller one.' });
     const mergedPace = pace ? { food: { ...paceOf(household).food, ...(pace.food || {}) }, activity: { ...paceOf(household).activity, ...(pace.activity || {}) } } : null;
     // Home may arrive as a picked place or as typed text to geocode (Epic 3 M3).
     let homePlace = home?.lat != null ? home : null;
@@ -198,10 +206,11 @@ router.patch('/', async (req, res, next) => {
       name, defaultVisitMinutes, maxTravelMinutes, defaultIntensity,
       homeLabel: homePlace?.label, homeLat: homePlace?.lat, homeLng: homePlace?.lng,
       homeCountryCode: homePlace?.countryCode, homeCountry: homePlace?.country,
-      pace: mergedPace, timezone, homeRadiusMiles: radius,
+      pace: mergedPace, timezone, homeRadiusMiles: radius, homePhotoUrl: photo,
     });
     res.json({ household: { id: h.id, name: h.name, defaultVisitMinutes: h.default_visit_minutes, maxTravelMinutes: h.max_travel_minutes, defaultIntensity: h.default_intensity,
-      home: h.home_lat != null ? { label: h.home_label, lat: h.home_lat, lng: h.home_lng } : null, homeRadiusMiles: h.home_radius_miles ?? 10, pace: paceOf(h), timezone: h.timezone } });
+      home: h.home_lat != null ? { label: h.home_label, lat: h.home_lat, lng: h.home_lng } : null, homeRadiusMiles: h.home_radius_miles ?? 10,
+      homePhotoUrl: h.home_photo_url ?? null, pace: paceOf(h), timezone: h.timezone } });
   } catch (err) {
     next(err);
   }

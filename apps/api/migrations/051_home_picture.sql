@@ -1,0 +1,13 @@
+-- A picture of home, on the household's own page.
+--
+-- The owner, 6 Sep 2026: "in the Household tab, I would like to be able to add
+-- a picture of my home. I feel like maybe my address should also be in my
+-- household, and the name of my household."
+--
+-- The address and the name were already here (004_home_trip_place.sql, and
+-- `name` since the beginning) — they were only edited over in Settings. The
+-- picture is the new column, and it is stored exactly as a person's face is
+-- (members.avatar_url): a data URI the household made on their own device,
+-- never fetched from anywhere, owned rather than rented, so it may live in our
+-- database for good.
+alter table households add column if not exists home_photo_url text;

@@ -51,11 +51,16 @@ export async function updateHousehold(id, f) {
             home_country          = case when $7::numeric is null then home_country      else $13 end,
             pace                  = coalesce($9::jsonb, pace),
             timezone              = coalesce($10, timezone),
-            home_radius_miles     = coalesce($11, home_radius_miles)
+            home_radius_miles     = coalesce($11, home_radius_miles),
+            -- '' is how the household takes the picture down: coalesce cannot
+            -- say "set this to nothing", so an empty string means clear it.
+            home_photo_url        = case when $14::text is null then home_photo_url
+                                         when $14 = '' then null else $14 end
       where id = $1 returning *`,
     [id, f.name ?? null, f.defaultVisitMinutes ?? null, f.maxTravelMinutes ?? null, f.defaultIntensity ?? null,
       f.homeLabel ?? null, f.homeLat ?? null, f.homeLng ?? null, f.pace ? JSON.stringify(f.pace) : null,
-      f.timezone ?? null, f.homeRadiusMiles ?? null, f.homeCountryCode ?? null, f.homeCountry ?? null],
+      f.timezone ?? null, f.homeRadiusMiles ?? null, f.homeCountryCode ?? null, f.homeCountry ?? null,
+      f.homePhotoUrl ?? null],
   );
   return rows[0] ?? null;
 }

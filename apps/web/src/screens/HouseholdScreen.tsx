@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { api, Constraint, HouseholdResponse, Learned, Member, Suggestion } from '../api';
-import { colors, radius, spacing, TARGET, type } from '../theme';
+import { api, Constraint, Household, HouseholdResponse, Learned, Member, Place, Suggestion } from '../api';
+import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, Wrap } from '../components/ui';
 import { asOneOf, useQueryState, useRouter } from '../router';
 import { paths, type Route } from '../routes';
 import { Avatar } from '../components/Faces';
+import { Icon } from '../components/Icon';
+import { PlacePicker } from '../components/PlacePicker';
 import { SuggestInput } from '../components/SuggestInput';
 import { TastePicker } from '../components/TastePicker';
 
@@ -72,10 +74,8 @@ export function HouseholdScreen({ data, refresh, route }: {
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <View>
-        <Text style={type.title}>{household.name}</Text>
-        <Text style={type.small}>Allergens exclude places; diets, likes and dislikes only rank them. Everything saves as you go.</Text>
-      </View>
+      <HomeCard household={household} refresh={refresh} wide={sideBySide} />
+      <Text style={type.small}>Allergens exclude places; diets, likes and dislikes only rank them. Everything saves as you go.</Text>
 
       {sideBySide ? (
         <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start' }}>
@@ -101,6 +101,123 @@ export function HouseholdScreen({ data, refresh, route }: {
         </View>
       )}
     </ScrollView>
+  );
+}
+
+/**
+ * The household itself, at the top of its own tab: what it is called, where it
+ * lives, and a picture of home (owner, 6 Sep 2026 — "I feel like maybe my
+ * address should also be in my household, and the name of my household").
+ *
+ * The three of them were only in Settings, which is where the pace and the
+ * radius and the export still are: this is the page about the household, so the
+ * household's own name and front door belong here too. Settings keeps its
+ * copies — same fields, same endpoint, both write the same row.
+ *
+ * Nothing has a Save button, like everything else on this page. The name is
+ * stored when the box is left, the address when a real match is tapped, and the
+ * picture when it is chosen.
+ */
+function HomeCard({ household, refresh, wide }: { household: Household; refresh: () => Promise<void>; wide: boolean }) {
+  const [name, setName] = useState(household.name);
+  const [changing, setChanging] = useState(false);
+  const [msg, setMsg] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
+  useEffect(() => { setName(household.name); }, [household.name]);
+
+  const saveName = async () => {
+    const v = name.trim();
+    if (!v || v === household.name) { setName(household.name); return; }
+    try { await api.updateHousehold({ name: v }); await refresh(); setMsg({ tone: 'good', text: `Saved. This household is ${v}.` }); }
+    catch (e: any) { setMsg({ tone: 'bad', text: e.message }); }
+  };
+
+  const setHome = async (p: Place | null) => {
+    if (!p) return;
+    try { await api.updateHousehold({ home: p }); await refresh(); setChanging(false); setMsg({ tone: 'good', text: `Home saved: ${p.formatted ?? p.label}` }); }
+    catch (e: any) { setMsg({ tone: 'bad', text: e.message }); }
+  };
+
+  // A photograph of the household's own house — theirs, kept as they sent it,
+  // wide rather than square because a house is not a face.
+  const setPhoto = async () => {
+    const url = await pickPhoto({ aspect: [3, 2], width: 900, height: 600 });
+    if (!url) return;
+    try { await api.updateHousehold({ homePhotoUrl: url }); await refresh(); setMsg(null); }
+    catch (e: any) { setMsg({ tone: 'bad', text: e.message }); }
+  };
+
+  const removePhoto = async () => {
+    try { await api.updateHousehold({ homePhotoUrl: '' }); await refresh(); }
+    catch (e: any) { setMsg({ tone: 'bad', text: e.message }); }
+  };
+
+  const photo = household.homePhotoUrl ?? null;
+  const address = household.home?.formatted ?? household.home?.label ?? null;
+
+  return (
+    <Card>
+      <View style={[styles.homeCard, wide && styles.homeCardWide]}>
+        <View style={{ gap: 4 }}>
+          <Pressable
+            onPress={setPhoto}
+            accessibilityRole="button"
+            accessibilityLabel={photo ? 'Change the picture of home' : 'Add a picture of home'}
+            style={[styles.homePhoto, wide && styles.homePhotoWide]}
+          >
+            {photo
+              ? <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityLabel="Home" />
+              : (
+                <View style={{ alignItems: 'center', gap: 6 }}>
+                  <Icon name="home" size={26} color={colors.headerSub} />
+                  <Text style={type.tiny}>Add a picture of home</Text>
+                </View>
+              )}
+          </Pressable>
+          {photo ? (
+            <Row style={{ justifyContent: 'center', gap: spacing.md }}>
+              <Pressable onPress={setPhoto} accessibilityRole="button"><Text style={type.tiny}>change</Text></Pressable>
+              <Pressable onPress={removePhoto} accessibilityRole="button"><Text style={type.tiny}>remove</Text></Pressable>
+            </Row>
+          ) : null}
+        </View>
+
+        <View style={{ flex: 1, minWidth: 0, gap: spacing.sm }}>
+          <View style={{ gap: 4 }}>
+            <Text style={type.tiny}>This household is called</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              onBlur={saveName}
+              onSubmitEditing={saveName}
+              returnKeyType="done"
+              placeholder="Household name"
+              placeholderTextColor={colors.inkFaint}
+              accessibilityLabel="Household name"
+              style={[styles.input, styles.homeName]}
+            />
+          </View>
+
+          <View style={{ gap: 4 }}>
+            <Text style={type.tiny}>Home</Text>
+            {address && !changing ? (
+              <Row style={{ gap: spacing.sm }}>
+                <Icon name="address" size={16} color={colors.headerSub} />
+                <Text style={[type.small, { flex: 1 }]}>{address}</Text>
+                <Button label="Change" kind="ghost" onPress={() => setChanging(true)} />
+              </Row>
+            ) : (
+              <>
+                <PlacePicker value={household.home} onPick={setHome} placeholder="House name or number, street, town, postcode" />
+                {address ? <Button label="Keep it as it is" kind="ghost" onPress={() => setChanging(false)} /> : null}
+              </>
+            )}
+            <Text style={type.tiny}>Used whenever you say "from home", and for everything Places keeps close to home.</Text>
+          </View>
+
+          {msg ? <Text style={[type.tiny, { color: msg.tone === 'good' ? colors.accent : colors.dislike }]}>{msg.text}</Text> : null}
+        </View>
+      </View>
+    </Card>
   );
 }
 
@@ -142,13 +259,18 @@ function AddPerson({ onAdded, onCancel }: { onAdded: (id: string | null) => Prom
   );
 }
 
-async function pickPhoto(): Promise<string | null> {
+/**
+ * A picture from this device, cropped and shrunk here so what leaves the phone
+ * is small enough to store: a face is square and small, a house is wide and a
+ * little bigger, and both arrive as a data URI the household owns.
+ */
+async function pickPhoto({ aspect = [1, 1] as [number, number], width = 256, height = 256 } = {}): Promise<string | null> {
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!perm.granted && Platform.OS !== 'web') return null;
-  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.9 });
+  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect, quality: 0.9 });
   if (res.canceled || !res.assets?.[0]) return null;
   const ctx = ImageManipulator.ImageManipulator.manipulate(res.assets[0].uri);
-  ctx.resize({ width: 256, height: 256 });
+  ctx.resize({ width, height });
   const rendered = await ctx.renderAsync();
   const saved = await rendered.saveAsync({ format: ImageManipulator.SaveFormat.JPEG, compress: 0.75, base64: true });
   return saved.base64 ? `data:image/jpeg;base64,${saved.base64}` : null;
@@ -445,4 +567,14 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, fontSize: 15, color: colors.ink,
   },
   pendingBox: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, gap: spacing.sm },
+  // The household's own card. One tree, two shapes: the picture sits above the
+  // name on a phone and beside it on a wide window.
+  homeCard: { flexDirection: 'column', gap: spacing.md },
+  homeCardWide: { flexDirection: 'row', alignItems: 'flex-start' },
+  homePhoto: {
+    width: '100%', height: 150, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,
+    backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  homePhotoWide: { width: 240, height: 160 },
+  homeName: { fontFamily: fonts.heading, fontSize: 20, fontWeight: '700' },
 });
