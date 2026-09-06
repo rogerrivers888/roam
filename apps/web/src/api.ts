@@ -1822,6 +1822,8 @@ export type ShelfRule = {
   subject: string;
   subject_label: string | null;
   weights: ShelfWeights;
+  /** The drawer this rule files things in, if it names one. */
+  subcategory: string | null;
   reason: string | null;
   taught_by: string | null;
   seeded: boolean;

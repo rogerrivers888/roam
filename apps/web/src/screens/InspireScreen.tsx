@@ -66,6 +66,15 @@ const PAGE = 36;
  * arrow rather than the others' selected state, because a chip that navigates
  * where its neighbours filter has to say so before it is tapped.
  */
+/**
+ * The chips, and what each is called.
+ *
+ * The categories live in a table now (migration 053) and every answer carries
+ * them with their labels, so this file no longer decides what the set is — the
+ * lists below are only what to draw before the first answer arrives, and while
+ * offline. A category added or renamed in the back office appears here at the
+ * next refresh without a deploy.
+ */
 const MOOD_ORDER: MoodKey[] = MOODS;
 /** The ones that are shelves. Food is a door and never a shelf. */
 const SHELVES: MoodKey[] = MOOD_ORDER.filter((m) => m !== 'food') as MoodKey[];
@@ -167,18 +176,26 @@ const cap1 = (s: string) => (s ? s[0].toUpperCase() + s.slice(1).replace(/-/g, '
  */
 const ATLAS_WORD: Record<string, string> = { active: 'Sports venue' };
 
+/** What each subcategory is called, from the answer that carried it. */
+type Drawers = Map<string, string>;
+
 /**
  * Every word we have for what kind of place this is. The atlas's own is first
  * because it is the researched one — "Heritage", "Outdoors" — and a search's
  * tags follow it.
  */
-const kindsOf = (item: InspireItem): string[] =>
-  [item.atlasCategory ? ATLAS_WORD[item.atlasCategory] ?? item.atlasCategory : null, ...(item.experiences ?? [])]
-    .filter(Boolean) as string[];
+const kindsOf = (item: InspireItem, drawers?: Drawers): string[] => [
+  // The subcategory first when the place has one: "Castles & forts" is a
+  // better word for what this is than either vocabulary underneath it, and it
+  // is the one the household has actually chosen.
+  item.subcategory ? drawers?.get(item.subcategory) ?? null : null,
+  item.atlasCategory ? ATLAS_WORD[item.atlasCategory] ?? item.atlasCategory : null,
+  ...(item.experiences ?? []),
+].filter(Boolean) as string[];
 
 /** What kind of place this is, in its own words: "Heritage", "Castle · History", "Italian". */
-function kindLine(item: InspireItem): string | null {
-  const words = [...kindsOf(item), ...(item.cuisines ?? [])].filter(Boolean);
+function kindLine(item: InspireItem, drawers?: Drawers): string | null {
+  const words = [...kindsOf(item, drawers), ...(item.cuisines ?? [])].filter(Boolean);
   const bits = words.length ? words.slice(0, 2) : item.category === 'attraction' ? [] : [item.category];
   return bits.length ? [...new Set(bits.map(cap1))].join(' · ') : null;
 }
@@ -361,6 +378,22 @@ export function InspireScreen({ route, household, onOpenTrip, onPlanner, onFood,
     });
   }, [pool, cap, outing, budget, kinds, minorComing]);
 
+  /** Every drawer the answer named, so a card can print its own word for itself. */
+  const drawers: Drawers = useMemo(
+    () => new Map((pool?.moods ?? []).flatMap((m) => (m.subcategories ?? []).map((sc) => [sc.key, sc.label] as const))),
+    [pool],
+  );
+
+  /** What each chip is called, from the answer where there is one. */
+  const label = useCallback(
+    (key: MoodKey) => pool?.moods.find((m) => m.key === key)?.label ?? MOOD_LABEL[key] ?? key,
+    [pool],
+  );
+
+  /** The chips to draw: the answer's own list, or the built-in one until it lands. */
+  const chips: MoodKey[] = useMemo(() => (pool?.moods.length ? pool.moods.map((m) => m.key) : MOOD_ORDER), [pool]);
+  const doors = useMemo(() => new Set((pool?.moods ?? []).filter((m) => m.isDoor).map((m) => m.key)), [pool]);
+
   const shelves = useMemo(() => {
     const order = [mood, ...SHELVES.filter((m) => m !== mood)];
     // A stable sort over the answer's own order, so the atlas's ranking still
@@ -483,12 +516,12 @@ export function InspireScreen({ route, household, onOpenTrip, onPlanner, onFood,
           <View style={styles.moods}>
             <Text style={[type.label, styles.gutter]}>What's the day about?</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
-              {MOOD_ORDER.map((m) => (
-                m === 'food'
+              {chips.map((m) => (
+                (doors.size ? doors.has(m) : m === 'food')
                   ? <FoodDoor key={m} onPress={() => onFood?.()} />
                   // What the day is about closes any opened shelf, so it is one
                   // move and one address rather than two that race each other.
-                  : <Chip key={m} label={MOOD_LABEL[m]} selected={mood === m} onPress={() => navigate(here(paths.inspire(), { mood: m === 'fun' ? null : m }))} />
+                  : <Chip key={m} label={label(m)} selected={mood === m} onPress={() => navigate(here(paths.inspire(), { mood: m === 'fun' ? null : m }))} />
               ))}
             </ScrollView>
           </View>
@@ -593,7 +626,7 @@ export function InspireScreen({ route, household, onOpenTrip, onPlanner, onFood,
               {shelves.map(({ key, items }) => (
                 <Shelf
                   key={key}
-                  title={key === mood ? `${MOOD_LABEL[key]} near ${placeName}` : MOOD_LABEL[key]}
+                  title={key === mood ? `${label(key)} near ${placeName}` : label(key)}
                   items={items}
                   wide={wide}
                   expanded={openRow === key}
@@ -601,8 +634,10 @@ export function InspireScreen({ route, household, onOpenTrip, onPlanner, onFood,
                   onOpen={open}
                   onKeep={keep}
                   isKept={isKept}
+                  subcategories={pool?.moods.find((m) => m.key === key)?.subcategories}
+                  drawers={drawers}
                   empty={key === mood
-                    ? `Nothing ${MOOD_LABEL[key].toLowerCase()} within ${CAPS.find((c) => c.value === cap)?.label.toLowerCase() ?? 'reach'} of ${placeName} — widen the distance, or search another town.`
+                    ? `Nothing ${label(key).toLowerCase()} within ${CAPS.find((c) => c.value === cap)?.label.toLowerCase() ?? 'reach'} of ${placeName} — widen the distance, or search another town.`
                     : null}
                 />
               ))}
@@ -693,18 +728,25 @@ function Bands({ options, value, onPick, wrap }: { options: { key: string; label
 }
 
 /** One mood's shelf: a title, and its places across or wrapped. */
-function Shelf({ title, items, wide, expanded, onToggle, onOpen, onKeep, isKept, empty }: {
+function Shelf({ title, items, wide, expanded, onToggle, onOpen, onKeep, isKept, empty, subcategories, drawers }: {
   title: string; items: InspireItem[]; wide: boolean; expanded: boolean; onToggle: () => void;
   onOpen: (i: InspireItem) => void; onKeep: (i: InspireItem) => void; isKept: (i: InspireItem) => boolean;
   empty: string | null;
+  /** The drawers inside this shelf that hold something, in the owner's order. */
+  subcategories?: { key: string; label: string; count: number }[];
+  drawers?: Drawers;
 }) {
   // How much of an opened shelf has been drawn. It starts again at a page each
   // time the shelf is closed, which is what somebody expects of a fold.
   const [drawn, setDrawn] = useState(PAGE);
-  useEffect(() => { if (!expanded) setDrawn(PAGE); }, [expanded]);
+  // Which drawer is being looked at inside an opened shelf. Local rather than
+  // in the address: it is a way of reading one shelf, not a place you are.
+  const [only, setOnly] = useState<string | null>(null);
+  useEffect(() => { if (!expanded) { setDrawn(PAGE); setOnly(null); } }, [expanded]);
   if (!items.length && !empty) return null;
-  const cards = expanded ? items.slice(0, drawn) : items.slice(0, SHELF);
-  const more = expanded ? items.length - cards.length : 0;
+  const inDrawer = only ? items.filter((i) => i.subcategory === only) : items;
+  const cards = expanded ? inDrawer.slice(0, drawn) : inDrawer.slice(0, SHELF);
+  const more = expanded ? inDrawer.length - cards.length : 0;
   return (
     <View style={styles.shelf}>
       <Pressable onPress={items.length > SHELF || items.length ? onToggle : undefined} style={[styles.shelfHead, styles.gutter]} accessibilityRole="button" accessibilityState={{ expanded }}>
@@ -716,11 +758,22 @@ function Shelf({ title, items, wide, expanded, onToggle, onOpen, onKeep, isKept,
           </View>
         ) : null}
       </Pressable>
+      {/* The drawers, only once the shelf is opened. Closed, a shelf is a
+          glance; opened, it is a list somebody wants to narrow. */}
+      {expanded && (subcategories?.length ?? 0) > 1 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+          <Chip label={`All ${items.length}`} selected={!only} onPress={() => { setOnly(null); setDrawn(PAGE); }} />
+          {(subcategories ?? []).map((sc) => (
+            <Chip key={sc.key} label={`${sc.label} ${sc.count}`} selected={only === sc.key}
+                  onPress={() => { setOnly(only === sc.key ? null : sc.key); setDrawn(PAGE); }} />
+          ))}
+        </ScrollView>
+      ) : null}
       {!items.length ? (
         <Text style={[type.small, styles.gutter]}>{empty}</Text>
       ) : expanded ? (
         <View style={[styles.grid, styles.gutter]}>
-          {cards.map((i) => <Card key={i.venueRef} item={i} wide={wide} onOpen={onOpen} onKeep={onKeep} kept={isKept(i)} />)}
+          {cards.map((i) => <Card key={i.venueRef} item={i} wide={wide} onOpen={onOpen} onKeep={onKeep} kept={isKept(i)} drawers={drawers} />)}
           {more ? (
             <Pressable onPress={() => setDrawn((n) => n + PAGE)} style={[styles.tile, styles.showMore, { width: wide ? 240 : 200, height: wide ? 180 : 150 }]} accessibilityRole="button">
               <Icon name="expand" size={20} color={colors.icon} />
@@ -730,7 +783,7 @@ function Shelf({ title, items, wide, expanded, onToggle, onOpen, onKeep, isKept,
         </View>
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
-          {cards.map((i) => <Card key={i.venueRef} item={i} wide={wide} onOpen={onOpen} onKeep={onKeep} kept={isKept(i)} />)}
+          {cards.map((i) => <Card key={i.venueRef} item={i} wide={wide} onOpen={onOpen} onKeep={onKeep} kept={isKept(i)} drawers={drawers} />)}
         </ScrollView>
       )}
     </View>
@@ -759,8 +812,10 @@ function Shelf({ title, items, wide, expanded, onToggle, onOpen, onKeep, isKept,
  * A place with no photograph of ours still gets its own icon on the mint tile,
  * so a shelf reads as deliberate rather than broken.
  */
-function Card({ item, wide, onOpen, onKeep, kept }: {
+function Card({ item, wide, onOpen, onKeep, kept, drawers }: {
   item: InspireItem; wide: boolean; onOpen: (i: InspireItem) => void; onKeep: (i: InspireItem) => void; kept: boolean;
+  /** What each subcategory is called, so the card can print its own word. */
+  drawers?: Drawers;
 }) {
   const w = wide ? 240 : 200;
   const h = wide ? 180 : 150;
@@ -774,7 +829,7 @@ function Card({ item, wide, onOpen, onKeep, kept }: {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const price = priceMarks(item.priceLevel);
-  const kind = kindLine(item);
+  const kind = kindLine(item, drawers);
   return (
     <Pressable onPress={() => onOpen(item)} style={{ width: w, gap: spacing.sm }} accessibilityRole="button" accessibilityLabel={item.name}>
       <View style={[styles.tile, { width: w, height: h }]}>

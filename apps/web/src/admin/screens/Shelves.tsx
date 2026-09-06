@@ -46,16 +46,17 @@ import { Icon, IconName } from '../../components/Icon';
 import { Button, Chip, Row, Stepper, Wrap } from '../../components/ui';
 import { useViewport } from '../../hooks/useViewport';
 import { AdminPage, Banner, FilterChip, FilterRow, PageHead, Panel, Pill, Tile, TileRow, ago, count } from '../kit';
-import { asOneOf, useQueryState } from '../../router';
+import { asOneOf, asText, useQueryState } from '../../router';
 import { MOODS } from '../../routes';
 
 const WIDE = 900;
 
-type Section = 'shelf' | 'find' | 'taught';
+type Section = 'shelf' | 'find' | 'taught' | 'taxonomy';
 
 const SECTIONS: { key: Section; label: string }[] = [
   { key: 'shelf', label: 'On a shelf' },
   { key: 'find', label: 'Find a place' },
+  { key: 'taxonomy', label: 'Categories' },
   { key: 'taught', label: 'What you have taught' },
 ];
 
@@ -95,7 +96,7 @@ export function Shelves({ canManage }: { canManage: boolean }) {
 
   const [vocab, setVocab] = useState<ShelfVocabulary | null>(null);
   // Which view, and which shelf is being taught, are in the address.
-  const [section, setSection] = useQueryState<Section>('tab', 'shelf', asOneOf(['shelf', 'find', 'taught'] as const, 'shelf'));
+  const [section, setSection] = useQueryState<Section>('tab', 'shelf', asOneOf(['shelf', 'find', 'taught', 'taxonomy'] as const, 'shelf'));
   const [mood, setMood] = useQueryState<MoodKey>('mood', 'adrenaline', asOneOf(MOODS, 'adrenaline'));
   const [items, setItems] = useState<ShelfPlace[]>([]);
   const [nearly, setNearly] = useState<ShelfPlace[]>([]);
@@ -103,7 +104,13 @@ export function Shelves({ canManage }: { canManage: boolean }) {
   const [where, setWhere] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [found, setFound] = useState<ShelfPlace[]>([]);
+  // Which drawer is open is in the address like everything else, so a shelf
+  // narrowed to one subcategory is a link somebody can be sent.
+  const [drawer, setDrawer] = useQueryState<string>('drawer', '', asText);
+  const [drawers, setDrawers] = useState<{ key: string | null; label: string; count: number }[]>([]);
   const [teaching, setTeaching] = useState<ShelfPlace | null>(null);
+  /** Which row's quick picker is open. One at a time, like a menu. */
+  const [moving, setMoving] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -118,11 +125,11 @@ export function Shelves({ canManage }: { canManage: boolean }) {
 
   const loadShelf = useCallback(async () => {
     try {
-      const d = await api.shelfContents({ mood });
-      setItems(d.items); setNearly(d.nearly); setPool(d.pool);
+      const d = await api.shelfContents({ mood, subcategory: drawer || undefined });
+      setItems(d.items); setNearly(d.nearly); setPool(d.pool); setDrawers(d.drawers ?? []);
       setWhere(d.place.label ?? `${d.place.lat.toFixed(3)}, ${d.place.lng.toFixed(3)}`);
     } catch (err) { setItems([]); setNearly([]); setNote(String((err as Error).message)); }
-  }, [mood]);
+  }, [mood, drawer]);
 
   useEffect(() => { void loadVocab(); }, [loadVocab]);
   useEffect(() => { void loadShelf(); }, [loadShelf]);
@@ -141,6 +148,23 @@ export function Shelves({ canManage }: { canManage: boolean }) {
     await Promise.all([loadVocab(), loadShelf()]);
     if (q.trim().length >= 2) await api.shelfFindPlaces(q.trim()).then((d) => setFound(d.places)).catch(() => {});
   }, [loadVocab, loadShelf, q]);
+
+  /**
+   * The fast one. One tap on a drawer files the place there and the shelf is
+   * redrawn — no form, no reason to type, nothing to save afterwards.
+   */
+  const move = async (place: ShelfPlace, subcategory: string | null, category?: MoodKey) => {
+    setMoving(null);
+    setBusy(true);
+    try {
+      const r = await api.shelfMovePlace({ ref: place.ref, label: place.name, subcategory, category: category ?? null });
+      const cat = vocab?.shelves.find((c) => c.key === r.category);
+      const sub = vocab?.subcategories.find((sc) => sc.key === r.subcategory);
+      setNote(`${place.name} → ${cat?.label ?? r.category}${sub ? ` · ${sub.label}` : ''}`);
+      await refresh();
+    } catch (err) { setNote(String((err as Error).message)); }
+    finally { setBusy(false); }
+  };
 
   const forget = async (rule: ShelfRule) => {
     setBusy(true);
@@ -194,9 +218,9 @@ export function Shelves({ canManage }: { canManage: boolean }) {
       {note ? <Banner tone="accent">{note}</Banner> : null}
 
       <Banner>
-        A place carries a number from 0 to 100 for each of the six shelves. At {Math.round(floor * 100)} and above it is
-        worth a card; below that it is true but not shown. Only the {max === 2 ? 'two' : max} strongest ever draw, so
-        nothing appears on four shelves at once.
+        Every place is filed under exactly one category and, where anybody has said so, one subcategory inside it — so
+        nothing appears twice. The numbers below are how that is decided: the strongest claim wins, and naming a
+        subcategory settles the category too, because a subcategory belongs to one category and only one.
       </Banner>
 
       <FilterRow>
@@ -206,11 +230,26 @@ export function Shelves({ canManage }: { canManage: boolean }) {
       </FilterRow>
 
       {section === 'shelf' ? (
-        <FilterRow>
-          {(vocab?.shelves ?? []).map((s) => (
-            <FilterChip key={s.key} label={s.label} on={mood === s.key} onPress={() => { setMood(s.key); setTeaching(null); }} />
-          ))}
-        </FilterRow>
+        <>
+          <FilterRow>
+            {(vocab?.shelves ?? []).map((s) => (
+              <FilterChip key={s.key} label={s.label} count={s.key === mood ? items.length : undefined}
+                          on={mood === s.key}
+                          onPress={() => { setMood(s.key); setDrawer(''); setTeaching(null); }} />
+            ))}
+          </FilterRow>
+          {/* The drawers inside this shelf, with what is in each. "Not sorted
+              yet" is the work queue and is shown even at zero, because zero is
+              the number worth seeing. */}
+          <FilterRow>
+            <FilterChip label="All" on={!drawer} onPress={() => setDrawer('')} />
+            {drawers.filter((d) => d.count > 0 || d.key === null).map((d) => (
+              <FilterChip key={d.key ?? 'unsorted'} label={d.label} count={d.count}
+                          on={drawer === (d.key ?? '')}
+                          onPress={() => setDrawer(d.key ?? '')} />
+            ))}
+          </FilterRow>
+        </>
       ) : null}
 
       {section === 'find' ? (
@@ -243,7 +282,7 @@ export function Shelves({ canManage }: { canManage: boolean }) {
         />
       ) : null}
 
-      {section !== 'taught' ? (
+      {section === 'shelf' || section === 'find' ? (
         <Panel
           title={section === 'find' ? 'What Roam thinks of these' : `${shelfLabel(mood)}, as the home screen draws it`}
           sub={section === 'find'
@@ -267,8 +306,10 @@ export function Shelves({ canManage }: { canManage: boolean }) {
               ) : null}
             </View>
           ) : rows.map((p) => (
-            <PlaceRow key={p.ref} place={p} wide={wide} order={order}
-                      canManage={canManage} onTeach={() => setTeaching(p)} shelfLabel={shelfLabel} />
+            <PlaceRow key={p.ref} place={p} wide={wide} order={order} vocab={vocab}
+                      canManage={canManage} onTeach={() => setTeaching(p)} shelfLabel={shelfLabel}
+                      open={moving === p.ref} onOpen={() => setMoving(moving === p.ref ? null : p.ref)}
+                      onMove={(sub, cat) => move(p, sub, cat)} busy={busy} />
           ))}
         </Panel>
       ) : null}
@@ -280,10 +321,18 @@ export function Shelves({ canManage }: { canManage: boolean }) {
           padded={false}
         >
           {nearly.map((p) => (
-            <PlaceRow key={p.ref} place={p} wide={wide} order={order}
-                      canManage={canManage} onTeach={() => setTeaching(p)} shelfLabel={shelfLabel} highlight={mood} />
+            <PlaceRow key={p.ref} place={p} wide={wide} order={order} vocab={vocab}
+                      canManage={canManage} onTeach={() => setTeaching(p)} shelfLabel={shelfLabel} highlight={mood}
+                      open={moving === p.ref} onOpen={() => setMoving(moving === p.ref ? null : p.ref)}
+                      onMove={(sub, cat) => move(p, sub, cat)} busy={busy} />
           ))}
         </Panel>
+      ) : null}
+
+      {section === 'taxonomy' ? (
+        <Taxonomy vocab={vocab} canManage={canManage} busy={busy}
+                  onChanged={async (said) => { setNote(said); await refresh(); }}
+                  onFailed={(said) => setNote(said)} />
       ) : null}
 
       {section === 'taught' ? (
@@ -330,52 +379,252 @@ export function Shelves({ canManage }: { canManage: boolean }) {
 // one place, with the working shown
 // ---------------------------------------------------------------------------
 
-function PlaceRow({ place, wide, order, canManage, onTeach, shelfLabel, highlight }: {
-  place: ShelfPlace; wide: boolean; order: MoodKey[]; canManage: boolean;
+/**
+ * One place, with where it is filed and one tap to change it.
+ *
+ * The owner, 5 Sep 2026: "I'd like a way to be able to, on the fly, just select
+ * something and change the category or subcategory very quickly from the
+ * shelves page." So the row leads with the pair it is filed under, and tapping
+ * that pair opens every drawer in the app. Picking one saves immediately —
+ * there is no form and nothing to confirm, because the thing being asked for is
+ * speed and the move is one row in a table that can be moved again.
+ *
+ * Opening the row itself still opens the full teaching form, which is where the
+ * weights and the type-level rules live. The quick move is for this one place.
+ */
+function PlaceRow({ place, wide, order, vocab, canManage, onTeach, shelfLabel, highlight, open, onOpen, onMove, busy }: {
+  place: ShelfPlace; wide: boolean; order: MoodKey[]; vocab: ShelfVocabulary | null; canManage: boolean;
   onTeach: () => void; shelfLabel: (k: MoodKey) => string; highlight?: MoodKey;
+  open: boolean; onOpen: () => void; onMove: (subcategory: string | null, category?: MoodKey) => void; busy: boolean;
 }) {
   const why = place.because[0];
-  return (
-    <Pressable onPress={canManage ? onTeach : undefined} style={[styles.placeRow, wide && { alignItems: 'center' }]}>
-      {place.imageId ? (
-        <Image source={{ uri: api.imageUrl(place.imageId, 96) }} style={styles.thumb} />
-      ) : (
-        <View style={[styles.thumb, styles.thumbEmpty]}><Icon name="place" size={16} color={colors.inkFaint} /></View>
-      )}
+  const shelf = place.shelf ?? place.shelves[0] ?? null;
+  const drawer = vocab?.subcategories.find((sc) => sc.key === place.subcategory) ?? null;
 
-      <View style={{ flex: 1, gap: 3, minWidth: 0 }}>
-        <Row style={{ gap: spacing.xs, flexWrap: 'wrap' }}>
-          <Text style={styles.rowName} numberOfLines={1}>{place.name}</Text>
-          {place.category ? <Pill label={place.category} /> : null}
-          {place.rule ? <Pill label="taught" tone="accent" /> : null}
-        </Row>
-        <Text style={type.tiny} numberOfLines={1}>
-          {[place.region, place.distanceKm != null ? `${place.distanceKm} km` : null].filter(Boolean).join(' · ')}
-        </Text>
-        <Text style={type.tiny} numberOfLines={2}>
-          Because {why?.subject_label ?? 'nothing has been said about it'}
-          {why?.scope === 'kind' ? ' (a type rule)' : why?.scope === 'place' ? ' (a rule about this one place)' : ''}
-        </Text>
+  return (
+    <View style={styles.placeWrap}>
+      <View style={[styles.placeRow, wide && { alignItems: 'center' }]}>
+        <Pressable onPress={canManage ? onTeach : undefined} style={styles.thumbTap}>
+          {place.imageId ? (
+            <Image source={{ uri: api.imageUrl(place.imageId, 96) }} style={styles.thumb} />
+          ) : (
+            <View style={[styles.thumb, styles.thumbEmpty]}><Icon name="place" size={16} color={colors.inkFaint} /></View>
+          )}
+        </Pressable>
+
+        <Pressable onPress={canManage ? onTeach : undefined} style={{ flex: 1, gap: 3, minWidth: 0 }}>
+          <Row style={{ gap: spacing.xs, flexWrap: 'wrap' }}>
+            <Text style={styles.rowName} numberOfLines={1}>{place.name}</Text>
+            {place.rule ? <Pill label="taught" tone="accent" /> : null}
+            {place.confident === false ? <Pill label="not sure" tone="warn" /> : null}
+          </Row>
+          <Text style={type.tiny} numberOfLines={1}>
+            {[place.region, place.distanceKm != null ? `${place.distanceKm} km` : null].filter(Boolean).join(' · ')}
+          </Text>
+          <Text style={type.tiny} numberOfLines={2}>
+            Because {why?.subject_label ?? 'nothing has been said about it'}
+            {why?.scope === 'kind' ? ' (a type rule)' : why?.scope === 'place' ? ' (a rule about this one place)' : ''}
+          </Text>
+        </Pressable>
+
+        {/* Where it is filed, and the whole of the quick edit. On a phone this
+            takes its own line rather than squeezing the name into three
+            letters. */}
+        <Wrap style={wide ? styles.weightsWide : styles.weights}>
+          <Chip
+            label={`${shelf ? shelfLabel(shelf) : 'nowhere'}${drawer ? ` · ${drawer.label}` : ' · not sorted'}`}
+            icon={shelf ? SHELF_ICON[shelf] ?? 'place' : 'place'}
+            selected={open}
+            onPress={canManage ? onOpen : undefined}
+          />
+          {highlight && !place.shelves.includes(highlight) ? (
+            <Pill label={`${shelfLabel(highlight)} ${Math.round((place.weights[highlight] ?? 0) * 100)}`} tone="warn" />
+          ) : null}
+        </Wrap>
+
+        {canManage ? <Icon name={open ? 'collapse' : 'more'} size={16} color={colors.inkMuted} /> : null}
       </View>
 
-      {/* On a phone the numbers take their own line rather than squeezing the
-          name into three letters. */}
-      <Wrap style={wide ? styles.weightsWide : styles.weights}>
-        {order
-          .filter((k) => (place.weights[k] ?? 0) > 0)
-          .sort((a, b) => (place.weights[b] ?? 0) - (place.weights[a] ?? 0))
-          .map((k) => (
-            <Pill
-              key={k}
-              icon={SHELF_ICON[k]}
-              label={`${shelfLabel(k)} ${Math.round((place.weights[k] ?? 0) * 100)}`}
-              tone={place.shelves.includes(k) ? 'ok' : k === highlight ? 'warn' : 'plain'}
-            />
-          ))}
-      </Wrap>
+      {open && canManage ? (
+        <View style={styles.picker}>
+          <Text style={type.tiny}>Move {place.name} to…</Text>
+          {(vocab?.shelves ?? []).map((c) => {
+            const subs = (vocab?.subcategories ?? []).filter((sc) => sc.category_key === c.key && sc.active);
+            return (
+              <View key={c.key} style={styles.pickerGroup}>
+                <Chip
+                  label={c.label}
+                  icon={SHELF_ICON[c.key] ?? 'place'}
+                  selected={shelf === c.key && !place.subcategory}
+                  onPress={() => onMove(null, c.key)}
+                />
+                <Wrap style={{ gap: 4, flex: 1 }}>
+                  {subs.map((sc) => (
+                    <Chip key={sc.key} label={sc.label} selected={place.subcategory === sc.key}
+                          onPress={() => onMove(sc.key)} />
+                  ))}
+                </Wrap>
+              </View>
+            );
+          })}
+          <Text style={type.tiny}>
+            Picking a subcategory sets the category with it. This moves {place.name} only — to move everything of its
+            type, open the row instead.
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
-      {canManage ? <Icon name="more" size={16} color={colors.inkMuted} /> : null}
-    </Pressable>
+// ---------------------------------------------------------------------------
+// the settings page: the two levels themselves
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the categories and the subcategories are read and written.
+ *
+ * The owner asked for "a settings page where I can see those categories and
+ * subcategories" and somewhere to "add the subcategories manually". Renaming
+ * never changes a key, so nothing already taught is orphaned by a change of
+ * wording; moving a subcategory to another category moves every place in it,
+ * which is the quickest reorganisation there is and is said so on the screen.
+ */
+function Taxonomy({ vocab, canManage, busy, onChanged, onFailed }: {
+  vocab: ShelfVocabulary | null; canManage: boolean; busy: boolean;
+  onChanged: (said: string) => Promise<void> | void; onFailed: (said: string) => void;
+}) {
+  const [adding, setAdding] = useState<MoodKey | null>(null);
+  const [label, setLabel] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+
+  const run = async (what: () => Promise<unknown>, said: string) => {
+    try { await what(); await onChanged(said); }
+    catch (err) { onFailed(String((err as Error).message)); }
+  };
+
+  return (
+    <>
+      <Panel
+        title="Categories and subcategories"
+        sub="A subcategory belongs to exactly one category — that is what stops a place appearing twice. Renaming is safe; moving a subcategory moves every place in it."
+        padded={false}
+      >
+        {(vocab?.shelves ?? []).map((c) => {
+          const subs = (vocab?.subcategories ?? []).filter((sc) => sc.category_key === c.key);
+          return (
+            <View key={c.key} style={styles.catBlock}>
+              <Row style={{ gap: spacing.xs, flexWrap: 'wrap' }}>
+                <Icon name={SHELF_ICON[c.key] ?? 'place'} size={16} color={colors.icon} />
+                <Text style={styles.rowName}>{c.label}</Text>
+                <Pill label={`${subs.length} subcategor${subs.length === 1 ? 'y' : 'ies'}`} />
+                {c.is_door ? <Pill label="a door into Places" tone="accent" /> : null}
+                {!c.active ? <Pill label="switched off" tone="warn" /> : null}
+                <View style={{ flex: 1 }} />
+                {canManage ? (
+                  <Chip
+                    label={c.active ? 'On' : 'Off'}
+                    icon={c.active ? 'check' : 'close'}
+                    selected={c.active}
+                    onPress={() => void run(
+                      () => api.shelfSaveCategory({ key: c.key, active: !c.active }),
+                      `${c.label} is ${c.active ? 'off the home screen' : 'back on the home screen'}.`,
+                    )}
+                  />
+                ) : null}
+              </Row>
+              {c.blurb ? <Text style={type.tiny}>{c.blurb}</Text> : null}
+
+              <Wrap style={{ gap: 4 }}>
+                {subs.map((sc) => (
+                  editing === sc.id ? (
+                    <Row key={sc.id} style={{ gap: 4 }}>
+                      <TextInput
+                        value={editLabel}
+                        onChangeText={setEditLabel}
+                        style={[styles.input, { minWidth: 160 }]}
+                        autoFocus
+                        onSubmitEditing={() => {
+                          setEditing(null);
+                          void run(() => api.shelfSaveSubcategory({ id: sc.id, label: editLabel.trim() || sc.label }),
+                            `Renamed to ${editLabel.trim() || sc.label}.`);
+                        }}
+                      />
+                      <Button label="Save" icon="check" onPress={() => {
+                        setEditing(null);
+                        void run(() => api.shelfSaveSubcategory({ id: sc.id, label: editLabel.trim() || sc.label }),
+                          `Renamed to ${editLabel.trim() || sc.label}.`);
+                      }} />
+                    </Row>
+                  ) : (
+                    <Chip
+                      key={sc.id}
+                      label={`${sc.label}${sc.rules ? ` · ${sc.rules}` : ''}`}
+                      selected={false}
+                      onPress={canManage ? () => { setEditing(sc.id); setEditLabel(sc.label); } : undefined}
+                    />
+                  )
+                ))}
+                {canManage && adding === c.key ? (
+                  <Row style={{ gap: 4 }}>
+                    <TextInput
+                      value={label}
+                      onChangeText={setLabel}
+                      placeholder="Farm shops & pick your own"
+                      placeholderTextColor={colors.inkFaint}
+                      style={[styles.input, { minWidth: 180 }]}
+                      autoFocus
+                      onSubmitEditing={() => {
+                        const l = label.trim();
+                        setAdding(null); setLabel('');
+                        if (l) void run(() => api.shelfSaveSubcategory({ categoryKey: c.key, label: l }), `Added ${l} under ${c.label}.`);
+                      }}
+                    />
+                    <Button label="Add" icon="add" disabled={!label.trim()} onPress={() => {
+                      const l = label.trim();
+                      setAdding(null); setLabel('');
+                      if (l) void run(() => api.shelfSaveSubcategory({ categoryKey: c.key, label: l }), `Added ${l} under ${c.label}.`);
+                    }} />
+                  </Row>
+                ) : canManage ? (
+                  <Chip label="Add one" icon="add" onPress={() => { setAdding(c.key); setLabel(''); }} />
+                ) : null}
+              </Wrap>
+
+              {editing && subs.some((sc) => sc.id === editing) ? (
+                <Row style={{ gap: spacing.xs, flexWrap: 'wrap' }}>
+                  <Text style={type.tiny}>Move it to:</Text>
+                  {(vocab?.shelves ?? []).filter((other) => other.key !== c.key).map((other) => (
+                    <Chip key={other.key} label={other.label} onPress={() => {
+                      const id = editing; setEditing(null);
+                      void run(() => api.shelfSaveSubcategory({ id: id!, categoryKey: other.key }),
+                        `Moved to ${other.label} — everything filed in it moved with it.`);
+                    }} />
+                  ))}
+                  <Button label="Delete it" icon="close" kind="secondary" disabled={busy} onPress={() => {
+                    const id = editing; setEditing(null);
+                    void run(() => api.shelfDeleteSubcategory(id!),
+                      'Gone. The places in it keep their category and stop being sorted; nothing left the home screen.');
+                  }} />
+                </Row>
+              ) : null}
+            </View>
+          );
+        })}
+      </Panel>
+
+      <Panel title="What this cannot do" sub="Said plainly, because both are easy to try">
+        <Text style={type.small}>
+          A subcategory cannot sit under two categories — the database refuses it, and that refusal is the whole reason
+          a place can only appear once. If a drawer belongs in two places, it is really two drawers with different names.
+        </Text>
+        <Text style={type.small}>
+          A category cannot be deleted while it still has subcategories in it, because that would drop every place they
+          hold off the home screen without saying so. Switch it off instead — that is reversible, and nothing is lost.
+        </Text>
+      </Panel>
+    </>
   );
 }
 
@@ -424,6 +673,9 @@ function TeachForm({ place, vocab, order, floor, max, wide, onClose, onSaved, on
   // and 0–100 is what a person reasons in.
   const [pc, setPc] = useState<Record<string, number>>({});
   const [reason, setReason] = useState('');
+  // The drawer this rule files things in. Naming one settles the category too,
+  // which is why the preview below reads it before the weights.
+  const [sub, setSub] = useState<string | null>(null);
   const [said, setSaid] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -441,6 +693,7 @@ function TeachForm({ place, vocab, order, floor, max, wide, onClose, onSaved, on
       ?? (chosen.scope === 'category' ? vocab?.defaults.category[chosen.subject] : undefined)
       ?? place.weights;
     setPc(Object.fromEntries(order.map((k) => [k, Math.round((from[k] ?? 0) * 100)])));
+    setSub(chosen.rule?.subcategory ?? (chosen.scope === 'place' ? place.subcategory ?? null : null));
     setReason(chosen.rule?.reason ?? '');
     setErr(null);
   }, [chosen, order, place, vocab]);
@@ -448,7 +701,10 @@ function TeachForm({ place, vocab, order, floor, max, wide, onClose, onSaved, on
   const weights: ShelfWeights = Object.fromEntries(
     order.filter((k) => (pc[k] ?? 0) > 0).map((k) => [k, (pc[k] ?? 0) / 100]),
   );
-  const will = drawn(weights, order, floor, max);
+  // A drawer names its category, so the preview follows it rather than the
+  // numbers whenever one is picked.
+  const parent = sub ? vocab?.subcategories.find((sc) => sc.key === sub)?.category_key ?? null : null;
+  const will = parent ? [parent] : drawn(weights, order, floor, max);
   const label = (k: MoodKey) => vocab?.shelves.find((s) => s.key === k)?.label ?? k;
 
   const save = async () => {
@@ -459,6 +715,7 @@ function TeachForm({ place, vocab, order, floor, max, wide, onClose, onSaved, on
         subject: chosen.subject,
         subjectLabel: chosen.label,
         weights,
+        subcategory: sub,
         reason: reason.trim() || null,
       });
       await onSaved(
@@ -542,6 +799,25 @@ function TeachForm({ place, vocab, order, floor, max, wide, onClose, onSaved, on
 
       <View style={styles.divider} />
 
+      <Text style={type.small}>Which subcategory?</Text>
+      <Wrap style={{ gap: spacing.xs }}>
+        <Chip label="None" selected={!sub} onPress={() => setSub(null)} />
+        {(vocab?.subcategories ?? []).filter((sc) => sc.active).map((sc) => (
+          <Chip
+            key={sc.key}
+            label={`${vocab?.shelves.find((c) => c.key === sc.category_key)?.label ?? sc.category_key} · ${sc.label}`}
+            selected={sub === sc.key}
+            onPress={() => setSub(sc.key)}
+          />
+        ))}
+      </Wrap>
+      <Text style={type.tiny}>
+        Picking one settles the category as well — a subcategory belongs to exactly one category, which is what stops a
+        place appearing twice. The numbers below only decide it when no subcategory is named.
+      </Text>
+
+      <View style={styles.divider} />
+
       <Text style={type.small}>How much of each is it?</Text>
       <View style={[styles.grid, wide && styles.gridWide]}>
         {order.map((k) => (
@@ -577,7 +853,7 @@ function TeachForm({ place, vocab, order, floor, max, wide, onClose, onSaved, on
 
       <Row style={{ gap: spacing.sm, flexWrap: 'wrap' }}>
         <Button label={busy === 'save' ? 'Teaching…' : 'Teach it'} icon="check"
-                disabled={busy != null || !Object.keys(weights).length} onPress={() => void save()} />
+                disabled={busy != null || (!Object.keys(weights).length && !sub)} onPress={() => void save()} />
         <Button label="Cancel" kind="secondary" onPress={onClose} />
       </Row>
     </Panel>
@@ -603,7 +879,6 @@ const styles = StyleSheet.create({
   placeRow: {
     flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, flexWrap: 'wrap',
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    borderTopWidth: 1, borderTopColor: colors.line,
   },
   ruleRow: {
     gap: spacing.sm,
@@ -619,4 +894,18 @@ const styles = StyleSheet.create({
   grid: { gap: spacing.xs },
   gridWide: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md },
   weightCell: { width: '100%' },
+
+  placeWrap: { borderTopWidth: 1, borderTopColor: colors.line },
+  thumbTap: { borderRadius: radius.sm },
+  // The quick move, opened under the row it belongs to rather than in a sheet:
+  // it has to be obvious which place is being moved.
+  picker: {
+    gap: spacing.sm, paddingHorizontal: spacing.md, paddingBottom: spacing.md,
+    backgroundColor: colors.surfaceMuted,
+  },
+  pickerGroup: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs, flexWrap: 'wrap' },
+  catBlock: {
+    gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    borderTopWidth: 1, borderTopColor: colors.line,
+  },
 });
