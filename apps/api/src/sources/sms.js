@@ -68,6 +68,23 @@ export function smsStatus() {
   // The owner set two keys, saw that sentence unchanged, and had no way to tell
   // from it whether the third was missing or the first two had never reached
   // the process — which is the more likely fault and the one worth naming.
+  // An API key with no account beside it. The likeliest way to get here, and
+  // the one a Twilio console actively encourages: the key page hands you an
+  // `SK…` and a secret and calls them "SID" and "Secret", so it reads as the
+  // complete set. It is not — a key signs a request, it does not address one,
+  // and the account SID is the path. Named on its own because "TWILIO_ACCOUNT_SID
+  // is not set" invites the reply "yes it is, it's the SID I was given".
+  if (KEY_SID() && !SID()) {
+    return {
+      configured: false,
+      reason: 'key_without_account',
+      short: "Texts aren't switched on yet — you'll copy the link instead.",
+      setup: 'TWILIO_API_KEY_SID is set but TWILIO_ACCOUNT_SID is not. Add the Account SID (AC…) from the Twilio dashboard — the key signs the request, the account is its address.',
+      message: 'Twilio has an API key (TWILIO_API_KEY_SID) and a secret, but not the account they belong to. An API key signs a request; the URL still addresses the account, so both are needed. TWILIO_ACCOUNT_SID is the AC… string under Account Info on the Twilio dashboard.',
+      missing: ['TWILIO_ACCOUNT_SID', ...(FROM() ? [] : ['TWILIO_FROM'])],
+    };
+  }
+
   const absent = [
     !SID() && 'TWILIO_ACCOUNT_SID',
     !TOKEN() && 'TWILIO_AUTH_TOKEN',
@@ -176,7 +193,14 @@ export function explain(code, said, status) {
     case 21211:
       return `Twilio does not recognise that as a phone number.${theirs}`;
     case 20003:
-      return 'Twilio refused the credentials. Check TWILIO_AUTH_TOKEN, and that TWILIO_ACCOUNT_SID is the AC… account rather than an SK… API key.';
+      // The message this used to give sent the owner looking at his account
+      // SID, which was correct by then. With an API key in play the likelier
+      // fault is the other half of the pair: an API key's *secret* and the
+      // account's Auth Token are two different strings, and the console calls
+      // both of them things you would type into a variable named AUTH_TOKEN.
+      return KEY_SID()
+        ? 'Twilio refused the credentials. TWILIO_API_KEY_SID is set, so TWILIO_AUTH_TOKEN has to hold that API key\u2019s secret — the account\u2019s Auth Token is a different string and will not sign for a key. If what you have is the account\u2019s Auth Token, delete TWILIO_API_KEY_SID and Roam will sign as the account instead.'
+        : 'Twilio refused the credentials. Check TWILIO_AUTH_TOKEN, and that TWILIO_ACCOUNT_SID is the AC… account rather than an SK… API key.';
     default:
       return `The text sender refused it (${status}).${theirs}`;
   }

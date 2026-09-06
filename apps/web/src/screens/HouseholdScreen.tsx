@@ -9,7 +9,7 @@ import { Button, Card, Chip, Row, Segmented, Wrap } from '../components/ui';
 import { asFlag, asOneOf, useQueryState, useRouter } from '../router';
 import { paths, type Route } from '../routes';
 import { Avatar } from '../components/Faces';
-import { Icon } from '../components/Icon';
+import { Icon, IconText } from '../components/Icon';
 import { PlacePicker } from '../components/PlacePicker';
 import { SuggestInput } from '../components/SuggestInput';
 import { TastePicker } from '../components/TastePicker';
@@ -241,6 +241,9 @@ function PersonRow({ member, index, selected, onPress }: { member: Member; index
           ) : null}
         </Row>
         <Text style={type.tiny} numberOfLines={2}>{summarise(member)}</Text>
+        {prettyMobile(member.access?.mobile) ? (
+          <Text style={type.tiny} numberOfLines={1}>{prettyMobile(member.access?.mobile)}</Text>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -287,6 +290,21 @@ async function pickPhoto({ aspect = [1, 1] as [number, number], width = 256, hei
   const rendered = await ctx.renderAsync();
   const saved = await rendered.saveAsync({ format: ImageManipulator.SaveFormat.JPEG, compress: 0.75, base64: true });
   return saved.base64 ? `data:image/jpeg;base64,${saved.base64}` : null;
+}
+
+/**
+ * A stored number read back the way it was dialled.
+ *
+ * `+447779993777` is what a sender needs and what the database holds; it is not
+ * what anybody in this household would recognise as their own number. Only the
+ * British shape is spaced, because guessing at the grouping of a number from
+ * somewhere else would make it less readable rather than more.
+ */
+function prettyMobile(e164?: string | null): string | null {
+  const v = (e164 ?? '').trim();
+  if (!v) return null;
+  if (v.startsWith('+44') && v.length === 13) return `${v.slice(0, 3)} ${v.slice(3, 7)} ${v.slice(7)}`;
+  return v;
 }
 
 const isActivity = (c: Constraint) => c.conceptKind === 'experience';
@@ -407,6 +425,14 @@ function MemberDetail({ member, index, managedBy, relationships, allergens, lear
         <View style={{ flex: 1 }}>
           <Text style={type.h2}>{member.name}</Text>
           {managedBy ? <Text style={type.tiny}>Managed by {managedBy}</Text> : null}
+          {/* How to reach them, beside their face — owner, 6 Sep 2026. Shown
+              here rather than only inside the invite panel, because "what is
+              Gina's number" is a thing to be able to read off the page without
+              opening the machinery for sending her something. */}
+          {prettyMobile(member.access?.mobile) ? (
+            <IconText name="phone">{prettyMobile(member.access?.mobile)}</IconText>
+          ) : null}
+          {member.access?.email ? <IconText name="mail">{member.access.email}</IconText> : null}
         </View>
       </Row>
 

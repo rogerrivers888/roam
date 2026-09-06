@@ -311,3 +311,34 @@ test('an alphanumeric sender is a sender, not a number to be normalised', async 
     assert.equal(status.from, 'Roam');
   });
 });
+
+test('an API key with no account behind it is named as that, not as a missing variable', async () => {
+  // How the owner actually got here (6 Sep 2026): Twilio's API key page hands
+  // you an SK… and a secret and labels them "SID" and "Secret", so it reads as
+  // the whole set. Telling him "TWILIO_ACCOUNT_SID is not set" invites the
+  // honest reply "yes it is — it is the SID I was given".
+  await withEnv({
+    TWILIO_ACCOUNT_SID: null, TWILIO_API_KEY_SID: 'SK' + '1'.repeat(32),
+    TWILIO_AUTH_TOKEN: 'secret', TWILIO_FROM: null,
+  }, () => {
+    const status = smsStatus();
+    assert.equal(status.reason, 'key_without_account');
+    assert.match(status.setup, /the key signs the request, the account is its address/);
+    assert.deepEqual(status.missing, ['TWILIO_ACCOUNT_SID', 'TWILIO_FROM']);
+  });
+});
+
+test('a refused credential blames the half that is actually likely to be wrong', async () => {
+  // With an API key configured, "check your account SID" is the wrong advice —
+  // it sent the owner looking at a value that was already correct. An API key's
+  // secret and the account's Auth Token are different strings, and Twilio's
+  // console invites you to type either into something called AUTH_TOKEN.
+  await withEnv({ TWILIO_API_KEY_SID: 'SK' + '2'.repeat(32) }, () => {
+    const msg = explain(20003, null, 401);
+    assert.match(msg, /API key.{0,20}secret/s);
+    assert.match(msg, /delete TWILIO_API_KEY_SID/, 'and names the one-step way out');
+  });
+  await withEnv({ TWILIO_API_KEY_SID: null }, () => {
+    assert.match(explain(20003, null, 401), /TWILIO_ACCOUNT_SID is the AC/);
+  });
+});
