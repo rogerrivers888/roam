@@ -37,6 +37,7 @@ import { Places } from './screens/Places';
 import { Coverage } from './screens/Coverage';
 import { Scout } from './screens/Scout';
 import { Shelves } from './screens/Shelves';
+import { HowItWorks } from './screens/HowItWorks';
 
 const DESKTOP = 900;
 
@@ -64,6 +65,9 @@ const NAV: { key: Screen; label: string; icon: IconName; needs?: string; sub: st
   { key: 'roles', label: 'Roles', icon: 'locked', needs: 'view_accounts', sub: 'Doors and capabilities' },
   { key: 'plans', label: 'Plans', icon: 'money', needs: 'view_accounts', sub: 'What a household can be on' },
   { key: 'audit', label: 'Audit', icon: 'info', needs: 'view_audit', sub: 'Who did what to whom' },
+  // No capability: the decisions behind what Roam does are not a privilege, and
+  // an account that can see any of this should be able to see why.
+  { key: 'how', label: 'How it works', icon: 'owned', sub: 'The decisions, what they cost, and where each rule lives' },
 ];
 
 export function AdminApp({ access, screen, onScreen, onLeave }: {
@@ -103,6 +107,7 @@ export function AdminApp({ access, screen, onScreen, onLeave }: {
       {screen === 'roles' ? <Roles canManage={can('manage_roles')} /> : null}
       {screen === 'plans' ? <Plans canManage={can('manage_plans')} /> : null}
       {screen === 'audit' ? <Audit /> : null}
+      {screen === 'how' ? <HowItWorks /> : null}
     </>
   );
 

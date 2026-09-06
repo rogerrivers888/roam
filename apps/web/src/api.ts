@@ -801,7 +801,15 @@ export type PlanAction =
   | { type: 'set'; minActivities?: number; minFood?: number; intensity?: Trip['intensity']; durationMinutes?: number; travelMode?: Trip['travelMode']; includeChains?: boolean; pricePoint?: PricePoint; attendingMemberIds?: string[] };
 
 export type SourceCost = { perSearchUsd: number; note: string };
-export type SourcesStatus = { cost?: Record<string, SourceCost>; enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string; defaults?: string[]; available: { key: string; label: string; env: string; on: boolean; hasKey?: boolean; off?: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number; locationsAllTime?: number; locationsFree?: number } } };
+export type SourcesStatus = { cost?: Record<string, SourceCost>; enabled: { key: string; label: string; attribution: string | null; optIn?: boolean }[]; routing: string;
+  /**
+   * Whether real travel times are being asked for *right now*, per method. A
+   * spent daily quota is not a fault and not permanent, so the back office's
+   * "How it works" says which of the two answers a time on screen is at this
+   * moment (api/src/sources/routing.js).
+   */
+  routingNow?: { matrix: { until: string; reason: string; method: string; refusals: number } | null; route: { until: string; reason: string; method: string; refusals: number } | null } | null;
+  defaults?: string[]; available: { key: string; label: string; env: string; on: boolean; hasKey?: boolean; off?: boolean; optIn?: boolean }[]; usage?: { tripadvisor?: { searchesAllTime: number; searchesThisMonth: number; locationsAllTime?: number; locationsFree?: number } } };
 
 // Admin: what each source returned for a day of a trip and where the plan lost it.
 export type SourceStage = 'catchment' | 'reach' | 'allergen' | 'window' | 'shown';

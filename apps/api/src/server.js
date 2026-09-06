@@ -31,7 +31,7 @@ import { photoFor } from './sources/google.js';
 import { currentHousehold } from './routes/household.js';
 import { SCOUT_MONTHLY_RUNS } from './sources/localscout.js';
 import { enabledSources, defaultSourceKeys, loadSourceSettings, setSourceOff, sourceHasKey, sourceOff, sourceKeys, bedRatesOn } from './sources/index.js';
-import { routingEnabled } from './sources/routing.js';
+import { routingEnabled, routingPaused } from './sources/routing.js';
 import sessionRoutes, { devices as deviceRoutes } from './routes/session.js';
 import { authConfigured, deployed, originAllowed, requireOwner, requireSession } from './auth.js';
 import { requireDoor } from './access.js';
@@ -160,6 +160,13 @@ app.get('/api/sources', async (_req, res, next) => {
     cost,
     enabled: live.map((s) => ({ key: s.key, label: s.label, attribution: s.attribution?.text ?? null, optIn: Boolean(s.optIn) })),
     routing: routingEnabled() ? 'google-routes' : 'estimated',
+    // Whether real travel times are being asked for *right now*. A spent daily
+    // quota is not a fault and not permanent, so "How it works" says which of
+    // the two answers a time on screen is at this moment rather than leaving
+    // somebody to guess (sources/routing.js).
+    routingNow: routingEnabled()
+      ? { matrix: routingPaused('matrix'), route: routingPaused('route') }
+      : null,
     defaults: defaultSourceKeys(),
     usage: { tripadvisor: { searchesAllTime: ta.all?.calls ?? 0, searchesThisMonth: ta.month?.calls ?? 0, locationsAllTime: Math.round(ta.all?.units ?? 0), locationsFree: 1000 } },
     available: [
