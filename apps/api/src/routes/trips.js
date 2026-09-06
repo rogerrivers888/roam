@@ -887,6 +887,12 @@ router.get('/:id/stays', async (req, res, next) => {
     const placement = ['plans', 'town', 'station'].includes(req.query.placement) ? req.query.placement : 'plans';
     const maxAvgMin = Math.min(120, Math.max(5, Number(req.query.maxAvgMin) || 20));
     const maxWalkMin = Math.min(40, Math.max(3, Number(req.query.maxWalkMin) || 10));
+    const maxTrainMin = Math.min(120, Math.max(5, Number(req.query.maxTrainMin) || 25));
+    const townMin = Math.min(90, Math.max(3, Number(req.query.townMin) || 15));
+    const budgetMin = Number(req.query.budgetMin) || 0;
+    // The top of the slider is "and above", so a ceiling at the maximum is no ceiling.
+    const budgetMax = Number(req.query.budgetMax) >= 400 ? Infinity : Number(req.query.budgetMax) || Infinity;
+    const wantTypes = String(req.query.types || '').split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
 
     /**
      * Are the plans spread out? Screen 19: when the days are an hour apart from
@@ -953,6 +959,29 @@ router.get('/:id/stays', async (req, res, next) => {
       ranked = [...ranked].sort((a, b) => (a.distanceKm ?? 99) - (b.distanceKm ?? 99));
     }
 
+    /**
+     * What was asked for, applied — and each of these is a filter rather than a
+     * nudge, because somebody who says "under twenty minutes" and is shown
+     * twenty-five has been ignored.
+     *
+     * A place with no price is never filtered out by a budget: not knowing what
+     * something costs is not the same as it costing too much, and on the
+     * afternoon the price source is quiet that rule is the difference between a
+     * list and an empty screen.
+     */
+    ranked = ranked.filter((st) => {
+      if (placement === 'plans' && anchors.length && st.typicalMinutes != null && st.typicalMinutes > maxAvgMin) return false;
+      if (placement === 'town' && st.distanceKm != null && estimateTravelMinutes(centre, st, mode) > townMin) return false;
+      if (placement === 'station') {
+        if ((st.station?.walkMinutes ?? 999) > maxWalkMin) return false;
+        if (st.typicalTrainMinutes != null && st.typicalTrainMinutes > maxTrainMin) return false;
+      }
+      const night = st.offer?.perNight ?? null;
+      if (night != null && (night < budgetMin || night > budgetMax)) return false;
+      if (wantTypes.length && !wantTypes.includes(String(st.stayKind || 'hotel').toLowerCase())) return false;
+      return true;
+    });
+
     ranked = ranked.slice(0, 40);
     const status = await householdStatus(household.id, ranked.map((s) => s.venueRef));
     // Every outbound call is attributed (Technical Constraints §2). LiteAPI is
@@ -967,6 +996,8 @@ router.get('/:id/stays', async (req, res, next) => {
       anchors: anchors.map((a) => ({ label: a.label, lat: a.lat, lng: a.lng })),
       placement,
       spread,
+      /** What was asked for, echoed back so the sheet can show it rather than its defaults. */
+      criteria: { maxAvgMin, townMin, maxTrainMin, maxWalkMin, budget: [budgetMin, Number.isFinite(budgetMax) ? budgetMax : null], types: wantTypes },
       results: ranked.map((s, i) => ({
         ...s,
         household: status[s.venueRef] ?? null,

@@ -31,7 +31,8 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { api, BrowseItem, HouseholdResponse, Stay, StayPlacement, TripAlongPlace, TripDay, TripDetail, TripPlace } from '../api';
 import { useViewport } from '../hooks/useViewport';
 import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
-import { Button, Card, Row, Segmented, StatusLine } from '../components/ui';
+import { Button, Card, Chip as UiChip, Row, Segmented, StatusLine, Wrap } from '../components/ui';
+import { RangeSlider } from '../components/RangeSlider';
 import { Icon, IconName, Stars } from '../components/Icon';
 import { VenueThumb } from '../components/VenueThumb';
 import { Avatar } from '../components/Faces';
@@ -103,6 +104,19 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const [placement, setPlacement] = useQueryState<StayPlacement>('where', 'plans', asOneOf(['plans', 'town', 'station'] as const, 'plans'));
   const [stayMode, setStayMode] = useQueryState<'driving' | 'walking'>('go', 'driving', asOneOf(['driving', 'walking'] as const, 'driving'));
   const [criteria, setCriteria] = useState(false);
+  /**
+   * What was asked for. In the address, so a set of criteria somebody has
+   * worked through is a page they can be sent — and so that coming back to the
+   * sheet shows what they chose rather than the defaults again.
+   */
+  const [crit, setCrit] = useQueryState<string | null>('stay', null, asText);
+  const criteriaState: StayCriteriaState = useMemo(() => {
+    const d: StayCriteriaState = { maxAvgMin: 20, townMin: 15, maxTrainMin: 25, maxWalkMin: 10, budget: [80, 180], types: [] };
+    if (!crit) return d;
+    try { return { ...d, ...JSON.parse(decodeURIComponent(crit)) }; } catch { return d; }
+  }, [crit]);
+  const setCriteriaState = (next: Partial<StayCriteriaState>) =>
+    setCrit(encodeURIComponent(JSON.stringify({ ...criteriaState, ...next })));
   /** Who's coming, over whatever is on screen (handoff §12). */
   const [who, setWho] = useState(false);
   /** Which day of a holiday is being looked at — the day strip (handoff §13/14). */
@@ -161,16 +175,22 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const [stays, setStays] = useState<{ loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; error: string | null }>(
     { loading: false, results: [], spread: null, error: null },
   );
-  const stayKey = pill === 'stay' ? `${placement}|${stayMode}` : null;
+  const stayKey = pill === 'stay' ? `${placement}|${stayMode}|${crit ?? ''}` : null;
   const lastStay = useRef<string | null>(null);
   useEffect(() => {
     if (!stayKey || stayKey === lastStay.current) return;
     lastStay.current = stayKey;
     setStays((v) => ({ ...v, loading: true, error: null }));
-    api.tripStays(trip.id, { placement, mode: stayMode })
+    api.tripStays(trip.id, {
+      placement, mode: stayMode,
+      maxAvgMin: criteriaState.maxAvgMin, townMin: criteriaState.townMin,
+      maxTrainMin: criteriaState.maxTrainMin, maxWalkMin: criteriaState.maxWalkMin,
+      budgetMax: criteriaState.budget[1], budgetMin: criteriaState.budget[0],
+      types: criteriaState.types.join(',') || undefined,
+    })
       .then((r) => setStays({ loading: false, results: r.results, spread: r.spread, error: null }))
       .catch((e) => setStays({ loading: false, results: [], spread: null, error: e.message }));
-  }, [stayKey, trip.id, placement, stayMode]);
+  }, [stayKey, trip.id, placement, stayMode, criteriaState]);
 
   const isTrip = trip.kind === 'trip';
   const base = trip.base && trip.base.kind !== 'centre' ? trip.base : null;
@@ -312,10 +332,15 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
             </Pressable>
           ) : null}
         </View>
+        {/* The dates of the whole trip, not one day of it: the day strip below
+            says which day, and saying it twice made the header disagree with
+            the picker (owner, 6 Sep 2026). */}
         <Text style={type.small} numberOfLines={1}>
-          {[isTrip ? `${fmtDate(trip.startDate ?? trip.departAt)}` : fmtDate(trip.departAt),
-            base ? base.label.split(',')[0] : 'from home',
-            !pill && dest && start ? `${mins(Math.max(1, Math.round(estimateMinutes(start, dest))))} each way` : null,
+          {[isTrip && trip.startDate && trip.endDate && trip.startDate !== trip.endDate
+            ? `${fmtDate(trip.startDate)} – ${fmtDate(trip.endDate)}`
+            : fmtDate(trip.startDate ?? trip.departAt),
+          base ? base.label.split(',')[0] : 'from home',
+          !pill && dest && start ? `${mins(Math.max(1, Math.round(estimateMinutes(start, dest))))} each way` : null,
           ].filter(Boolean).join(' · ')}
         </Text>
       </View>
@@ -520,6 +545,9 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           mode={stayMode} onMode={setStayMode}
           nights={nights} startDate={trip.startDate} endDate={trip.endDate}
           count={stays.results.length}
+          town={trip.locality ?? tripName(trip)}
+          criteria={criteriaState}
+          onCriteria={setCriteriaState}
           onClose={() => setCriteria(false)}
           onShow={() => { setCriteria(false); setPill('stay'); setDetent('half'); }}
         />
@@ -592,19 +620,10 @@ function TheDay({ d, day, onAdd }: { d: TripDetail; day: TripDay | null; onAdd: 
 
   return (
     <View style={{ paddingHorizontal: 16 }}>
-      {/* The one thing that still needs doing, if anything does. */}
-      {dest ? (
-        <View style={styles.booking}>
-          <VenueThumb name={dest.label} category="attraction" width={56} height={56} rounded={8} credit={false} />
-          <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-            <Text style={styles.bookingName} numberOfLines={1}>{tripName(trip)}{isTrip ? '' : ' · all day'}</Text>
-            <Text style={type.small} numberOfLines={1}>{d.attendees.length} {d.attendees.length === 1 ? 'person' : 'people'}</Text>
-            <Text style={[type.tiny, { color: colors.red, fontWeight: '700' }]}>Not booked yet</Text>
-          </View>
-          <Icon name="more" size={16} color={colors.inkMuted} />
-        </View>
-      ) : null}
-
+      {/* The booking card is gone (owner, 6 Sep 2026). It repeated the title
+          word for word, its chevron went nowhere, and it was the thing pushing
+          "Add something along the way" below the fold — which is the one
+          control the welcome screen exists for. */}
       <Text style={styles.kicker}>
         {days.length > 1 && day
           ? `${new Date(`${day.date}T12:00:00`).toLocaleDateString([], { weekday: 'long', day: 'numeric' })} · day ${dayIndex + 1} of ${days.length}${stops.length ? ` · ${stops.length} stop${stops.length === 1 ? '' : 's'}` : ''}`
@@ -1067,10 +1086,10 @@ function StaySignpost({ planned, days, onFind, onCriteria }: { planned: number; 
           ? `${planned} of ${days} day${days === 1 ? '' : 's'} planned · Roam can place you near them`
           : 'Nothing planned yet · Roam can place you near the middle of it, or by a station'}
       </Text>
-      <Row style={{ gap: 8 }}>
-        <View style={{ flex: 1.3 }}><Button label="Find stays near my plans" icon="hotel" onPress={onFind} /></View>
-        <View style={{ flex: 1 }}><Button label="Set criteria" kind="secondary" onPress={onCriteria} /></View>
-      </Row>
+      {/* Stacked, so each label has a line to itself. Side by side they were
+          two cramped columns of wrapped words (owner, 6 Sep 2026). */}
+      <Button label="Find stays near my plans" icon="hotel" onPress={onFind} />
+      <Button label="Search using my criteria" kind="secondary" icon="search" onPress={onCriteria} />
       <Text style={type.tiny}>Or keep planning — the more days you fill, the better the fit.</Text>
     </View>
   );
@@ -1082,59 +1101,178 @@ const PLACEMENTS: { key: StayPlacement; title: string; blurb: string; recommende
   { key: 'station', title: 'Near a station, anywhere', blurb: 'Happy to be further out if the train is a short walk. Usually much cheaper.' },
 ];
 
-/** How you want to stay (handoff §16/17), as a sheet over the map. */
-function StayCriteria({ placement, onPlacement, mode, onMode, nights, startDate, endDate, count, onClose, onShow }: {
+/** Everything the criteria sheet asks for, and all of it in the address. */
+export type StayCriteriaState = {
+  maxAvgMin: number; townMin: number; maxTrainMin: number; maxWalkMin: number;
+  budget: [number, number]; types: string[];
+};
+
+const AVG_MINS = [10, 20, 30, 45];
+const TOWN_MINS = [10, 15, 20, 30];
+const TRAIN_MINS = [15, 25, 40, 60];
+const WALK_MINS = [5, 10, 15, 20];
+/** The kinds of place the open map and the price source actually distinguish. */
+const STAY_TYPES = ['Hotel', 'Guest house', 'B&B', 'Hostel', 'Apartment', 'Farm stay', 'Campsite'];
+
+/** A small inline dropdown inside a criteria row: the minutes you will travel. */
+function MinutesPick({ label, value, options, unit, onChange }: {
+  label: string; value: number; options: number[]; unit: string; onChange: (n: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ gap: 6 }}>
+      <Pressable onPress={() => setOpen((v) => !v)} style={[styles.chip, styles.chipQuiet]} accessibilityRole="button">
+        <Text style={styles.chipText} numberOfLines={1}>{label.replace('{n}', String(value))}</Text>
+        <Icon name={open ? 'collapse' : 'expand'} size={13} color={colors.ink} />
+      </Pressable>
+      {open ? (
+        <View style={styles.inlineDrop}>
+          {options.map((n) => (
+            <Pressable key={n} onPress={() => { onChange(n); setOpen(false); }} style={styles.optRow} accessibilityRole="radio" accessibilityState={{ checked: n === value }}>
+              <Text style={[type.body, { flex: 1 }]}>{n} {unit}</Text>
+              {n === value ? <Icon name="check" size={16} color={colors.accent} /> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * Setting the criteria for a stay (handoff §16/17), in the two steps the owner
+ * asked for (6 Sep 2026): "we don't need to ask where you want to stay. We can
+ * just say 'Set your criteria for your stay', and then we have the next screen
+ * where you say 'near my plans', 'near a town or city'… Once you select… then
+ * it will take you into the next screen with the budget and the criteria, and
+ * then you're done."
+ *
+ * So: **where**, with the time you will travel attached to each answer, and
+ * then **what**, which is the money and the kind of place. Two short screens
+ * rather than one long one, and the second only after the first is answered —
+ * because what counts as a reasonable budget depends on the first.
+ */
+function StayCriteria({ placement, onPlacement, mode, onMode, nights, startDate, endDate, count, town, criteria, onCriteria, onClose, onShow }: {
   placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
   mode: 'driving' | 'walking'; onMode: (m: 'driving' | 'walking') => void;
-  nights: number; startDate?: string | null; endDate?: string | null; count: number;
+  nights: number; startDate?: string | null; endDate?: string | null; count: number; town: string;
+  criteria: StayCriteriaState; onCriteria: (next: Partial<StayCriteriaState>) => void;
   onClose: () => void; onShow: () => void;
 }) {
+  const [step, setStep] = useState<1 | 2>(1);
   const { width, height, framed, origin } = useViewport();
   const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height } : null;
+  const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={[{ flex: 1, justifyContent: 'flex-end' }, frameBox]}>
         <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel="Cancel" />
-        <View style={[styles.addSheet, { maxHeight: '86%' }]}>
+        <View style={[styles.addSheet, { maxHeight: '88%' }]}>
           <View style={styles.grabSmall} />
           <View style={styles.addHead}>
-            <Text style={styles.addTitle}>How do you want to stay?</Text>
-            <Pressable onPress={onClose} accessibilityRole="button"><Text style={[type.small, { fontWeight: '600' }]}>Cancel</Text></Pressable>
+            <Text style={styles.addTitle}>{step === 1 ? 'Set your criteria for your stay' : 'Budget and the kind of place'}</Text>
+            <Pressable onPress={step === 1 ? onClose : () => setStep(1)} accessibilityRole="button">
+              <Text style={[type.small, { fontWeight: '600' }]}>{step === 1 ? 'Cancel' : 'Back'}</Text>
+            </Pressable>
           </View>
-          <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 8 }}>
-            {/* Getting around sets the units everywhere else: a drive or a walk. */}
-            <Row style={{ justifyContent: 'space-between', gap: 12 }}>
-              <Text style={type.small}>Getting around</Text>
-              <View style={{ width: 236 }}>
-                <Segmented
-                  value={mode}
-                  options={[{ value: 'driving' as const, label: 'Car' }, { value: 'walking' as const, label: 'Walk & train' }]}
-                  onChange={onMode}
-                />
-              </View>
-            </Row>
 
-            {PLACEMENTS.map((o) => {
-              const on = placement === o.key;
-              return (
-                <Pressable key={o.key} onPress={() => onPlacement(o.key)} style={[styles.option, on && styles.optionOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
-                  <View style={[styles.radio, on && styles.radioOn]}>{on ? <Icon name="check" size={12} color={colors.primaryFg} strokeWidth={3} /> : null}</View>
-                  <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-                    <Row style={{ gap: 8 }}>
-                      <Text style={styles.optionTitle}>{o.title}</Text>
-                      {o.recommended ? <Text style={styles.recommend}>RECOMMENDED</Text> : null}
-                    </Row>
-                    <Text style={type.small}>{o.blurb}</Text>
+          <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
+            {step === 1 ? (
+              <>
+                {/* Getting around sets the units everywhere else: a drive or a walk. */}
+                <Row style={{ justifyContent: 'space-between', gap: 12 }}>
+                  <Text style={type.small}>Getting around</Text>
+                  <View style={{ width: 226 }}>
+                    <Segmented
+                      value={mode}
+                      options={[{ value: 'driving' as const, label: 'Car' }, { value: 'walking' as const, label: 'Train & walk' }]}
+                      onChange={onMode}
+                    />
                   </View>
-                </Pressable>
-              );
-            })}
+                </Row>
 
-            <Text style={type.tiny}>
-              {nights ? `${nights} night${nights === 1 ? '' : 's'}${startDate && endDate ? ` · ${fmtDate(startDate)} – ${fmtDate(endDate)}` : ''}` : 'No nights on this trip yet.'}
-            </Text>
+                {PLACEMENTS.map((o) => {
+                  const on = placement === o.key;
+                  return (
+                    <View key={o.key} style={[styles.option, on && styles.optionOn]}>
+                      <Pressable onPress={() => onPlacement(o.key)} style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }} accessibilityRole="radio" accessibilityState={{ checked: on }}>
+                        <View style={[styles.radio, on && styles.radioOn]}>{on ? <Icon name="check" size={12} color={colors.primaryFg} strokeWidth={3} /> : null}</View>
+                        <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                          <Row style={{ gap: 8 }}>
+                            <Text style={styles.optionTitle}>{o.title}</Text>
+                            {o.recommended ? <Text style={styles.recommend}>RECOMMENDED</Text> : null}
+                          </Row>
+                          <Text style={type.small}>{o.blurb}</Text>
+                        </View>
+                      </Pressable>
+
+                      {/* How far you will travel, attached to the answer it
+                          belongs to rather than floating above all three. */}
+                      {on && o.key === 'plans' ? (
+                        <View style={{ marginLeft: 32, marginTop: 8 }}>
+                          <MinutesPick label="Under {n} min on average" value={criteria.maxAvgMin} options={AVG_MINS} unit="minutes on average" onChange={(n) => onCriteria({ maxAvgMin: n })} />
+                        </View>
+                      ) : null}
+                      {on && o.key === 'town' ? (
+                        <View style={{ marginLeft: 32, marginTop: 8, gap: 8 }}>
+                          <MinutesPick label={`Within {n} min of ${town}`} value={criteria.townMin} options={TOWN_MINS} unit={mode === 'driving' ? 'minutes drive' : 'minutes walk'} onChange={(n) => onCriteria({ townMin: n })} />
+                        </View>
+                      ) : null}
+                      {on && o.key === 'station' ? (
+                        <View style={{ marginLeft: 32, marginTop: 8, gap: 8 }}>
+                          <MinutesPick label="Trains up to {n} min to my plans" value={criteria.maxTrainMin} options={TRAIN_MINS} unit="minutes by train" onChange={(n) => onCriteria({ maxTrainMin: n })} />
+                          <MinutesPick label="No more than {n} min walk to the platform" value={criteria.maxWalkMin} options={WALK_MINS} unit="minutes walk" onChange={(n) => onCriteria({ maxWalkMin: n })} />
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </>
+            ) : (
+              <>
+                <View style={{ gap: 8 }}>
+                  <Text style={styles.kicker}>Budget a night</Text>
+                  <RangeSlider
+                    min={40}
+                    max={400}
+                    step={10}
+                    low={criteria.budget[0]}
+                    high={criteria.budget[1]}
+                    onChange={(low, high) => onCriteria({ budget: [low, high] })}
+                    format={(v) => (v >= 400 ? '£400+' : `£${v}`)}
+                  />
+                  <Text style={type.tiny}>
+                    {nights ? `${nights} night${nights === 1 ? '' : 's'}${startDate && endDate ? ` · ${fmtDate(startDate)} – ${fmtDate(endDate)}` : ''}` : 'No nights on this trip yet, so there are no prices to compare.'}
+                  </Text>
+                </View>
+
+                <View style={{ gap: 8 }}>
+                  <Text style={styles.kicker}>Type of place</Text>
+                  <Wrap>
+                    <UiChip label="Any" selected={!criteria.types.length} onPress={() => onCriteria({ types: [] })} />
+                    {STAY_TYPES.map((t) => (
+                      <UiChip key={t} label={t} selected={criteria.types.includes(t)} onPress={() => onCriteria({ types: toggle(criteria.types, t) })} />
+                    ))}
+                  </Wrap>
+                </View>
+
+                {/* Must-haves are not offered, because they cannot be honoured.
+                    Neither the open map nor the price source says whether a bed
+                    has a pool, a kitchen or parking, and a filter that quietly
+                    does nothing is worse than one that is not there. Recorded
+                    in the back office's How it works. */}
+                <Text style={type.tiny}>
+                  Pools, kitchens and parking are not asked for yet — neither the open map nor the price source
+                  says whether a place has them, and a filter that quietly does nothing is worse than none.
+                </Text>
+              </>
+            )}
           </ScrollView>
-          <Button label={count ? `Show ${count} stays` : 'Show stays'} icon="hotel" onPress={onShow} />
+
+          {step === 1
+            ? <Button label="Next · budget and type" icon="forward" onPress={() => setStep(2)} />
+            : <Button label={count ? `Show ${count} stays` : 'Show stays'} icon="hotel" onPress={onShow} />}
         </View>
       </View>
     </Modal>
@@ -1361,6 +1499,8 @@ const styles = StyleSheet.create({
   ctaText: { fontFamily: fonts.heading, fontSize: 14, fontWeight: '700', color: colors.ink },
 
   chips: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingTop: 12, flexWrap: 'wrap' },
+  chipQuiet: { borderColor: colors.ink },
+  inlineDrop: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, paddingHorizontal: 12, paddingBottom: 4 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, height: 34, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, maxWidth: 220 },
   chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { fontFamily: fonts.body, fontSize: 12.5, fontWeight: '600', color: colors.ink, flexShrink: 1 },
@@ -1383,7 +1523,9 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontFamily: fonts.body, fontSize: 15, color: colors.ink, outlineStyle: 'none' as any },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
   searchTile: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
-  strip: { gap: 8, paddingVertical: 12, paddingRight: 16 },
+  // Clear of both edges. It was flush against the left, and a fortnight's worth
+  // scrolls rather than shrinking — a day chip you cannot read is not a chip.
+  strip: { gap: 8, paddingVertical: 12, paddingLeft: 16, paddingRight: 16 },
   dayChip: { width: 44, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, alignItems: 'center', gap: 1 },
   dayChipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   dayChipDow: { fontFamily: fonts.body, fontSize: 10, fontWeight: '600', color: colors.inkMuted },
