@@ -142,29 +142,36 @@ export function MapGL({ markers, routes = [], padding, fitKey, focusId, onMapPre
     // The credit goes top-right, because the bottom of the map is under the
     // sheet and OpenStreetMap's credit being visible is a condition of using
     // the tiles, not a decoration that may be covered up.
-    const credit = new maplibregl.AttributionControl({ compact: true });
-    m.addControl(credit, 'top-right');
+    m.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-right');
     /**
      * Collapsed to its ⓘ, and kept that way until somebody taps it.
      *
-     * MapLibre opens the compact control on load and on every style change, and
-     * a banner of source names across the top of the map is not what the
-     * licence asks for — it asks that the credit be *reachable*, which one tap
-     * is. So the class is taken off whenever it comes back, and the ⓘ still
-     * opens it.
+     * MapLibre opens the compact control on load and again on every style
+     * change, and a banner of source names across the top of the map is not
+     * what the licence asks for — it asks that the credit be *reachable*, which
+     * one tap is.
+     *
+     * This was a `MutationObserver` for one commit and it wedged the whole
+     * screen: `classList.remove` writes the `class` attribute whether or not
+     * the class was there, every attribute write queues a mutation record, and
+     * a callback that always writes is a microtask loop that starves the event
+     * loop for good. Nothing on the page moved again. It is MapLibre's own
+     * events now, and the removal only happens when there is something to
+     * remove — the two things that make it terminate.
      */
     const collapse = () => {
       const el = host.current?.querySelector('.maplibregl-ctrl-attrib');
-      if (el && !el.getAttribute('data-roam-opened')) el.classList.remove('maplibregl-compact-show');
+      if (!el || el.getAttribute('data-roam-opened')) return;
+      if (el.classList.contains('maplibregl-compact-show')) el.classList.remove('maplibregl-compact-show');
+      const button = el.querySelector('.maplibregl-ctrl-attrib-button');
+      if (button && !button.getAttribute('data-roam-bound')) {
+        button.setAttribute('data-roam-bound', '1');
+        // A tap on the ⓘ is somebody asking for it, and it stays open after that.
+        button.addEventListener('click', () => el.setAttribute('data-roam-opened', '1'));
+      }
     };
-    const watch = new MutationObserver(collapse);
-    requestAnimationFrame(() => {
-      const el = host.current?.querySelector('.maplibregl-ctrl-attrib');
-      collapse();
-      // A tap on the ⓘ is somebody asking for it, and it stays open after that.
-      el?.querySelector('.maplibregl-ctrl-attrib-button')?.addEventListener('click', () => el.setAttribute('data-roam-opened', '1'));
-      if (el) watch.observe(el, { attributes: true, attributeFilter: ['class'] });
-    });
+    m.on('styledata', collapse);
+    m.on('idle', collapse);
     m.on('load', () => { ready.current = true; });
     // The same rule for the map itself: a click that began somewhere else — the
     // tail of a drag on the sheet — is not a tap on the map.
@@ -173,7 +180,7 @@ export function MapGL({ markers, routes = [], padding, fitKey, focusId, onMapPre
     m.on('touchstart', () => { pressed = true; });
     m.on('click', () => { if (!pressed) return; pressed = false; onMapPress?.(); });
     map.current = m;
-    return () => { watch.disconnect(); m.remove(); map.current = null; ready.current = false; };
+    return () => { m.remove(); map.current = null; ready.current = false; };
   }, []);
 
   // The palette changed under it (light ↔ dark).

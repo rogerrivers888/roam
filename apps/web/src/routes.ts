@@ -259,6 +259,27 @@ export const paths = {
   join: (token: string) => buildHref(['join', token]),
 };
 
+/**
+ * Screens where the shell draws no chrome of its own.
+ *
+ * The trip is a map now (design handoff, 6 Sep 2026), and a map with a mint
+ * band and a wordmark above it is not a map that fills the screen — the owner,
+ * 6 Sep 2026: "The map is supposed to take up the entire top of the screen,
+ * literally everything. There should be no Roam icon or logo. It should take up
+ * the entire screen, all the way to the edge of the screen, including the
+ * little pill in the middle of the iPhone."
+ *
+ * So on these the header is not drawn at all and the tab bar floats over the
+ * map rather than sitting under it. The trip's working surfaces — Find, the
+ * shortlist, Stay — are ordinary pages and keep the chrome.
+ */
+export function isFullBleed(route: Route): boolean {
+  return route.name === 'trips'
+    && !route.creating
+    && route.tripId != null
+    && (route.section == null || TRIP_TABS.includes(route.section));
+}
+
 /** Which tab in the shell a route belongs under, so the rail can light up. */
 export function tabOf(route: Route): Tab | null {
   switch (route.name) {

@@ -24,7 +24,7 @@ import { useOutbox } from './src/hooks/useOutbox';
 import { useSession } from './src/hooks/useSession';
 import { Icon, IconName } from './src/components/Icon';
 import { RouterProvider, rememberedAddress, useRememberedAddress, useRouter } from './src/router';
-import { legacyHref, parseRoute, paths, Route, splitHref, Tab, TripSection, tabOf, titleOf } from './src/routes';
+import { isFullBleed, legacyHref, parseRoute, paths, Route, splitHref, Tab, TripSection, tabOf, titleOf } from './src/routes';
 
 // Roam opens on Inspire (owner, 5 Sep 2026, "Supporting docs/Roam Inspire"):
 // what there is to do, with one search bar above it. The conversational planner
@@ -64,6 +64,19 @@ export default function App() {
       <Frame />
     </RouterProvider>
   );
+}
+
+/**
+ * The outermost box. Normally `SafeAreaView`, which keeps the app clear of the
+ * notch and the home indicator; on a full-bleed screen a plain `View`, because
+ * the whole point is that the map runs under both (owner, 6 Sep 2026: "all the
+ * way to the edge of the screen, including the little pill in the middle of the
+ * iPhone"). What must stay clear of them is the sheet and the tab bar, and each
+ * of those keeps itself clear.
+ */
+function Edges({ children, style, bleed }: { children: React.ReactNode; style?: any; bleed?: boolean }) {
+  const Box: any = bleed ? View : SafeAreaView;
+  return <Box style={style}>{children}</Box>;
 }
 
 function Frame() {
@@ -249,6 +262,11 @@ function Shell({ route, isOwner, mayAdminister = false }: { route: Route; isOwne
   const { href, navigate } = useRouter();
   const desktop = width >= DESKTOP;
   const tab = tabOf(route);
+  /**
+   * A screen that draws to every edge: no mint band above it, and the tab bar
+   * over it rather than under it. A trip is one, because the trip is a map now.
+   */
+  const fullBleed = !desktop && isFullBleed(route);
   /**
    * Where each tab was left (owner, 4 Sep 2026: "I come back 10 minutes later
    * after navigating off that tab, everything's disappeared").
@@ -444,7 +462,7 @@ function Shell({ route, isOwner, mayAdminister = false }: { route: Route; isOwne
   // between desktop and phone (window resize or the Web/Mobile toggle) keeps
   // whatever is open on the screen — the trip you were looking at, a search.
   return (
-    <SafeAreaView style={styles.root}>
+    <Edges style={styles.root} bleed={fullBleed}>
       <StatusBar style="dark" />
       <View style={desktop ? styles.desktop : styles.fill}>
         {desktop ? (
@@ -466,7 +484,7 @@ function Shell({ route, isOwner, mayAdminister = false }: { route: Route; isOwne
             {/* The corner is who you are and how the app looks — not the API's address (owner, 4 Sep 2026). */}
             <You household={household} onOpen={() => navigate(paths.settings())} />
           </View>
-        ) : (
+        ) : fullBleed ? null : (
           <View style={styles.header}>
             <Wordmark height={34} />
             {mayAdminister ? (
@@ -484,7 +502,10 @@ function Shell({ route, isOwner, mayAdminister = false }: { route: Route; isOwne
           {screen}
         </View>
         {!desktop ? (
-          <View style={styles.tabs} accessibilityRole="tablist">
+          // On a full-bleed screen the tab bar floats over the map instead of
+          // taking a strip off the bottom of it, so the map really does reach
+          // every edge (owner, 6 Sep 2026).
+          <View style={[styles.tabs, fullBleed && styles.tabsOver]} accessibilityRole="tablist">
             {tabs.map((t) => (
               <Pressable key={t.key} onPress={() => navigate(t.href)} style={styles.tab} accessibilityRole="tab" accessibilityState={{ selected: tab === t.key }}>
                 <Icon name={t.icon} size={20} color={tab === t.key ? colors.ink : colors.inkMuted} />
@@ -494,7 +515,7 @@ function Shell({ route, isOwner, mayAdminister = false }: { route: Route; isOwne
           </View>
         ) : null}
       </View>
-    </SafeAreaView>
+    </Edges>
   );
 }
 
@@ -607,6 +628,7 @@ const styles = StyleSheet.create({
   bannerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   bannerDown: { backgroundColor: colors.overrunSoft },
   tabs: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.tabbar, paddingBottom: 4 },
+  tabsOver: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   tab: { flex: 1, minHeight: TARGET + 10, alignItems: 'center', justifyContent: 'center', gap: 2 },
   tabText: { fontSize: 11, fontWeight: '600', color: colors.inkMuted },
   tabTextActive: { color: colors.ink },
