@@ -166,8 +166,24 @@ function AccountStep({ v, busy, onBack, onDone }: {
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [matchId, setMatchId] = useState<string | null>(null);
+  const [known, setKnown] = useState(false);
   const them = v.group.organiser ?? 'The organiser';
   const named = v.expecting.length > 0;
+
+  // Somebody who already uses Roam and is signed in on this device is not being
+  // asked who they are — they are being asked to confirm it (Epic 4, AC6). The
+  // API recognises the same contact and signs them into the account they have.
+  useEffect(() => {
+    let live = true;
+    api.sessionState().then((st) => {
+      const acc: any = st.account;
+      if (!live || !acc) return;
+      setKnown(true);
+      setName((n) => n || acc.name || '');
+      setContact((c) => c || acc.email || acc.mobile || '');
+    }).catch(() => {});
+    return () => { live = false; };
+  }, []);
 
   return (
     <View style={{ gap: spacing.md }}>
@@ -179,9 +195,11 @@ function AccountStep({ v, busy, onBack, onDone }: {
       </Row>
 
       <View style={{ gap: 4 }}>
-        <Text style={type.title}>{named ? 'First, which one are you?' : 'First, who are you?'}</Text>
+        <Text style={type.title}>{known ? "You're in Roam already" : named ? 'First, which one are you?' : 'First, who are you?'}</Text>
         <Text style={type.small}>
-          {named
+          {known
+            ? `Your Roam account joins this trip — ${them} sees your name and how to reach you, and nothing else. Your own trips and household stay yours.`
+            : named
             ? `${them} added a few names when he set this up. Tap yours, or type it if it isn't there. This also makes you a Roam account.`
             : `${them} shared this link openly, so we don't know you yet. They'll see your name and how to reach you — nothing else. This also makes you a Roam account.`}
         </Text>
@@ -231,6 +249,7 @@ function AccountStep({ v, busy, onBack, onDone }: {
         </Text>
       </View>
 
+      {known ? null : (
       <View style={styles.trialCard}>
         <Row style={{ alignItems: 'flex-start' }}>
           <View style={styles.trialIcon}><Icon name="gift" size={16} color={colors.headerSub} /></View>
@@ -242,16 +261,19 @@ function AccountStep({ v, busy, onBack, onDone }: {
           </View>
         </Row>
       </View>
+      )}
 
       <View style={{ gap: 6 }}>
         <Button
-          label={v.group.canSendCode ? 'Send my code' : 'Create my account'}
+          label={known ? `Join as ${firstName(name) || 'me'}` : v.group.canSendCode ? 'Send my code' : 'Create my account'}
           icon="forward" loading={busy}
           onPress={() => { if (name.trim() && contact.trim()) onDone({ name: name.trim(), contact: contact.trim(), matchId }); }}
         />
-        <Text style={[type.small, { textAlign: 'center' }]}>
-          Already use Roam? <Text style={{ color: colors.accent, fontWeight: '700' }}>Sign in</Text> with the same mobile or email above.
-        </Text>
+        {known ? null : (
+          <Text style={[type.small, { textAlign: 'center' }]}>
+            Already use Roam? <Text style={{ color: colors.accent, fontWeight: '700' }}>Sign in</Text> with the same mobile or email above.
+          </Text>
+        )}
       </View>
     </View>
   );
