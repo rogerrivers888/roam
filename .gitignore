@@ -3,6 +3,8 @@ node_modules/
 .env.local
 .expo/
 dist/
+# Flag artwork copied out of country-flag-icons by apps/web/scripts/flags.mjs.
+apps/web/public/flags/
 web-build/
 *.log
 .DS_Store

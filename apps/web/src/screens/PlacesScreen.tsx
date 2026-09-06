@@ -6,6 +6,7 @@ import { api, AtlasCity, AtlasCountry, AtlasHome, AtlasPlace, BrowseItem, Househ
 import { MapView, MapPin } from '../components/MapView';
 import { VenueDrawer } from '../components/VenueDrawer';
 import { VenueThumb } from '../components/VenueThumb';
+import { Flag } from '../components/Flag';
 import type { TripSeed } from './TripsScreen';
 import { TripCard } from '../components/TripCard';
 import { asList, asOneOf, asText, useQueryState, useRouter, useStickyQuery } from '../router';
@@ -450,14 +451,6 @@ function AtlasRoot({ data, error, household, members, viewer, wide, adding, onAd
 }
 
 /**
- * A country, as a row: the flag tile the redesign draws, the areas and places
- * and trips in it, and the trip that says when the household was last there.
- *
- * The tile is the two-letter code rather than a flag image: the handover calls
- * the flags "2-letter code placeholders pending real flags", and a code we know
- * is right beats a flag sprite we would have to go and license.
- */
-/**
  * "Puglia · Aug 2025", and never "Bath · Sep 2026 · Sept 2026": a trip's own
  * name often has the month in it already, and saying it twice reads as a bug.
  */
@@ -469,6 +462,15 @@ function tripWhen(t: TripBrief): string {
   return said.includes(mon.slice(0, 3).toLowerCase()) && said.includes(year) ? name : `${name} · ${t.on}`;
 }
 
+/**
+ * A country, as a row: the flag tile the redesign draws, the areas and places
+ * and trips in it, and the trip that says when the household was last there.
+ *
+ * The tile was the two-letter code while the handover's "2-letter code
+ * placeholders pending real flags" stood. It is the flag now (owner, 6 Sep
+ * 2026) — `Flag` draws it from country-flag-icons and falls back to the code
+ * for anywhere that has no drawing.
+ */
 function CountryRow({ country: c, first, onPress }: { country: AtlasCountry; first?: boolean; onPress: () => void }) {
   const bits = [
     c.areas ? `${c.areas} area${c.areas === 1 ? '' : 's'}` : null,
@@ -480,7 +482,7 @@ function CountryRow({ country: c, first, onPress }: { country: AtlasCountry; fir
       : 'Nothing planned yet';
   return (
     <Pressable onPress={onPress} style={[styles.arow, !first && styles.rowLine]} accessibilityRole="button">
-      <View style={styles.flag}><Text style={styles.flagText}>{c.code}</Text></View>
+      <Flag code={c.code} />
       <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
         <Text style={type.h3} numberOfLines={1}>{c.name}</Text>
         <Text style={type.small} numberOfLines={1}>{bits.join(' · ') || 'Nothing saved yet'}</Text>
@@ -537,7 +539,7 @@ function CountryPanel({ code, row, wide, onBack, onArea }: {
         <Row style={{ gap: spacing.sm }}>
           <Pressable onPress={onBack} style={styles.roundBtn} accessibilityRole="button" accessibilityLabel="Places"><Icon name="back" size={19} color={colors.ink} /></Pressable>
           <Text style={[type.title, { flex: 1 }]} numberOfLines={1}>{row?.name ?? code}</Text>
-          <View style={styles.flag}><Text style={styles.flagText}>{code}</Text></View>
+          <Flag code={code} />
         </Row>
       </View>
       <View style={[styles.body, wide && styles.bodyCentred]}>
@@ -1235,10 +1237,6 @@ const styles = StyleSheet.create({
   fieldWideCentred: { width: '100%', maxWidth: 860, alignSelf: 'center' },
   bodyCentred: { width: '100%', maxWidth: 860, alignSelf: 'center' },
   roundBtn: { width: 40, height: 40, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-  // A country's tile: the two-letter code, which is what the handover draws
-  // until there are flags we own.
-  flag: { width: 44, height: 32, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
-  flagText: { fontFamily: fonts.heading, fontSize: 11, fontWeight: '700', letterSpacing: 0.66, color: colors.headerSub },
   // The green status line under every row: what the household did here.
   green: { fontFamily: fonts.body, fontSize: 12, fontWeight: '600', color: colors.accent },
   arow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 11, paddingHorizontal: spacing.md, minHeight: TARGET },

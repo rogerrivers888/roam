@@ -5,15 +5,16 @@
   "main": "index.ts",
   "scripts": {
     "start": "serve dist -s -l tcp://0.0.0.0:${PORT:-8080} --no-clipboard",
-    "web": "expo start --web",
+    "web": "node scripts/flags.mjs && expo start --web",
     "ios": "expo start --ios",
     "android": "expo start --android",
     "typecheck": "node --stack-size=8000 ../../node_modules/typescript/lib/tsc.js --noEmit",
-    "build": "expo export --platform web --output-dir dist",
+    "build": "node scripts/flags.mjs && expo export --platform web --output-dir dist",
     "test": "node --test \"test/*.test.ts\""
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.15",
+    "country-flag-icons": "^1.6.20",
     "expo": "~57.0.19",
     "expo-image-manipulator": "~57.0.15",
     "expo-image-picker": "~57.0.15",
