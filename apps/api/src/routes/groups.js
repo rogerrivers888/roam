@@ -27,6 +27,9 @@ import crypto from 'node:crypto';
 import { withTransaction } from '../db.js';
 import * as groupsRepo from '../repositories/groups.js';
 import * as tripsRepo from '../repositories/trips.js';
+import * as accountsRepo from '../repositories/accounts.js';
+import * as householdsRepo from '../repositories/households.js';
+import { openSession } from '../auth.js';
 import { currentHousehold, householdOf } from './household.js';
 import { CADENCES, DEFAULT_CADENCE, QUIET_HOURS, dueRuns, nextRun, reminderBody, schedule } from '../domain/reminders.js';
 import { channelReady, sendReminder } from '../sources/notify.js';
@@ -73,6 +76,9 @@ const publicItem = (i) => ({
   closesOn: ymd(i.closes_on), lateJoiners: i.late_joiners, state: i.state,
   settledPence: i.settled_pence, settledHeads: i.settled_heads, settledAt: i.settled_at, dueOn: ymd(i.due_on),
   cancelledNote: i.cancelled_note,
+  // v2: when it happens, where it is booked, and the organiser's line for the guest.
+  startsOn: ymd(i.starts_on), startsAt: i.starts_at?.slice(0, 5) ?? null, endsAt: i.ends_at?.slice(0, 5) ?? null,
+  bookWhere: i.book_where, externalUrl: i.external_url, guestNote: i.guest_note,
 });
 
 /**
@@ -249,6 +255,12 @@ export async function groupPayload(groupId) {
       id: group.id, tripId: group.trip_id, name: group.name, expectedCount: group.expected_count,
       minimumCount: group.minimum_count, maximumCount: group.maximum_count, wantedBy: ymd(group.wanted_by), inviteToken: group.invite_token, closed: Boolean(group.closed_at),
       remindersOn: group.reminders_on, cadence: group.reminder_cadence, setupDone: group.setup_done,
+      paymentMode: group.payment_mode,
+      invite: {
+        coverKind: group.cover_kind ?? 'banner', coverUrl: group.cover_url, coverSource: group.cover_source,
+        title: group.invite_title, summary: group.invite_summary,
+        howItWorks: Array.isArray(group.how_it_works) ? group.how_it_works : [],
+      },
       firstReminderOn: ymd(group.first_reminder_on),
       cancelledAt: group.cancelled_at, cancelledNote: group.cancelled_note,
     },
@@ -322,7 +334,7 @@ router.post('/trips/:id/group', async (req, res, next) => {
     const group = await withTransaction(async (client) => {
       const created = await groupsRepo.insertGroup(trip.id, household.id, {
         name: b.name?.trim() || trip.title || trip.place_label || 'The group',
-        expectedCount: num(b.expectedCount), minimumCount: num(b.minimumCount),
+        expectedCount: num(b.expectedCount), minimumCount: num(b.minimumCount), maximumCount: num(b.maximumCount),
         wantedBy, inviteToken: token(),
         remindersOn: b.remindersOn !== false,
         cadence: CADENCES[b.cadence] ? b.cadence : DEFAULT_CADENCE,
@@ -387,6 +399,16 @@ router.patch('/groups/:id', async (req, res, next) => {
     if (b.firstReminderOn !== undefined) put('first_reminder_on', ymd(b.firstReminderOn));
     if (b.closed !== undefined) put('closed_at', b.closed ? new Date() : null);
     if (b.setupDone !== undefined) put('setup_done', Boolean(b.setupDone));
+    if (b.paymentMode !== undefined) put('payment_mode', b.paymentMode === 'roam' ? 'roam' : 'direct');
+    if (b.coverKind !== undefined) put('cover_kind', b.coverKind === 'full' ? 'full' : 'banner');
+    if (b.coverUrl !== undefined) put('cover_url', b.coverUrl || null);
+    if (b.coverSource !== undefined) put('cover_source', b.coverSource || null);
+    if (b.inviteTitle !== undefined) put('invite_title', String(b.inviteTitle).slice(0, 40) || null);
+    if (b.inviteSummary !== undefined) put('invite_summary', String(b.inviteSummary).slice(0, 160) || null);
+    if (b.howItWorks !== undefined) {
+      const points = (Array.isArray(b.howItWorks) ? b.howItWorks : []).map((x) => String(x).slice(0, 90)).filter(Boolean).slice(0, 4);
+      put('how_it_works', JSON.stringify(points));
+    }
     if (b.newLink) put('invite_token', token());
     if (!sets.length) return res.json(await groupPayload(group.id));
     await groupsRepo.updateGroup(group.id, sets, params);
@@ -426,6 +448,10 @@ router.post('/groups/:id/items', async (req, res, next) => {
       expectedCount: num(b.expectedCount), minimumCount: num(b.minimumCount), capacity: num(b.capacity),
       closesOn: ymd(b.closesOn),
       lateJoiners: ['capacity', 'no', 'ask'].includes(b.lateJoiners) ? b.lateJoiners : 'capacity',
+      // v2: when it is, where it is booked, and the line the guest reads.
+      startsOn: ymd(b.startsOn), startsAt: b.startsAt || null, endsAt: b.endsAt || null,
+      bookWhere: ['roam', 'yourself', 'there'].includes(b.bookWhere) ? b.bookWhere : null,
+      externalUrl: b.externalUrl?.trim() || null, guestNote: b.guestNote?.trim() || null,
     });
     res.status(201).json(await groupPayload(group.id));
   } catch (err) { next(err); }
@@ -452,6 +478,12 @@ router.patch('/groups/:id/items/:itemId', async (req, res, next) => {
     if (b.capacity !== undefined) put('capacity', num(b.capacity));
     if (b.closesOn !== undefined) put('closes_on', ymd(b.closesOn));
     if (b.lateJoiners !== undefined && ['capacity', 'no', 'ask'].includes(b.lateJoiners)) put('late_joiners', b.lateJoiners);
+    if (b.startsOn !== undefined) put('starts_on', ymd(b.startsOn));
+    if (b.startsAt !== undefined) put('starts_at', b.startsAt || null);
+    if (b.endsAt !== undefined) put('ends_at', b.endsAt || null);
+    if (b.bookWhere !== undefined) put('book_where', ['roam', 'yourself', 'there'].includes(b.bookWhere) ? b.bookWhere : null);
+    if (b.externalUrl !== undefined) put('external_url', b.externalUrl?.trim() || null);
+    if (b.guestNote !== undefined) put('guest_note', b.guestNote?.trim() || null);
     if (b.state !== undefined && ['open', 'closed', 'cancelled'].includes(b.state)) put('state', b.state);
     if (!sets.length) return res.json(await groupPayload(group.id));
     const before = await groupsRepo.itemOfGroup(req.params.itemId, group.id);
@@ -869,6 +901,15 @@ async function joinPayload(group, participantToken) {
         } : null,
       };
     }),
+    // The invite page, as the organiser wrote it, with everything else drawn
+    // from the group so it cannot drift (Epic 3).
+    invite: {
+      coverKind: group.cover_kind ?? 'banner', coverUrl: group.cover_url,
+      title: group.invite_title || group.name || trip.title,
+      summary: group.invite_summary,
+      howItWorks: Array.isArray(group.how_it_works) ? group.how_it_works : [],
+      placesLeft: group.maximum_count ? Math.max(0, group.maximum_count - active.filter((p) => p.joined_at).reduce((n, p) => n + p.heads, 0)) : null,
+    },
     // Only so a join can be offered as "are you Priya S.?" rather than a form.
     // Anyone can be holding this link, so the surname is not theirs to read:
     // enough to recognise yourself, not enough to learn who else was asked.
@@ -923,6 +964,170 @@ router.post('/join/:token', async (req, res, next) => {
       });
     }
     res.status(201).json({ participantToken: me.token, ...(await joinPayload(group, me.token)) });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/join/:token/account — the guest becomes a Roam user.
+ *
+ * One screen asked their name and one way to reach them; this is what that
+ * costs them. An account of their own (accounts, 033) with a household of their
+ * own and thirty days of the whole app, no card and nothing to cancel — and a
+ * session on this device, because they are standing in front of it holding a
+ * link somebody sent them, which is the only proof this journey can have.
+ *
+ * Somebody who already has a Roam account is recognised by their contact and
+ * signed into the one they have; their household is not touched.
+ */
+router.post('/join/:token/account', async (req, res, next) => {
+  try {
+    const group = await groupByToken(req.params.token);
+    if (group.cancelled_at) return res.status(409).json({ error: 'group_cancelled', message: 'This trip has been called off.' });
+    if (group.closed_at) return res.status(409).json({ error: 'group_closed', message: 'This group is not taking any more people.' });
+    const b = req.body || {};
+    const name = b.name?.trim();
+    if (!name) return res.status(400).json({ error: 'name_required', message: 'Give the name the organiser knows you by.' });
+    const contact = b.contact?.trim() || null;
+    if (!contact) return res.status(400).json({ error: 'contact_required', message: 'One way to reach you: a mobile or an email.' });
+    const isEmail = contact.includes('@');
+
+    // Full is full, counted in heads rather than rows.
+    const people = await groupsRepo.participantsPlain(group.id);
+    const active = people.filter((p) => !p.withdrawn_at);
+    const heads = active.filter((p) => p.joined_at).reduce((n, p) => n + p.heads, 0);
+    if (group.maximum_count && heads >= group.maximum_count) {
+      return res.status(409).json({ error: 'group_full', message: `This trip is full — ${heads} of ${group.maximum_count}.` });
+    }
+
+    const existing = await accountsRepo.accountByContact({ email: isEmail ? contact : null, mobile: isEmail ? null : contact });
+    const account = existing && existing.status !== 'suspended'
+      ? existing
+      : await accountsRepo.createGuestAccount({ name, email: isEmail ? contact : null, mobile: isEmail ? null : contact });
+
+    // Their row on this group: the one the organiser added by name if it
+    // matches, otherwise a new one. Never two rows for one person.
+    const match = active.find((p) => p.id === b.matchId && !p.joined_at)
+      ?? active.find((p) => p.account_id === account.id)
+      ?? active.find((p) => !p.joined_at && p.name.trim().toLowerCase() === name.toLowerCase());
+    const me = match
+      ? await groupsRepo.joinOntoParticipant(match.id, { name, contact, contactKind: isEmail ? 'email' : 'mobile', heads: match.heads || 1, token: token() })
+      : await groupsRepo.insertParticipant(group.id, { name, contact, contactKind: isEmail ? 'email' : 'mobile', heads: 1, joinedAt: new Date(), token: token() });
+    await groupsRepo.linkParticipantAccount(me.id, account.id);
+
+    const { token: sessionToken } = await openSession(`${name} · invited to ${group.name ?? 'a trip'}`, account.id);
+    await accountsRepo.recordSignIn(account.id, { method: 'invite', label: group.name ?? null });
+
+    res.status(201).json({
+      participantToken: me.token,
+      sessionToken,
+      account: {
+        id: account.id, name: account.name ?? name, email: account.email, mobile: account.mobile,
+        householdId: account.household_id, plan: account.plan, trialEndsOn: ymd(account.trial_ends_on),
+        returning: Boolean(existing),
+      },
+      ...(await joinPayload(group, me.token)),
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/join/:token/household — who is coming with them.
+ *
+ * The people they live with become members of their own household in Roam (so
+ * the next trip knows them), and how many of those are coming becomes the
+ * participant's headcount, which is what every per-person price divides by.
+ */
+router.post('/join/:token/household', async (req, res, next) => {
+  try {
+    const group = await groupByToken(req.params.token);
+    const me = await groupsRepo.participantByToken(group.id, req.body?.participantToken ?? '');
+    if (!me) return res.status(403).json({ error: 'not_you', message: 'Say who you are first.' });
+    const rows = Array.isArray(req.body?.members) ? req.body.members : [];
+    const account = me.account_id ? await accountsRepo.accountById(me.account_id) : null;
+
+    // The household is theirs, so it is written to their own household and
+    // never to the organiser's.
+    if (account?.household_id) {
+      const already = await householdsRepo.membersWithConstraints(account.household_id);
+      for (const m of rows) {
+        const name = String(m.name ?? '').trim();
+        if (!name || already.some((x) => x.name.trim().toLowerCase() === name.toLowerCase())) continue;
+        await householdsRepo.insertMember(account.household_id, {
+          name,
+          isMinor: Boolean(m.child),
+          relationship: m.relationship ?? null,
+          birthYear: m.age ? new Date().getFullYear() - Number(m.age) : null,
+        });
+      }
+    }
+
+    const coming = rows.filter((m) => m.coming !== false);
+    const others = coming.filter((m) => !m.you).map((m) => (m.age ? `${m.name} (${m.age})` : m.name));
+    await groupsRepo.updateParticipant(me.id, group.id,
+      ['heads = $3', 'brings = $4'],
+      [me.id, group.id, Math.max(1, coming.length || 1), others.join(', ') || null]);
+    res.json(await joinPayload(group, me.token));
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/join/:token/book — Book your itinerary, confirmed.
+ *
+ * The guest sends what they picked; the money is worked out here and never
+ * taken from the request, because a price is the group's fact and not the
+ * browser's. Three sums come back for the same reason they are on the screen:
+ * what is taken now, what is owed when a shared cost settles, and what is owed
+ * to the organiser directly.
+ */
+router.post('/join/:token/book', async (req, res, next) => {
+  try {
+    const group = await groupByToken(req.params.token);
+    const me = await groupsRepo.participantByToken(group.id, req.body?.participantToken ?? '');
+    if (!me) return res.status(403).json({ error: 'not_you', message: 'Say who you are first.' });
+    const picks = req.body?.picks && typeof req.body.picks === 'object' ? req.body.picks : {};
+    const items = await groupsRepo.itemsOf(group.id);
+    const states = await groupsRepo.statesOf(group.id);
+    const byItem = new Map(states.map((st) => [`${st.item_id}:${st.participant_id}`, st]));
+    const joined = (await groupsRepo.participantsPlain(group.id)).filter((p) => p.joined_at && !p.withdrawn_at);
+
+    const lines = [];
+    let paid = 0; let later = 0; let direct = 0;
+
+    for (const i of items) {
+      const pick = picks[i.id];
+      if (pick === undefined) continue;
+      const shares = i.per_head ? me.heads : 1;
+      const status = pick === 'in' || pick === 'booked' || pick === 'declared' ? pick : pick === 'out' ? 'out' : null;
+      if (status === null) {
+        await groupsRepo.clearState(i.id, me.id);
+        continue;
+      }
+      await groupsRepo.setState(i.id, me.id, { status: status === 'booked' ? 'booked' : status, markedBy: 'participant' });
+      if (status === 'out' || !i.pricing) continue;
+
+      const heads = countHeads(i, joined, byItem);
+      const cost = costOf(i, group, heads);
+      const each = i.state === 'closed' ? i.settled_pence : cost.perSharePence;
+      const amount = (each ?? 0) * shares;
+      if (i.pricing === 'variable' && i.state !== 'closed') {
+        later += (cost.ceilingPence ?? 0) * shares;
+        lines.push({ itemId: i.id, label: i.label, when: 'settles', pence: (cost.likelyPence ?? 0) * shares, ceilingPence: (cost.ceilingPence ?? 0) * shares, on: cost.closesOn });
+      } else if (group.payment_mode === 'roam') {
+        paid += amount;
+        lines.push({ itemId: i.id, label: i.label, when: 'now', pence: amount });
+      } else {
+        direct += amount;
+        lines.push({ itemId: i.id, label: i.label, when: 'direct', pence: amount });
+      }
+    }
+
+    // Roam holds no money yet, so a booking is a record of what was agreed and
+    // says so; when a provider exists this is where `paid` becomes true.
+    const booking = await groupsRepo.insertBooking({
+      groupId: group.id, participantId: me.id, heads: me.heads,
+      paidPence: paid, laterPence: later, directPence: direct, status: 'recorded', lines,
+    });
+    res.json({ booking: { id: booking.id, paidPence: paid, laterPence: later, directPence: direct, lines }, ...(await joinPayload(group, me.token)) });
   } catch (err) { next(err); }
 });
 

@@ -160,6 +160,33 @@ export async function createAccount({ email, name, plan, trialEndsOn, monthlyCal
 }
 
 /**
+ * A guest who has just accepted an invitation.
+ *
+ * Same shape as `createAccount` — their own household, nobody else's — with two
+ * differences the invite journey needs: they may have given a mobile rather
+ * than an email, and their trial starts now rather than being set by an
+ * administrator. They are `active` from the first moment because they arrived
+ * by holding a link somebody sent them and are standing in front of the screen.
+ */
+export async function createGuestAccount({ name, email, mobile, trialDays = 30 }) {
+  return withTransaction(async (client) => {
+    const { rows: households } = await client.query(
+      'insert into households (name) values ($1) returning id',
+      [name || 'A Roam household'],
+    );
+    const ends = new Date();
+    ends.setDate(ends.getDate() + trialDays);
+    const { rows } = await client.query(
+      `insert into accounts (household_id, email, mobile, name, role, plan, trial_ends_on, status, invited_at, activated_at)
+       values ($1, $2, $3, $4, 'customer', 'trial', $5, 'active', now(), now())
+       returning ${COLUMNS}`,
+      [households[0].id, normaliseEmail(email), normaliseMobile(mobile), name || null, ends.toISOString().slice(0, 10)],
+    );
+    return rows[0];
+  });
+}
+
+/**
  * An account on a household that already exists.
  *
  * Two callers now. The owner claiming the founding household, so he appears in

@@ -39,9 +39,9 @@ export async function groupByInviteToken(inviteToken) {
 
 export async function insertGroup(tripId, householdId, g, client) {
   const { rows } = await on(client)(
-    `insert into trip_groups (trip_id, household_id, name, expected_count, minimum_count, wanted_by, invite_token, reminders_on, reminder_cadence, first_reminder_on)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
-    [tripId, householdId, g.name, g.expectedCount, g.minimumCount, g.wantedBy, g.inviteToken,
+    `insert into trip_groups (trip_id, household_id, name, expected_count, minimum_count, maximum_count, wanted_by, invite_token, reminders_on, reminder_cadence, first_reminder_on)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+    [tripId, householdId, g.name, g.expectedCount, g.minimumCount, g.maximumCount, g.wantedBy, g.inviteToken,
       g.remindersOn, g.cadence, g.firstReminderOn],
   );
   return rows[0];
@@ -120,6 +120,10 @@ const ITEM_COLUMNS = {
   pricing: 'pricing', totalPence: 'total_pence', perHead: 'per_head',
   expectedCount: 'expected_count', minimumCount: 'minimum_count', capacity: 'capacity',
   closesOn: 'closes_on', lateJoiners: 'late_joiners',
+  // v2: an event of the organiser's own has a day, a time, somewhere it is
+  // booked and a line for the guest.
+  startsOn: 'starts_on', startsAt: 'starts_at', endsAt: 'ends_at',
+  bookWhere: 'book_where', externalUrl: 'external_url', guestNote: 'guest_note',
 };
 
 export async function insertItem(groupId, i, client) {
@@ -213,6 +217,31 @@ export async function joinedParticipants(groupId) {
     [groupId],
   );
   return rows;
+}
+
+/** What a guest confirmed: what was taken, what is owed later, and to whom. */
+export async function insertBooking(b) {
+  const { rows } = await query(
+    `insert into group_bookings (group_id, participant_id, heads, paid_pence, later_pence, direct_pence, status, lines)
+     values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
+    [b.groupId, b.participantId, b.heads, b.paidPence, b.laterPence, b.directPence, b.status, JSON.stringify(b.lines ?? [])],
+  );
+  return rows[0];
+}
+
+export async function bookingsOf(participantId) {
+  const { rows } = await query('select * from group_bookings where participant_id = $1 order by created_at desc', [participantId]);
+  return rows;
+}
+
+/** The account this person signed in with, once they have one. */
+export async function linkParticipantAccount(participantId, accountId) {
+  await query('update group_participants set account_id = $2 where id = $1', [participantId, accountId]);
+}
+
+export async function participantByAccount(groupId, accountId) {
+  const { rows } = await query('select * from group_participants where group_id = $1 and account_id = $2 and withdrawn_at is null', [groupId, accountId]);
+  return rows[0] ?? null;
 }
 
 export async function participantByToken(groupId, token) {
