@@ -107,7 +107,17 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const [who, setWho] = useState(false);
   /** Which day of a holiday is being looked at — the day strip (handoff §13/14). */
   const [dayId, setDayId] = useQueryState<string | null>('day', null, asText);
-  const [scope, setScope] = useQueryState<'route' | 'there' | null>('scope', null, asOneOf(['route', 'there'] as const, null));
+  /**
+   * A place on the map you have tapped and want to look around, instead of the
+   * whole route. Its point and its name, both in the address, so "food around
+   * Thorpe Park" is a page somebody can be sent.
+   */
+  const [around, setAround] = useQueryState<string | null>('around', null, asText);
+  const [aroundName, setAroundName] = useQueryState<string | null>('aroundName', null, asText);
+  const anchor = around ? { at: around, label: aroundName ?? 'here' } : null;
+  const setAnchor = (a: { lat: number; lng: number; label: string } | null) => {
+    setQuery({ around: a ? `${a.lat.toFixed(5)},${a.lng.toFixed(5)}` : null, aroundName: a?.label ?? null });
+  };
   const [detour, setDetour] = useQueryState<string | null>('detour', null, asText);
   /** What was typed into "search along the route", and which category was picked. */
   const [q, setQ] = useQueryState<string | null>('q', null, asText);
@@ -132,19 +142,19 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   useEffect(() => { api.tripPlaces(trip.id).then(setPlaces).catch(() => null); }, [trip.id, shortlist.length, days.length]);
 
   // Browse: what is along the way. One fetch per (pill, scope, detour).
-  const [along, setAlong] = useState<{ loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean; beyond: number }>(
-    { loading: false, places: [], counts: { route: 0, there: 0 }, error: null, degraded: [], hasRoute: false, beyond: 0 },
+  const [along, setAlong] = useState<{ loading: boolean; places: TripAlongPlace[]; counts: { route: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean; beyond: number }>(
+    { loading: false, places: [], counts: { route: 0 }, error: null, degraded: [], hasRoute: false, beyond: 0 },
   );
-  const alongKey = pill && pill !== 'shortlist' && pill !== 'stay' ? `${pill}|${scope ?? 'route'}|${maxDetourMin}|${q ?? ''}|${kindOf ?? ''}` : null;
+  const alongKey = pill && pill !== 'shortlist' && pill !== 'stay' ? `${pill}|${around ?? ''}|${maxDetourMin}|${q ?? ''}|${kindOf ?? ''}` : null;
   const lastKey = useRef<string | null>(null);
   useEffect(() => {
     if (!alongKey || alongKey === lastKey.current) return;
     lastKey.current = alongKey;
     setAlong((a) => ({ ...a, loading: true, error: null }));
-    api.tripAlong(trip.id, { kind: pill === 'food' ? 'food' : 'things', scope: scope ?? 'route', maxDetourMin, q: [q, kindOf].filter(Boolean).join(' ') || undefined })
+    api.tripAlong(trip.id, { kind: pill === 'food' ? 'food' : 'things', maxDetourMin, around: around ?? undefined, aroundName: aroundName ?? undefined, q: [q, kindOf].filter(Boolean).join(' ') || undefined })
       .then((r) => setAlong({ loading: false, places: r.places, counts: r.counts, error: null, degraded: r.degradedSources ?? [], hasRoute: r.hasRoute, beyond: r.beyond ?? 0 }))
-      .catch((e) => setAlong({ loading: false, places: [], counts: { route: 0, there: 0 }, error: e.message, degraded: [], hasRoute: false, beyond: 0 }));
-  }, [alongKey, trip.id, pill, scope, maxDetourMin, q, kindOf]);
+      .catch((e) => setAlong({ loading: false, places: [], counts: { route: 0 }, error: e.message, degraded: [], hasRoute: false, beyond: 0 }));
+  }, [alongKey, trip.id, pill, around, aroundName, maxDetourMin, q, kindOf]);
 
   // Somewhere to sleep, ranked the way the criteria asked. Only fetched when
   // the Stay pill is lit — it is an Overpass call and sometimes a price call.
@@ -187,7 +197,13 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       });
     }
     if (dest?.lat != null && dest !== start) {
-      out.push({ id: 'dest', lat: dest.lat as number, lng: dest.lng as number, kind: 'dest', icon: 'flag', label: tripName(trip) });
+      out.push({
+        id: 'dest', lat: dest.lat as number, lng: dest.lng as number, kind: 'dest', icon: 'flag', label: tripName(trip),
+        selected: around === `${(dest.lat as number).toFixed(5)},${(dest.lng as number).toFixed(5)}`,
+        // Tap where you are going, then pick a pill, and the search happens
+        // there instead of all along the way.
+        onPress: () => setAnchor({ lat: dest.lat as number, lng: dest.lng as number, label: tripName(trip) }),
+      });
     }
     if (pill === 'stay') {
       for (const st of stays.results.slice(0, 20)) {
@@ -199,7 +215,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           badge: st.rank ? String(st.rank) : null,
           label: selected === st.venueRef ? st.name : null,
           selected: selected === st.venueRef,
-          onPress: () => { setSelected(st.venueRef); setDetent('half'); setDrawer(stayToItem(st)); },
+          onPress: () => { setSelected(st.venueRef); setDrawer(stayToItem(st)); },
         });
       }
     } else if (pill && pill !== 'shortlist') {
@@ -215,7 +231,11 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           selected: selected === p.venueRef,
           // A pin is the same thing as its row: tapping it opens the place
           // (owner, 6 Sep 2026 — it used to do nothing but highlight itself).
-          onPress: () => { setSelected(p.venueRef); setDetent('half'); openPlace(p); },
+          // Opening a place must not move the sheet. Somebody looking at the
+          // full map who taps a pin wants to come back to the full map when
+          // they shut the drawer, not to half a screen of list (owner, 6 Sep
+          // 2026).
+          onPress: () => { setSelected(p.venueRef); openPlace(p); },
         });
       }
     } else {
@@ -231,7 +251,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           // Forty labels over each other is a map you cannot read.
           label: selected === p.venueRef ? (p.name ?? null) : null,
           selected: selected === p.venueRef,
-          onPress: () => { setSelected(p.venueRef); setDetent('half'); setDrawer(tripPlaceToItem(p)); },
+          onPress: () => { setSelected(p.venueRef); setDrawer(tripPlaceToItem(p)); setAnchor({ lat: p.lat as number, lng: p.lng as number, label: p.name ?? 'here' }); },
         });
       }
     }
@@ -335,8 +355,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       pill={pill}
       along={along}
       shortlisted={(places?.places ?? []).filter((p) => p.shortlisted)}
-      scope={scope}
-      onScope={setScope}
+      anchorLabel={anchor?.label ?? null}
+      onClearAnchor={() => setAnchor(null)}
       maxDetourMin={maxDetourMin}
       onDetour={(n) => setDetour(String(n))}
       selected={selected}
@@ -650,12 +670,13 @@ function TripPlacesList({ data, onSelect }: { data: { places: TripPlace[] } | nu
 
 const DETOURS = [5, 10, 15, 30];
 
-function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist, kindOf, onKind }: {
+function BrowseList({ pill, along, shortlisted, anchorLabel, onClearAnchor, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist, kindOf, onKind }: {
   pill: Pill;
-  along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean; beyond: number };
+  along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean; beyond: number };
   shortlisted: TripPlace[];
-  scope: 'route' | 'there' | null;
-  onScope: (s: 'route' | 'there' | null) => void;
+  /** The name of the place being looked around, when one has been tapped. */
+  anchorLabel: string | null;
+  onClearAnchor: () => void;
   maxDetourMin: number;
   onDetour: (n: number) => void;
   selected: string | null;
@@ -694,23 +715,18 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
     <View>
       {/* The scope chips. Before one is chosen both are offered plainly; once
           one is, the other folds away and the chosen one becomes a dropdown. */}
+      {/* One control for how far, and a second only when you have tapped
+          somewhere to look around. "Near the end" is gone: it asked somebody to
+          hold a picture of the route in their head, and the chip did not even
+          show the minutes they had chosen. */}
       <View style={styles.chips}>
-        {scope == null ? (
-          <>
-            <Chip label={`${along.hasRoute ? 'En route' : 'Nearby'} · ${along.counts.route}`} onPress={() => onScope('route')} />
-            {along.hasRoute ? <Chip label={`Near the end · ${along.counts.there}`} onPress={() => onScope('there')} /> : null}
-          </>
-        ) : (
-          <>
-            <Chip
-              label={scope === 'there' ? 'Near the end' : `${along.hasRoute ? 'En route' : 'Within'} · <${maxDetourMin} min`}
-              on
-              chevron
-              onPress={() => setOpenDetour((v) => !v)}
-            />
-            <Chip label="Anywhere" onPress={() => { onScope(null); setOpenDetour(false); }} />
-          </>
-        )}
+        <Chip
+          label={anchorLabel ? `Within ${maxDetourMin} min` : `${along.hasRoute ? 'Along the route' : 'Within'} · ${maxDetourMin} min`}
+          on
+          chevron
+          onPress={() => setOpenDetour((v) => !v)}
+        />
+        {anchorLabel ? <Chip label={`Around ${anchorLabel}`} on onClear={onClearAnchor} /> : null}
         <Chip label={kindOf ? cap(kindOf) : 'Type'} on={!!kindOf} chevron onPress={() => setOpenKind((v) => !v)} />
       </View>
 
@@ -732,7 +748,7 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
 
       {openDetour ? (
         <View style={styles.dropdown}>
-          <Text style={styles.kicker}>How far off the route</Text>
+          <Text style={styles.kicker}>{anchorLabel ? `How far from ${anchorLabel}` : along.hasRoute ? 'How far off the route' : 'How far away'}</Text>
           {DETOURS.map((n) => (
             <Pressable key={n} onPress={() => { onDetour(n); setOpenDetour(false); }} style={styles.optRow} accessibilityRole="radio" accessibilityState={{ checked: n === maxDetourMin }}>
               <Text style={[type.body, { flex: 1 }]}>Up to {n} minutes</Text>
@@ -790,8 +806,8 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
                   for what it is: how far out of your way. */}
               <Text style={styles.detour} numberOfLines={1}>
                 {p.detourMinutes != null
-                  ? `about ${p.detourMinutes} min ${along.hasRoute ? 'off route' : 'away'}`
-                  : along.hasRoute ? 'off the route' : 'nearby'}
+                  ? `about ${p.detourMinutes} min ${anchorLabel ? `from ${anchorLabel}` : along.hasRoute ? 'off route' : 'away'}`
+                  : anchorLabel ? `near ${anchorLabel}` : along.hasRoute ? 'off the route' : 'nearby'}
                 <Text style={{ color: colors.inkMuted, fontWeight: '400' }}>{` (${p.detourMiles} mi)`}</Text>
               </Text>
               {/* Bookmark and Add sit beside each other, at the bottom right of
@@ -862,11 +878,16 @@ function alongToItem(p: TripAlongPlace): BrowseItem {
   };
 }
 
-function Chip({ label, on, chevron, onPress }: { label: string; on?: boolean; chevron?: boolean; onPress: () => void }) {
+function Chip({ label, on, chevron, onPress, onClear }: { label: string; on?: boolean; chevron?: boolean; onPress?: () => void; onClear?: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.chip, on && styles.chipOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
+    <Pressable onPress={onPress} disabled={!onPress} style={[styles.chip, on && styles.chipOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
       <Text style={[styles.chipText, on && { color: colors.primaryFg }]} numberOfLines={1}>{label}</Text>
       {chevron ? <Icon name="expand" size={13} color={on ? colors.primaryFg : colors.ink} /> : null}
+      {onClear ? (
+        <Pressable onPress={onClear} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Search the whole route instead of around ${label}`}>
+          <Icon name="close" size={13} color={on ? colors.primaryFg : colors.ink} />
+        </Pressable>
+      ) : null}
     </Pressable>
   );
 }

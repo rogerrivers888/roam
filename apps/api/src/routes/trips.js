@@ -515,7 +515,7 @@ async function runShortlistSearch(req, { onProgress = null } = {}) {
 }
 
 /**
- * GET /api/trips/:id/along?kind=food|things&maxDetourMin=15&scope=route|there&q=
+ * GET /api/trips/:id/along?kind=food|things&maxDetourMin=15&around=lat,lng&q=
  *
  * Everywhere you could stop **along the way** — the map-first trip screen's
  * Browse mode (design handoff, 6 Sep 2026, screens 03–05).
@@ -553,21 +553,36 @@ router.get('/:id/along', async (req, res, next) => {
 
     const kind = req.query.kind === 'food' ? 'food' : 'things';
     const maxDetourMin = Math.min(60, Math.max(5, Number(req.query.maxDetourMin) || 15));
-    // `there` is the handoff's "By the park" chip: near the destination rather
-    // than spread along the way.
-    const scope = req.query.scope === 'there' ? 'there' : 'route';
     const q = String(req.query.q || '').trim();
+    /**
+     * Somewhere on the map you have tapped, and want to look around.
+     *
+     * This replaces the handoff's "By the park" scope chip, at the owner's
+     * suggestion (6 Sep 2026): "When I select the destination, if I search for
+     * activities after clicking on the destination, then it will search for
+     * activities and food and drink around that area. If not, then it will just
+     * search all the way along the route."
+     *
+     * He is right that it is more intuitive. A chip called "near the end" asks
+     * somebody to hold a mental model of the route; tapping the place you mean
+     * asks nothing at all, and it generalises — any stop on the day can be the
+     * thing you look around, not only the far end.
+     */
+    const around = (() => {
+      const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(String(req.query.around || ''));
+      return m ? { lat: Number(m[1]), lng: Number(m[2]), label: String(req.query.aroundName || '').trim() || null } : null;
+    })();
 
     // One search, centred so that its circle covers the corridor. Along the
     // route that is the midpoint and half the journey plus the detour's reach;
     // at the destination it is the destination and the detour's reach alone.
     const reach = reachRadiusKm(mode, maxDetourMin);
-    const centre = scope === 'there' && destination
-      ? { ...destination }
+    const centre = around
+      ? { ...around }
       : destination
         ? { lat: (origin.lat + destination.lat) / 2, lng: (origin.lng + destination.lng) / 2, label: 'along the way' }
         : { ...origin };
-    const half = destination && scope !== 'there' ? kmBetween(origin, destination) / 2 : 0;
+    const half = destination && !around ? kmBetween(origin, destination) / 2 : 0;
     const radiusKm = Math.min(40, Math.max(2, half + reach));
 
     const sources = Array.isArray(trip.sources) && trip.sources.length
@@ -662,10 +677,14 @@ router.get('/:id/along', async (req, res, next) => {
     const rows = venues.map((v) => {
       const venueRef = `${v.source}:${v.sourcePlaceId}`;
       // Straight-line arithmetic, ours, free and instant. Never a routing call.
-      const detour = destination
-        ? detourMinutes({ origin, destination, venue: v, mode })
-        : estimateTravelMinutes(origin, v, mode);
-      const from = scope === 'there' && destination ? destination : origin;
+      // Anchored, the number is simply how far it is from the place you tapped.
+      // Unanchored, it is what the stop adds to the day.
+      const detour = around
+        ? estimateTravelMinutes(around, v, mode)
+        : destination
+          ? detourMinutes({ origin, destination, venue: v, mode })
+          : estimateTravelMinutes(origin, v, mode);
+      const from = around ?? origin;
       return {
         venueRef, source: v.source, name: v.name, category: v.category ?? 'attraction',
         /** Kept off the answer; only here so the filter below can read it. */
@@ -731,13 +750,25 @@ router.get('/:id/along', async (req, res, next) => {
        * the road between them. Without a destination there is no line to be
        * beside and the detour is simply how far away it is, so neither applies.
        */
-      .filter((r) => !destination || (r._t >= -0.05 && r._t <= 1.3 && r._off <= corridorKm))
+      // Anchored: simply near the thing you tapped. Unanchored: beside the line.
+      .filter((r) => (around
+        ? kmBetween(around, r) <= reach
+        : !destination || (r._t >= -0.05 && r._t <= 1.3 && r._off <= corridorKm)))
+      /**
+       * Food & drink means somewhere you eat or drink. It was letting through
+       * anything the sources filed under food, which on the road to Thorpe Park
+       * was a Sainsbury's — fixed at source in google.js too, and fenced here
+       * as well because a source we have not met yet will make the same mistake.
+       */
+      .filter((r) => kind !== 'food' || EATING.includes(r.category))
       .sort((a, b) => band(a.detourMinutes) - band(b.detourMinutes)
         || standing(b) - standing(a)
         || (a.detourMinutes ?? 999) - (b.detourMinutes ?? 999));
 
     res.json({
-      origin, destination, mode, scope, kind, maxDetourMin,
+      origin, destination, mode, kind, maxDetourMin,
+      /** What was tapped, echoed back so the screen can name it on a chip. */
+      around: around ? { lat: around.lat, lng: around.lng, label: around.label } : null,
       /**
        * Whether there is a route at all. A trip away has a base and no
        * destination, so "off route" is meaningless there and the row says "from
@@ -745,10 +776,7 @@ router.get('/:id/along', async (req, res, next) => {
        */
       hasRoute: !!destination,
       places: within.slice(0, 60).map(({ _t, _off, _inside, ...p }) => p),
-      counts: {
-        route: within.length,
-        there: destination ? rows.filter((r) => kmBetween(destination, r) <= reach).length : 0,
-      },
+      counts: { route: within.length },
       /** How many were found and left out, so the screen can offer a wider detour honestly. */
       beyond: rows.length - within.length,
       /** How far off the road a place may be and still count as on the way. */

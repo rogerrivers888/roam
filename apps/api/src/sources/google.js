@@ -77,6 +77,28 @@ const LODGING = new Set(['hotel', 'lodging', 'motel', 'resort_hotel', 'extended_
 // Somewhere you go to look, shop or do — even when Google also lists a café inside it.
 const THING_FIRST = new Set([...THING_TYPES, 'department_store', 'shopping_mall', 'market', 'book_store', 'performing_arts_theater', 'movie_theater', 'stadium', 'concert_hall', 'church', 'place_of_worship', 'library', 'visitor_center']);
 
+/**
+ * A shop is not a restaurant because it has a café in it.
+ *
+ * The comment on `toVenue` already said Selfridges is not a café, and it was
+ * right about Selfridges — `department_store` is in the list above. It was not
+ * right about Sainsbury's: `supermarket` was in no list at all, so the fallback
+ * ran down the secondary types, found the café counter, and filed a supermarket
+ * under Food & drink. The owner found it on the route to Thorpe Park (6 Sep
+ * 2026): "it's brought up 2 food and drink locations: a Sainsbury's, which is
+ * not a restaurant".
+ *
+ * These are the primary types where the *primary* type is the answer and the
+ * secondary ones must not get a say.
+ */
+const SHOP_FIRST = new Set([
+  'supermarket', 'grocery_store', 'convenience_store', 'liquor_store', 'wholesaler',
+  'gas_station', 'electric_vehicle_charging_station', 'car_wash', 'parking',
+  'pharmacy', 'drugstore', 'hardware_store', 'home_goods_store', 'furniture_store',
+  'clothing_store', 'shoe_store', 'sporting_goods_store', 'pet_store', 'florist',
+  'bank', 'atm', 'post_office', 'hospital', 'doctor', 'dentist', 'school', 'university',
+]);
+
 // "Open today, or not" (owner, 4 Sep 2026). Google decides openNow in the
 // place's own timezone, which is the only way to be right about a restaurant in
 // Rome from a phone in London, so it is taken as given rather than worked out
@@ -126,7 +148,10 @@ function toVenue(place, justification = null) {
   // not a café because it has one; only when the primary type says nothing do
   // the secondary types get a say.
   const primaryIsThing = THING_FIRST.has(primary) || (TYPE_TO_EXPERIENCE[primary] !== undefined && !TYPE_TO_CATEGORY[primary]);
+  // A shop's own type is the last word: the café counter inside it does not vote.
+  const primaryIsShop = SHOP_FIRST.has(primary);
   let category = TYPE_TO_CATEGORY[primary]
+    || (primaryIsShop ? 'attraction' : null)
     || (primaryIsThing || types.some((t) => THING_FIRST.has(t) && !TYPE_TO_CATEGORY[primary]) ? 'attraction' : null)
     || types.map((t) => TYPE_TO_CATEGORY[t]).find(Boolean)
     || 'attraction';
