@@ -175,3 +175,11 @@ export const TARGET = 44;
 // The household's own people keep their colours: they are people, not rows.
 export const memberColors = ['#2E8A63', '#8A4B2F', '#3F5AA8', '#9C3D7A', '#5C7A2E', '#B0771E'];
 export const memberColor = (index: number) => memberColors[index % memberColors.length];
+/**
+ * The pastel face (Hotels 2 §12): a soft fill, the initial in ink, a 2px ink
+ * ring. Used where a face is a row you tap rather than a token beside a name —
+ * at 44px the saturated fill is a lot of colour, and the ring is what makes it
+ * read as a control. The saturated set above is still the small-avatar look.
+ */
+export const memberPastels = ['#B6E3CF', '#F6D9D2', '#DCC8DE', '#F5E38A', '#CFE0F5', '#EBD9C3'];
+export const memberPastel = (index: number) => memberPastels[index % memberPastels.length];

@@ -1372,7 +1372,7 @@ function WhosComing({ household, attending, hasCar, onClose, onSave, onInvite, o
                   accessibilityRole="switch"
                   accessibilityState={{ checked: on }}
                 >
-                  <Avatar name={m.name} index={i} size={44} url={m.avatarUrl} />
+                  <Avatar name={m.name} index={i} size={44} url={m.avatarUrl} pastel />
                   <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                     <Text style={styles.rowName} numberOfLines={1}>{m.name}</Text>
                     <Text style={type.small} numberOfLines={1}>{about(m, on)}</Text>

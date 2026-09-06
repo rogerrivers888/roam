@@ -1,6 +1,6 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, memberColor, TARGET, type } from '../theme';
+import { colors, fonts, memberColor, memberPastel, TARGET, type } from '../theme';
 import { Chip, FoldLine, Row } from './ui';
 
 export type Face = { id: string; name: string; isMinor?: boolean; avatarUrl?: string | null };
@@ -9,12 +9,27 @@ export type Face = { id: string; name: string; isMinor?: boolean; avatarUrl?: st
  * People are the explanation (research §11). Faces appear wherever a
  * constraint or a reason is attributed to someone.
  */
-export function Avatar({ name, index, size = 36, dim, url }: { name: string; index: number; size?: number; dim?: boolean; url?: string | null }) {
+export function Avatar({ name, index, size = 36, dim, url, pastel }: {
+  name: string; index: number; size?: number; dim?: boolean; url?: string | null;
+  /** The Hotels 2 §12 face: pastel fill, ink initial, 2px ink ring. */
+  pastel?: boolean;
+}) {
   const base = { width: size, height: size, borderRadius: size / 2, opacity: dim ? 0.35 : 1 };
   if (url) return <Image source={{ uri: url }} style={base} accessibilityLabel={name} />;
   return (
-    <View style={[base, { backgroundColor: memberColor(index), alignItems: 'center', justifyContent: 'center' }]} accessibilityLabel={name}>
-      <Text style={{ color: '#fff', fontWeight: '700', fontSize: size * 0.42 }}>{name.slice(0, 1).toUpperCase()}</Text>
+    <View
+      style={[
+        base,
+        { alignItems: 'center', justifyContent: 'center' },
+        pastel
+          ? { backgroundColor: memberPastel(index), borderWidth: 2, borderColor: colors.ink }
+          : { backgroundColor: memberColor(index) },
+      ]}
+      accessibilityLabel={name}
+    >
+      <Text style={{ color: pastel ? colors.ink : '#fff', fontFamily: fonts.heading, fontWeight: '800', fontSize: size * 0.37 }}>
+        {name.slice(0, 1).toUpperCase()}
+      </Text>
     </View>
   );
 }
