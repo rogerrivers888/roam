@@ -47,6 +47,39 @@ export async function insertGroup(tripId, householdId, g, client) {
   return rows[0];
 }
 
+/**
+ * Every group this household organises, newest trip first, with the three
+ * numbers a summary row needs: asked, in, and how many required things are
+ * still outstanding across everybody who has joined.
+ */
+export async function groupsOfHousehold(householdId) {
+  const { rows } = await query(
+    `select g.id, g.name, g.trip_id, g.invite_token, g.expected_count, g.minimum_count, g.maximum_count,
+            g.wanted_by, g.setup_done, g.closed_at, g.cancelled_at, g.created_at,
+            t.title as trip_title, t.place_label, t.start_date, t.end_date,
+            (select count(*) from group_participants p
+               where p.group_id = g.id and p.withdrawn_at is null) as invited,
+            (select count(*) from group_participants p
+               where p.group_id = g.id and p.withdrawn_at is null and p.joined_at is not null) as joined,
+            (select coalesce(sum(p.heads), 0) from group_participants p
+               where p.group_id = g.id and p.withdrawn_at is null and p.joined_at is not null) as heads,
+            (select count(*) from group_items i
+               join group_participants p on p.group_id = g.id and p.withdrawn_at is null and p.joined_at is not null
+               left join group_item_states s on s.item_id = i.id and s.participant_id = p.id
+              where i.group_id = g.id and i.required and i.state <> 'cancelled'
+                and (s.status is null or s.status not in ('booked', 'declared', 'paid'))) as outstanding,
+            (select p.name from group_participants p
+              where p.group_id = g.id and p.member_id is not null
+              order by p.created_at limit 1) as organiser
+       from trip_groups g
+       join trips t on t.id = g.trip_id
+      where g.household_id = $1
+      order by t.start_date desc nulls last, g.created_at desc`,
+    [householdId],
+  );
+  return rows;
+}
+
 export async function updateGroup(groupId, sets, params) {
   await query(assemble('trip_groups', [...sets, 'updated_at = now()'], params, 'id = $1'), params);
 }

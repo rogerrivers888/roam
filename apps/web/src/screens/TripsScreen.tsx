@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import { GroupPanel } from '../components/GroupPanel';
-import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, Stay, StayPricing, TripDay, TripDetail, TripPlace, TripSummary, Venue, DayStop } from '../api';
+import { api, BrowseItem, GroupSummary, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, Stay, StayPricing, TripDay, TripDetail, TripPlace, TripSummary, Venue, DayStop } from '../api';
 import { colors, fonts, memberColors, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, FoldLine, Row, Segmented, StatusLine, Stepper, Wrap, clock, minutes } from '../components/ui';
 import { SourcePicker, TripSpendLine } from '../components/SourcePicker';
@@ -90,6 +90,7 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
   const [area, setArea] = useQueryState<string | null>('area', null, asText);
   const [who, setWho] = useQueryState<string | null>('who', null, asText);
   const [sheet, setSheet] = useState<'area' | 'when' | 'who' | null>(null);
+  const [myGroups, setMyGroups] = useState<GroupSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   /**
    * When and Where move together, in one address rather than two navigations
@@ -108,6 +109,10 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
     try {
       const next = await api.trips();
       setData(next);
+      // The groups this household runs: the Who filter lists them beneath the
+      // people, because "who's coming" has the same two kinds of answer here as
+      // it does on the form that made the trip.
+      api.groups().then((r) => setMyGroups(r.groups)).catch(() => {});
       // A trip deleted since you last looked should not reopen as an error page.
       if (openNow.current && !next.trips.some((t) => t.id === openNow.current)) navigate(paths.trips(), { replace: true });
     } catch (e: any) { setError(e.message); }
@@ -141,7 +146,18 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
     if (area === 'abroad') return !!t.countryCode && t.countryCode !== homeCode;
     return t.countryCode === area;
   };
-  const inWho = (t: TripSummary) => !who || t.attendees.some((a) => a.id === who);
+  /**
+   * Who, with two kinds of answer: a person in the household, or one of the
+   * household's groups. A group runs across more than one trip once it has been
+   * used again — the same school dads, a year later — and those are the same
+   * group to everybody except the database, so they are matched by name.
+   */
+  const pickedGroup = who?.startsWith('group:') ? myGroups.find((g) => g.id === who.slice(6)) ?? null : null;
+  const groupTripIds = pickedGroup
+    ? new Set(myGroups.filter((g) => (g.name ?? '') === (pickedGroup.name ?? '')).map((g) => g.tripId))
+    : null;
+  const inWho = (t: TripSummary) =>
+    !who ? true : groupTripIds ? groupTripIds.has(t.id) : t.attendees.some((a) => a.id === who);
   /**
    * Where is a question about the past only (owner, 5 Sep 2026: "the country
    * (UK or abroad) only needs to appear when you're looking in the past.
@@ -195,9 +211,8 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
     { value: 'upcoming', label: 'Upcoming', count: all.filter((t) => inSpan(t) && !t.isPast).length },
     { value: 'past', label: 'Past', count: all.filter((t) => inSpan(t) && t.isPast).length },
   ];
-  const whoOptions = [{ value: '', label: 'Anyone' }, ...(household?.members ?? []).map((m) => ({ value: m.id, label: m.name }))];
   const areaLabel = areaOptions.find((o) => o.value === (area ?? ''))?.label ?? 'All areas';
-  const whoLabel = whoOptions.find((o) => o.value === (who ?? ''))?.label ?? 'Anyone';
+  const whoLabel = pickedGroup ? (pickedGroup.name ?? 'A group') : (household?.members ?? []).find((m) => m.id === who)?.name ?? 'Anyone';
 
   return (
     <ScrollView contentContainerStyle={[styles.page, wide && { maxWidth: 860, alignSelf: 'center', width: '100%' }]} keyboardShouldPersistTaps="handled">
@@ -223,7 +238,7 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
           <NewTripForm
             household={household}
             startFrom={seed ?? null}
-            onCreated={async (t) => {
+            onCreated={async (t, group) => {
               // A trip made from a place opens with that place already on it.
               // Failing to seed is not a reason to lose the trip they just
               // made, so it is tried and the trip opens either way.
@@ -245,7 +260,15 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
                   });
                 } catch { /* the trip is made; the shortlist can be added to by hand */ }
               }
-              onSeedUsed?.(); await load(); navigate(paths.trip(t.trip.id), { replace: true });
+              onSeedUsed?.();
+              // Who's coming was answered "a group": make it, then open the
+              // front door on it rather than the trip's own day.
+              if (group) {
+                try { await api.createTripGroup(t.trip.id, { copyFromGroupId: group.copyFromGroupId }); } catch { /* the trip is made; the group can be started from the tab */ }
+                await load(); navigate(paths.trip(t.trip.id, 'group'), { replace: true });
+                return;
+              }
+              await load(); navigate(paths.trip(t.trip.id), { replace: true });
             }}
           />
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
@@ -265,9 +288,21 @@ export function TripsScreen({ route, household, refreshHousehold, seed, onSeedUs
           {/* The answers open under the chips, not in a sheet at the foot of the window. */}
           <PickPanel open={sheet === 'when'} title="When" options={whenOptions} value={when} onPick={(v) => { setWhen(v as any); setSheet(null); }} onClose={() => setSheet(null)} />
           <PickPanel open={sheet === 'area'} title="Where" options={areaOptions} value={area ?? ''} onPick={(v) => { setArea(v || null); setSheet(null); }} onClose={() => setSheet(null)} />
-          <PickPanel open={sheet === 'who'} title="Who's coming" options={whoOptions} value={who ?? ''}
-            empty="Only you are in this household so far — add somebody on the Household tab."
-            onPick={(v) => { setWho(v || null); setSheet(null); }} onClose={() => setSheet(null)} />
+          <WhoPanel
+            open={sheet === 'who'}
+            members={household?.members ?? []}
+            groups={myGroups}
+            value={who ?? ''}
+            onPick={(v) => { setWho(v || null); setSheet(null); }}
+            onClose={() => setSheet(null)}
+          />
+          {pickedGroup ? (
+            <GroupSummaryRow
+              group={pickedGroup}
+              others={myGroups.filter((g) => (g.name ?? '') === (pickedGroup.name ?? ''))}
+              onManage={() => navigate(paths.trip(pickedGroup.tripId, 'group'))}
+            />
+          ) : null}
 
           {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
           {!data ? <Text style={type.small}>Loading…</Text> : null}
@@ -369,7 +404,11 @@ function StartHere({ value, onPick }: { value: Place | null; onPick: (p: Place |
   );
 }
 
-function NewTripForm({ household, startFrom, onCreated }: { household: HouseholdResponse; startFrom: TripSeed | null; onCreated: (t: TripDetail) => Promise<void> }) {
+function NewTripForm({ household, startFrom, onCreated }: {
+  household: HouseholdResponse; startFrom: TripSeed | null;
+  /** `group` is set when the answer to Who's coming was a group: the trip is made, then the group is. */
+  onCreated: (t: TripDetail, group?: { copyFromGroupId?: string } | null) => Promise<void>;
+}) {
   // What the address says about the trip being made — the question, not the
   // half-typed answer — so `/trips/new?place=Bath&kind=outing` opens the right
   // form even for somebody who was sent the link.
@@ -449,7 +488,7 @@ function NewTripForm({ household, startFrom, onCreated }: { household: Household
   useEffect(() => { if (!named) setTitle(defaultTitle); }, [defaultTitle, named]);
   const savedTitle = title.trim() || defaultTitle || undefined;
 
-  const submit = async () => {
+  const submit = async (group?: { copyFromGroupId?: string } | null) => {
     setBusy(true); setError(null);
     try {
       if (kind === 'trip') {
@@ -459,7 +498,7 @@ function NewTripForm({ household, startFrom, onCreated }: { household: Household
           place: place ?? undefined, placeText: place ? undefined : placeText.trim(), startDate: start, endDate: end,
           base: base ?? undefined, baseKind: base ? baseKind : 'other', hasCar, dayStart, dayEnd, intensity, attendingMemberIds: [...attending], seedFromAtlas: seed,
         });
-        await onCreated(t);
+        await onCreated(t, group);
       } else if (kind === 'now') {
         if (!herePlace) { setError('Tap "Use my location", or type where you are.'); setBusy(false); return; }
         // Now is now: the window opens at this minute rather than at the top of
@@ -476,7 +515,7 @@ function NewTripForm({ household, startFrom, onCreated }: { household: Household
           departAt: depart.toISOString(), returnAt: back.toISOString(),
           travelMode: mode, intensity, attendingMemberIds: [...attending],
         });
-        await onCreated(t);
+        await onCreated(t, group);
       } else {
         if (!from) { setError('Where does it start?'); setBusy(false); return; }
         const t = await api.createTrip({
@@ -484,7 +523,7 @@ function NewTripForm({ household, startFrom, onCreated }: { household: Household
           departAt: new Date(`${start}T${oStart}:00`).toISOString(), returnAt: new Date(`${start}T${oEnd}:00`).toISOString(),
           travelMode: mode, intensity, attendingMemberIds: [...attending],
         });
-        await onCreated(t);
+        await onCreated(t, group);
       }
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
@@ -503,7 +542,20 @@ function NewTripForm({ household, startFrom, onCreated }: { household: Household
   );
 
   const toggleWho = (id: string) => setAttending((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const whoLine = <WhoLine members={household.members} attending={attending} onToggle={toggleWho} />;
+  // A group is one of the answers to Who's coming (Group Trips v2, Epic 1), and
+  // one the household may have answered before: the same school dads, again.
+  const [groups, setGroups] = useState<GroupSummary[]>([]);
+  useEffect(() => { api.groups().then((r) => setGroups(r.groups.filter((g) => !g.cancelled))).catch(() => {}); }, []);
+  const whoLine = (
+    <WhoLine
+      members={household.members}
+      attending={attending}
+      onToggle={toggleWho}
+      onGroup={() => submit({})}
+      groups={groups.slice(0, 4).map((g) => ({ id: g.id, name: g.name, joined: g.joined }))}
+      onUseGroup={(id) => submit({ copyFromGroupId: id })}
+    />
+  );
   const paceLine = (
     <FoldLine label="Pace" value={{ relaxed: 'Relaxed', balanced: 'Balanced', packed: 'Packed' }[intensity]}>
       <Segmented value={intensity} options={[{ value: 'relaxed', label: 'Relaxed' }, { value: 'balanced', label: 'Balanced' }, { value: 'packed', label: 'Packed' }]} onChange={setIntensity} />
@@ -608,8 +660,115 @@ function NewTripForm({ household, startFrom, onCreated }: { household: Household
       )}
 
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
-      <Button label={kind === 'trip' ? 'Create trip' : kind === 'now' ? 'Find something now' : 'Create day out'} onPress={submit} loading={busy} />
+      <Button label={kind === 'trip' ? 'Create trip' : kind === 'now' ? 'Find something now' : 'Create day out'} onPress={() => submit(null)} loading={busy} />
+      <TakingFriends show={!groups.length} onGroup={() => submit({})} />
     </Card>
+  );
+}
+
+/**
+ * The one-time card for somebody who has never run a group (Epic 1, AC5): they
+ * cannot want a feature they have not been told about, and the Group button on
+ * its own does not explain itself. It goes away when it is dismissed, and for
+ * good once any group exists.
+ */
+const FRIENDS_KEY = 'roam.groups.pitch';
+function TakingFriends({ show, onGroup }: { show: boolean; onGroup: () => void }) {
+  const [gone, setGone] = useState(() => (Platform.OS === 'web' && typeof localStorage !== 'undefined' ? localStorage.getItem(FRIENDS_KEY) === 'gone' : false));
+  if (!show || gone) return null;
+  return (
+    <View style={styles.friends}>
+      <Row style={{ alignItems: 'flex-start' }}>
+        <Icon name="household" size={16} color={colors.headerSub} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={type.h3}>Taking friends?</Text>
+          <Text style={[type.small, { color: colors.headerSub }]}>
+            Two friends or a coachload: everyone books and pays their own share, and Roam chases them so you don't have to.
+          </Text>
+          <Pressable onPress={onGroup} accessibilityRole="button" style={{ paddingTop: 4 }}>
+            <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>Make it a group trip →</Text>
+          </Pressable>
+        </View>
+        <Pressable
+          onPress={() => { setGone(true); if (Platform.OS === 'web' && typeof localStorage !== 'undefined') localStorage.setItem(FRIENDS_KEY, 'gone'); }}
+          accessibilityRole="button" accessibilityLabel="Not now" style={{ padding: 4 }}
+        >
+          <Icon name="close" size={15} color={colors.inkMuted} />
+        </Pressable>
+      </Row>
+    </View>
+  );
+}
+
+/**
+ * Who's coming, as a filter (Group Trips v2, Epic 6).
+ *
+ * Two kinds of answer in one list — the people in the household, and the groups
+ * the household runs — because "who" means both, and a chip row cannot carry
+ * the line each group needs ("You organise · 14 of 20 in").
+ */
+function WhoPanel({ open, members, groups, value, onPick, onClose }: {
+  open: boolean; members: HouseholdResponse['members']; groups: GroupSummary[];
+  value: string; onPick: (v: string) => void; onClose: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <View style={styles.whoPanel}>
+      <Pressable onPress={() => onPick('')} style={styles.whoPick} accessibilityRole="button">
+        <View style={styles.anyDot} />
+        <Text style={[type.h3, { flex: 1 }]}>Anyone</Text>
+        {!value ? <Icon name="check" size={16} color={colors.accent} /> : null}
+      </Pressable>
+
+      {members.length ? <Text style={styles.whoKicker}>HOUSEHOLD</Text> : null}
+      {members.map((m, i) => (
+        <Pressable key={m.id} onPress={() => onPick(m.id)} style={styles.whoPick} accessibilityRole="button">
+          <Avatar name={m.name} index={i} size={30} url={m.avatarUrl} pastel />
+          <Text style={[type.h3, { flex: 1 }]}>{m.name}</Text>
+          {value === m.id ? <Icon name="check" size={16} color={colors.accent} /> : null}
+        </Pressable>
+      ))}
+
+      {groups.length ? <Text style={styles.whoKicker}>GROUPS</Text> : null}
+      {groups.map((g) => (
+        <Pressable key={g.id} onPress={() => onPick(`group:${g.id}`)} style={styles.whoPick} accessibilityRole="button">
+          <View style={styles.whoTile}><Icon name="household" size={15} color={colors.icon} /></View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={type.h3}>{g.name ?? 'A group'}</Text>
+            <Text style={type.small}>
+              {g.cancelled ? 'Called off' : `${g.organiser ? `${g.organiser} organises` : 'You organise'} · ${g.joined}${g.expectedCount ? ` of ${g.expectedCount}` : ''} in`}
+            </Text>
+          </View>
+          {value === `group:${g.id}` ? <Icon name="check" size={16} color={colors.accent} /> : null}
+        </Pressable>
+      ))}
+
+      <Pressable onPress={onClose} accessibilityRole="button" style={{ alignSelf: 'flex-end', padding: 6 }}>
+        <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>Close</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** The picked group, over its trips: asked, in, and what is still outstanding. */
+function GroupSummaryRow({ group, others, onManage }: { group: GroupSummary; others: GroupSummary[]; onManage: () => void }) {
+  const invited = others.reduce((n, g) => n + g.invited, 0);
+  const joined = others.reduce((n, g) => n + g.joined, 0);
+  const outstanding = others.reduce((n, g) => n + g.outstanding, 0);
+  return (
+    <Row style={styles.groupSummary}>
+      <View style={styles.whoTile}><Icon name="household" size={16} color={colors.icon} /></View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={type.h3}>{group.name ?? 'A group'}</Text>
+        <Text style={type.small}>
+          {group.organiser ? `${group.organiser} organises` : 'You organise'} · {invited} invited · {joined} in
+          {outstanding ? <Text style={{ color: colors.overrun, fontWeight: '700' }}> · {outstanding} outstanding</Text> : null}
+        </Text>
+      </View>
+      <Pressable onPress={onManage} accessibilityRole="button">
+        <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>Manage</Text>
+      </Pressable>
+    </Row>
   );
 }
 
@@ -1566,6 +1725,13 @@ function StayPanel({ d, household, onChanged, onFindNear, openSearch }: {
 }
 
 const styles = StyleSheet.create({
+  friends: { backgroundColor: colors.surfaceMuted, borderRadius: radius.md, padding: spacing.md },
+  whoPanel: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.lg, padding: spacing.sm, backgroundColor: colors.surface },
+  whoPick: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: TARGET, paddingHorizontal: spacing.sm },
+  whoKicker: { ...type.label, paddingHorizontal: spacing.sm, marginTop: spacing.sm },
+  anyDot: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line },
+  whoTile: { width: 30, height: 30, borderRadius: radius.sm, backgroundColor: colors.well, alignItems: 'center', justifyContent: 'center' },
+  groupSummary: { alignItems: 'flex-start', paddingVertical: spacing.sm },
   page: { padding: spacing.lg, gap: spacing.md, width: '100%', maxWidth: 1180, alignSelf: 'center' },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   // The header's round controls: an ink + for a new trip, an outlined circle for the rest.

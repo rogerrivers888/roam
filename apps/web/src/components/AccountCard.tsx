@@ -20,6 +20,7 @@ import { api, SessionSummary } from '../api';
 import { colors, radius, spacing, type } from '../theme';
 import { Button, Card, Row } from './ui';
 import { Icon } from './Icon';
+import { FreeMonth } from './FreeMonth';
 import { useOutbox } from '../hooks/useOutbox';
 import { discardRejected, pendingSummary } from '../offline/outbox';
 
@@ -47,10 +48,19 @@ export function AccountCard() {
   const [devices, setDevices] = useState<(SessionSummary & { lastSeen: string })[] | null>(null);
   const [waiting, setWaiting] = useState<Awaited<ReturnType<typeof pendingSummary>>>([]);
   const [busy, setBusy] = useState(false);
+  // Somebody who arrived through a friend's invite is on a trial they did not
+  // ask for, so the account page leads with what happens at the end of it
+  // (Group Trips v2, Epic 7).
+  const [trial, setTrial] = useState<{ endsOn: string | null } | null>(null);
 
   const load = useCallback(async () => {
     setWaiting(await pendingSummary());
     try { setDevices((await api.devices()).sessions); } catch { setDevices(null); }
+    try {
+      const st = await api.sessionState();
+      const acc: any = st.account ?? null;
+      setTrial(acc && acc.plan === 'trial' ? { endsOn: acc.trialEndsOn ?? null } : null);
+    } catch { setTrial(null); }
   }, []);
 
   useEffect(() => { void load(); }, [load, outbox.waiting, outbox.rejected]);
@@ -60,6 +70,7 @@ export function AccountCard() {
 
   return (
     <>
+      {trial ? <Card><FreeMonth trialEndsOn={trial.endsOn} /></Card> : null}
       <Card>
         <Text style={type.body}>This household signs in with one passcode.</Text>
         <Text style={type.small}>

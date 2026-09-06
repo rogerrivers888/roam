@@ -316,6 +316,31 @@ export async function groupPayload(groupId) {
 // The organiser's door
 // ---------------------------------------------------------------------------
 
+/**
+ * GET /api/groups — the household's own groups.
+ *
+ * Two screens ask the same question and must not answer it differently: the
+ * Who's coming row on a new trip ("one of these again?") and the Who filter on
+ * Trips ("show me that group"). So the counts are worked out here, once.
+ */
+router.get('/groups', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const rows = await groupsRepo.groupsOfHousehold(household.id);
+    res.json({
+      groups: rows.map((g) => ({
+        id: g.id, tripId: g.trip_id, name: g.name ?? g.trip_title, inviteToken: g.invite_token,
+        organiser: g.organiser ?? null, setupDone: g.setup_done,
+        closed: Boolean(g.closed_at), cancelled: Boolean(g.cancelled_at),
+        expectedCount: g.expected_count, minimumCount: g.minimum_count, maximumCount: g.maximum_count,
+        wantedBy: ymd(g.wanted_by),
+        invited: Number(g.invited), joined: Number(g.joined), heads: Number(g.heads), outstanding: Number(g.outstanding),
+        trip: { id: g.trip_id, title: g.trip_title, place: g.place_label, startDate: ymd(g.start_date), endDate: ymd(g.end_date) },
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
 /** GET /api/trips/:id/group — null when the trip is still a household trip. */
 router.get('/trips/:id/group', async (req, res, next) => {
   try {
@@ -372,6 +397,18 @@ router.post('/trips/:id/group', async (req, res, next) => {
             kind: 'activity', required: s.kind !== 'food', label: s.venue_label,
             detail: s.kind === 'food' ? 'Are you coming to this?' : null,
             venueRef: s.venue_ref, position: position++,
+          }, client);
+        }
+      }
+      // "Use again": the same people, asked again — by name and contact only,
+      // never their answers to last time's trip.
+      if (b.copyFromGroupId) {
+        const before = await groupsRepo.participantsPlain(b.copyFromGroupId);
+        for (const p of before) {
+          if (p.member_id || p.withdrawn_at) continue;
+          await groupsRepo.insertParticipant(created.id, {
+            name: p.name, contact: p.contact, contactKind: p.contact_kind,
+            heads: p.heads || 1, brings: p.brings, invitedAt: new Date(), token: token(),
           }, client);
         }
       }

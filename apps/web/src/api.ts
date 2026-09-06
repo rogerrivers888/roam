@@ -710,6 +710,14 @@ export type GroupItemInput = {
   startsOn?: string | null; startsAt?: string | null; endsAt?: string | null;
   bookWhere?: 'roam' | 'yourself' | 'there' | null; externalUrl?: string | null; guestNote?: string | null;
 };
+/** One of the household's groups, as the Who's coming row and the Trips filter both need it. */
+export type GroupSummary = {
+  id: string; tripId: string; name: string | null; inviteToken: string; organiser: string | null;
+  setupDone: boolean; closed: boolean; cancelled: boolean;
+  expectedCount: number | null; minimumCount: number | null; maximumCount: number | null; wantedBy: string | null;
+  invited: number; joined: number; heads: number; outstanding: number;
+  trip: { id: string; title: string | null; place: string | null; startDate: string | null; endDate: string | null };
+};
 export type TripGroup = {
   group: { id: string; tripId: string; name: string | null; expectedCount: number | null; minimumCount: number | null; maximumCount: number | null; wantedBy: string | null; inviteToken: string; closed: boolean; remindersOn: boolean; cadence: string; setupDone: boolean; firstReminderOn: string | null; cancelledAt: string | null; cancelledNote: string | null;
     paymentMode: 'direct' | 'roam';
@@ -1207,7 +1215,9 @@ export const api = {
 
   // group trips
   tripGroup: (tripId: string) => request<TripGroup | { group: null }>(`/api/trips/${tripId}/group`),
-  createTripGroup: (tripId: string, body: { name?: string; expectedCount?: number | null; minimumCount?: number | null; wantedBy?: string | null; cadence?: string; organiserMemberId?: string | null }) => post<TripGroup>(`/api/trips/${tripId}/group`, body),
+  /** The household's own groups: what "Your groups" offers again and what the Who filter lists. */
+  groups: () => request<{ groups: GroupSummary[] }>('/api/groups'),
+  createTripGroup: (tripId: string, body: { name?: string; expectedCount?: number | null; minimumCount?: number | null; wantedBy?: string | null; cadence?: string; organiserMemberId?: string | null; copyFromGroupId?: string }) => post<TripGroup>(`/api/trips/${tripId}/group`, body),
   updateGroup: (id: string, body: Partial<{
     name: string; expectedCount: number | null; minimumCount: number | null; maximumCount: number | null;
     wantedBy: string | null; remindersOn: boolean; cadence: string; closed: boolean; newLink: boolean;
