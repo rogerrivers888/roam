@@ -474,7 +474,8 @@ export function Scout({ canManage }: { canManage: boolean }) {
                       sub="our composite against our owned score"
                       tone={(bench.verdict.ownedAgreement ?? 0) >= 0.8 ? 'ok' : 'warn'} />
                 <Tile label="Only ours" value={count(bench.verdict.onlyOurs)} sub="we keep it, they do not rank it" />
-                <Tile label="Only theirs" value={count(bench.verdict.onlyTheirs)} sub="they rank it, we never kept it" />
+                <Tile label="Never kept" value={count(bench.verdict.onlyTheirs)}
+                      sub={`they rank these and we do not hold them — mostly the sweep keeping only ${count(area?.kept ?? 0)}, not a miss`} />
               </TileRow>
 
               {bench.verdict.bandSaturated ? (
