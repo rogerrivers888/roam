@@ -10,7 +10,7 @@ import { TRAVEL_MODES } from '../domain/travel.js';
 import { dayAsTrip, datesBetween, slotFor } from '../domain/days.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { searchAreas } from '../sources/areas.js';
-import { optInFrom, enabledSources } from '../sources/index.js';
+import { optInFrom, enabledSources, pointsAlong } from '../sources/index.js';
 import { searchCached } from '../sources/cache.js';
 import { bedsNear, OSM_ATTRIBUTION, LITEAPI_ATTRIBUTION } from '../sources/stays.js';
 import { stationsNear } from '../sources/where.js';
@@ -281,6 +281,42 @@ router.post('/', async (req, res, next) => {
       await ensureDays(client, created);
       await trips.setDayDefaults(created.id, { intensity, travelMode }, client);
       await placeTrip(client, created.id, destination ?? origin);
+      /**
+       * The place the day is *for* goes on the day.
+       *
+       * It used to go on the shortlist instead, as a must-do, and the trip's
+       * own day stayed empty — so Wembley Stadium was both where the trip was
+       * going and a suggestion for it (owner, 6 Sep 2026: "Wembley Stadium is
+       * in my trip. That's where I'm going, but when I click on shortlist,
+       * Wembley Stadium's there… It can't be in both"). Worse, the timeline
+       * only drew the destination while the day was empty, so adding a
+       * restaurant made the reason for the trip disappear from it.
+       *
+       * A destination that is a venue — something with an identifier, tapped on
+       * a card — is a stop, and it is the anchor the rest of the day is planned
+       * around. A destination that is only a place, a city typed into the form,
+       * is not: nobody "visits" Bath at half past two, and a county on the
+       * household's list of places would be nonsense. That one is still drawn
+       * as the middle of the day and belongs to no source.
+       */
+      if (destination?.ref) {
+        const day = await trips.firstDayOf(created.id, client);
+        if (day) {
+          await trips.insertStop(created.id, day.id, {
+            slot: 'afternoon', startTime: null, position: 1,
+            venueRef: destination.ref, name: destination.label,
+            lat: destination.lat, lng: destination.lng,
+            // The reason for the day gets the day: what is left of the window
+            // once the driving is paid for, so a stop added on the way is seen
+            // to come out of it rather than to be free.
+            dwellMinutes: Math.max(
+              60,
+              Math.round((new Date(b.returnAt) - new Date(b.departAt)) / 60_000)
+                - 2 * estimateTravelMinutes(origin, destination, travelMode),
+            ),
+          }, client);
+        }
+      }
       return created;
     });
     res.status(201).json(await tripPayload(trip.id));
@@ -573,30 +609,101 @@ router.get('/:id/along', async (req, res, next) => {
       return m ? { lat: Number(m[1]), lng: Number(m[2]), label: String(req.query.aroundName || '').trim() || null } : null;
     })();
 
-    // One search, centred so that its circle covers the corridor. Along the
-    // route that is the midpoint and half the journey plus the detour's reach;
-    // at the destination it is the destination and the detour's reach alone.
     const reach = reachRadiusKm(mode, maxDetourMin);
-    const centre = around
-      ? { ...around }
-      : destination
-        ? { lat: (origin.lat + destination.lat) / 2, lng: (origin.lng + destination.lng) / 2, label: 'along the way' }
-        : { ...origin };
-    const half = destination && !around ? kmBetween(origin, destination) / 2 : 0;
-    const radiusKm = Math.min(40, Math.max(2, half + reach));
+    const journeyKm = destination ? kmBetween(origin, destination) : 0;
+
+    /**
+     * How wide the corridor is.
+     *
+     * The detour budget buys a certain amount of extra driving, and a place
+     * beside the route costs roughly twice its distance from the line — out and
+     * back again. So half of what the budget reaches is the width.
+     *
+     * That alone is too tight on a long run (owner, 6 Sep 2026: twenty miles to
+     * Crystal Palace, one restaurant and nothing to do). A straight line is a
+     * crude stand-in for a road, and the longer the drive the further the road
+     * wanders from it: over 38km the A308 and the A3 are four or five
+     * kilometres off the chord for most of their length, and a band under two
+     * kilometres wide was describing a road nobody drives. So the width also
+     * grows with the journey — about a tenth of it — which leaves the short
+     * runs exactly as they were. That matters, because the short run is where
+     * the constraint was needed: Chobham Common is 2.4km off a 7.9km drive to
+     * Thorpe Park, and it is still 2.4km off a band 1.9km wide.
+     */
+    const corridorKm = destination
+      ? Math.min(8, Math.max(1, reach / 2, journeyKm * 0.12))
+      : Math.max(1, reach / 2);
+
+    /**
+     * Where to look.
+     *
+     * This was one search, centred on the midpoint, with a radius wide enough
+     * to reach both ends — and that is not a search along a route, it is a
+     * search of a county. Every source answers a circle with the best of what
+     * is in it, and Google's nearby search stops at twenty whatever the radius:
+     * on the run to Crystal Palace those twenty were the Science Museum, the
+     * Natural History Museum and Holland Park, none of them on the road and
+     * none of them within ten kilometres of where the day was going. The
+     * corridor then threw all twenty away, correctly, and the screen said
+     * nothing was on the way.
+     *
+     * So the road is sampled instead: a few circles strung along it, each one
+     * small enough that twenty answers is a fair picture of what is actually
+     * there, and overlapping its neighbours so nothing falls between them. The
+     * far end is always one of them, because a meal near where you are going is
+     * the most on-the-way thing there is.
+     *
+     * The circles are sized from the corridor, not guessed: a radius half again
+     * the width, spaced so that consecutive circles still overlap by the width
+     * at their join. Four to six searches for a long drive, two for a short
+     * one, each cached for twelve hours and shared with every other screen
+     * asking the same thing — a browse still composes from one pool.
+     */
+    const spots = (() => {
+      if (around) return [{ center: { ...around }, radiusKm: Math.min(40, Math.max(2, reach)) }];
+      if (!destination) return [{ center: { ...origin }, radiusKm: Math.min(40, Math.max(2, reach)) }];
+      const sampleRadius = Math.min(20, Math.max(reach, corridorKm * 1.5));
+      const samples = Math.max(2, Math.min(5, Math.ceil(journeyKm / (sampleRadius * 1.4))));
+      return [...pointsAlong(origin, destination, samples), { lat: destination.lat, lng: destination.lng }]
+        .map((c) => ({ center: { lat: c.lat, lng: c.lng }, radiusKm: sampleRadius }));
+    })();
 
     const sources = Array.isArray(trip.sources) && trip.sources.length
       ? trip.sources
       : enabledSources().filter((src) => src.key !== 'scout').map((src) => src.key);
     const deadline = new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('The sources took too long to answer.'), { status: 504, code: 'sources_timeout' })), 60_000));
-    const { venues, degraded, sourcesQueried, units, cached, fetchedAt, fetched } = await Promise.race([searchCached(
+    const answers = await Promise.race([Promise.all(spots.map((spot) => searchCached(
       {
-        center: centre, radiusKm, categories: [kind], query: q, sources,
+        center: spot.center, radiusKm: spot.radiusKm, categories: [kind], query: q, sources,
         locality: trip.locality ?? null, householdId: household.id,
         placeLabel: trip.base_label ?? trip.origin_label, timezone: trip.timezone ?? null,
       },
       { refresh: req.query.refresh === '1' },
-    ), deadline]);
+    ))), deadline]);
+
+    // One pool out of the several circles: the overlaps are the point, so the
+    // same place found twice is one place, and the first answer wins.
+    const pooled = new Map();
+    const degraded = [];
+    const queried = new Set();
+    const units = {};
+    let cached = true;
+    let fetched = false;
+    let fetchedAt = null;
+    for (const a of answers) {
+      for (const v of a.venues) {
+        const ref = `${v.source}:${v.sourcePlaceId}`;
+        if (!pooled.has(ref)) pooled.set(ref, v);
+      }
+      for (const dg of a.degraded ?? []) if (!degraded.some((x) => x.source === dg.source)) degraded.push(dg);
+      for (const k of a.sourcesQueried ?? []) queried.add(k);
+      for (const [k, v] of Object.entries(a.units || {})) units[k] = (units[k] || 0) + v;
+      if (!a.cached) cached = false;
+      if (a.fetched) fetched = true;
+      if (a.fetchedAt && (!fetchedAt || a.fetchedAt > fetchedAt)) fetchedAt = a.fetchedAt;
+    }
+    const venues = [...pooled.values()];
+    const sourcesQueried = [...queried];
     if (fetched) await trips.recordProviderCall(household.id, sourcesQueried.join('+') || 'none', 'trip.along', units);
 
     const have = new Set(await trips.shortlistRefs(trip.id));
@@ -635,23 +742,12 @@ router.get('/:id/along', async (req, res, next) => {
       return { t, offKm: kmBetween(foot, v) };
     };
 
-    /**
-     * How wide the corridor is.
-     *
-     * The detour budget buys a certain amount of extra driving, and a place
-     * beside the route costs roughly twice its distance from the line — out and
-     * back again. So half of what the budget reaches is the width, with a floor
-     * so a short hop still finds anything at all.
-     *
-     * This is the constraint that was missing, and the numbers say so plainly.
-     * On the run from Ascot to Thorpe Park the three places anybody would call
-     * on the way — Wentworth, Thorpe Lakes, Penton Hook — are 0.8km, 0.2km and
-     * 0.4km off the line. Chobham Common is 2.4km off it and Windsor Great Park
-     * 4.0km, on a journey that is only 7.9km end to end. Every one of them was
-     * inside the detour budget, because going back on yourself and round is
-     * genuinely only ten minutes; none of them is on the way.
-     */
-    const corridorKm = Math.max(1, reachRadiusKm(mode, maxDetourMin) / 2);
+    // The corridor's width is settled above, before the road is sampled: the
+    // circles searched are sized from it, so what is looked for and what is
+    // kept describe the same band. The numbers it has to respect are from the
+    // run to Thorpe Park — Wentworth, Thorpe Lakes and Penton Hook are 0.8km,
+    // 0.2km and 0.4km off the line and belong; Chobham Common at 2.4km and
+    // Windsor Great Park at 4.0km, on a journey 7.9km end to end, do not.
 
     /**
      * The destination is not a thing to stop at on the way to the destination,

@@ -368,8 +368,8 @@ export async function nextStopPosition(dayId) {
   return Number(rows[0].max) + 1;
 }
 
-export async function insertStop(tripId, dayId, s) {
-  await query(
+export async function insertStop(tripId, dayId, s, client) {
+  await on(client)(
     `insert into trip_stops (trip_id, day_id, slot, start_time, position, venue_ref, venue_name, lat, lng, dwell_minutes)
      values ($1,$2,$3,$4::time,$5,$6,$7,$8,$9,$10)`,
     [tripId, dayId, s.slot, s.startTime ?? null, s.position, s.venueRef, s.name, s.lat ?? null, s.lng ?? null, s.dwellMinutes],
@@ -462,8 +462,8 @@ export async function dayById(tripId, dayId) {
   return rows[0] ?? null;
 }
 
-export async function firstDayOf(tripId) {
-  const { rows } = await query('select * from trip_days where trip_id = $1 order by date limit 1', [tripId]);
+export async function firstDayOf(tripId, client) {
+  const { rows } = await on(client)('select * from trip_days where trip_id = $1 order by date limit 1', [tripId]);
   return rows[0] ?? null;
 }
 

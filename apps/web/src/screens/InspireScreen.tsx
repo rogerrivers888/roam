@@ -674,7 +674,10 @@ export function InspireScreen({ route, household, onOpenTrip, onPlanner, onFood,
         onAdd={onCreateTrip ? (it) => {
           closeDrawer();
           onCreateTrip({
-            place: { label: it.name, lat: it.lat as number, lng: it.lng as number },
+            // The identifier travels with the destination, not only on the
+            // seed: a day out to a place somebody tapped has that place *on*
+            // it, as the stop the day is built around, and a stop needs a ref.
+            place: { ref: it.venueRef, label: it.name, lat: it.lat as number, lng: it.lng as number },
             seed: { venueRef: it.venueRef, name: it.name, category: it.category, lat: it.lat, lng: it.lng },
           });
         } : undefined}
