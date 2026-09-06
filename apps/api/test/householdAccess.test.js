@@ -1,0 +1,204 @@
+/**
+ * Inviting the people you live with (migration 056).
+ *
+ * The failures worth catching here are the quiet ones. An invitation that does
+ * not arrive is loud — somebody says so. These are not:
+ *
+ *   * a second account on a household changing which monthly ceiling is in
+ *     force, because `callBoundFor` used an unordered `limit 1`;
+ *   * a deleted profile leaving a live way in to the household behind it;
+ *   * a mobile number normalised into the wrong country and a link texted to
+ *     a stranger;
+ *   * one family's provider spending counted once per person in it.
+ *
+ * Every one of those looks like a working app from the outside.
+ */
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { aHousehold, testDatabase } from './helpers/db.js';
+
+const { query } = await testDatabase();
+const {
+  accountByMember, accountByMobile, accountsForHousehold, callBoundFor,
+  createAccount, createAccountOnHousehold, listAccounts, normaliseEmail,
+} = await import('../src/repositories/accounts.js');
+const { normaliseMobile, invitationText, smsStatus } = await import('../src/sources/sms.js');
+
+// ---------------------------------------------------------------------------
+// a number is a credential, so it has to be exactly one number
+// ---------------------------------------------------------------------------
+
+test('the ways a British family types its own mobile number all mean one number', () => {
+  const expected = '+447700900123';
+  for (const typed of ['07700 900123', '07700900123', '+44 7700 900123', '+447700900123', '(07700) 900-123', '00447700900123']) {
+    assert.equal(normaliseMobile(typed), expected, `${typed} should normalise to ${expected}`);
+  }
+});
+
+test('anything that is not recognisably a number is refused rather than guessed at', () => {
+  // The failure this prevents: half-converting something and texting a link
+  // that signs somebody in to this household to whoever owns that number.
+  for (const nonsense of ['', '   ', 'ask Gina', '123', '07700', 'gina@example.com', '+0 123']) {
+    assert.equal(normaliseMobile(nonsense), null, `${JSON.stringify(nonsense)} should be refused`);
+  }
+});
+
+test('a number already in international form is never re-dialled through the household country', () => {
+  assert.equal(normaliseMobile('+1 415 555 0123', { countryCode: 'GB' }), '+14155550123');
+});
+
+test('an empty address is null and not the empty string', () => {
+  // '' in a unique column would mean only one account in the estate could be
+  // invited by text alone.
+  assert.equal(normaliseEmail(''), null);
+  assert.equal(normaliseEmail(null), null);
+  assert.equal(normaliseEmail('  Gina@Example.COM '), 'gina@example.com');
+});
+
+// ---------------------------------------------------------------------------
+// two people, one household
+// ---------------------------------------------------------------------------
+
+test('a household member signs in to the household they already live in, not a new one', async () => {
+  const { household, member } = await aHousehold(query, 'the Rivers household');
+  const account = await createAccountOnHousehold(household.id, {
+    memberId: member.id, mobile: '07700 900123', name: 'Gina', role: 'customer', plan: 'household',
+  });
+
+  assert.equal(account.household_id, household.id, 'the invitation must not create a household of its own');
+  assert.equal(account.member_id, member.id);
+  assert.equal(account.mobile, '+447700900123', 'the number is stored as a sender will accept it');
+  assert.equal(account.email, null, 'somebody invited by text has no address, and that is allowed');
+
+  assert.equal((await accountByMember(member.id))?.id, account.id);
+  assert.equal((await accountByMobile('07700 900123'))?.id, account.id, 'found however it is typed back in');
+});
+
+test('the household ceiling is the lead\'s, whoever else is signed in', async () => {
+  // Before migration 056 this was `select monthly_call_bound ... limit 1` with
+  // no order, so with two accounts on one household the ceiling in force
+  // changed from request to request depending on which row came back.
+  const { household, member } = await aHousehold(query, 'ceiling household');
+  const { rows: [lead] } = await query(
+    `insert into accounts (household_id, email, name, role, plan, monthly_call_bound)
+     values ($1, 'lead@example.com', 'Lead', 'customer', 'trial', 400) returning id`,
+    [household.id],
+  );
+  assert.equal(await callBoundFor(household.id), 400);
+
+  // Somebody invited into the household carries no ceiling of their own, so
+  // they cannot raise or lower the family's.
+  await createAccountOnHousehold(household.id, {
+    memberId: member.id, email: 'gina@example.com', name: 'Gina', role: 'customer', plan: 'household', monthlyCallBound: null,
+  });
+  for (let i = 0; i < 5; i += 1) assert.equal(await callBoundFor(household.id), 400, 'the ceiling must not move');
+
+  const people = await accountsForHousehold(household.id);
+  assert.equal(people.length, 2);
+  assert.equal(people[0].id, lead.id, 'the lead is first — the account that made the household');
+});
+
+test('deleting a person takes their way in with them', async () => {
+  // The worst quiet failure available here: a profile that is gone, and a live
+  // sign-in to the household still behind it.
+  const { household, member } = await aHousehold(query, 'cascade household');
+  const account = await createAccountOnHousehold(household.id, {
+    memberId: member.id, mobile: '07700 900999', name: 'Gone', role: 'customer', plan: 'household',
+  });
+  await query(
+    `insert into api_sessions (token_hash, account_id, expires_at) values ($1, $2, now() + interval '90 days')`,
+    [`hash-${account.id}`, account.id],
+  );
+
+  await query('delete from members where id = $1', [member.id]);
+
+  assert.equal(await accountByMember(member.id), null);
+  const { rows: gone } = await query('select id from accounts where id = $1', [account.id]);
+  assert.equal(gone.length, 0, 'the account goes with the profile');
+  const { rows: sessions } = await query('select id from api_sessions where account_id = $1', [account.id]);
+  assert.equal(sessions.length, 0, 'and so do the devices it was signed in on');
+});
+
+test('taking the sign-in away leaves the person, their tastes and their ratings', async () => {
+  const { household, member } = await aHousehold(query, 'keep the person');
+  await query(`insert into member_constraints (member_id, kind, value) values ($1, 'allergen', 'peanuts')`, [member.id]);
+  const account = await createAccountOnHousehold(household.id, {
+    memberId: member.id, email: 'stay@example.com', name: 'Stays', role: 'customer', plan: 'household',
+  });
+
+  // What `DELETE /members/:id/invite` does: the account, and only the account.
+  await query('delete from accounts where id = $1', [account.id]);
+
+  const { rows: [still] } = await query('select id, name from members where id = $1', [member.id]);
+  assert.ok(still, 'the person is still in the household');
+  const { rows: allergens } = await query('select value from member_constraints where member_id = $1', [member.id]);
+  assert.deepEqual(allergens.map((a) => a.value), ['peanuts'], 'and so is everything they cannot eat');
+});
+
+test('one contact signs one person in, so a number cannot be lent to a second account', async () => {
+  const { household, member } = await aHousehold(query, 'unique contacts');
+  await createAccountOnHousehold(household.id, { memberId: member.id, mobile: '07700 900555', name: 'First', role: 'customer', plan: 'household' });
+  const { rows: [other] } = await query('insert into members (household_id, name) values ($1, $2) returning *', [household.id, 'Second']);
+  await assert.rejects(
+    () => createAccountOnHousehold(household.id, { memberId: other.id, mobile: '+44 7700 900555', name: 'Second', role: 'customer', plan: 'household' }),
+    /duplicate key|unique/i,
+    'the same number in two dialects is still the same number',
+  );
+});
+
+test('an account with neither an address nor a number cannot exist', async () => {
+  const { household } = await aHousehold(query, 'unreachable');
+  await assert.rejects(
+    () => query(`insert into accounts (household_id, name, role) values ($1, 'Nobody', 'customer')`, [household.id]),
+    /accounts_reachable/,
+    'an account nobody can send a link to is an account nobody can ever use',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// what the back office is told
+// ---------------------------------------------------------------------------
+
+test('a family with two people signed in is one household, counted once', async () => {
+  const account = await createAccount({ email: 'family@example.com', name: 'Family', plan: 'trial', monthlyCallBound: 200 });
+  const { rows: [member] } = await query('insert into members (household_id, name) values ($1, $2) returning *', [account.household_id, 'Partner']);
+  await createAccountOnHousehold(account.household_id, {
+    memberId: member.id, email: 'partner@example.com', name: 'Partner', role: 'customer', plan: 'household',
+  });
+  await query(
+    `insert into provider_calls (household_id, provider, purpose, estimated_cost_usd) values ($1, 'google', 'discover.search', 0.03)`,
+    [account.household_id],
+  );
+
+  const rows = (await listAccounts()).filter((r) => r.household_id === account.household_id);
+  assert.equal(rows.length, 2, 'both people appear — the owner asked to see who is in');
+  assert.equal(rows.filter((r) => r.is_lead).length, 1, 'exactly one of them is the household');
+  assert.equal(rows[0].email, 'family@example.com', 'and it is the one that made it');
+  // Both rows carry the household's spending, because that is the true answer
+  // to "what is this costing"; the totals on the screen add up the leads only.
+  assert.equal(Number(rows[0].cost_ever).toFixed(2), '0.03');
+  assert.equal(Number(rows[1].cost_ever).toFixed(2), '0.03');
+  const leadTotal = rows.filter((r) => r.is_lead).reduce((n, r) => n + Number(r.cost_ever), 0);
+  assert.equal(leadTotal.toFixed(2), '0.03', 'counting every row would report twice what was spent');
+});
+
+// ---------------------------------------------------------------------------
+// what is said when nothing can be sent
+// ---------------------------------------------------------------------------
+
+test('with no Twilio key configured the invitation says so rather than pretending', () => {
+  const status = smsStatus();
+  assert.equal(status.configured, false);
+  assert.match(status.message, /Doppler/, 'the owner is told where the key goes');
+  assert.match(status.message, /copy the link/, 'and what to do until it is there');
+});
+
+test('the text says who it is from before it says anything else', () => {
+  // A link that arrives with no name on it looks exactly like the thing people
+  // are told never to tap.
+  const body = invitationText({ name: 'Gina', url: 'https://roam.example/?signin=abc', from: 'Roger' });
+  assert.match(body, /^Hi Gina\. Roger has/);
+  assert.ok(body.includes('https://roam.example/?signin=abc'));
+  assert.ok(body.length < 320, `a text is short; this one was ${body.length} characters`);
+});

@@ -201,6 +201,16 @@ export function queueable(method: string, fullPath: string): boolean {
   if (p === '/api/atlas/places' || /^\/api\/atlas\/places\//.test(p)) return true;
   if (/^\/api\/places\/[^/]+\/(note|verdict|special)$/.test(p)) return true;
 
+  // Inviting somebody into the household is not queued, for the same reason a
+  // search is not: the answer is the point. With no sender configured the
+  // response *is* the invitation — the only copy of a link that is never
+  // stored — so a request replayed an hour later with nobody watching would
+  // mint a link into nothing and mark somebody invited who was never sent
+  // anything. Taking a sign-in away is not queued either: it is a security act,
+  // and "she is signed out" must be true when the screen says it, not whenever
+  // the signal comes back.
+  if (/^\/api\/household\/members\/[^/]+\/invite$/.test(p)) return false;
+
   // The household itself: who is in it, what they cannot eat, what they dislike.
   if (p === '/api/household' || p.startsWith('/api/household/')) return true;
 

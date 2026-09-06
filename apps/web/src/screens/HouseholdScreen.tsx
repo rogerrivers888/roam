@@ -3,10 +3,10 @@ import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, Vi
 import { useViewport } from '../hooks/useViewport';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { api, Constraint, Household, HouseholdResponse, Learned, Member, Place, Suggestion } from '../api';
+import { api, Constraint, Household, HouseholdInvitation, HouseholdResponse, Learned, Member, Place, SenderStatus, Suggestion } from '../api';
 import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Row, Segmented, Wrap } from '../components/ui';
-import { asOneOf, useQueryState, useRouter } from '../router';
+import { asFlag, asOneOf, useQueryState, useRouter } from '../router';
 import { paths, type Route } from '../routes';
 import { Avatar } from '../components/Faces';
 import { Icon } from '../components/Icon';
@@ -52,7 +52,7 @@ export function HouseholdScreen({ data, refresh, route }: {
   useEffect(() => { if (selected && selected.id !== selectedId && sideBySide) setSelectedId(selected.id); }, [selected?.id, sideBySide]);
 
   if (!data) return <View style={styles.page}><Text style={type.small}>Loading household…</Text></View>;
-  const { household, learned, vocabulary } = data;
+  const { household, learned, vocabulary, senders } = data;
   const adult = members.find((m) => !m.isMinor);
 
   const detail = (m: Member, i: number) => (
@@ -61,6 +61,7 @@ export function HouseholdScreen({ data, refresh, route }: {
       member={m} index={i} managedBy={m.isMinor ? adult?.name : undefined}
       relationships={vocabulary.relationships} allergens={vocabulary.allergens}
       learned={learned.filter((l) => l.memberId === m.id)} refresh={refresh}
+      senders={senders}
       onRemoved={() => setSelectedId(null)}
     />
   );
@@ -226,7 +227,19 @@ function PersonRow({ member, index, selected, onPress }: { member: Member; index
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={`Show ${member.name}`} style={[styles.personRow, selected && styles.personRowSelected]}>
       <Avatar name={member.name} index={index} size={44} url={member.avatarUrl} />
       <View style={{ flex: 1 }}>
-        <Text style={type.h3}>{member.name}</Text>
+        <Row style={{ gap: 6 }}>
+          <Text style={[type.h3, { flexShrink: 1 }]} numberOfLines={1}>{member.name}</Text>
+          {/* Who has Roam on their own phone, without opening them. A tick is
+              somebody who has signed in; the paper plane is an invitation
+              nobody has opened yet. */}
+          {member.access && member.access.status !== 'none' ? (
+            <Icon
+              name={(member.access.signInCount ?? 0) > 0 ? 'check' : 'send'}
+              size={14}
+              color={(member.access.signInCount ?? 0) > 0 ? colors.accent : colors.headerSub}
+            />
+          ) : null}
+        </Row>
         <Text style={type.tiny} numberOfLines={2}>{summarise(member)}</Text>
       </View>
     </Pressable>
@@ -295,8 +308,9 @@ function summarise(m: Member): string {
   return parts.length ? parts.join(' · ') : 'Nothing set yet';
 }
 
-function MemberDetail({ member, index, managedBy, relationships, allergens, learned, refresh, onRemoved }: {
-  member: Member; index: number; managedBy?: string; relationships: string[]; allergens: string[]; learned: Learned[]; refresh: () => Promise<void>; onRemoved: () => void;
+function MemberDetail({ member, index, managedBy, relationships, allergens, learned, refresh, senders, onRemoved }: {
+  member: Member; index: number; managedBy?: string; relationships: string[]; allergens: string[]; learned: Learned[];
+  refresh: () => Promise<void>; senders?: { sms: SenderStatus; email: SenderStatus }; onRemoved: () => void;
 }) {
   const [browse, setBrowse] = useState<null | { section: Section; mode: Mode }>(null);
   const [detailFor, setDetailFor] = useState<Constraint | null>(null);
@@ -442,6 +456,8 @@ function MemberDetail({ member, index, managedBy, relationships, allergens, lear
 
       <AboutGroup member={member} relationships={relationships} refresh={refresh} />
 
+      <AccessGroup member={member} senders={senders} refresh={refresh} />
+
       <Row style={{ justifyContent: 'flex-end' }}>
         {confirmRemove ? (
           <>
@@ -452,6 +468,227 @@ function MemberDetail({ member, index, managedBy, relationships, allergens, lear
         ) : <Button label="Remove person" kind="ghost" onPress={() => setConfirmRemove(true)} />}
       </Row>
     </Card>
+  );
+}
+
+
+/**
+ * Whether this person can open Roam on their own phone, and how to send them
+ * the link (owner, 6 Sep 2026: "how can I invite Gina and anyone else that's in
+ * my household to the app?").
+ *
+ * Below their tastes rather than above, because who somebody is comes before
+ * how they sign in — and immediately above "Remove person", because taking
+ * their sign-in away and removing them are next to each other in the mind and
+ * must not be next to each other by accident: one leaves everything they have
+ * ever rated in place, the other does not, and both say so before they act.
+ *
+ * A household member is a full peer once they are in (owner, 6 Sep 2026:
+ * "Everything, no exceptions"), so this promises nothing about what they can
+ * and cannot do. It says the true thing instead: it is the same Roam.
+ *
+ * With no sender configured nothing here fails. The link is minted, the screen
+ * says plainly that it could not be sent, and shows it to be copied — the rule
+ * the group screen and the admin screen already keep, rather than implying that
+ * somebody has been texted when nobody has.
+ */
+function AccessGroup({ member, senders, refresh }: {
+  member: Member; senders?: { sms: SenderStatus; email: SenderStatus }; refresh: () => Promise<void>;
+}) {
+  const access = member.access ?? null;
+  const [mobile, setMobile] = useState(access?.mobile ?? '');
+  const [email, setEmail] = useState(access?.email ?? '');
+  const [open, setOpen] = useQueryState<boolean>('invite', false, asFlag);
+  const [busy, setBusy] = useState<null | 'sms' | 'email' | 'both' | 'remove'>(null);
+  const [result, setResult] = useState<HouseholdInvitation | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  /** What just happened outside the panel — "X can no longer sign in", and so on. */
+  const [sent, setSent] = useState<string | null>(null);
+
+  // Keyed on the person and nothing else, deliberately.
+  //
+  // Sending an invitation calls `refresh()`, which brings back a member whose
+  // contact details have just changed — a number typed as `07700 900123` comes
+  // back normalised to `+447700900123`. An effect that also watched those would
+  // therefore fire on every successful send and clear `result`, which holds the
+  // link. With no sender configured that link is the only copy there will ever
+  // be: it is minted once, never stored, and shown once. Wiping it here would
+  // mean the screen said "copy the link below" and then removed it.
+  useEffect(() => {
+    setMobile(access?.mobile ?? ''); setEmail(access?.email ?? '');
+    setResult(null); setError(null); setCopied(false); setConfirmRemove(false); setSent(null);
+  }, [member.id]);
+
+  // Their number and address as the server now holds them, but only into a box
+  // nobody has typed into. Somebody halfway through correcting a number must
+  // not have it changed underneath them by a refresh happening elsewhere.
+  useEffect(() => { if (!mobile && access?.mobile) setMobile(access.mobile); }, [access?.mobile]);
+  useEffect(() => { if (!email && access?.email) setEmail(access.email); }, [access?.email]);
+
+  // A profile Roam knows is under thirteen is looked after by an adult (Epic 1
+  // C8), so there is nothing to offer — only the reason there is nothing.
+  if (access?.blocked) {
+    return <Group title="Roam on their own phone"><Text style={type.tiny}>{access.blocked}</Text></Group>;
+  }
+
+  const send = async (channels: ('sms' | 'email')[]) => {
+    setBusy(channels.length > 1 ? 'both' : channels[0]);
+    setError(null); setResult(null); setCopied(false);
+    try {
+      const r = await api.inviteMember(member.id, { mobile: mobile.trim() || null, email: email.trim() || null, channels });
+      setResult(r.invitation);
+      await refresh();
+    } catch (e: any) {
+      setError(e?.body?.message ?? e?.message ?? 'Could not send that.');
+    } finally { setBusy(null); }
+  };
+
+  const removeAccess = async () => {
+    setBusy('remove'); setError(null);
+    try { const r = await api.removeMemberAccess(member.id); setResult(null); setConfirmRemove(false); setError(null); await refresh(); setSent(r.message); }
+    catch (e: any) { setError(e?.body?.message ?? e?.message ?? 'Could not do that.'); }
+    finally { setBusy(null); }
+  };
+
+  const invited = access && access.status !== 'none';
+  const signedInBefore = (access?.signInCount ?? 0) > 0;
+
+  // What is true right now, in one sentence. Three different facts and each is
+  // the one that matters at that moment: never asked, asked and not answered,
+  // and in.
+  const standing = (() => {
+    if (!invited) return `${member.name} can't open Roam yet.`;
+    if (access!.status === 'suspended') return `${member.name}'s sign-in is switched off.`;
+    if (!signedInBefore) {
+      const when = access!.lastInvite?.at ? new Date(access!.lastInvite.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }) : null;
+      return `Invited${when ? ` on ${when}` : ''} — not opened yet.`;
+    }
+    const seen = access!.lastSeenAt ? new Date(access!.lastSeenAt) : null;
+    const today = seen && seen.toDateString() === new Date().toDateString();
+    return `Signed in${seen ? `, last here ${today ? 'today' : `on ${seen.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}`}` : ''}.`;
+  })();
+
+  const canText = Boolean(mobile.trim());
+  const canMail = Boolean(email.trim());
+  const sendLabel = signedInBefore || invited ? 'Send a new link' : 'Send the invite';
+
+  // Why a message would not leave the building, if it would not — one clause,
+  // beside the channel it applies to, so "texts are off" does not appear under
+  // an e-mail address that would send perfectly well. The variable names are
+  // said once, at the foot of the panel: they are for the one person who can
+  // set them, and repeating them beside every box turns a form into a stack
+  // trace.
+  const warn = (which: 'sms' | 'email') => {
+    const s = senders?.[which];
+    return s && !s.configured ? <Text style={type.tiny}>{s.short ?? s.message}</Text> : null;
+  };
+  const missing = (['sms', 'email'] as const).map((k) => senders?.[k]).filter((s) => s && !s.configured);
+
+  return (
+    <Group title="Roam on their own phone">
+      <Row style={{ gap: spacing.sm }}>
+        <Icon name={invited && signedInBefore ? 'check' : invited ? 'send' : 'mobile'} size={16} color={invited && signedInBefore ? colors.accent : colors.headerSub} />
+        <Text style={[type.small, { flex: 1 }]}>{standing}</Text>
+        {!open ? (
+          <Button label={invited ? 'Manage' : 'Invite them'} kind={invited ? 'ghost' : 'secondary'} onPress={() => setOpen(true)} />
+        ) : null}
+      </Row>
+      <Text style={type.tiny}>
+        They get the same Roam you do — the same trips, the same saved places, and everybody's tastes and allergies already in it.
+      </Text>
+      {sent ? <Text style={[type.small, { color: colors.accent }]}>{sent}</Text> : null}
+
+      {open ? (
+        <View style={styles.pendingBox}>
+          <View style={{ gap: 4 }}>
+            <Text style={type.tiny}>Mobile</Text>
+            <Row style={{ gap: spacing.sm }}>
+              <Icon name="mobile" size={16} color={colors.headerSub} />
+              <TextInput
+                value={mobile} onChangeText={setMobile} placeholder="07700 900123"
+                placeholderTextColor={colors.inkFaint} keyboardType="phone-pad" autoCapitalize="none"
+                style={[styles.input, { flex: 1 }]}
+                accessibilityLabel={`Mobile number for ${member.name}`}
+              />
+            </Row>
+            {warn('sms')}
+          </View>
+
+          <View style={{ gap: 4 }}>
+            <Text style={type.tiny}>E-mail</Text>
+            <Row style={{ gap: spacing.sm }}>
+              <Icon name="mail" size={16} color={colors.headerSub} />
+              <TextInput
+                value={email} onChangeText={setEmail} placeholder="gina@example.com"
+                placeholderTextColor={colors.inkFaint} keyboardType="email-address" autoCapitalize="none" autoCorrect={false}
+                style={[styles.input, { flex: 1 }]}
+                accessibilityLabel={`E-mail address for ${member.name}`}
+              />
+            </Row>
+            {warn('email')}
+          </View>
+
+          <Wrap>
+            <Button label={busy === 'sms' ? 'Texting…' : `${sendLabel} by text`} icon="message" disabled={!canText || busy !== null} onPress={() => send(['sms'])} />
+            <Button label={busy === 'email' ? 'Sending…' : `${sendLabel} by e-mail`} icon="mail" kind="secondary" disabled={!canMail || busy !== null} onPress={() => send(['email'])} />
+            {canText && canMail ? (
+              <Button label={busy === 'both' ? 'Sending…' : 'Both'} kind="ghost" disabled={busy !== null} onPress={() => send(['sms', 'email'])} />
+            ) : null}
+          </Wrap>
+          <Text style={type.tiny}>
+            {canText || canMail
+              ? 'One link, however it goes out — it signs them in on the device they open it on, works once, and lasts a week.'
+              : 'Add a mobile number or an e-mail address — a link has to go somewhere.'}
+          </Text>
+          {/* Said once, and only to whoever can act on it. */}
+          {missing.map((s) => <Text key={s!.reason} style={type.tiny}>{s!.setup ?? s!.message}</Text>)}
+
+          {error ? <Text style={[type.small, { color: colors.dislike }]}>{error}</Text> : null}
+
+          {result ? (
+            <View style={{ gap: spacing.sm }}>
+              <Text style={[type.small, { color: result.sent ? colors.accent : colors.ink }]}>{result.message}</Text>
+              {/* Only a real refusal — "Twilio would not take it", "that domain
+                  is not verified". A channel that is simply not switched on has
+                  already said so twice above, and saying it a third time next to
+                  the link buries the link. */}
+              {result.channels.filter((c) => !c.sent && c.message && senders?.[c.channel]?.configured).map((c) => (
+                <Text key={c.channel} style={[type.tiny, { color: colors.dislike }]}>{c.message}</Text>
+              ))}
+              {/* Shown once and never stored. With no sender configured this is
+                  the only way the invitation reaches anybody. */}
+              <Text style={type.tiny} selectable numberOfLines={2}>{result.url}</Text>
+              <Row>
+                <Button
+                  label={copied ? 'Copied' : 'Copy the link'} icon={copied ? 'check' : 'copy'} kind="secondary"
+                  onPress={async () => {
+                    try { await navigator.clipboard.writeText(result.url); setCopied(true); } catch { setCopied(false); }
+                  }}
+                />
+              </Row>
+            </View>
+          ) : null}
+
+          <Row style={{ justifyContent: 'space-between' }}>
+            <Button label="Done" kind="ghost" onPress={() => { setOpen(false); setResult(null); setError(null); }} />
+            {invited && !access?.isLead ? (
+              confirmRemove ? (
+                <Row style={{ gap: spacing.sm, flexWrap: 'wrap' }}>
+                  <Text style={type.small}>Take {member.name}'s sign-in away?</Text>
+                  <Button label={busy === 'remove' ? 'Removing…' : 'Yes, remove it'} kind="danger" disabled={busy !== null} onPress={removeAccess} />
+                  <Button label="Keep it" kind="ghost" onPress={() => setConfirmRemove(false)} />
+                </Row>
+              ) : <Button label="Remove their sign-in" kind="ghost" onPress={() => setConfirmRemove(true)} />
+            ) : null}
+          </Row>
+          {invited && !access?.isLead && confirmRemove ? (
+            <Text style={type.tiny}>Their profile, tastes and everything they have rated stay exactly where they are. Only the way in goes.</Text>
+          ) : null}
+        </View>
+      ) : null}
+    </Group>
   );
 }
 

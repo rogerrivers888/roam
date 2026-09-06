@@ -11,8 +11,17 @@ import { routingEnabled } from '../sources/routing.js';
 import { paceOf, DEFAULT_PACE } from '../domain/pace.js';
 import { isValidTimezone } from '../domain/time.js';
 import { currentAccount } from '../context.js';
+import {
+  accountByEmail, accountByMember, accountByMobile, accountsForHousehold, createAccountOnHousehold,
+  createSignInLink, deleteAccount, lastLinkFor, markLinkSent, normaliseEmail, ownerAccount,
+  revokeAccountSessions, updateAccount,
+} from '../repositories/accounts.js';
+import { householdInvitationEmail, mailStatus, sendMail, webUrl } from '../sources/mail.js';
+import { invitationText, normaliseMobile, prettyMobile, sendSms, smsStatus } from '../sources/sms.js';
 
 const router = Router();
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const RELATIONSHIPS = ['parent', 'partner', 'child', 'grandparent', 'sibling', 'friend', 'other'];
 const KINDS = ['allergen', 'diet', 'dislike', 'like'];
@@ -92,6 +101,9 @@ export async function loadMembers(householdId) {
       birthDate: row.birth_date,
       relationship: row.relationship,
       avatarUrl: row.avatar_url,
+      // How to reach them, so the Household tab can invite them (migration 056).
+      email: row.email ?? null,
+      mobile: row.mobile ?? null,
       typicalVisitMinutes: row.typical_visit_minutes,
       maxTravelMinutes: row.max_travel_minutes,
       allergens: row.constraints.filter((c) => c.kind === 'allergen'),
@@ -158,6 +170,11 @@ router.get('/', async (_req, res, next) => {
   try {
     const household = await currentHousehold();
     const members = await loadMembers(household.id);
+    // Who among them can sign in, and what happened to the last link each was
+    // sent. One query for everybody rather than one per person: the Household
+    // tab draws the whole family at once.
+    const access = await accessForMembers(await households.membersWithConstraints(household.id));
+    for (const m of members) m.access = access.get(m.id) ?? null;
     res.json({
       household: {
         id: household.id,
@@ -174,6 +191,10 @@ router.get('/', async (_req, res, next) => {
       members,
       learned: await loadLearnedPreferences(household.id),
       vocabulary: { allergens: ALLERGENS, relationships: RELATIONSHIPS },
+      // Whether an invitation can actually be delivered, and if not, why. The
+      // answer to "why did that not send" belongs on the screen that tried to
+      // send it — the same rule the admin screen keeps for mail.
+      senders: { sms: smsStatus(), email: mailStatus() },
     });
   } catch (err) {
     next(err);
@@ -219,8 +240,11 @@ router.patch('/', async (req, res, next) => {
 router.post('/members', async (req, res, next) => {
   try {
     const household = await currentHousehold();
-    const { name, relationship = null, birthYear = null, birthDate = null, avatarUrl = null, typicalVisitMinutes, maxTravelMinutes } = req.body;
+    const { name, relationship = null, birthYear = null, birthDate = null, avatarUrl = null, typicalVisitMinutes, maxTravelMinutes, email = null, mobile = null } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name_required' });
+    if (email && !EMAIL.test(email)) return res.status(400).json({ error: 'invalid_email', message: 'That does not look like an e-mail address.' });
+    const number = mobile ? normaliseMobile(mobile) : null;
+    if (mobile && !number) return res.status(400).json({ error: 'invalid_mobile', message: `“${mobile}” does not look like a mobile number. A UK one starts 07, or +44.` });
     if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return res.status(400).json({ error: 'invalid_birth_date', message: 'Use YYYY-MM-DD' });
     if (relationship && !RELATIONSHIPS.includes(relationship)) return res.status(400).json({ error: 'invalid_relationship' });
     const age = ageFrom(birthDate, birthYear);
@@ -230,6 +254,7 @@ router.post('/members', async (req, res, next) => {
       relationship,
       birthYear: birthYear ?? (birthDate ? Number(birthDate.slice(0, 4)) : null),
       birthDate, avatarUrl, typicalVisitMinutes, maxTravelMinutes,
+      email, mobile: number,
     });
     res.status(201).json({ member });
   } catch (err) {
@@ -239,14 +264,21 @@ router.post('/members', async (req, res, next) => {
 
 router.patch('/members/:id', async (req, res, next) => {
   try {
-    const { name, relationship, birthYear, birthDate, avatarUrl, typicalVisitMinutes, maxTravelMinutes } = req.body;
+    const { name, relationship, birthYear, birthDate, avatarUrl, typicalVisitMinutes, maxTravelMinutes, email, mobile } = req.body;
     if (relationship && !RELATIONSHIPS.includes(relationship)) return res.status(400).json({ error: 'invalid_relationship' });
+    // '' takes a contact detail off somebody, as it already does a face. A
+    // number is normalised on the way in so that what is stored is what a
+    // sender will accept, whichever way they typed it.
+    if (email && !EMAIL.test(email)) return res.status(400).json({ error: 'invalid_email', message: 'That does not look like an e-mail address.' });
+    const number = mobile ? normaliseMobile(mobile) : mobile;
+    if (mobile && !number) return res.status(400).json({ error: 'invalid_mobile', message: `“${mobile}” does not look like a mobile number. A UK one starts 07, or +44.` });
     if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return res.status(400).json({ error: 'invalid_birth_date', message: 'Use YYYY-MM-DD' });
     if (avatarUrl && avatarUrl.length > 600_000) return res.status(413).json({ error: 'avatar_too_large', message: 'Keep photos under ~400KB' });
     const member = await households.updateMember(req.params.id, {
       name, relationship,
       birthYear: birthYear ?? (birthDate ? Number(birthDate.slice(0, 4)) : null),
       avatarUrl, typicalVisitMinutes, maxTravelMinutes, birthDate,
+      email, mobile: number,
     });
     if (!member) return res.status(404).json({ error: 'member_not_found' });
     res.json({ member });
@@ -263,6 +295,261 @@ router.delete('/members/:id', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// inviting the people you live with
+// ---------------------------------------------------------------------------
+//
+// The owner, 6 Sep 2026: "in the Household tab, how can I invite Gina and
+// anyone else that's in my household to the app?"
+//
+// This is not the admin module's invitation, and the difference matters. There
+// (routes/accounts.js) the owner is giving Roam to a friend, and the friend
+// gets a household of their own — an empty one, on purpose. Here somebody
+// already in *this* household is being given a way in to it: the same trips,
+// the same saved places, and the allergens and dislikes already written down
+// under their name. `accounts.member_id` is what joins the two (migration 056),
+// and `currentHousehold()` above then resolves their session to this household
+// without a single other route knowing anything happened.
+//
+// A household member is a full peer (owner, asked and answered, 6 Sep 2026:
+// "Everything, no exceptions"). There is nothing to gate, so nothing here
+// gates: `accessFor` already gives an account with no role the client door and
+// nothing else, and every route behind that door is scoped to the household
+// they are both in.
+//
+// Two channels, and the link is the same link either way. A text is the simplest
+// thing to receive and needs Twilio (sources/sms.js); an address needs Resend
+// (sources/mail.js). Both are keys, so both are the owner's to add in Doppler —
+// and with neither of them set nothing here fails: it mints the link, says it
+// could not send it, and shows it for him to hand over himself, which is the
+// rule notify.js and mail.js already keep.
+
+/** Somebody's own words about how a link went out, for the row that sent it. */
+const deliveryWord = { email: 'e-mail', sms: 'text' };
+
+/**
+ * Who a person in this household is to the API: their profile, and whether
+ * they can sign in.
+ *
+ * Never a token and never a link — those exist for as long as it takes to send
+ * one and are returned only in the answer to the request that asked for it.
+ */
+function accessView(member, account, lastLink) {
+  const reachable = { email: member.email ?? null, mobile: member.mobile ?? null };
+  if (!account) {
+    return {
+      ...reachable,
+      canSignIn: false,
+      status: 'none',
+      // Why the button is off, in the words the screen shows. A child is not
+      // refused an account because of a rule about children — it is refused
+      // because a profile Roam knows is under thirteen is managed by an adult
+      // (Epic 1 C8), and a sign-in of their own would be around that.
+      blocked: member.is_minor ? 'A profile under thirteen is looked after by an adult, so it has no sign-in of its own.' : null,
+    };
+  }
+  return {
+    ...reachable,
+    canSignIn: account.status !== 'suspended',
+    accountId: account.id,
+    status: account.status,
+    // Where their link would actually go: the account's own copy, which is what
+    // was used, not what the profile says today.
+    email: account.email ?? member.email ?? null,
+    mobile: account.mobile ?? member.mobile ?? null,
+    invitedAt: account.invited_at,
+    activatedAt: account.activated_at,
+    lastSeenAt: account.last_seen_at,
+    signInCount: account.sign_in_count,
+    isLead: account.role === 'owner',
+    lastInvite: lastLink ? {
+      at: lastLink.created_at, expiresAt: lastLink.expires_at, usedAt: lastLink.used_at,
+      channel: lastLink.channel, delivery: lastLink.delivery, error: lastLink.delivery_error,
+    } : null,
+    blocked: null,
+  };
+}
+
+/** Everyone's access in one go, so `GET /api/household` stays one round trip. */
+async function accessForMembers(members) {
+  const accounts = await accountsForHousehold(members[0]?.household_id ?? null).catch(() => []);
+  const byMember = new Map(accounts.filter((a) => a.member_id).map((a) => [a.member_id, a]));
+  const links = await Promise.all([...byMember.values()].map((a) => lastLinkFor(a.id)));
+  const linkByAccount = new Map([...byMember.values()].map((a, i) => [a.id, links[i]]));
+  return new Map(members.map((m) => {
+    const account = byMember.get(m.id) ?? null;
+    return [m.id, accessView(m, account, account ? linkByAccount.get(account.id) : null)];
+  }));
+}
+
+/**
+ * Mint a link for somebody in this household and try to send it, by whichever
+ * channels were asked for.
+ *
+ * One link, however many ways it goes out. Texting *and* e-mailing the same
+ * person two different links would mean one of them is dead before it arrives,
+ * because a link is spent the first time it is opened — so both messages carry
+ * the same one and whichever she taps first is the one that works.
+ */
+async function sendHouseholdInvite(req, { account, member, household, channels, returning }) {
+  const { token, link } = await createSignInLink(account.id, { requestedBy: 'household' });
+  const url = `${webUrl(req)}/?signin=${token}`;
+  const from = req.account?.name ?? (await ownerAccount())?.name ?? null;
+  const attempts = [];
+
+  if (channels.includes('sms')) {
+    const status = smsStatus();
+    if (!status.configured) attempts.push({ channel: 'sms', sent: false, message: status.message });
+    else {
+      const out = await sendSms({ to: account.mobile, text: invitationText({ name: member.name, url, from, returning }) });
+      attempts.push({ channel: 'sms', sent: out.sent, message: out.sent ? `Texted to ${prettyMobile(account.mobile)}.` : out.message });
+    }
+  }
+  if (channels.includes('email')) {
+    const status = mailStatus();
+    if (!status.configured) attempts.push({ channel: 'email', sent: false, message: status.message });
+    else {
+      const body = householdInvitationEmail({ name: member.name, url, household: household.name, from, expiresAt: link.expires_at, returning });
+      const out = await sendMail({ to: account.email, ...body });
+      attempts.push({ channel: 'email', sent: out.sent, message: out.sent ? `Sent to ${account.email}.` : out.message });
+    }
+  }
+
+  const went = attempts.filter((a) => a.sent).map((a) => a.channel);
+  const delivery = went.length ? went.join('+') : (attempts[0] ? 'no_sender' : 'not_sent');
+  await markLinkSent(link.id, {
+    delivery,
+    channel: channels.join('+'),
+    error: went.length ? null : attempts.map((a) => a.message).filter(Boolean).join(' '),
+  });
+
+  const expires = new Date(link.expires_at).toDateString();
+  return {
+    // Shown once, and only here. There is not always a sender configured, and
+    // when there is not, this is the only way the invitation reaches anybody:
+    // the owner copies it out of the screen and sends it himself.
+    url,
+    expiresAt: link.expires_at,
+    channels: attempts,
+    sent: went.length > 0,
+    message: went.length
+      ? `${member.name} has been sent a link by ${went.map((c) => deliveryWord[c] ?? c).join(' and ')}. It works once, and expires ${expires}.`
+      : `Nothing could be sent yet, so copy the link below and send it to ${member.name} yourself. It works once, and expires ${expires}.`,
+  };
+}
+
+/**
+ * POST /api/household/members/:id/invite — give somebody in this household a
+ * way in, and send it to them.
+ *
+ * Body: `{ email?, mobile?, channels?: ['sms'|'email'] }`. The contacts are
+ * saved onto the profile as well as the account, because "how do I reach Gina"
+ * is a fact about Gina that the household owns, not a side effect of having
+ * invited her once.
+ */
+router.post('/members/:id/invite', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const member = await households.memberById(req.params.id);
+    if (!member || member.household_id !== household.id) return res.status(404).json({ error: 'member_not_found', message: 'No such person in this household.' });
+    if (member.is_minor) {
+      return res.status(400).json({
+        error: 'member_is_minor',
+        message: `${member.name}'s profile is looked after by an adult in the household (they are under thirteen), so it has no sign-in of its own.`,
+      });
+    }
+
+    const b = req.body || {};
+    // What was typed now, else what is already on the profile. Somebody
+    // re-inviting a person does not have to retype their number.
+    const email = b.email === undefined ? (member.email ?? null) : (normaliseEmail(b.email) ?? null);
+    const mobileInput = b.mobile === undefined ? (member.mobile ?? null) : (String(b.mobile).trim() || null);
+    const mobile = mobileInput ? normaliseMobile(mobileInput, { countryCode: household.home_country_code ?? 'GB' }) : null;
+    if (email && !EMAIL.test(email)) return res.status(400).json({ error: 'invalid_email', message: 'That does not look like an e-mail address.' });
+    if (mobileInput && !mobile) return res.status(400).json({ error: 'invalid_mobile', message: `“${mobileInput}” does not look like a mobile number. A UK one starts 07, or +44.` });
+    if (!email && !mobile) return res.status(400).json({ error: 'no_contact', message: `Add a mobile number or an e-mail address for ${member.name} first — a link has to go somewhere.` });
+
+    // What was asked for, narrowed to what there is a contact for. Asking to
+    // text somebody with no number is not an error worth refusing the whole
+    // request over; it is simply not one of the ways this can go.
+    const asked = Array.isArray(b.channels) && b.channels.length ? b.channels : ['sms', 'email'];
+    const channels = asked.filter((c) => (c === 'sms' && mobile) || (c === 'email' && email));
+    if (!channels.length) return res.status(400).json({ error: 'no_channel', message: `There is no ${asked.map((c) => deliveryWord[c] ?? c).join(' or ')} for ${member.name}.` });
+
+    // Whoever else is already using this contact. An address or a number is one
+    // person's way in to one Roam, so lending it to a second account would mean
+    // a link opening the wrong household.
+    for (const [value, finder, what] of [[email, accountByEmail, 'e-mail address'], [mobile, accountByMobile, 'mobile number']]) {
+      if (!value) continue;
+      const taken = await finder(value);
+      if (taken && taken.member_id !== member.id) {
+        return res.status(409).json({
+          error: 'contact_taken',
+          message: `That ${what} already signs somebody in to Roam${taken.household_id === household.id ? ' in this household' : ''}. Use a different one.`,
+        });
+      }
+    }
+
+    await households.updateMember(member.id, { email: email ?? '', mobile: mobile ?? '' });
+
+    let account = await accountByMember(member.id);
+    if (!account) {
+      account = await createAccountOnHousehold(household.id, {
+        memberId: member.id, email, mobile, name: member.name,
+        // Not 'owner' — that is the estate's single owner row and there is an
+        // index making a second one impossible. A person in a household is a
+        // customer of Roam like the household is, on the household's own plan
+        // and with no ceiling of their own: the family shares one (claude.js,
+        // and `callBoundFor` orders by the lead so a member cannot raise it).
+        role: 'customer', plan: 'household', monthlyCallBound: null,
+      });
+    } else {
+      // Re-inviting after a number changed, or after access was taken away.
+      account = await updateAccount(account.id, {
+        email: email ?? '', mobile: mobile ?? '', name: member.name,
+        status: account.status === 'suspended' ? 'invited' : undefined,
+      });
+    }
+
+    const invitation = await sendHouseholdInvite(req, {
+      account, member, household, channels, returning: account.sign_in_count > 0,
+    });
+    const link = await lastLinkFor(account.id);
+    res.status(201).json({ member: { id: member.id, name: member.name }, access: accessView({ ...member, email, mobile }, account, link), invitation });
+  } catch (err) { next(err); }
+});
+
+/**
+ * DELETE /api/household/members/:id/invite — take the sign-in away, and leave
+ * the person alone.
+ *
+ * Their profile, their allergens, their dislikes and every rating they have
+ * given stay exactly where they are; what goes is the account and the devices
+ * it is signed in on. Deleting the *person* is `DELETE /members/:id` and is a
+ * different act with a different consequence (owner: a thing questioned is a
+ * thing to make clear, not to delete).
+ */
+router.delete('/members/:id/invite', async (req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const member = await households.memberById(req.params.id);
+    if (!member || member.household_id !== household.id) return res.status(404).json({ error: 'member_not_found', message: 'No such person in this household.' });
+    const account = await accountByMember(member.id);
+    if (!account) return res.status(404).json({ error: 'no_account', message: `${member.name} has no sign-in to remove.` });
+    if (account.role === 'owner') {
+      return res.status(400).json({ error: 'is_lead', message: 'That is the account this household was set up on. It cannot remove its own way in.' });
+    }
+    await revokeAccountSessions(account.id);
+    await deleteAccount(account.id, { withHousehold: false });
+    res.json({
+      removed: true,
+      access: accessView(member, null, null),
+      message: `${member.name} can no longer sign in. Their profile, tastes and ratings are all still here.`,
+    });
+  } catch (err) { next(err); }
 });
 
 /**

@@ -12,15 +12,25 @@
 
 import crypto from 'node:crypto';
 import { query, withTransaction } from '../db.js';
+import { normaliseMobile } from '../sources/sms.js';
 
 const digest = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
 
-/** Lowercased, trimmed: one person is one account however they type it. */
-export const normaliseEmail = (email) => String(email ?? '').trim().toLowerCase();
+/**
+ * Lowercased, trimmed: one person is one account however they type it.
+ *
+ * Null passes through as null rather than becoming the empty string, because
+ * since migration 056 an account may have a mobile and no address at all, and
+ * `''` in a unique column would mean only one of them could exist.
+ */
+export const normaliseEmail = (email) => {
+  const v = String(email ?? '').trim().toLowerCase();
+  return v || null;
+};
 
 // A deliberately plain shape — the routes decide what the owner sees and what
 // an account holder sees, and neither is served a database row directly.
-const COLUMNS = `id, household_id, email, name, role, role_id, status, plan, trial_ends_on,
+const COLUMNS = `id, household_id, member_id, email, mobile, name, role, role_id, status, plan, trial_ends_on,
                  monthly_call_bound, note, invited_at, activated_at, last_seen_at,
                  sign_in_count, created_at, updated_at`;
 
@@ -30,8 +40,47 @@ export async function accountById(id) {
 }
 
 export async function accountByEmail(email) {
-  const { rows } = await query(`select ${COLUMNS} from accounts where lower(email) = $1`, [normaliseEmail(email)]);
+  const address = normaliseEmail(email);
+  if (!address) return null;
+  const { rows } = await query(`select ${COLUMNS} from accounts where lower(email) = $1`, [address]);
   return rows[0] ?? null;
+}
+
+/** The same lookup for the other credential. Both are indexed and unique. */
+export async function accountByMobile(mobile) {
+  const number = normaliseMobile(mobile);
+  if (!number) return null;
+  const { rows } = await query(`select ${COLUMNS} from accounts where mobile = $1`, [number]);
+  return rows[0] ?? null;
+}
+
+/** Whichever of the two was given — how "e-mail me a link" finds somebody. */
+export async function accountByContact({ email, mobile }) {
+  return (await accountByEmail(email)) ?? (await accountByMobile(mobile));
+}
+
+/** The account belonging to one person in a household, if they have been invited. */
+export async function accountByMember(memberId) {
+  if (!memberId) return null;
+  const { rows } = await query(`select ${COLUMNS} from accounts where member_id = $1`, [memberId]);
+  return rows[0] ?? null;
+}
+
+/**
+ * Everybody who can sign in to one household, oldest first.
+ *
+ * The first row is the household's lead — whoever set it up. That is derived
+ * rather than stored: an owner account sorts first if there is one, and
+ * otherwise it is simply the earliest, which is the account that made the
+ * household. Nothing hangs on being the lead except what the screen says, since
+ * a household member is a full peer (migration 056).
+ */
+export async function accountsForHousehold(householdId) {
+  const { rows } = await query(
+    `select ${COLUMNS} from accounts where household_id = $1 order by (role = 'owner') desc, created_at`,
+    [householdId],
+  );
+  return rows;
 }
 
 export async function ownerAccount() {
@@ -49,10 +98,16 @@ export async function ownerAccount() {
  */
 export async function listAccounts() {
   const { rows } = await query(
-    `select a.id, a.household_id, a.email, a.name, a.role, a.role_id, a.status, a.plan, a.trial_ends_on,
+    `select a.id, a.household_id, a.member_id, a.email, a.mobile, a.name, a.role, a.role_id, a.status, a.plan, a.trial_ends_on,
             a.monthly_call_bound, a.note, a.invited_at, a.activated_at, a.last_seen_at,
             a.sign_in_count, a.created_at, a.updated_at,
             h.name as household_name,
+            -- Whether this is the account that *is* the household, or somebody
+            -- living in one that already existed (migration 056). Every usage
+            -- figure below is counted per household, so without this the estate
+            -- totals would count one family's spending once per person in it.
+            (row_number() over (partition by a.household_id order by (a.role = 'owner') desc, a.created_at) = 1) as is_lead,
+            (select count(*)::int from accounts s where s.household_id = a.household_id) as household_accounts,
             (select count(*)::int from members m where m.household_id = a.household_id) as member_count,
             (select count(*)::int from trips t where t.household_id = a.household_id) as trip_count,
             coalesce(month.calls, 0)     as calls_month,
@@ -107,16 +162,21 @@ export async function createAccount({ email, name, plan, trialEndsOn, monthlyCal
 /**
  * An account on a household that already exists.
  *
- * One caller: the owner claiming the founding household, so he appears in his
- * own list with his own usage. Everybody else gets a household of their own
- * through `createAccount`.
+ * Two callers now. The owner claiming the founding household, so he appears in
+ * his own list with his own usage — and, since migration 056, somebody already
+ * living in a household being given a way in: `memberId` is which person they
+ * are, and their allergens, dislikes and ratings are already under it.
+ *
+ * A friend still gets a household of their own through `createAccount`. The
+ * difference between the two functions is the whole distinction between "I am
+ * giving you Roam" and "you are already in mine".
  */
-export async function createAccountOnHousehold(householdId, { email, name, role = 'owner', plan = 'owner' }) {
+export async function createAccountOnHousehold(householdId, { email, mobile, name, role = 'owner', plan = 'owner', memberId = null, monthlyCallBound = null }) {
   const { rows } = await query(
-    `insert into accounts (household_id, email, name, role, plan, invited_at)
-     values ($1, $2, $3, $4, $5, now())
+    `insert into accounts (household_id, member_id, email, mobile, name, role, plan, monthly_call_bound, invited_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, now())
      returning ${COLUMNS}`,
-    [householdId, normaliseEmail(email), name || null, role, plan],
+    [householdId, memberId, normaliseEmail(email), normaliseMobile(mobile), name || null, role, plan, monthlyCallBound],
   );
   return rows[0];
 }
@@ -130,6 +190,10 @@ export async function updateAccount(id, patch) {
     trial_ends_on: patch.trialEndsOn,
     monthly_call_bound: patch.monthlyCallBound,
     note: patch.note,
+    // Where a link goes. Changed from the Household tab when somebody moves
+    // number, so the next invitation reaches the phone they actually have.
+    email: patch.email === undefined ? undefined : normaliseEmail(patch.email),
+    mobile: patch.mobile === undefined ? undefined : normaliseMobile(patch.mobile),
   };
   const sets = [];
   const values = [];
@@ -172,7 +236,18 @@ export async function deleteAccount(id, { withHousehold = false } = {}) {
  * indexed lookup and returns a number rather than a row.
  */
 export async function callBoundFor(householdId) {
-  const { rows } = await query('select monthly_call_bound from accounts where household_id = $1 limit 1', [householdId]);
+  // Ordered, not `limit 1` on its own. Since migration 056 a household can have
+  // several accounts on it — the family — and an unordered `limit 1` would let
+  // the ceiling in force change from one request to the next depending on which
+  // row Postgres happened to hand back. The household's lead sets it, and
+  // members are created with no ceiling of their own so they cannot raise it.
+  const { rows } = await query(
+    `select monthly_call_bound from accounts
+      where household_id = $1 and monthly_call_bound is not null
+      order by (role = 'owner') desc, created_at
+      limit 1`,
+    [householdId],
+  );
   return rows[0]?.monthly_call_bound ?? null;
 }
 
@@ -221,18 +296,20 @@ export async function consumeSignInLink(token) {
   return rows[0] ?? null;
 }
 
-export function markLinkSent(id, { delivery, error = null }) {
+export function markLinkSent(id, { delivery, error = null, channel = null }) {
   return query(
-    `update sign_in_links set delivery = $2, delivery_error = $3, sent_at = case when $2 = 'email' then now() else sent_at end
+    `update sign_in_links
+        set delivery = $2, delivery_error = $3, channel = coalesce($4, channel),
+            sent_at = case when $2 in ('email', 'sms', 'email+sms') then now() else sent_at end
       where id = $1`,
-    [id, delivery, error],
+    [id, delivery, error, channel],
   );
 }
 
 /** The most recent link for an account, so the admin screen can say what happened to it. */
 export async function lastLinkFor(accountId) {
   const { rows } = await query(
-    `select id, expires_at, used_at, delivery, delivery_error, sent_at, created_at, requested_by
+    `select id, expires_at, used_at, delivery, delivery_error, channel, sent_at, created_at, requested_by
        from sign_in_links where account_id = $1 order by created_at desc limit 1`,
     [accountId],
   );

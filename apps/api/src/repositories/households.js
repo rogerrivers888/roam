@@ -102,10 +102,11 @@ export async function membersWithConstraints(householdId) {
 
 export async function insertMember(householdId, m) {
   const { rows } = await query(
-    `insert into members (household_id, name, is_minor, relationship, birth_year, birth_date, avatar_url, typical_visit_minutes, max_travel_minutes)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
+    `insert into members (household_id, name, is_minor, relationship, birth_year, birth_date, avatar_url, typical_visit_minutes, max_travel_minutes, email, mobile)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning *`,
     [householdId, m.name, m.isMinor, m.relationship ?? null, m.birthYear ?? null, m.birthDate ?? null,
-      m.avatarUrl ?? null, m.typicalVisitMinutes ?? null, m.maxTravelMinutes ?? null],
+      m.avatarUrl ?? null, m.typicalVisitMinutes ?? null, m.maxTravelMinutes ?? null,
+      m.email ?? null, m.mobile ?? null],
   );
   return rows[0];
 }
@@ -125,6 +126,11 @@ export async function updateMember(id, m) {
             typical_visit_minutes = coalesce($6, typical_visit_minutes),
             max_travel_minutes    = coalesce($7, max_travel_minutes),
             birth_date            = coalesce($8::date, birth_date),
+            -- How to reach them, so they can be invited (migration 056). '' is
+            -- how the Household tab takes a contact detail back off somebody,
+            -- the way it already takes a face off them.
+            email                 = case when $9::text = '' then null else coalesce($9, email) end,
+            mobile                = case when $10::text = '' then null else coalesce($10, mobile) end,
             is_minor              = case when coalesce($8::date, birth_date) is not null
                                          then age(coalesce($8::date, birth_date)) < interval '13 years'
                                          when coalesce($4, birth_year) is not null
@@ -132,8 +138,15 @@ export async function updateMember(id, m) {
                                          else is_minor end
       where id = $1 returning *`,
     [id, m.name ?? null, m.relationship ?? null, m.birthYear ?? null, m.avatarUrl ?? null,
-      m.typicalVisitMinutes ?? null, m.maxTravelMinutes ?? null, m.birthDate ?? null],
+      m.typicalVisitMinutes ?? null, m.maxTravelMinutes ?? null, m.birthDate ?? null,
+      m.email ?? null, m.mobile ?? null],
   );
+  return rows[0] ?? null;
+}
+
+/** One person, on their own — the invite routes check who they are before acting. */
+export async function memberById(id) {
+  const { rows } = await query('select * from members where id = $1', [id]);
   return rows[0] ?? null;
 }
 

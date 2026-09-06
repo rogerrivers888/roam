@@ -86,6 +86,17 @@ const view = (row) => ({
   householdId: row.household_id,
   householdName: row.household_name ?? null,
   email: row.email,
+  mobile: row.mobile ?? null,
+  // Which person in their household this is, when they were invited from the
+  // Household tab rather than added here (migration 056). Null for a customer
+  // with a household of their own, which is everybody this screen creates.
+  memberId: row.member_id ?? null,
+  // Whether they *are* the household or merely live in it. The usage figures
+  // below are the household's, so a member's are the same numbers as their
+  // lead's — shown, because "what is this family costing" is the question, but
+  // never added up twice.
+  isLead: row.is_lead !== false,
+  householdAccounts: row.household_accounts ?? 1,
   name: row.name,
   role: row.role,
   status: row.status,
@@ -199,11 +210,19 @@ router.get('/', requires('view_accounts'), async (req, res, next) => {
       // on the shared passcode and does not appear in his own list.
       ownerClaimed: accounts.some((a) => a.role === 'owner'),
       foundingHousehold: founding ? { id: founding.id, name: founding.name } : null,
-      totals: {
-        costMonth: accounts.reduce((n, a) => n + a.usage.costMonth, 0),
-        costEver: accounts.reduce((n, a) => n + a.usage.costEver, 0),
-        callsMonth: accounts.reduce((n, a) => n + a.usage.callsMonth, 0),
-      },
+      // One household, counted once. Provider spending is recorded against a
+      // household, not a person, so once a family has two people signed in
+      // (migration 056) summing every row would report twice what was spent.
+      totals: (() => {
+        const leads = accounts.filter((a) => a.isLead);
+        return {
+          costMonth: leads.reduce((n, a) => n + a.usage.costMonth, 0),
+          costEver: leads.reduce((n, a) => n + a.usage.costEver, 0),
+          callsMonth: leads.reduce((n, a) => n + a.usage.callsMonth, 0),
+          households: leads.length,
+          people: accounts.length,
+        };
+      })(),
     });
   } catch (err) { next(err); }
 });

@@ -10,7 +10,7 @@ import {
   authConfigured, clearSessionCookie, closeSession, openSession, passcodeMatches, sessionCookie,
 } from '../auth.js';
 import { findLiveSession, liveSessions, revokeAllSessions } from '../repositories/sessions.js';
-import { accountByEmail, accountById, consumeSignInLink, ownerAccount, recordSignIn } from '../repositories/accounts.js';
+import { accountByContact, accountById, consumeSignInLink, ownerAccount, recordSignIn } from '../repositories/accounts.js';
 import { invite } from './accounts.js';
 import { accessFor } from '../access.js';
 
@@ -145,7 +145,10 @@ router.post('/session/link', async (req, res, next) => {
     if (!spent) {
       return res.status(401).json({
         error: 'link_spent',
-        message: 'That link does not work any more. Ask for a new one and it will arrive by e-mail.',
+        // Not "it will arrive by e-mail": since migration 056 somebody may have
+        // been invited by text and have no address at all, and telling them to
+        // watch an inbox they do not have is telling them to wait for ever.
+        message: 'That link does not work any more. Ask for a new one and it will be sent to you.',
       });
     }
     const label = String(req.body?.label || '').slice(0, 80) || null;
@@ -161,19 +164,26 @@ router.post('/session/link', async (req, res, next) => {
 });
 
 /**
- * POST /api/session/request-link — "e-mail me a link".
+ * POST /api/session/request-link — "send me a link".
  *
- * The owner sends invitations from the admin screen, but a link is single-use
- * and a device is signed in for ninety days, so somebody who changes phone in
- * month four needs a way back in that is not "text Roger". This is it.
+ * The owner sends invitations from the admin screen and the household sends
+ * them from the Household tab, but a link is single-use and a device is signed
+ * in for ninety days, so somebody who changes phone in month four needs a way
+ * back in that is not "text Roger". This is it.
  *
- * It answers exactly the same whether or not the address has an account, and
- * takes the same time to do it, so it cannot be used to find out who Roam's
- * customers are. It is held to the sign-in limit (limits.js) like the passcode.
+ * Either credential, because since migration 056 somebody may have been invited
+ * by text and have no address on their account at all — and a way in that only
+ * works for people with e-mail is not a way back in for the person most likely
+ * to need one.
+ *
+ * It answers exactly the same whether or not the address or number has an
+ * account, and takes the same time to do it, so it cannot be used to find out
+ * who Roam's customers are. It is held to the sign-in limit (limits.js) like
+ * the passcode.
  */
 router.post('/session/request-link', async (req, res, next) => {
   try {
-    const account = await accountByEmail(req.body?.email);
+    const account = await accountByContact({ email: req.body?.email, mobile: req.body?.mobile });
     // Only an account that has been invited and is not suspended gets a link.
     // Everything else falls through to the same answer as an unknown address.
     if (account && account.status !== 'suspended') {
@@ -181,7 +191,9 @@ router.post('/session/request-link', async (req, res, next) => {
     }
     res.json({
       sent: true,
-      message: 'If that address has a Roam account, a link is on its way. It works once and lasts a week.',
+      message: req.body?.mobile && !req.body?.email
+        ? 'If that number has a Roam account, a link is on its way by text. It works once and lasts a week.'
+        : 'If that address has a Roam account, a link is on its way. It works once and lasts a week.',
     });
   } catch (err) { next(err); }
 });

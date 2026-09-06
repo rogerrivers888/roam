@@ -128,9 +128,64 @@ const qs = (o: Record<string, any>) => {
 export type ConstraintKind = 'allergen' | 'diet' | 'dislike' | 'like';
 export type Constraint = { id: string; kind: ConstraintKind; value: string; conceptKey: string | null; conceptKind: string | null; maxMinutes?: number | null; favourite?: boolean };
 
+/**
+ * Whether one person in the household can sign in to Roam, and what happened to
+ * the last link they were sent (`/api/household`, migration 056).
+ *
+ * `status: 'none'` is somebody who has never been invited. `blocked` is the one
+ * sentence saying why they cannot be — today only "this profile is under
+ * thirteen and is looked after by an adult".
+ */
+export type MemberAccess = {
+  email: string | null;
+  mobile: string | null;
+  canSignIn: boolean;
+  status: 'none' | 'invited' | 'active' | 'suspended';
+  blocked: string | null;
+  accountId?: string;
+  invitedAt?: string | null;
+  activatedAt?: string | null;
+  lastSeenAt?: string | null;
+  signInCount?: number;
+  isLead?: boolean;
+  lastInvite?: {
+    at: string; expiresAt: string; usedAt: string | null;
+    channel: string | null; delivery: string | null; error: string | null;
+  } | null;
+};
+
+/**
+ * What came back from inviting somebody who already lives in this household.
+ *
+ * Distinct from `Invitation` further down, which the admin module uses for a
+ * friend being given a Roam of their own: that one goes out by e-mail only and
+ * reports one `delivery`, this one can go by two channels at once and reports
+ * what happened to each.
+ */
+export type HouseholdInvitation = {
+  url: string;
+  expiresAt: string;
+  sent: boolean;
+  message: string;
+  channels: { channel: 'sms' | 'email'; sent: boolean; message: string | null }[];
+};
+
+/**
+ * Whether a link can be delivered at all, and if not, what the owner adds.
+ *
+ * Three lengths on purpose: `short` sits beside the box on a phone and says
+ * what will happen instead, `setup` names what to add and is shown once, and
+ * `message` is the full form the back office has always shown.
+ */
+export type SenderStatus = { configured: boolean; reason?: string; short?: string; setup?: string; message?: string; from?: string };
+
 export type Member = {
   id: string;
   name: string;
+  /** Present on `/api/household`; absent on the row a POST/PATCH hands back. */
+  access?: MemberAccess | null;
+  email?: string | null;
+  mobile?: string | null;
   isMinor: boolean;
   age: number | null;
   birthYear: number | null;
@@ -231,6 +286,8 @@ export type HouseholdResponse = {
   members: Member[];
   learned: Learned[];
   vocabulary: { allergens: string[]; relationships: string[] };
+  /** Why an invitation could not be texted or e-mailed, on the screen that sends it. */
+  senders?: { sms: SenderStatus; email: SenderStatus };
 };
 
 export type Suggestion = { key: string; label: string; kind: string; score: number };
@@ -947,8 +1004,22 @@ export const api = {
   household: () => request<HouseholdResponse>('/api/household'),
   updateHousehold: (body: Partial<Pick<Household, 'name' | 'defaultVisitMinutes' | 'maxTravelMinutes' | 'defaultIntensity'>> & { home?: Place; homeText?: string; homeRadiusMiles?: number; homePhotoUrl?: string | null; pace?: { food?: Partial<PaceKind>; activity?: Partial<PaceKind> }; timezone?: string }) =>
     patch<{ household: Household }>('/api/household', body),
-  addMember: (body: { name: string; relationship?: string | null; birthYear?: number | null; birthDate?: string | null; avatarUrl?: string | null }) => post<{ member: any }>('/api/household/members', body),
-  updateMember: (id: string, body: { name?: string; relationship?: string | null; birthYear?: number | null; birthDate?: string | null; avatarUrl?: string | null; typicalVisitMinutes?: number; maxTravelMinutes?: number }) =>
+  addMember: (body: { name: string; relationship?: string | null; birthYear?: number | null; birthDate?: string | null; avatarUrl?: string | null; email?: string | null; mobile?: string | null }) => post<{ member: any }>('/api/household/members', body),
+
+  /**
+   * Give somebody already in this household a way in to it, and send it to them
+   * (owner, 6 Sep 2026). One link however many channels it goes out by, because
+   * a link is spent the first time it is opened.
+   *
+   * Not the admin module's invitation: that gives a friend a household of their
+   * own, this puts a person into the one they already live in.
+   */
+  inviteMember: (id: string, body: { email?: string | null; mobile?: string | null; channels?: ('sms' | 'email')[] }) =>
+    post<{ member: { id: string; name: string }; access: MemberAccess; invitation: HouseholdInvitation }>(`/api/household/members/${id}/invite`, body),
+
+  /** Take the sign-in away and leave the person, their tastes and their ratings. */
+  removeMemberAccess: (id: string) => del<{ removed: boolean; access: MemberAccess; message: string }>(`/api/household/members/${id}/invite`),
+  updateMember: (id: string, body: { name?: string; relationship?: string | null; birthYear?: number | null; birthDate?: string | null; avatarUrl?: string | null; typicalVisitMinutes?: number; maxTravelMinutes?: number; email?: string | null; mobile?: string | null }) =>
     patch<{ member: any }>(`/api/household/members/${id}`, body),
   deleteMember: (id: string) => del<void>(`/api/household/members/${id}`),
   addConstraint: (memberId: string, body: { kind: ConstraintKind; value: string; conceptKey?: string; maxMinutes?: number | null }) =>

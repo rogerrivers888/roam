@@ -84,9 +84,16 @@ every other household out of its own Roam.
 
 ### Accounts
 
-An account owns one household. Nothing is shared between them: a household's places, people,
-trips and ratings are reachable only through a session belonging to its own account, and every
-provider call is billed against it (`provider_calls`).
+An account belongs to one household. Nothing is shared between households: their places,
+people, trips and ratings are reachable only through a session belonging to an account on that
+household, and every provider call is billed against it (`provider_calls`).
+
+Two different acts create an account, and confusing them is the mistake to avoid:
+
+- **Giving Roam to somebody else** — the Accounts tab in the back office. They get a household
+  of their own, empty, and see nothing of anybody else's.
+- **Inviting somebody you live with** — the Household tab (below). They get a way in to the
+  household they are already in, and see all of it.
 
 - **Accounts** (owner-only tab, and `/api/accounts`) lists everybody with Roam, how long they
   have been here, when they were last in, how many times they have signed in, and what their
@@ -107,6 +114,32 @@ provider call is billed against it (`provider_calls`).
 - The admin routes answer **404** to anybody who is not the owner, not 403: a customer has no
   business learning that they exist.
 
+### Inviting your own household
+
+On the **Household** tab, each adult has a *Roam on their own phone* panel: a mobile number, an
+e-mail address, and a button for each. Roam mints one single-use link that expires in a week and
+sends it however you asked — one link even when it goes out both ways, because the first tap
+spends it.
+
+- **They become a full peer.** The same trips, the same saved places, everybody's tastes and
+  allergies. No read-only mode: a household is shared, so everybody in it is equal (owner,
+  6 Sep 2026). They do not get the back office — `/api/accounts` answers them 404.
+- **A profile under thirteen has no sign-in**, and the panel says so instead of offering one
+  (Epic 1 C8: a minor's profile is managed by a consenting adult).
+- **Sending needs a key, and the screen says which.** `TWILIO_ACCOUNT_SID` /
+  `TWILIO_AUTH_TOKEN` / `TWILIO_FROM` for texts, `RESEND_API_KEY` / `ROAM_MAIL_FROM` for
+  e-mail. With neither, Roam still makes the link and shows it to be copied and sent by hand —
+  nothing is silently dropped. Adding them is the owner's, in Doppler.
+- **Taking a sign-in away is not removing a person.** *Remove their sign-in* deletes the account
+  and signs their devices out; the profile, the tastes and every rating stay. Removing the
+  *person* does take their sign-in with them (`accounts.member_id` cascades), so a deleted
+  profile can never leave a live way in behind it.
+- **A number or an address signs one person into one Roam.** Both are unique across the estate,
+  and a mobile is normalised before it is stored, so `07700 900123` and `+44 7700 900123` are
+  the same person rather than two.
+- Somebody who changes phone gets back in themselves with `POST /api/session/request-link`,
+  which takes either an address or a mobile and answers identically whether or not it knows it.
+
 ### Where variables live
 
 **Secrets come from Doppler at runtime** — never in the repo and never set directly as Railway variables (see `CLAUDE.md`). If the Doppler → Railway sync is configured to manage *all* variables on a service, the non-secret entries above must be mirrored in Doppler too, or the sync will remove them.
@@ -120,6 +153,9 @@ provider call is billed against it (`provider_calls`).
 | `ROAM_PASSCODE` | **yes, deployed** | The household's passcode (Doppler, owner-set). **Without it the deployed API answers 503 to every `/api` request and serves nothing** — see "The door" above. Locally, unset falls back to `roam-dev`. |
 | `RESEND_API_KEY` | optional | Mail sender (Doppler, owner-set) used for account invitations and sign-in links. Unset, Roam still makes the link and the Accounts screen shows it to be sent by hand. |
 | `ROAM_MAIL_FROM` | with the above | The address invitations come from, on a domain verified with the sender, e.g. `Roam <hello@example.com>`. Non-secret, but a sender is not configured until both this and the key are set. |
+| `TWILIO_ACCOUNT_SID` | optional | Twilio account (`AC…`, Doppler, owner-set). With the two below, Household-tab invitations go out by text. Unset, Roam still makes the link and the screen shows it to be sent by hand. |
+| `TWILIO_AUTH_TOKEN` | with the above | The token for that account — a secret, so Doppler only. |
+| `TWILIO_FROM` | with the above | The number texts come from, or a messaging service SID (`MG…`), which is what Twilio wants for UK traffic. Non-secret, but no text sender exists until all three are set. |
 | `ROAM_WEB_URL` | recommended | Where the web app is served, e.g. `https://roam-web.up.railway.app`. Non-secret. Sign-in links are built against it; unset, they fall back to the request's own origin. |
 | `ROAM_HOUSEHOLD_MONTHLY_CALL_BOUND` | optional | Provider calls a household may make in a calendar month before Roam stops searching for it (default 3000). Per-account ceilings on the Accounts screen override it; a new account starts at a quarter of it. |
 | `ROAM_WEB_ORIGIN` | recommended | Comma-separated list of origins the web app is served from, e.g. `https://roam-web.up.railway.app`. Non-secret. Restricts which sites may open a session-carrying request; unset, any origin is answered and the passcode is the only guard. |

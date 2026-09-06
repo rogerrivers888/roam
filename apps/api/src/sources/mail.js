@@ -22,13 +22,21 @@
 const KEY = () => process.env.RESEND_API_KEY || '';
 export const mailConfigured = () => Boolean(KEY() && process.env.ROAM_MAIL_FROM);
 
-/** Why the owner cannot send yet, in the words the admin screen shows. */
+/**
+ * Why the owner cannot send yet, in two lengths.
+ *
+ * Three fields, for three readers. `message` is the whole thing and is what the
+ * admin screen has always shown. `short` is one clause for beside a box on a
+ * phone, saying what will happen instead rather than naming a variable, and
+ * `setup` does the naming once, at the foot of the panel, where the person who
+ * can act on it will read it.
+ */
 export function mailStatus() {
   if (KEY() && !process.env.ROAM_MAIL_FROM) {
-    return { configured: false, reason: 'no_from', message: 'A send key is set but ROAM_MAIL_FROM is not, so there is no address to send from.' };
+    return { configured: false, reason: 'no_from', short: "E-mail isn't switched on yet — you'll copy the link instead.", setup: 'To send by e-mail, add ROAM_MAIL_FROM in Doppler — the address invitations come from, on a domain verified with the sender.', message: 'A send key is set but ROAM_MAIL_FROM is not, so there is no address to send from.' };
   }
   if (!KEY()) {
-    return { configured: false, reason: 'no_sender', message: 'No mail sender is configured. Add RESEND_API_KEY and ROAM_MAIL_FROM in Doppler to send invitations from Roam; until then, copy the link and send it yourself.' };
+    return { configured: false, reason: 'no_sender', short: "E-mail isn't switched on yet — you'll copy the link instead.", setup: 'To send by e-mail, add RESEND_API_KEY and ROAM_MAIL_FROM in Doppler.', message: 'No mail sender is configured. Add RESEND_API_KEY and ROAM_MAIL_FROM in Doppler to send invitations from Roam; until then, copy the link and send it yourself.' };
   }
   return { configured: true, from: process.env.ROAM_MAIL_FROM };
 }
@@ -107,4 +115,36 @@ export function invitationEmail({ name, url, from, expiresAt, returning = false 
   <p style="font-size:14px;color:#5c6b63">If you were not expecting this, ignore it — nothing happens until the link is opened.</p>
 </div>`;
   return { subject: returning ? 'Your link back in to Roam' : 'Your invitation to Roam', text, html };
+}
+
+/**
+ * The other invitation: somebody already in the household, not a new customer.
+ *
+ * `invitationEmail` above is for a friend the owner is giving Roam to, and it
+ * describes what Roam is because they have never heard of it. Gina has: she is
+ * in the household the mail is about, her allergens are already in it, and what
+ * she needs to be told is whose it is and that it is the same one — not a
+ * second, empty Roam of her own.
+ */
+export function householdInvitationEmail({ name, url, household, from, expiresAt, returning = false }) {
+  const hello = name ? `Hi ${name},` : 'Hi,';
+  const days = Math.max(1, Math.round((new Date(expiresAt) - Date.now()) / 86400000));
+  const who = from ? `${from} has` : 'You have been';
+  const opening = returning
+    ? `Here is a fresh link to sign back in to ${household || 'your household'} on Roam.`
+    : `${who} added you to ${household ? `<b>${household}</b>` : 'the household'} on Roam. It is the same Roam they use — the same trips, the same saved places, and the tastes and allergies already written down for everybody at home.`;
+  const plain = opening.replace(/<\/?b>/g, '');
+  const text = [
+    hello, '', plain, '', 'Open Roam:', url, '',
+    `The link signs you in on the device you open it on and works once, within ${days} day${days === 1 ? '' : 's'}. After that the app stays signed in for ninety days.`,
+    '', 'If you were not expecting this, ignore it — nothing happens until the link is opened.',
+  ].join('\n');
+  const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.5;color:#1c2b24">
+  <p>${hello}</p>
+  <p>${opening}</p>
+  <p><a href="${url}" style="display:inline-block;background:#1c2b24;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none">Open Roam</a></p>
+  <p style="font-size:14px;color:#5c6b63">The link signs you in on the device you open it on and works once, within ${days} day${days === 1 ? '' : 's'}. After that the app stays signed in for ninety days.</p>
+  <p style="font-size:14px;color:#5c6b63">If you were not expecting this, ignore it — nothing happens until the link is opened.</p>
+</div>`;
+  return { subject: returning ? 'Your link back in to Roam' : `You're in ${household || 'the household'} on Roam`, text, html };
 }

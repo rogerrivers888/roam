@@ -12,7 +12,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hrefOf, legacyHref, parseRoute, paths, parentOf, tabOf, titleOf, withQuery } from '../src/routes.ts';
+import { hrefOf, legacyHref, parseRoute, paths, parentOf, splitHref, tabOf, titleOf, withQuery } from '../src/routes.ts';
 
 /** Read it, write it back, and get the same address. */
 const roundTrip = (href: string, expected?: string) => {
@@ -86,6 +86,13 @@ test('a trip tab nobody has heard of is not a page', () => {
 test('Household, Settings, Prototypes and the back office', () => {
   assert.deepEqual(roundTrip('/household'), { name: 'household', memberId: null });
   assert.deepEqual(roundTrip('/household/m1'), { name: 'household', memberId: 'm1' });
+  // Inviting somebody is a layer over their page, not a page of its own: the
+  // person is the address, and `?invite=1` is how that page is set. So the
+  // route it parses to is Gina — the flag is carried in the query and read by
+  // the screen, which is what keeps one page from having two spellings.
+  assert.deepEqual(parseRoute('/household/m1?invite=1'), { name: 'household', memberId: 'm1' });
+  assert.equal(splitHref('/household/m1?invite=1').query.get('invite'), '1');
+  assert.equal(hrefOf(parseRoute('/household/m1?invite=1')), '/household/m1');
   assert.deepEqual(roundTrip('/settings'), { name: 'settings', section: 'preferences' });
   assert.deepEqual(roundTrip('/settings/providers'), { name: 'settings', section: 'providers' });
   assert.deepEqual(roundTrip('/prototypes'), { name: 'prototypes', section: null });
