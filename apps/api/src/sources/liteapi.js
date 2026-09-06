@@ -244,14 +244,30 @@ let vocab = null;
  */
 export async function vocabularies({ meter = null } = {}) {
   if (vocab && Date.now() - vocab.at < VOCAB_TTL_MS) return vocab.value;
+  const problems = [];
+  const tryPaths = async (paths) => {
+    for (const path of paths) {
+      try { return await call(path, { meter }); } catch (err) { problems.push(`${path}: ${err.message}`); }
+    }
+    return null;
+  };
+  // The reference is filed under `hoteltypes` and the endpoint list calls it
+  // `hotel-types`; only one of them answers and which is not worth guessing at
+  // once a day. Whichever works is remembered by the cache above.
   const [f, t] = await Promise.all([
-    call('/data/facilities', { meter }).catch(() => null),
-    call('/data/hotel-types', { meter }).catch(() => null),
+    tryPaths(['/data/facilities']),
+    tryPaths(['/data/hotelTypes', '/data/hotel-types', '/data/hoteltypes']),
   ]);
-  const byId = (rows, name) => new Map((rows ?? []).map((r) => [String(r.facility_id ?? r.hotelTypeId ?? r.id), r[name] ?? r.name ?? null]).filter(([, v]) => v));
+  const byId = (rows) => new Map((rows ?? [])
+    .map((r) => [String(r.facility_id ?? r.hotelTypeId ?? r.id), r.facility ?? r.hotelType ?? r.name ?? null])
+    .filter(([id, v]) => id && id !== 'undefined' && v));
   const value = {
-    facilities: byId(f?.data, 'facility'),
-    hotelTypes: byId(t?.data, 'hotelType'),
+    facilities: byId(f?.data),
+    hotelTypes: byId(t?.data),
+    // A vocabulary that failed to load and one that is genuinely empty look
+    // identical downstream — every chip disappears — so the failure is carried
+    // rather than swallowed. It cost an afternoon once already.
+    problems,
     at: new Date().toISOString(),
   };
   vocab = { at: Date.now(), value };

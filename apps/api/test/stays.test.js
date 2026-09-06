@@ -17,7 +17,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeBeds } from '../src/sources/stays.js';
 import { occupanciesFor, nightsBetween, ratesNear, liteapiKeyKind } from '../src/sources/liteapi.js';
-import { partyForStay, ageOn, rankStays, centreOfPlans, middleOf, whatIsOnOffer, withinOfAll } from '../src/domain/stays.js';
+import { partyForStay, ageOn, rankStays, centreOfPlans, middleOf, whatIsOnOffer, wantsOnOffer, withinOfAll } from '../src/domain/stays.js';
 import { kmBetween } from '../src/domain/travel.js';
 import { mirrorsInOrder, mirrorAnswered, mirrorFailed, resetMirrors } from '../src/sources/overpass.js';
 
@@ -389,4 +389,42 @@ test('“within 15 minutes of everything” says so when nothing manages it', ()
   const ok = withinOfAll([{ name: 'Central', plansTotal: 3, farthest: { minutes: 12 } }], 15);
   assert.equal(ok.achievable, true);
   assert.equal(ok.beds.length, 1);
+});
+
+test('a chip everything has is as useless as one nothing has', () => {
+  // Ninety-nine of a hundred beds have WiFi. Offering it narrows the list by
+  // one and costs a household a tap to find that out.
+  const facilities = new Map([['1', 'Free WiFi'], ['2', 'Swimming pool'], ['3', 'Sea view'], ['4', 'Sauna']]);
+  const beds = Array.from({ length: 100 }, (_, i) => ({
+    facilityIds: [...(i < 99 ? ['1'] : []), ...(i < 6 ? ['2'] : []), ...(i < 40 ? ['4'] : [])],
+  }));
+  const wants = wantsOnOffer(beds, { facilities });
+  const keys = wants.map((w) => w.key);
+
+  assert.ok(!keys.includes('wifi'), 'WiFi divides nothing and is not offered');
+  assert.ok(!keys.includes('sea'), 'nothing here is on the sea, so it is never asked about');
+  // And what is offered says what it costs.
+  assert.equal(wants.find((w) => w.key === 'pool').count, 6);
+  assert.equal(wants.find((w) => w.key === 'spa').count, 40);
+});
+
+test('a pool everything has is still worth saying, because it was asked for', () => {
+  // The owner named pool, kitchen and air conditioning. "All of them have one"
+  // is a real answer to "does it have a pool"; it is not a real answer to WiFi.
+  const facilities = new Map([['2', 'Outdoor pool'], ['1', 'WiFi available']]);
+  const beds = Array.from({ length: 20 }, () => ({ facilityIds: ['1', '2'] }));
+  const keys = wantsOnOffer(beds, { facilities }).map((w) => w.key);
+  assert.deepEqual(keys, ['pool']);
+});
+
+test('one want is several ids, because a pool is indoor and outdoor and rooftop', () => {
+  const facilities = new Map([['10', 'Indoor pool'], ['11', 'Outdoor pool'], ['12', 'Rooftop pool']]);
+  const beds = [{ facilityIds: ['10'] }, { facilityIds: ['11'] }, { facilityIds: ['12'] }, { facilityIds: [] }];
+  assert.equal(wantsOnOffer(beds, { facilities }).find((w) => w.key === 'pool').count, 3);
+});
+
+test('an empty catalogue offers nothing rather than everything', () => {
+  // The failure mode that cost an afternoon: the vocabulary did not load, so
+  // every chip vanished and the screen implied the hotels had no facilities.
+  assert.deepEqual(wantsOnOffer([{ facilityIds: ['1', '2'] }], { facilities: new Map() }), []);
 });

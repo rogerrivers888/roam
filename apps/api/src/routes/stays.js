@@ -27,7 +27,7 @@ import { Router } from 'express';
 import { requireOwner } from '../auth.js';
 import { hotelsNear, vocabularies, liteapiEnabled } from '../sources/liteapi.js';
 import { bedRatesOn } from '../sources/index.js';
-import { whatIsOnOffer, centreOfPlans } from '../domain/stays.js';
+import { whatIsOnOffer, wantsOnOffer, centreOfPlans } from '../domain/stays.js';
 
 const router = Router();
 
@@ -63,7 +63,16 @@ router.get('/options', async (req, res, next) => {
     ]);
     const offer = whatIsOnOffer(pool.hotels, vocab);
     res.json({
+      // What to put on screen: the dozen things a household chooses on, less
+      // the ones nothing here has and the ones everything here has.
+      wants: wantsOnOffer(pool.hotels, vocab),
       ...offer,
+      // The whole catalogue's worth, kept for the back office. 253 facilities
+      // occur in Bath and no wizard should ever draw 253 chips.
+      allFacilities: undefined,
+      // A vocabulary that failed to load makes every chip vanish, which reads
+      // as "nothing here has anything". Say which it was.
+      vocabularyProblems: vocab.problems ?? [],
       known: true,
       cached: pool.cached,
       // How many of the beds carry any facility list at all. A source that
