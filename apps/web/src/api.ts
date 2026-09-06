@@ -1263,7 +1263,7 @@ export const api = {
   tripPlaces: (id: string) => request<{ places: TripPlace[]; counts: { all: number; do: number; eat: number; stay: number } }>(`/api/trips/${id}/places`),
   /** Everywhere you could stop along the way. Nothing is routed: see TripAlongPlace. */
   tripAlong: (id: string, p: { kind: 'food' | 'things'; scope?: 'route' | 'there'; maxDetourMin?: number; q?: string }) =>
-    request<{ origin: Place; destination: Place | null; mode: string; scope: string; kind: string; maxDetourMin: number; hasRoute: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; beyond: number; estimated: boolean; degradedSources: { source: string; error: string }[] }>(`/api/trips/${id}/along${qs(p as any)}`),
+    request<{ origin: Place; destination: Place | null; mode: string; scope: string; kind: string; maxDetourMin: number; hasRoute: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; beyond: number; corridorKm: number | null; estimated: boolean; degradedSources: { source: string; error: string }[] }>(`/api/trips/${id}/along${qs(p as any)}`),
   /** Who is coming. Tickets, table sizes and the car all follow this (handoff §12). */
   setTripAttendees: (tripId: string, memberIds: string[]) => put<TripDetail>(`/api/trips/${tripId}/attendees`, { memberIds }),
   addStopToDay: (tripId: string, dayId: string, body: { venueRef: string; name: string; lat?: number | null; lng?: number | null; category?: string | null; startTime?: string | null; slot?: string; dwellMinutes?: number }) =>

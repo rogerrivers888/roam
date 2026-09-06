@@ -132,8 +132,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   useEffect(() => { api.tripPlaces(trip.id).then(setPlaces).catch(() => null); }, [trip.id, shortlist.length, days.length]);
 
   // Browse: what is along the way. One fetch per (pill, scope, detour).
-  const [along, setAlong] = useState<{ loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean }>(
-    { loading: false, places: [], counts: { route: 0, there: 0 }, error: null, degraded: [], hasRoute: false },
+  const [along, setAlong] = useState<{ loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean; beyond: number }>(
+    { loading: false, places: [], counts: { route: 0, there: 0 }, error: null, degraded: [], hasRoute: false, beyond: 0 },
   );
   const alongKey = pill && pill !== 'shortlist' && pill !== 'stay' ? `${pill}|${scope ?? 'route'}|${maxDetourMin}|${q ?? ''}|${kindOf ?? ''}` : null;
   const lastKey = useRef<string | null>(null);
@@ -142,8 +142,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     lastKey.current = alongKey;
     setAlong((a) => ({ ...a, loading: true, error: null }));
     api.tripAlong(trip.id, { kind: pill === 'food' ? 'food' : 'things', scope: scope ?? 'route', maxDetourMin, q: [q, kindOf].filter(Boolean).join(' ') || undefined })
-      .then((r) => setAlong({ loading: false, places: r.places, counts: r.counts, error: null, degraded: r.degradedSources ?? [], hasRoute: r.hasRoute }))
-      .catch((e) => setAlong({ loading: false, places: [], counts: { route: 0, there: 0 }, error: e.message, degraded: [], hasRoute: false }));
+      .then((r) => setAlong({ loading: false, places: r.places, counts: r.counts, error: null, degraded: r.degradedSources ?? [], hasRoute: r.hasRoute, beyond: r.beyond ?? 0 }))
+      .catch((e) => setAlong({ loading: false, places: [], counts: { route: 0, there: 0 }, error: e.message, degraded: [], hasRoute: false, beyond: 0 }));
   }, [alongKey, trip.id, pill, scope, maxDetourMin, q, kindOf]);
 
   // Somewhere to sleep, ranked the way the criteria asked. Only fetched when
@@ -652,7 +652,7 @@ const DETOURS = [5, 10, 15, 30];
 
 function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist, kindOf, onKind }: {
   pill: Pill;
-  along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean };
+  along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean; beyond: number };
   shortlisted: TripPlace[];
   scope: 'route' | 'there' | null;
   onScope: (s: 'route' | 'there' | null) => void;
@@ -808,6 +808,21 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
             </View>
           </Pressable>
         ))}
+
+        {/* What the corridor left out, and the one tap that brings it back. A
+            tight corridor is right and a silently short list is not: 17 places
+            a little further off should be an offer, not a disappearance. */}
+        {!along.loading && along.beyond && maxDetourMin < 30 ? (
+          <Pressable
+            onPress={() => onDetour(DETOURS[Math.min(DETOURS.length - 1, DETOURS.indexOf(maxDetourMin) + 1)] ?? 30)}
+            style={{ paddingVertical: spacing.md }}
+            accessibilityRole="button"
+          >
+            <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>
+              {`${along.beyond} more a little further off the route — look up to ${DETOURS[Math.min(DETOURS.length - 1, DETOURS.indexOf(maxDetourMin) + 1)] ?? 30} min out →`}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
