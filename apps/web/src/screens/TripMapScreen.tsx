@@ -1115,8 +1115,11 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAd
               {/* Type · price · the stars, on one line and never wrapping the
                   rating on its own (handoff § Row layout). */}
               <View style={styles.rowMeta}>
+                {/* What it is belongs in the pill below, so it is not said
+                    twice — "Pub · ££" over a "Pub" pill was the same word
+                    within an inch of itself. */}
                 <Text style={type.small} numberOfLines={1}>
-                  {[p.category ? cap(p.category) : null, money(p.priceLevel)].filter(Boolean).join(' · ')}
+                  {[kitchen(p) ? null : p.category ? cap(p.category) : null, money(p.priceLevel)].filter(Boolean).join(' · ')}
                 </Text>
                 {p.rating != null ? (
                   <Stars value={p.rating} size={12}>
