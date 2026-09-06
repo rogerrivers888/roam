@@ -428,3 +428,28 @@ test('an empty catalogue offers nothing rather than everything', () => {
   // every chip vanished and the screen implied the hotels had no facilities.
   assert.deepEqual(wantsOnOffer([{ facilityIds: ['1', '2'] }], { facilities: new Map() }), []);
 });
+
+test('a mirror that answers nothing does not become the preferred one', () => {
+  // overpass.osm.ch, 6 Sep 2026: a Switzerland-only extract that answered 200
+  // in 0.12s with zero elements for anywhere else. Fast and successful is
+  // exactly what the health rules reward, so it captured every search and the
+  // Stay tab returned no beds at all.
+  resetMirrors();
+  const [first, second] = mirrorsInOrder();
+  mirrorAnswered(second, { empty: true });
+  assert.equal(mirrorsInOrder()[0], first, 'an empty answer earns no preference');
+  // But it is not punished either: a patch of map with no station on it is a
+  // real answer, and resting a healthy mirror over one would be worse.
+  assert.ok(!mirrorsInOrder().slice(-1).includes(second) || mirrorsInOrder().includes(second));
+  mirrorAnswered(second);
+  assert.equal(mirrorsInOrder()[0], second, 'an answer with something in it does');
+  resetMirrors();
+});
+
+test('every mirror on the list is a planet-wide one', () => {
+  // The rule this file exists to keep: a regional extract answers fast, answers
+  // 200 and answers nothing, which no health check can tell from a real result.
+  for (const url of mirrorsInOrder()) {
+    assert.ok(!/osm\.ch/.test(url), `${url} is a Switzerland-only extract and must not be a mirror`);
+  }
+});

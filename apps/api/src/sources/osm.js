@@ -204,7 +204,7 @@ async function overpass(body, meter = null) {
         throw new Error(`Overpass ${res.status} at ${url}`);
       }
       const data = await res.json();
-      mirrorAnswered(url);
+      mirrorAnswered(url, { empty: Array.isArray(data?.elements) && data.elements.length === 0 });
       return data;
     } catch (err) {
       if (err?.name === 'TimeoutError' || err?.name === 'AbortError') mirrorFailed(url, err);

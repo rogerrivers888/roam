@@ -7,7 +7,7 @@
 //   overpass-api.de          fails outright in ~3s
 //   overpass.kumi.systems    40s to a timeout, or a 504
 //   overpass.private.coffee  answers in 6–10s
-//   overpass.osm.ch          answers in 0.12–0.27s
+//   overpass.osm.ch          answers in 0.12s — and empty, see DEFAULT below
 //
 // The background researcher (sources/openMatch.js) already knew how to cope:
 // start where the last answer came from, and give a mirror that refuses ten
@@ -20,11 +20,20 @@
 // So the knowledge lives here once and both callers share it, which also means
 // a mirror one of them finds to be down is a mirror the other stops asking.
 
+// Planet-wide instances only, and that qualifier is the whole point.
+//
+// `overpass.osm.ch` was on this list for a few hours on 6 Sep 2026 and it is a
+// **Switzerland-only extract**. It answers 200 in 0.12s with zero elements for
+// anywhere else — measured: 23 stations around Zurich, none around London or
+// Bath — which is the worst failure a mirror can have, because "fast and
+// successful" is exactly what the health rules below reward. It became the
+// preferred mirror, every other one was resting behind it, and the Stay tab
+// returned no beds at all. A regional extract must never be on this list.
 const DEFAULT = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
-  'https://overpass.osm.ch/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
 
 export const ENDPOINTS = (process.env.ROAM_OVERPASS_URLS || DEFAULT.join(','))
@@ -52,10 +61,19 @@ export function mirrorsInOrder() {
   return [...order.filter((u) => !resting(u)), ...order.filter(resting)];
 }
 
-/** This one answered: prefer it next time, and let it off any rest it was on. */
-export function mirrorAnswered(url) {
+/**
+ * This one answered: prefer it next time, and let it off any rest it was on.
+ *
+ * `empty` is passed by callers that know an answer of nothing is suspicious for
+ * the question they asked. A mirror is not rested for one empty result — a
+ * genuinely empty answer is a real answer, and there are plenty of patches of
+ * map with no station on them — but it does not earn preference from one
+ * either, because that is how a regional extract captures every subsequent
+ * search (see DEFAULT above).
+ */
+export function mirrorAnswered(url, { empty = false } = {}) {
   restingUntil.delete(url);
-  preferred = Math.max(0, ENDPOINTS.indexOf(url));
+  if (!empty) preferred = Math.max(0, ENDPOINTS.indexOf(url));
 }
 
 /**
@@ -106,7 +124,7 @@ export async function overpassQuery(body, { timeoutMs = 12_000, userAgent = UA }
         throw new Error(`Overpass ${res.status} at ${url}`);
       }
       const data = await res.json();
-      mirrorAnswered(url);
+      mirrorAnswered(url, { empty: Array.isArray(data?.elements) && data.elements.length === 0 });
       return data;
     } catch (err) {
       if (err?.name === 'TimeoutError' || err?.name === 'AbortError') mirrorFailed(url, err);
