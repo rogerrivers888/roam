@@ -26,7 +26,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, ScoutArea, ScoutMenuMiss, ScoutPlace } from '../../api';
+import { api, MenuCause, ScoutArea, ScoutMenuMiss, ScoutPlace } from '../../api';
 import { colors, radius, spacing, type } from '../../theme';
 import { Icon } from '../../components/Icon';
 import { Button, Row, Wrap } from '../../components/ui';
@@ -105,6 +105,10 @@ export function Scout({ canManage }: { canManage: boolean }) {
   const [chosen, setChosen] = useQueryState<string | null>('area', null, asText);
   const [places, setPlaces] = useState<ScoutPlace[]>([]);
   const [misses, setMisses] = useState<ScoutMenuMiss[]>([]);
+  const [causes, setCauses] = useState<MenuCause[]>([]);
+  // Which cause's places the list below is showing. The report is the way in;
+  // the list is what you work.
+  const [cause, setCause] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [code, setCode] = useState('');
@@ -129,6 +133,7 @@ export function Scout({ canManage }: { canManage: boolean }) {
   useEffect(() => {
     if (section !== 'menus') return;
     void api.scoutMisses().then((d) => setMisses(d.misses)).catch(() => setMisses([]));
+    void api.scoutCauses().then((d) => setCauses(d.causes)).catch(() => setCauses([]));
   }, [section, busy]);
 
   /** Every button here is slow and spends something, so it says what happened. */
@@ -332,14 +337,72 @@ export function Scout({ canManage }: { canManage: boolean }) {
             </Panel>
           ) : null}
 
+          {/* The report. Sixty-three sentences became nine causes, and each one
+              names a different fix — which is the whole reason for coding them
+              (domain/menuCauses.js). */}
           <Panel
-            title="What Roam could not read, and why"
-            sub="An empty tab with a cause against it, so a change to the crawler is a number that moves"
+            title="What would fix the backlog"
+            sub={`${count(causes.reduce((n, c) => n + c.n, 0))} places we could not read, grouped by what is actually wrong`}
+            right={canManage ? (
+              <Button label="Read the reasons again" icon="refresh" kind="secondary" disabled={busy != null}
+                      onPress={() => run('classify', () => api.scoutClassify(),
+                        (r) => `Read ${r.looked} recorded failures into ${r.classified} causes.`)} />
+            ) : undefined}
             padded={false}
           >
-            {misses.length === 0 ? (
+            {causes.length === 0 ? (
+              <View style={{ padding: spacing.md }}>
+                <Text style={type.small}>Nothing outstanding — or nothing classified yet.</Text>
+              </View>
+            ) : causes.map((c) => (
+              <Pressable
+                key={c.key}
+                onPress={() => setCause(cause === c.key ? null : c.key)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: cause === c.key }}
+                style={({ hovered }: any) => [
+                  styles.causeRow, hovered && { backgroundColor: colors.well }, cause === c.key && { backgroundColor: colors.accentSoft },
+                ]}
+              >
+                <Text style={styles.causeCount}>{count(c.n)}</Text>
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                  <Row style={{ gap: spacing.xs, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Text style={[type.body, { fontWeight: '700' }]}>{c.label}</Text>
+                    {/* Ours is not a finding about anybody's restaurant, and the
+                        report says so rather than letting it sit in the middle
+                        looking like one. */}
+                    {c.key === 'ours' ? <Pill label="our fault, not theirs" tone="crit" /> : null}
+                    {c.exhausted ? <Pill label={`${count(c.exhausted)} given up on`} tone="warn" /> : null}
+                  </Row>
+                  <Text style={type.tiny}>{c.detail}</Text>
+                  <Text style={[type.tiny, { color: colors.accent }]}>{c.fix}</Text>
+                  {c.examples.length ? (
+                    <Text style={type.tiny} numberOfLines={1}>{c.examples.join(' · ')}</Text>
+                  ) : null}
+                </View>
+                {canManage ? (
+                  <Button
+                    label={busy === `cause:${c.key}` ? 'Queued' : 'Try these again'}
+                    icon="refresh" kind="secondary" disabled={busy != null}
+                    onPress={() => run(`cause:${c.key}`, () => api.scoutRetryCause(c.key),
+                      (r) => `${r.requeued} put back in the queue. Fix the crawler first, or they will fail the same way.`)}
+                  />
+                ) : null}
+              </Pressable>
+            ))}
+          </Panel>
+
+          <Panel
+            title={cause ? `${causes.find((c) => c.key === cause)?.label ?? cause}` : 'What Roam could not read, and why'}
+            sub={cause
+              ? 'The places behind that cause, each with the sentence the crawler wrote about it'
+              : 'An empty tab with a cause against it, so a change to the crawler is a number that moves'}
+            right={cause ? <Button label="Every cause" kind="secondary" onPress={() => setCause(null)} /> : undefined}
+            padded={false}
+          >
+            {misses.filter((m) => !cause || m.cause === cause).length === 0 ? (
               <View style={{ padding: spacing.md }}><Text style={type.small}>Nothing outstanding.</Text></View>
-            ) : misses.map((m) => (
+            ) : misses.filter((m) => !cause || m.cause === cause).map((m) => (
               <View key={m.venue_ref} style={styles.missRow}>
                 <Icon name={m.state === 'found' ? 'hours' : 'info'} size={15} color={m.state === 'found' ? colors.accent : colors.inkMuted} />
                 <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
@@ -379,6 +442,12 @@ const styles = StyleSheet.create({
   },
   rank: { ...type.tiny, width: 22, textAlign: 'right', color: colors.inkMuted },
   score: { ...type.body, fontWeight: '800', width: 40, textAlign: 'right' },
+  causeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap',
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    borderTopWidth: 1, borderTopColor: colors.line,
+  },
+  causeCount: { ...type.body, fontWeight: '800', width: 44, textAlign: 'right' },
   missRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line,

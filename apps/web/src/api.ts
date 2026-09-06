@@ -1340,6 +1340,11 @@ export const api = {
   scoutReadMenus: (limit = 10) => post<{ started: number }>('/api/admin/scout/menus/read', { limit }),
   scoutRetryMenus: () => post<{ requeued: number }>('/api/admin/scout/menus/retry', {}),
   scoutMisses: () => request<{ misses: ScoutMenuMiss[] }>('/api/admin/scout/menus/missing'),
+  /** The backlog grouped by what would fix it — "seventeen places, one fix". */
+  scoutCauses: () => request<{ causes: MenuCause[] }>('/api/admin/scout/menus/causes'),
+  scoutClassify: () => post<{ looked: number; classified: number }>('/api/admin/scout/menus/classify', {}),
+  scoutRetryCause: (cause: string) =>
+    post<{ requeued: number }>(`/api/admin/scout/menus/causes/${encodeURIComponent(cause)}/retry`, {}),
   scoutPlaces: (code: string, limit = 25) =>
     request<{ area: { code: string; label: string | null; sweptAt: string | null }; places: ScoutPlace[] }>(`/api/places/area/${code}?limit=${limit}`),
   // --- places you can point at (routes/localities.js) ---
@@ -1701,6 +1706,24 @@ export type CategoryProposal = {
   weights: ShelfWeights;
 };
 
+/**
+ * One reason a batch of menus could not be read, and what would fix all of them.
+ *
+ * The sentence on a single row says what to do about that restaurant; this is
+ * what makes a hundred of them a number that moves (domain/menuCauses.js).
+ */
+export type MenuCause = {
+  key: string;
+  label: string;
+  detail: string;
+  fix: string;
+  n: number;
+  /** How many have been tried four times and will not be tried again on their own. */
+  exhausted: number;
+  oldest: string | null;
+  examples: string[];
+};
+
 export type ShelfWeights = Partial<Record<MoodKey, number>>;
 
 export type ShelfRule = {
@@ -1823,6 +1846,8 @@ export type ScoutMenuMiss = {
   venue_label: string | null;
   state: string;
   why: string | null;
+  /** Which of the closed causes this sentence was read as (domain/menuCauses.js). */
+  cause: string | null;
   menu_url: string | null;
   attempts: number;
   read_at: string | null;

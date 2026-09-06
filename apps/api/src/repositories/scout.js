@@ -6,6 +6,7 @@
 // before anything reaches this file.
 
 import { query } from '../db.js';
+import { causeOf, CAUSES } from '../domain/menuCauses.js';
 
 export async function upsertArea(a) {
   const { rows } = await query(
@@ -174,21 +175,81 @@ export async function menusDue(limit = 5) {
 
 /** Record that there is no menu, and why — so the empty tab has an answer in it. */
 export async function recordMenuMiss(venueRef, { venueLabel = null, why, menuUrl = null, nextAttemptAt = null }) {
+  // The sentence and the cause, together. The sentence says what to do about
+  // this one place; the cause is what makes a hundred of them countable
+  // (domain/menuCauses.js).
+  const cause = causeOf({ why, state: 'none', menuUrl });
   await query(
-    `insert into place_menus (venue_ref, venue_label, source_url, source_kind, state, why, menu_url,
+    `insert into place_menus (venue_ref, venue_label, source_url, source_kind, state, why, cause, menu_url,
                               section_count, item_count, attempts, next_attempt_at, reads)
-     values ($1,$2,null,'none','none',$3,$4,0,0,1,$5,0)
+     values ($1,$2,null,'none','none',$3,$4,$5,0,0,1,$6,0)
      on conflict (venue_ref) do update set
-       state = 'none', why = excluded.why, menu_url = coalesce(excluded.menu_url, place_menus.menu_url),
+       state = 'none', why = excluded.why, cause = excluded.cause,
+       menu_url = coalesce(excluded.menu_url, place_menus.menu_url),
        attempts = place_menus.attempts + 1, next_attempt_at = excluded.next_attempt_at, read_at = now()`,
-    [venueRef, venueLabel, why, menuUrl, nextAttemptAt],
+    [venueRef, venueLabel, why, cause, menuUrl, nextAttemptAt],
   );
+}
+
+/**
+ * The backlog, grouped by what would fix it.
+ *
+ * The payoff for coding the causes: "seventeen places, one fix" instead of
+ * seventeen sentences that each mention a different restaurant.
+ */
+export async function menuCauses() {
+  const { rows } = await query(
+    `select m.cause, count(*)::int as n,
+            count(*) filter (where m.attempts >= 4)::int as exhausted,
+            min(m.read_at) as oldest,
+            (array_agg(coalesce(m.venue_label, m.venue_ref) order by m.read_at desc))[1:3] as examples
+       from place_menus m
+      where m.state <> 'read' and m.cause is not null
+      group by 1`);
+  const byKey = new Map(rows.map((r) => [r.cause, r]));
+  return CAUSES.map((c) => ({
+    ...c,
+    n: byKey.get(c.key)?.n ?? 0,
+    exhausted: byKey.get(c.key)?.exhausted ?? 0,
+    oldest: byKey.get(c.key)?.oldest ?? null,
+    examples: byKey.get(c.key)?.examples ?? [],
+  })).filter((c) => c.n > 0).sort((a, b) => b.n - a.n);
+}
+
+/**
+ * Read every recorded failure into a cause, including the ones written before
+ * causes existed.
+ *
+ * Replayable on purpose: the classifier is a piece of judgement about English
+ * and it will be wrong at first, so running it again over everything has to be
+ * free and safe. Nothing but `cause` is touched.
+ */
+export async function classifyMenuMisses() {
+  const { rows } = await query(
+    `select m.venue_ref, m.why, m.state, m.menu_url, r.website
+       from place_menus m left join place_records r on r.venue_ref = m.venue_ref
+      where m.state <> 'read'`);
+  let set = 0;
+  for (const row of rows) {
+    const cause = causeOf(row);
+    await query('update place_menus set cause = $2 where venue_ref = $1', [row.venue_ref, cause]);
+    if (cause) set++;
+  }
+  return { looked: rows.length, classified: set };
+}
+
+/** Put one cause's places back in the queue, so a crawler fix is a number that moves. */
+export async function retryCause(cause) {
+  const { rowCount } = await query(
+    `update place_menus set state = 'none', attempts = 0, next_attempt_at = null
+      where cause = $1 and state <> 'read'`, [cause]);
+  return rowCount;
 }
 
 /** Every menu Roam could not read, with the reason. The work list. */
 export async function menuMisses(limit = 100) {
   const { rows } = await query(
-    `select m.venue_ref, m.venue_label, m.state, m.why, m.menu_url, m.attempts, m.read_at, r.website
+    `select m.venue_ref, m.venue_label, m.state, m.why, m.cause, m.menu_url, m.attempts, m.read_at, r.website
        from place_menus m left join place_records r on r.venue_ref = m.venue_ref
       where m.state <> 'read' order by m.read_at desc limit $1`,
     [limit],

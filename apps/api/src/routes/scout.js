@@ -134,6 +134,32 @@ router.post('/menus/read', requires('manage_library'), async (req, res, next) =>
 });
 
 /** Put every miss that still has an address back in the queue, to prove a fix. */
+/**
+ * The backlog, grouped by what would fix it.
+ *
+ * The whole point of coding the causes: "seventeen places, one fix" rather than
+ * seventeen sentences that each name a different restaurant.
+ */
+router.get('/menus/causes', requires('view_library'), async (_req, res, next) => {
+  try {
+    res.json({ causes: await scout.menuCauses() });
+  } catch (err) { next(err); }
+});
+
+/** Read every recorded failure into a cause again, including old rows. Free. */
+router.post('/menus/classify', requires('manage_library'), async (_req, res, next) => {
+  try {
+    res.json(await scout.classifyMenuMisses());
+  } catch (err) { next(err); }
+});
+
+/** Put one cause's places back in the queue, after fixing what caused them. */
+router.post('/menus/causes/:cause/retry', requires('manage_library'), async (req, res, next) => {
+  try {
+    res.json({ requeued: await scout.retryCause(String(req.params.cause)) });
+  } catch (err) { next(err); }
+});
+
 router.post('/menus/retry', requires('manage_library'), async (_req, res, next) => {
   try {
     res.json({ requeued: await scout.retryMisses() });
