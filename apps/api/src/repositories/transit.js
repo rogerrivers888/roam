@@ -102,3 +102,9 @@ export async function stopCounts() {
   const { rows: areas } = await query('select area, label, stops, harvested_at, how from transit_coverage order by stops desc');
   return { byKind: rows, total: total[0].n, fetchedAt: total[0].at, areas };
 }
+
+/** How many harvest cells are still missing, so a resume can stop when there is nothing left. */
+export async function cellsOutstanding(totalCells) {
+  const { rows } = await query("select count(*)::int as n from transit_coverage where how = 'harvest' and area like 'cell:%'");
+  return Math.max(0, totalCells - rows[0].n);
+}

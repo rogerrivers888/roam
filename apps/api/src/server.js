@@ -7,6 +7,8 @@ import householdRoutes from './routes/household.js';
 import discoverRoutes from './routes/discover.js';
 import tripRoutes from './routes/trips.js';
 import stayRoutes from './routes/stays.js';
+import * as transit from './sources/transit.js';
+import * as transitRepo from './repositories/transit.js';
 import journeyRoutes from './routes/journey.js';
 import planRoutes from './routes/plan.js';
 import tasteRoutes from './routes/tastes.js';
@@ -405,6 +407,23 @@ const tryResume = (atBoot) => resumeInterrupted({ atBoot })
   .then((r) => { if (r?.resumed || (atBoot && r)) console.log(`roam-api: harvest ${r.resumed ? `resumed over ${r.regions} region(s)` : `not resumed — ${r.reason}`}`); })
   .catch((err) => console.error('harvest recovery', err.message));
 setTimeout(() => { void tryResume(true); }, RESUME_AFTER_MS).unref?.();
+
+// The stations table fills itself in the same way, and for a stronger reason:
+// every stay search with a station condition reads it, and until it is complete
+// those searches pay a live Overpass lookup that may not answer. Britain is
+// fifty-odd cells and on a bad afternoon that is hours of somebody else's
+// server — so it is done in slices, a few minutes at a time, and each cell is
+// remembered so a deploy in the middle costs nothing (sources/transit.js).
+const TRANSIT_CELLS = 8 * 7;
+const resumeTransit = () => transit.resumeHarvest({
+  upsert: transitRepo.upsertStops,
+  record: transitRepo.recordCoverage,
+  covered: (cell) => transitRepo.cellCovered(transit.cellArea(cell)),
+  remaining: () => transitRepo.cellsOutstanding(TRANSIT_CELLS),
+}).then((r) => { if (r && !r.done && r.cells) console.log(`roam-api: stations, ${r.cells} more cell(s), ${r.stored} stops`); })
+  .catch((err) => console.error('stations harvest', err.message));
+setTimeout(() => { void resumeTransit(); }, RESUME_AFTER_MS + 30_000).unref?.();
+setInterval(() => { void resumeTransit(); }, RESUME_EVERY_MS).unref?.();
 setInterval(() => { void tryResume(false); }, RESUME_EVERY_MS).unref?.();
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`roam-api listening on 0.0.0.0:${port}`);

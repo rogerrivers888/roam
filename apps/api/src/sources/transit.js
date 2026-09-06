@@ -210,3 +210,40 @@ export async function harvestRegion(box, {
   if (!failed.length) await record(box, stored, 'harvest');
   return { stored, cells: cells.length, done, failed };
 }
+
+/**
+ * Carry on filling the stations table, whenever this process is up.
+ *
+ * Deliberately not "harvest on boot": the same reasoning as the atlas harvest
+ * next door (server.js). It waits until the process has been answering for a
+ * while, and because every cell is idempotent and recorded on its own, a run
+ * cut in half by a deploy loses nothing — the next one picks up the cells that
+ * are still missing and asks Overpass nothing about the rest.
+ *
+ * This is what makes the table finish itself. Britain is fifty-odd cells and on
+ * a bad afternoon for the mirrors that is hours; nobody should have to remember
+ * to come back and press something, and until it is done the live fallback
+ * covers whatever anybody actually searches for.
+ */
+export async function resumeHarvest({ upsert, record, covered, remaining, budgetMs = 4 * 60_000 } = {}) {
+  const left = await remaining();
+  if (!left) return { done: true, cells: 0 };
+  const started = Date.now();
+  let filled = 0;
+  const out = await harvestRegion({ ...UK, countryCode: 'GB' }, {
+    cellDeg: 1.5,
+    pauseMs: 1200,
+    timeoutMs: 60_000,
+    upsert,
+    record,
+    covered,
+    // A slice at a time rather than the lot. A four-minute budget leaves the
+    // process free for the screens it exists to serve, and the next tick
+    // continues where this one stopped.
+    onProgress: (p) => { if (!p.skipped) filled += 1; if (Date.now() - started > budgetMs) throw new StopHarvest(); },
+  }).catch((err) => (err instanceof StopHarvest ? { stored: 0, cells: 0, done: filled, failed: [] } : Promise.reject(err)));
+  return { done: false, cells: filled, stored: out.stored ?? 0 };
+}
+
+/** Not an error: the way out of a loop that has used its slice of the process. */
+class StopHarvest extends Error {}
