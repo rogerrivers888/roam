@@ -6,6 +6,7 @@ import { ping, pool } from './db.js';
 import householdRoutes from './routes/household.js';
 import discoverRoutes from './routes/discover.js';
 import tripRoutes from './routes/trips.js';
+import stayRoutes from './routes/stays.js';
 import journeyRoutes from './routes/journey.js';
 import planRoutes from './routes/plan.js';
 import tasteRoutes from './routes/tastes.js';
@@ -117,6 +118,9 @@ app.use('/api/household', householdRoutes);
 app.use('/api/discover', discoverRoutes);
 app.use('/api/trips', journeyRoutes);
 app.use('/api/trips', tripRoutes);
+// What can be asked for near a point, counted from the beds themselves rather
+// than from a list of rules about coastlines (routes/stays.js).
+app.use('/api/stays', stayRoutes);
 // The family's table (/api/plan/tastes…) is mounted first: the planner's own
 // router ends in a catch-all GET /:sessionId that would swallow these paths.
 app.use('/api/plan', tasteRoutes);

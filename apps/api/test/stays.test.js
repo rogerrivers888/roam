@@ -17,7 +17,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeBeds } from '../src/sources/stays.js';
 import { occupanciesFor, nightsBetween, ratesNear, liteapiKeyKind } from '../src/sources/liteapi.js';
-import { partyForStay, ageOn, rankStays } from '../src/domain/stays.js';
+import { partyForStay, ageOn, rankStays, centreOfPlans, middleOf, whatIsOnOffer, withinOfAll } from '../src/domain/stays.js';
+import { kmBetween } from '../src/domain/travel.js';
 import { mirrorsInOrder, mirrorAnswered, mirrorFailed, resetMirrors } from '../src/sources/overpass.js';
 
 // ---------------------------------------------------------------------------
@@ -304,4 +305,88 @@ test('with every mirror resting, one is still asked', () => {
   // Nothing to be gained by refusing to try: the alternative is no places at all.
   assert.equal(mirrorsInOrder().length, 4);
   resetMirrors();
+});
+
+// ---------------------------------------------------------------------------
+// the middle of several plans, and what may be asked for there
+// ---------------------------------------------------------------------------
+
+test('one day trip does not drag the search to the next city', () => {
+  // Five things in Bath and a day out to Bristol. The mean lands between the
+  // two, where a hotel is wrong for five days out of six.
+  const bath = [
+    { lat: 51.3811, lng: -2.3590 }, { lat: 51.3838, lng: -2.3599 }, { lat: 51.3870, lng: -2.3610 },
+    { lat: 51.3800, lng: -2.3560 }, { lat: 51.3825, lng: -2.3650 },
+  ];
+  const plans = [...bath, { lat: 51.4545, lng: -2.5879 }];
+  const total = (c) => plans.reduce((a, p) => a + kmBetween(c, p), 0);
+
+  const median = centreOfPlans(plans);
+  const mean = middleOf(plans);
+
+  // The median stays in Bath with the five; the mean does not.
+  assert.ok(bath.every((p) => kmBetween(median, p) < 1), 'the median sits among the five');
+  assert.ok(kmBetween(mean, bath[0]) > 2, 'the mean has been pulled out of town');
+  // And it is the median that is actually the better base, by the measure that matters.
+  assert.ok(total(median) < total(mean) * 0.8, 'a third less travel across the whole trip');
+});
+
+test('two plans have no median worth the name, and fall back to the midpoint', () => {
+  const two = [{ lat: 51.38, lng: -2.36 }, { lat: 51.46, lng: -2.59 }];
+  assert.deepEqual(centreOfPlans(two), middleOf(two));
+  assert.equal(centreOfPlans([]), null);
+});
+
+test('landing exactly on a plan does not divide by nothing', () => {
+  // Three plans at one point plus one elsewhere: the median sits on the cluster,
+  // which is the case that makes the naive form return NaN.
+  const c = centreOfPlans([
+    { lat: 51.38, lng: -2.36 }, { lat: 51.38, lng: -2.36 }, { lat: 51.38, lng: -2.36 }, { lat: 51.46, lng: -2.59 },
+  ]);
+  assert.ok(Number.isFinite(c.lat) && Number.isFinite(c.lng));
+  assert.ok(kmBetween(c, { lat: 51.38, lng: -2.36 }) < 0.5);
+});
+
+test('a must-have nobody here offers is never put on screen', () => {
+  // The Thorpe Park case: no bed inland has a sea view, so no rule about
+  // coastlines has to exist for the chip to stay off the screen.
+  const pool = [
+    { facilityIds: ['1', '5'], hotelTypeId: '201' },
+    { facilityIds: ['1'], hotelTypeId: '201' },
+    { facilityIds: ['1', '5'], hotelTypeId: '204' },
+  ];
+  const names = {
+    facilities: new Map([['1', 'Parking'], ['5', 'Pool'], ['9', 'Sea view']]),
+    hotelTypes: new Map([['201', 'Hotel'], ['204', 'Apartment'], ['210', 'Farm stay']]),
+  };
+  const offer = whatIsOnOffer(pool, names);
+  assert.deepEqual(offer.facilities.map((f) => f.label), ['Parking', 'Pool']);
+  assert.equal(offer.facilities.find((f) => f.label === 'Sea view'), undefined);
+  // And every chip says what ticking it costs: 2 of the 3 have a pool.
+  assert.equal(offer.facilities.find((f) => f.label === 'Pool').count, 2);
+  assert.deepEqual(offer.types.map((t) => t.label), ['Hotel', 'Apartment']);
+  assert.equal(offer.of, 3);
+});
+
+test('an id the vocabulary has no word for is not offered as a blank chip', () => {
+  const offer = whatIsOnOffer(
+    [{ facilityIds: ['1', '4242'] }],
+    { facilities: new Map([['1', 'Parking']]), hotelTypes: new Map() },
+  );
+  assert.deepEqual(offer.facilities.map((f) => f.label), ['Parking']);
+});
+
+test('“within 15 minutes of everything” says so when nothing manages it', () => {
+  const spread = [
+    { name: 'Best of a bad lot', plansTotal: 3, farthest: { minutes: 26 } },
+    { name: 'Worse', plansTotal: 3, farthest: { minutes: 41 } },
+  ];
+  const out = withinOfAll(spread, 15);
+  assert.equal(out.achievable, false);
+  // Not an empty list and a shrug: the number the screen should offer instead.
+  assert.equal(out.bestMinutes, 26);
+
+  const ok = withinOfAll([{ name: 'Central', plansTotal: 3, farthest: { minutes: 12 } }], 15);
+  assert.equal(ok.achievable, true);
+  assert.equal(ok.beds.length, 1);
 });

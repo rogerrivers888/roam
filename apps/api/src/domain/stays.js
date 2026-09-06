@@ -127,3 +127,109 @@ export function partyForStay(members = [], { on = null } = {}) {
   // A room of children and no adult is not a booking anybody takes.
   return { adults: Math.max(1, adults.length), childAges: childAges.sort((a, b) => a - b), assumed, derived: true };
 }
+
+// ---------------------------------------------------------------------------
+// where the middle of five plans actually is
+// ---------------------------------------------------------------------------
+
+/**
+ * The point with the least total travel to every plan — the geometric median.
+ *
+ * `middleOf` above is the mean, and the mean is not the middle. Five plans in
+ * Bath and one day trip to Bristol drag the mean a third of the way to Bristol,
+ * and a hotel there is a bad hotel for five days out of six. The median barely
+ * moves: it is the point that minimises the *sum* of the distances rather than
+ * the sum of their squares, so one outlier pulls on it once instead of once per
+ * mile (owner, 6 Sep 2026: "If there's one that's in the centre of them all,
+ * that would be better").
+ *
+ * There is no closed form, so this is Weiszfeld's algorithm: start at the mean,
+ * then repeatedly move to the average of the points weighted by one over their
+ * distance. It converges in a handful of passes on the scale of a city, and
+ * "handful of passes over six points" is microseconds — there is no call, no
+ * provider and nothing to wait for.
+ */
+export function centreOfPlans(points, { passes = 60, tolerance = 1e-7 } = {}) {
+  if (!points?.length) return null;
+  if (points.length <= 2) return middleOf(points);
+
+  // Longitude degrees are narrower than latitude ones everywhere but the
+  // equator, so they are scaled before any distance is taken and the answer is
+  // scaled back at the end. Without it the median drifts east-west in Britain
+  // by about a third.
+  const k = Math.cos((points.reduce((a, p) => a + p.lat, 0) / points.length) * Math.PI / 180) || 1;
+  const pts = points.map((p) => ({ x: p.lng * k, y: p.lat }));
+
+  let x = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+  let y = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+
+  for (let pass = 0; pass < passes; pass += 1) {
+    let wx = 0; let wy = 0; let w = 0;
+    for (const p of pts) {
+      // Landing exactly on a plan would divide by nothing. A metre is far below
+      // the precision anyone can act on and keeps the arithmetic finite.
+      const d = Math.max(Math.hypot(p.x - x, p.y - y), 1e-9);
+      const weight = 1 / d;
+      wx += p.x * weight; wy += p.y * weight; w += weight;
+    }
+    const nx = wx / w; const ny = wy / w;
+    const moved = Math.hypot(nx - x, ny - y);
+    x = nx; y = ny;
+    if (moved < tolerance) break;
+  }
+  return { lat: y, lng: x / k };
+}
+
+/**
+ * Can anywhere be within `minutes` of everything, and if so which?
+ *
+ * The honest answer is sometimes no, and a wizard that offers "within 15
+ * minutes of all my plans" over five towns is offering something that does not
+ * exist. So this reports what is reachable rather than filtering silently: the
+ * beds that clear the bar, and — when none do — the best that any bed manages,
+ * which is the number the screen should offer instead.
+ */
+export function withinOfAll(ranked, minutes) {
+  const reach = (s) => s.farthest?.minutes ?? null;
+  const all = ranked.filter((s) => s.plansTotal > 0 && reach(s) != null);
+  if (!all.length) return { beds: ranked, bestMinutes: null, achievable: true };
+  const beds = all.filter((s) => reach(s) <= minutes);
+  const bestMinutes = Math.min(...all.map(reach));
+  return { beds, bestMinutes, achievable: beds.length > 0 };
+}
+
+// ---------------------------------------------------------------------------
+// what may be asked for here
+// ---------------------------------------------------------------------------
+
+/**
+ * The must-haves worth putting on screen, counted from the beds themselves.
+ *
+ * The alternative was a rule per amenity — "sea view needs a coast within so
+ * many miles" — and that way lies an endless list of rules, each wrong at its
+ * edges, and none of them able to answer the question the household is actually
+ * asking, which is "what will this cost me". Counting the pool answers both at
+ * once: a facility no bed near Thorpe Park has is a chip that never appears, no
+ * rule about Thorpe Park was written, and every chip that does appear carries
+ * the number of beds still standing if you tick it.
+ *
+ * It costs nothing. The pool is already fetched and already in memory; this is
+ * a loop over it.
+ */
+export function whatIsOnOffer(beds, { facilities = new Map(), hotelTypes = new Map(), minimum = 1 } = {}) {
+  const countBy = (pick, names) => {
+    const n = new Map();
+    for (const bed of beds) for (const id of pick(bed)) n.set(id, (n.get(id) ?? 0) + 1);
+    return [...n.entries()]
+      .filter(([id, count]) => count >= minimum && names.has(id))
+      .map(([id, count]) => ({ id, label: names.get(id), count }))
+      // Commonest first: the chip most people will want is the one that costs
+      // them least, and the rare ones are the ones worth thinking about.
+      .sort((a, b) => b.count - a.count || String(a.label).localeCompare(b.label));
+  };
+  return {
+    facilities: countBy((b) => b.facilityIds ?? [], facilities),
+    types: countBy((b) => (b.hotelTypeId ? [b.hotelTypeId] : []), hotelTypes),
+    of: beds.length,
+  };
+}

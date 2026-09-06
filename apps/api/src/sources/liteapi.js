@@ -177,6 +177,11 @@ function asVenue(h) {
     reviewCount: num(h.reviewCount) || null,
     rooms: null,
     chain: h.chain || null,
+    // What it has and what kind of place it is, as LiteAPI's own ids. Kept as
+    // ids rather than words because the words are a separate reference call
+    // and the same id means the same thing in every language.
+    facilityIds: Array.isArray(h.facilityIds) ? h.facilityIds.map(String) : [],
+    hotelTypeId: h.hotelTypeId != null ? String(h.hotelTypeId) : null,
     // Their photograph, drawn straight from their URL and never fetched into our
     // library: the library only holds pictures under licences that let us keep
     // them (sources/placePicture.js), and this is not one of them. The shape is
@@ -190,8 +195,19 @@ function asVenue(h) {
 }
 
 /**
- * The beds on a patch of map. Static content: names, addresses, coordinates.
+ * The beds on a patch of map. Static content: names, addresses, coordinates,
+ * and — the part that makes a must-have filter possible — the facilities each
+ * one has and what kind of property it is.
+ *
  * No dates needed, so this is what a trip with no dates yet still gets.
+ *
+ * Deliberately unfiltered. LiteAPI will filter server-side (`facilityIds`,
+ * `hotelTypeIds`, `starRating`, `minRating` are all query parameters here), and
+ * that is the wrong place to do it: a filtered call can only answer "here are
+ * the ones with a pool", and the wizard's real question is "how many of these
+ * have a pool, and what does asking for one cost you". One unfiltered pool
+ * answers both, and answers every other chip at the same time, for one call.
+ * Filtering happens over the pool we already hold (domain/stays.js).
  */
 export async function hotelsNear(centre, radiusKm, { meter = null } = {}) {
   const radiusM = Math.max(MIN_RADIUS_M, Math.round(radiusKm * 1000));
@@ -206,6 +222,44 @@ export async function hotelsNear(centre, radiusKm, { meter = null } = {}) {
   toCache(staticKept, key, hotels);
   return { hotels, cached: false };
 }
+
+// ---------------------------------------------------------------------------
+// the vocabularies: what may be asked for at all
+// ---------------------------------------------------------------------------
+
+// Reference data. It describes LiteAPI's catalogue rather than any hotel, it
+// changes about never, and it is two calls the whole day however many
+// households are searching.
+const VOCAB_TTL_MS = 24 * 60 * 60_000;
+let vocab = null;
+
+/**
+ * Every facility and every property type LiteAPI knows about, by id.
+ *
+ * This is what makes "do not offer what cannot be had" answerable rather than
+ * guessable: the wizard's chips are drawn from the ids that actually occur in
+ * the pool for this patch of map (domain/stays.js `whatIsOnOffer`), and this
+ * turns those ids into words a household reads. A facility nobody near Chertsey
+ * has never reaches the screen, and no rule about Chertsey had to be written.
+ */
+export async function vocabularies({ meter = null } = {}) {
+  if (vocab && Date.now() - vocab.at < VOCAB_TTL_MS) return vocab.value;
+  const [f, t] = await Promise.all([
+    call('/data/facilities', { meter }).catch(() => null),
+    call('/data/hotel-types', { meter }).catch(() => null),
+  ]);
+  const byId = (rows, name) => new Map((rows ?? []).map((r) => [String(r.facility_id ?? r.hotelTypeId ?? r.id), r[name] ?? r.name ?? null]).filter(([, v]) => v));
+  const value = {
+    facilities: byId(f?.data, 'facility'),
+    hotelTypes: byId(t?.data, 'hotelType'),
+    at: new Date().toISOString(),
+  };
+  vocab = { at: Date.now(), value };
+  return value;
+}
+
+/** Only for tests and the probe: forget the vocabularies and fetch them again. */
+export const forgetVocabularies = () => { vocab = null; };
 
 // ---------------------------------------------------------------------------
 // what a night costs
