@@ -34,6 +34,16 @@ test('a street with a town’s name in it is still a street', () => {
   assert.equal(branchLooksWrong('https://order.example.com/boleros-pizzeria-cafe-88-maidenhead-road', ['boleros', 'windsor'], WINDSOR), false);
 });
 
+test('a brand written without spaces is not a branch in another town', () => {
+  // Every one of these is the venue's own menu and was nearly refused.
+  const ok = (url, words, town) => assert.equal(branchLooksWrong(url, words, town), false, url);
+  ok('https://www.primesteakandgrill.com/menu/', ['prime', 'steak', 'grill', 'three', 'rivers'], 'Three Rivers');
+  ok('https://www.hellofego.com/fego-menu/drinks', ['fego', 'sunningdale'], 'Windsor and Maidenhead');
+  ok('https://kokorouk.com/menu', ['kokoro', 'windsor'], 'Windsor and Maidenhead');
+  ok('https://hammersmith-mrsteak.com/menu.html', ['steak', 'hammersmith'], 'Hammersmith and Fulham');
+  ok('https://www.dishoom.com/covent-garden/menu', ['dishoom', 'covent', 'garden'], 'Westminster');
+});
+
 test('with no town to go on, nothing is contradicted', () => {
   assert.equal(branchLooksWrong('https://www.sebastiansrichmond.co.uk/menu.html', WORDS, null), false);
 });

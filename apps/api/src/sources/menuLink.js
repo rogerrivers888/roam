@@ -497,11 +497,19 @@ export function branchLooksWrong(url, words = [], locality = null) {
   // contains "intoku", and letting that settle it is exactly how a Windsor
   // household ends up with Reading's menu. So the segment that carries the
   // brand is read for what follows it, and a different town there is decisive.
-  const segments = [...host.split('.').slice(0, -1), ...path.split('/').slice(1)].filter(Boolean);
+  const hostLabels = host.split('.').slice(0, -1);
+  const segments = [...hostLabels, ...path.split('/').slice(1)].filter(Boolean);
+  const inHost = new Set(hostLabels);
   for (const segment of segments) {
     const brand = words.find((w) => segment.includes(w));
     if (!brand) continue;
-    const rest = segment.split(brand).join(' ').split(/[^a-z]+/).filter((x) => x.length >= 4);
+    // A domain is one word, so only what comes *after* the brand can be the
+    // branch: sebastians-richmond is Richmond's, and hellofego is not Hello's
+    // (found 6 Sep 2026). A path is punctuated and reads either way round.
+    const left = inHost.has(segment)
+      ? segment.slice(segment.indexOf(brand) + brand.length)
+      : segment.split(brand).join(' ');
+    const rest = left.split(/[^a-z]+/).filter((x) => x.length >= 4);
     // Words a branch slug uses that are not places: what kind of place it is,
     // and the platform's own furniture.
     const notPlaces = new Set([
@@ -514,7 +522,14 @@ export function branchLooksWrong(url, words = [], locality = null) {
     // Windsor — and reading "maidenhead" as the branch would throw away a
     // perfectly good menu (found 5 Sep 2026).
     const streetish = new Set(['road', 'street', 'lane', 'avenue', 'close', 'drive', 'hill', 'way', 'parade', 'square', 'terrace', 'walk', 'green']);
-    const other = rest.find((x, i) => !notPlaces.has(x) && !words.includes(x) && !streetish.has(x) && !streetish.has(rest[i + 1] ?? ''));
+    // A domain is written without spaces, so what is left after the brand is
+    // often the rest of the brand: primesteakandgrill minus "prime" is
+    // "steakandgrill", which is not a town and very nearly cost Prime Steak &
+    // Grill its own menu (found 6 Sep 2026). A leftover that still carries the
+    // venue's own words, or that has an "and" buried in it, is a run-on name
+    // rather than a place.
+    const runOn = (x) => x.includes('and') || words.some((w) => w.length >= 4 && x.includes(w));
+    const other = rest.find((x, i) => !notPlaces.has(x) && !words.includes(x) && !runOn(x) && !streetish.has(x) && !streetish.has(rest[i + 1] ?? ''));
     if (other && other !== town) return true;
   }
   return false;
