@@ -287,6 +287,21 @@ export async function groupPayload(groupId) {
       schedule: schedule(group, tz).map((r) => ({ date: r.date, daysBefore: r.daysBefore, at: r.instant, done: runsDone.has(r.date) })),
       next: next ? { date: next.date, daysBefore: next.daysBefore, at: next.instant, recipients: nextRecipients } : null,
       written: sentRows.length,
+      // The actual words a participant with something outstanding would get, so
+      // the organiser reads the message rather than a description of it.
+      preview: (() => {
+        const who = participants.find((x) => x.joinedAt && !x.memberId && x.outstanding.length) ?? participants.find((x) => x.outstanding.length);
+        const organiserName = participants.find((x) => x.memberId)?.name ?? household.name ?? 'The organiser';
+        return reminderBody({
+          organiser: organiserName,
+          groupName: group.name,
+          participant: who ?? { name: 'Sam' },
+          outstanding: who?.outstanding ?? items.filter((i) => i.required).slice(0, 2).map((i) => ({ label: i.label })),
+          wantedBy: ymd(group.wanted_by),
+          joined: true,
+          short: null,
+        });
+      })(),
       undelivered: sentRows.filter((r) => r.status === 'no_channel').length,
       recent: reminders.slice(0, 12).map((r) => ({
         id: r.id, on: r.created_at, runOn: ymd(r.run_on), kind: r.kind, status: r.status, reason: r.reason,
@@ -873,6 +888,14 @@ async function joinPayload(group, participantToken) {
       name: group.name, wantedBy: ymd(group.wanted_by), closed: Boolean(group.closed_at),
       cancelled: Boolean(group.cancelled_at), cancelledNote: group.cancelled_note,
       organiser: organiser?.name ?? null, expectedCount: group.expected_count, minimumCount: group.minimum_count, maximumCount: group.maximum_count,
+      // Which control every priced row shows on Book your itinerary depends on
+      // it, so the guest is told how they pay before they are asked to.
+      paymentMode: group.payment_mode ?? 'direct',
+      // Whether a six-digit code can actually be sent anywhere. Roam has no
+      // message channel until NOTIFY_WEBHOOK_URL is set, and the account screen
+      // says which of the two things is about to happen rather than promising a
+      // text nobody can send.
+      canSendCode: channelReady(),
       joined: active.filter((p) => p.joined_at).length, heads: active.filter((p) => p.joined_at).reduce((n, p) => n + p.heads, 0),
     },
     trip: {
@@ -1109,6 +1132,10 @@ router.post('/join/:token/book', async (req, res, next) => {
       const cost = costOf(i, group, heads);
       const each = i.state === 'closed' ? i.settled_pence : cost.perSharePence;
       const amount = (each ?? 0) * shares;
+      // Money that changes hands at the venue is not ours to collect and not
+      // the organiser's to be owed: it is on the list so a table is booked for
+      // the right number, and nothing else.
+      if (i.book_where === 'there') continue;
       if (i.pricing === 'variable' && i.state !== 'closed') {
         later += (cost.ceilingPence ?? 0) * shares;
         lines.push({ itemId: i.id, label: i.label, when: 'settles', pence: (cost.likelyPence ?? 0) * shares, ceilingPence: (cost.ceilingPence ?? 0) * shares, on: cost.closesOn });

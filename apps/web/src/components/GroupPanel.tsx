@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api, GroupItem, GroupItemInput, GroupItemKind, GroupParticipant, TripDetail, TripGroup } from '../api';
 import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Chip, Meter, Row, Segmented, StatusLine, Wrap } from './ui';
 import { Icon, IconName } from './Icon';
 import { QrCode } from './QrCode';
+import { InviteEdit, InviteEditor, InviteLanding, InvitePageData, coverUri, pageFromGroup } from './InvitePage';
 import { DateRangePicker } from './DateRangePicker';
 import Svg, { Circle, ClipPath, Defs, G, Image as SvgImage, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { useViewport } from '../hooks/useViewport';
@@ -33,16 +34,21 @@ import { paths } from '../routes';
  * afterwards.
  */
 type StepKey = 'what' | 'wanted' | 'costs' | 'chasing' | 'invite';
-const STEPS: { key: StepKey; title: string; blurb: string }[] = [
-  { key: 'what', title: 'What this is', blurb: 'Name it, and say how many it needs, expects and can take.' },
-  { key: 'wanted', title: 'What must everyone do?', blurb: 'Mark which of these are mandatory. The rest are optional — Roam only asks who is coming to them.' },
-  { key: 'costs', title: 'Anything you are paying for?', blurb: 'A coach, tickets, a kitty. Everyone pays a share, or only the people who opt in.' },
-  { key: 'chasing', title: 'Notifications and reminders', blurb: 'Roam writes to whoever still has something outstanding, so you never ask twice.' },
-  { key: 'invite', title: 'Ask them in', blurb: 'A code to hold up, a link, a WhatsApp group, or the names you already know.' },
+/**
+ * `next` names the step it leads to, so the button says where it is going
+ * rather than "Next"; `skip` says what skipping this one means, because "Skip"
+ * on its own asks the organiser to guess what they are giving up.
+ */
+const STEPS: { key: StepKey; title: string; blurb: string; next: string; skip?: string }[] = [
+  { key: 'what', title: 'What this is', blurb: 'Name it, and say how many it needs, expects and can take.', next: 'Next · What must everyone do', skip: 'Skip — name it later' },
+  { key: 'wanted', title: 'What must everyone do?', blurb: 'Must is chased until booked. Ask counts heads.', next: "Next · Anything you're paying for", skip: 'Skip — nothing is mandatory' },
+  { key: 'costs', title: "Anything you're paying for?", blurb: 'A coach, tickets, a kitty. Everyone pays a share, or only the people who opt in.', next: 'Next · Reminders', skip: "Skip — I'm not charging" },
+  { key: 'chasing', title: 'Notifications and reminders', blurb: 'Roam writes to whoever still has something outstanding, so you never ask twice.', next: 'Next · Ask them in', skip: "Off — I'll chase them myself" },
+  { key: 'invite', title: 'Ask them in', blurb: 'A code to hold up, a link, a WhatsApp group, or the names you already know.', next: "That's my group set up" },
 ];
 
 const WIDE = 1000;
-const money = (p?: number | null) => (p == null ? '—' : `£${(p / 100).toFixed(p % 100 === 0 ? 0 : 2)}`);
+const money = (p?: number | null) => (p == null ? '—' : `£${(p / 100).toLocaleString('en-GB', { minimumFractionDigits: p % 100 === 0 ? 0 : 2, maximumFractionDigits: 2 })}`);
 const longDay = (iso?: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
 const day = (iso?: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) : '');
 const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '');
@@ -113,6 +119,10 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
   const [error, setError] = useState<string | null>(null);
   const [openPerson, setOpenPerson] = useState<string | null>(null);
   const [block, setBlock] = useState<number | null>(1);
+  // The invite page is a page, not a panel: writing it or looking at it takes
+  // the whole screen, because that is the shape the guest will see it in.
+  const [page, setPage] = useState<null | 'edit' | 'preview'>(null);
+  const [draft, setDraft] = useState<InviteEdit | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -220,19 +230,18 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
       <>
         {wanted.map((i) => (
           <View key={i.id} style={styles.wantedRow}>
-            <Row>
-              <Icon name={ICON[i.kind]} size={15} />
-              <Text style={[type.h3, { flex: 1 }]}>{i.label}</Text>
+            <Row style={{ alignItems: 'flex-start' }}>
+              <View style={styles.itemIcon}><Icon name={ICON[i.kind]} size={16} /></View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={type.h3}>{i.label}</Text>
+                {itemMeta(i) ? <Text style={type.small}>{itemMeta(i)}</Text> : null}
+              </View>
+              <MustAsk value={i.required} onChange={(must) => setItem(i.id, { required: must })} />
             </Row>
-            <Wrap>
-              <Chip label="Everyone" icon="check" selected={i.required} onPress={() => setItem(i.id, { required: true })} />
-              <Chip label="Just asking" icon="info" selected={!i.required} onPress={() => setItem(i.id, { required: false })} />
-              <Chip label="Not in it" icon="close" onPress={() => run(() => api.removeGroupItem(group.id, i.id))} />
-            </Wrap>
           </View>
         ))}
         {wanted.length === 0 ? <Text style={type.small}>Nothing on this trip yet.</Text> : null}
-        <AddWanted onAdd={(body) => run(() => api.addGroupItem(group.id, body))} />
+        <AddEvent group={g} onAdd={(body) => run(() => api.addGroupItem(group.id, body))} />
       </>
     ),
     costs: (
@@ -249,10 +258,27 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
           />
         ))}
         <AddCost group={g} onAdd={(body) => run(() => api.addGroupItem(group.id, body))} />
+        <View>
+          <Text style={type.label}>How you get paid</Text>
+          <Segmented
+            value={group.paymentMode}
+            options={[{ value: 'direct' as const, label: 'They pay you directly' }, { value: 'roam' as const, label: 'Roam collects, pays you out' }]}
+            onChange={(mode) => run(() => api.updateGroup(group.id, { paymentMode: mode }))}
+          />
+        </View>
       </>
     ),
     chasing: <Chasing group={g} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} />,
-    invite: <Invite group={g} settingUp={settingUp} onChange={(body) => run(() => api.updateGroup(group.id, body))} onAdd={(body) => run(() => api.addGroupParticipant(group.id, body))} />,
+    invite: (
+      <Invite
+        group={g}
+        settingUp={settingUp}
+        onChange={(body) => run(() => api.updateGroup(group.id, body))}
+        onAdd={(body) => run(() => api.addGroupParticipant(group.id, body))}
+        onEdit={() => { setDraft(null); setPage('edit'); }}
+        onPreview={() => { setDraft(null); setPage('preview'); }}
+      />
+    ),
   };
 
   const summaries: Record<StepKey, string> = {
@@ -265,6 +291,32 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
     invite: settingUp ? 'Nobody asked in yet' : `${summary.joined} joined of ${group.expectedCount ?? '—'}`,
   };
 
+  // What the link opens: written here, and previewed with the same component
+  // the guest is served, so "exactly as the link will show it" is a fact.
+  if (page) {
+    const base = pageFromGroup(g);
+    const shown: InvitePageData = draft
+      ? { ...base, invite: { ...base.invite, coverKind: draft.coverKind, coverUrl: draft.coverUrl, title: draft.inviteTitle || base.invite.title, summary: draft.inviteSummary, howItWorks: draft.howItWorks } }
+      : base;
+    return (
+      <View style={{ gap: spacing.md }}>
+        {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
+        {page === 'edit' ? (
+          <InviteEditor
+            data={base}
+            tripPhotos={tripPhotos(d)}
+            saving={busy}
+            onClose={() => setPage(null)}
+            onPreview={(body) => { setDraft(body); setPage('preview'); }}
+            onSave={async (body) => { await run(() => api.updateGroup(group.id, body)); setDraft(null); setPage(null); }}
+          />
+        ) : (
+          <InviteLanding data={shown} narrow={!wide} onBack={() => setPage(draft ? 'edit' : null)} onNext={undefined} />
+        )}
+      </View>
+    );
+  }
+
   // First run: one step at a time, each saying what it is for.
   if (!group.setupDone) {
     return (
@@ -274,6 +326,7 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
           content={content}
           summaries={summaries}
           onDone={() => run(() => api.updateGroup(group.id, { setupDone: true }))}
+          onSkip={(key) => { if (key === 'chasing' && group.remindersOn) void run(() => api.updateGroup(group.id, { remindersOn: false })); }}
         />
       </View>
     );
@@ -351,12 +404,51 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
   );
 }
 
+/**
+ * Pictures this trip already has, offered as the invite's cover. They stay
+ * references — `photo:<name>` is fetched through the API at display and the
+ * bytes are never written down, because a provider's photograph is rented
+ * (Technical Constraints §4).
+ */
+function tripPhotos(d: TripDetail): string[] {
+  const out: string[] = [];
+  for (const s of d.shortlist) {
+    const p = s.venue?.photos?.[0];
+    const url = p?.url ?? (p?.ref ? `photo:${p.ref}` : null);
+    if (url && !out.includes(url)) out.push(url);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
 /** The one line under an item's name: what is done, or who has said yes. */
 function itemLine(i: GroupItem) {
   if (i.pricing) return costLine(i);
   return i.required
     ? `${i.confirmed} booked${i.declared ? ` · ${i.declared} said so` : ''} · ${i.outstanding} to go`
     : `${i.coming} coming (${i.heads} head${i.heads === 1 ? '' : 's'}) · ${i.notComing} not · ${i.outstanding} haven't said`;
+}
+
+/** A soft label: what kind of cost this is, in two words. */
+function Tag({ children }: { children: React.ReactNode }) {
+  return <View style={styles.tag}><Text style={styles.tagText}>{children}</Text></View>;
+}
+
+/** "£1,000 to get back · depends on numbers" — what it is, before what it costs. */
+function costHead(i: GroupItem) {
+  if (i.state === 'cancelled') return `Called off — ${i.cancelledNote ?? 'it did not reach its minimum'}`;
+  if (i.pricing === 'variable') return `${money(i.totalPence)} to get back · depends on numbers`;
+  return `${money(i.amountPence)} each · same for everyone`;
+}
+
+/** "£25 each at 40 · no more than £50" — the figure the organiser will get. */
+function costRange(i: GroupItem) {
+  const m = i.money;
+  if (!m) return '';
+  if (i.state === 'closed') return `${money(i.settledPence)} each × ${i.settledHeads}`;
+  if (i.pricing !== 'variable') return '';
+  const at = m.expected ?? m.shares;
+  return m.likelyPence ? `${money(m.likelyPence)} each at ${at} · no more than ${money(m.ceilingPence)}` : '';
 }
 
 /** A cost, in one line: what it is worth knowing before opening it. */
@@ -375,8 +467,9 @@ function costLine(i: GroupItem) {
  * it, and a way past anything that does not apply. Nothing here is compulsory —
  * every step can be skipped and changed later from the same five blocks.
  */
-function Wizard({ content, summaries, onDone }: {
+function Wizard({ content, summaries, onDone, onSkip }: {
   content: Record<StepKey, React.ReactNode>; summaries: Record<StepKey, string>; onDone: () => void;
+  onSkip?: (key: StepKey) => void;
 }) {
   const [at, setAt] = useState(0);
   const step = STEPS[at];
@@ -392,24 +485,19 @@ function Wizard({ content, summaries, onDone }: {
       <Text style={type.h2}>{step.title}</Text>
       <Text style={type.small}>{step.blurb}</Text>
       <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>{content[step.key]}</View>
-      <Row style={{ marginTop: spacing.md }}>
+      <Row style={{ marginTop: spacing.md, alignItems: 'center' }}>
         {at > 0 ? <Button label="Back" icon="back" kind="ghost" onPress={() => setAt(at - 1)} /> : null}
         <View style={{ flex: 1 }} />
-        {!last ? <Button label="Skip" kind="ghost" onPress={() => setAt(at + 1)} /> : null}
-        <Button label={last ? "That's my group set up" : 'Next'} icon={last ? 'check' : 'forward'} onPress={() => (last ? onDone() : setAt(at + 1))} />
+        {/* Skipping is a sentence you can read, not a button competing with Next. */}
+        {!last && step.skip ? (
+          <Pressable onPress={() => { onSkip?.(step.key); setAt(at + 1); }} accessibilityRole="button" style={{ paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
+            <Text style={[type.small, { color: colors.accent, fontWeight: '700' }]}>{step.skip}</Text>
+          </Pressable>
+        ) : null}
+        <Button label={step.next} icon={last ? 'check' : 'forward'} onPress={() => (last ? onDone() : setAt(at + 1))} />
       </Row>
     </Card>
   );
-}
-
-/** The sentence under the three numbers, about whichever one is being typed in. */
-function sizeLine(at: 'minimum' | 'expecting' | 'maximum' | null, g: TripGroup['group'], minimum: string, maximum: string) {
-  const min = numberOrNull(minimum) ?? g.minimumCount;
-  const max = numberOrNull(maximum) ?? g.maximumCount;
-  if (at === 'minimum') return min ? `Under ${min} and the trip is called off — everybody is told and nothing is taken.` : 'The fewest people it works with. Below it the trip is called off.';
-  if (at === 'maximum') return max ? `Nobody can join once ${max} are in.` : 'The most people who can join. Leave it empty for no limit.';
-  if (at === 'expecting') return 'Roughly how many will come. A shared cost divides by this until people actually join.';
-  return min ? `Under ${min} and the trip is called off.${max ? ` Nobody can join past ${max}.` : ''}` : 'Leave the minimum empty and it goes ahead with whoever comes.';
 }
 
 /** Step 1: what it is called, and the three numbers that describe its size. */
@@ -450,7 +538,56 @@ function WhatThisIs({ group: g, onChange }: { group: TripGroup; onChange: (body:
           <NumberBox value={maximum} onChange={setMaximum} onCommit={save} onFocus={() => setAt('maximum')} />
         </View>
       </Row>
-      <Text style={type.small}>{sizeLine(at, g.group, minimum, maximum)}</Text>
+      <SizePanel group={g} minimum={minimum} expected={expected} maximum={maximum} at={at} />
+    </View>
+  );
+}
+
+/**
+ * What the three numbers mean, said as three separate facts rather than one
+ * paragraph (v2 handover, step 1): what happens under the minimum, what happens
+ * at the maximum, and what the expected number does to a shared cost — worked
+ * through with the group's own biggest cost so it is a figure, not a rule.
+ */
+function SizePanel({ group: g, minimum, expected, maximum, at }: {
+  group: TripGroup; minimum: string; expected: string; maximum: string; at: string | null;
+}) {
+  const min = numberOrNull(minimum) ?? g.group.minimumCount;
+  const exp = numberOrNull(expected) ?? g.group.expectedCount;
+  const max = numberOrNull(maximum) ?? g.group.maximumCount;
+  // The biggest cost that moves with numbers is the one worth working through.
+  const variable = g.items.filter((i) => i.pricing === 'variable' && i.totalPence).sort((a, b) => (b.totalPence ?? 0) - (a.totalPence ?? 0))[0];
+  const at_ = (n: number | null | undefined) => (variable?.totalPence && n ? Math.ceil(variable.totalPence / n) : null);
+  const lines: { icon: IconName; on: boolean; text: React.ReactNode }[] = [
+    {
+      icon: 'household', on: at === 'minimum',
+      text: min
+        ? <><Text style={styles.panelStrong}>Under {min}</Text> and the trip is called off — everybody is told and nothing is taken.</>
+        : <>No minimum: the trip goes ahead with whoever comes.</>,
+    },
+    {
+      icon: 'locked', on: at === 'maximum',
+      text: max
+        ? <><Text style={styles.panelStrong}>At {max}</Text> it's full: the link stops taking people.</>
+        : <>No maximum: the link keeps taking people until you close it.</>,
+    },
+    {
+      icon: 'money', on: at === 'expecting',
+      text: exp
+        ? <>Shared costs divide by <Text style={styles.panelStrong}>{exp}</Text> until people actually join{variable && at_(exp) && at_(min)
+            ? <> — {variable.label} at {money(variable.totalPence)} reads as <Text style={styles.panelStrong}>{money(at_(exp))}–{money(at_(min))} each</Text>, never more than the minimum's share</>
+            : ''}.</>
+        : <>Say roughly how many are coming and a shared cost can show a price.</>,
+    },
+  ];
+  return (
+    <View style={styles.panel}>
+      {lines.map((l, i) => (
+        <Row key={i} style={{ alignItems: 'flex-start' }}>
+          <View style={{ paddingTop: 2 }}><Icon name={l.icon} size={16} /></View>
+          <Text style={[type.small, { flex: 1 }, l.on && { color: colors.ink }]}>{l.text}</Text>
+        </Row>
+      ))}
     </View>
   );
 }
@@ -483,7 +620,7 @@ function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup)
     <View style={{ gap: spacing.md }}>
       <View style={[styles.hero, wide && { flexDirection: 'row', alignItems: 'center', gap: spacing.xl }]}>
         <View style={{ flex: 1, gap: spacing.sm }}>
-          <Text style={[styles.hugeText, wide && { fontSize: 38, lineHeight: 40 }]}>Create a group trip.{'\n'}Pay separately.</Text>
+          <Text style={[styles.hugeText, wide && { fontSize: 38, lineHeight: 40 }]}>Create a group trip.{'\n'}Everyone pays their share.</Text>
           <Text style={styles.heroSub}>
             Build the trip, invite a group, and set the reminders and the money once.
           </Text>
@@ -505,7 +642,7 @@ function StartGroup({ d, onCreated }: { d: TripDetail; onCreated: (g: TripGroup)
 
       {error ? <StatusLine tone="warn">{error}</StatusLine> : null}
       <Button label={busy ? 'Setting it up…' : 'Create a group trip'} icon="forward" onPress={start} />
-      <Text style={[type.small, { textAlign: 'center' }]}>Three minutes. Five questions, all skippable.</Text>
+      <Text style={[type.small, { textAlign: 'center' }]}>Three minutes · five questions.</Text>
     </View>
   );
 }
@@ -575,29 +712,119 @@ function GroupScene({ wide }: { wide: boolean }) {
  * that line becomes the owner's original.
  */
 const SELL: { title: string; line: string }[] = [
-  { title: 'Mandatory or not, you choose', line: 'Say what everyone must do and what is only being asked about, and let each person pay their own way.' },
-  { title: 'Add your own events', line: 'A coach, a band, a boat: Roam works out what each person owes, and you are paid directly.' },
-  { title: 'A minimum to go ahead', line: 'Set the fewest people it works with, and below it nothing runs and nothing is taken.' },
+  { title: 'Mandatory or not, you choose', line: 'Say what everyone must do and what is only being asked about.' },
+  { title: 'Add your own events', line: 'A coach, a band, a boat: they pay you directly, or Roam collects and pays you out.' },
+  { title: 'A minimum and a maximum', line: 'Under the minimum nothing runs and nothing is taken; at the maximum the link stops taking people.' },
 ];
 
-/** Block 1's one addition: something to do that is not already on the trip. */
-function AddWanted({ onAdd }: { onAdd: (body: GroupItemInput) => void }) {
+/** The two-word answer to what a row is: chased, or counted. */
+function MustAsk({ value, onChange }: { value: boolean; onChange: (must: boolean) => void }) {
+  return (
+    <View style={styles.mustAsk}>
+      <Pressable onPress={() => onChange(true)} style={[styles.mustAskHalf, value && styles.mustAskOn]} accessibilityRole="button">
+        <Text style={[styles.mustAskText, value && styles.mustAskTextOn]}>Must</Text>
+      </Pressable>
+      <Pressable onPress={() => onChange(false)} style={[styles.mustAskHalf, !value && styles.mustAskOn]} accessibilityRole="button">
+        <Text style={[styles.mustAskText, !value && styles.mustAskTextOn]}>Ask</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** A row's second line: when it is, what it costs, and where it is booked. */
+function itemMeta(i: GroupItem) {
+  const bits: string[] = [];
+  if (i.startsOn) bits.push(`${day(i.startsOn)}${i.startsAt ? ` ${i.startsAt}` : ''}`);
+  else if (i.detail) bits.push(i.detail);
+  if (i.pricing === 'fixed' && i.amountPence) bits.push(`${money(i.amountPence)} each`);
+  if (i.pricing === 'variable' && i.totalPence) bits.push(`${money(i.totalPence)} shared · priced in step 3`);
+  if (i.bookWhere === 'yourself') bits.push('book your own');
+  if (i.bookWhere === 'there') bits.push('pay there');
+  return bits.join(' · ');
+}
+
+/** Adding an event of the organiser's own: its own screen, from the v2 handover. */
+function AddEvent({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupItemInput) => void }) {
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState('');
-  const [required, setRequired] = useState(true);
-  if (!open) return <Button label="Something that isn't on the trip" icon="add" kind="ghost" onPress={() => setOpen(true)} />;
+  const [on, setOn] = useState(g.trip.startDate ?? '');
+  const [at, setAt] = useState('');
+  const [must, setMust] = useState(false);
+  const [price, setPrice] = useState<'free' | 'fixed' | 'variable'>('free');
+  const [amount, setAmount] = useState('');
+  const [total, setTotal] = useState('');
+  const [perHead, setPerHead] = useState(true);
+  const [note, setNote] = useState('');
+
+  if (!open) {
+    return (
+      <Pressable onPress={() => setOpen(true)} style={styles.addRow} accessibilityRole="button">
+        <Icon name="add" size={16} />
+        <Text style={[type.h3, { flex: 1 }]}>Add your own event</Text>
+        <Icon name="more" size={16} />
+      </Pressable>
+    );
+  }
   return (
-    <View style={{ gap: spacing.sm }}>
-      <TextInput value={label} onChangeText={setLabel} placeholder="What they need to book or bring" placeholderTextColor={colors.inkFaint} style={styles.input} autoFocus />
-      <Wrap>
-        <Chip label="Everyone" icon="check" selected={required} onPress={() => setRequired(true)} />
-        <Chip label="Just asking" icon="info" selected={!required} onPress={() => setRequired(false)} />
-      </Wrap>
-      <Row>
-        <Button label="Add it" onPress={() => { if (!label.trim()) return; onAdd({ kind: 'activity', label: label.trim(), required }); setLabel(''); setOpen(false); }} />
-        <Button label="Cancel" kind="ghost" onPress={() => setOpen(false)} />
+    <Card>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Text style={type.h2}>Add your own event</Text>
+        <Pressable onPress={() => setOpen(false)} accessibilityRole="button"><Icon name="close" size={18} /></Pressable>
       </Row>
-    </View>
+      <TextInput value={label} onChangeText={setLabel} placeholder="Live band · Saturday night" placeholderTextColor={colors.inkFaint} style={styles.input} autoFocus />
+      <Row style={{ gap: spacing.sm }}>
+        <View style={{ flex: 1 }}><DayPick value={on} onChange={setOn} /></View>
+        <TextInput value={at} onChangeText={setAt} placeholder="21:00" placeholderTextColor={colors.inkFaint} style={[styles.input, { width: 96, textAlign: 'center' }]} />
+      </Row>
+      <Text style={type.label}>Everyone, or ask?</Text>
+      <Segmented
+        value={must ? 'must' : 'ask'}
+        options={[{ value: 'must', label: "Must · everyone's in" }, { value: 'ask', label: "Ask · who's coming" }]}
+        onChange={(v) => setMust(v === 'must')}
+      />
+      <Text style={type.label}>Price</Text>
+      <Segmented
+        value={price}
+        options={[{ value: 'free' as const, label: 'Free' }, { value: 'fixed' as const, label: 'Same each' }, { value: 'variable' as const, label: 'Depends on numbers' }]}
+        onChange={setPrice}
+      />
+      {price !== 'free' ? (
+        <Row style={{ gap: spacing.md, alignItems: 'center' }}>
+          <NumberBox
+            value={price === 'fixed' ? amount : total}
+            onChange={price === 'fixed' ? setAmount : setTotal}
+            placeholder={price === 'fixed' ? '12' : '1000'}
+            prefix="£"
+            width={116}
+          />
+          <Text style={[type.small, { flex: 1 }]}>{price === 'fixed' ? 'each' : 'to get back in total'}</Text>
+          <Wrap>
+            <Chip label="Person" selected={perHead} onPress={() => setPerHead(true)} />
+            <Chip label="Household" selected={!perHead} onPress={() => setPerHead(false)} />
+          </Wrap>
+        </Row>
+      ) : null}
+      <TextInput value={note} onChangeText={setNote} placeholder="A line for them — where, what to bring…" placeholderTextColor={colors.inkFaint} style={styles.input} />
+      <Button
+        label="Add it"
+        icon="forward"
+        onPress={() => {
+          if (!label.trim()) return;
+          onAdd({
+            kind: 'activity', label: label.trim(), required: must, perHead,
+            pricing: price === 'free' ? null : price,
+            amountPence: price === 'fixed' ? pence(amount) : null,
+            totalPence: price === 'variable' ? pence(total) : null,
+            startsOn: on || null, startsAt: at || null,
+            guestNote: note.trim() || null,
+            bookWhere: price === 'free' ? null : 'roam',
+            closesOn: price === 'variable' ? (g.group.wantedBy ?? null) : null,
+          });
+          setOpen(false); setLabel(''); setAmount(''); setTotal(''); setNote('');
+        }}
+      />
+      <Button label="Cancel" kind="ghost" onPress={() => setOpen(false)} />
+    </Card>
   );
 }
 
@@ -607,12 +834,14 @@ function AddWanted({ onAdd }: { onAdd: (body: GroupItemInput) => void }) {
  * a WhatsApp group — which needs no integration at all, it is a wa.me link —
  * then the names the organiser already knows.
  */
-function Invite({ group: g, settingUp, onChange, onAdd }: {
+function Invite({ group: g, settingUp, onChange, onAdd, onEdit, onPreview }: {
   group: TripGroup; settingUp: boolean; onChange: (body: any) => void; onAdd: (body: any) => void;
+  onEdit: () => void; onPreview: () => void;
 }) {
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [copied, setCopied] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   // The invite is its own page (`/join/<token>`), not a query on whatever page
   // the organiser happened to be on when they copied it.
@@ -651,15 +880,52 @@ function Invite({ group: g, settingUp, onChange, onAdd }: {
         <Chip label="New link" icon="refresh" onPress={() => onChange({ newLink: true })} />
       </Wrap>
 
-      <View style={{ gap: spacing.sm }}>
-        <Text style={type.label}>ADD THE ONES YOU KNOW</Text>
-        <TextInput value={name} onChangeText={setName} placeholder="Their name" placeholderTextColor={colors.inkFaint} style={styles.input} />
-        <TextInput value={contact} onChangeText={setContact} placeholder="Mobile or email, so Roam can remind them" placeholderTextColor={colors.inkFaint} style={styles.input} autoCapitalize="none" />
-        <Button label="Add them" kind="secondary" onPress={() => { if (!name.trim()) return; onAdd({ name: name.trim(), contact: contact.trim() || undefined }); setName(''); setContact(''); }} />
-        <Text style={type.small}>
-          Anyone holding the link can join. A name added first means their join lands on that row.
-        </Text>
-      </View>
+      {/* Names are the exception, not the way in: the link is. So this is a
+          line you open when you have some, not a form in everybody's way. */}
+      {adding ? (
+        <View style={{ gap: spacing.sm }}>
+          <Text style={type.label}>ADD THE ONES YOU KNOW</Text>
+          <TextInput value={name} onChangeText={setName} placeholder="Their name" placeholderTextColor={colors.inkFaint} style={styles.input} />
+          <TextInput value={contact} onChangeText={setContact} placeholder="Mobile or email, so Roam can remind them" placeholderTextColor={colors.inkFaint} style={styles.input} autoCapitalize="none" />
+          <Row>
+            <Button label="Add them" kind="secondary" onPress={() => { if (!name.trim()) return; onAdd({ name: name.trim(), contact: contact.trim() || undefined }); setName(''); setContact(''); }} />
+            <Button label="Done" kind="ghost" onPress={() => setAdding(false)} />
+          </Row>
+          <Text style={type.small}>Anyone holding the link can join. A name added first means their join lands on that row.</Text>
+        </View>
+      ) : (
+        <Pressable onPress={() => setAdding(true)} accessibilityRole="button">
+          <Row><Icon name="add" size={16} color={colors.accent} /><Text style={[type.h3, { color: colors.accent }]}>Add the ones you know</Text></Row>
+        </Pressable>
+      )}
+
+      {/* What the link opens (Epic 3): the one thing on this step the organiser
+          writes rather than shares. */}
+      <Card>
+        <Row style={{ alignItems: 'flex-start' }}>
+          <View style={styles.pagePreview}>
+            {coverUri(g.group.invite.coverUrl, 240)
+              ? <Image source={{ uri: coverUri(g.group.invite.coverUrl, 240)! }} style={styles.pagePreviewImg} accessibilityIgnoresInvertColors />
+              : <View style={styles.pagePreviewBlank}><View style={styles.pagePreviewBar} /><View style={[styles.pagePreviewBar, { width: '50%' }]} /></View>}
+          </View>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={type.h3}>What the link opens</Text>
+            <Text style={type.small}>
+              {g.group.invite.summary
+                ? `“${g.group.invite.summary.slice(0, 70)}${g.group.invite.summary.length > 70 ? '…' : ''}”`
+                : 'Your summary, what they get, how it works. Written from the trip — change any of it.'}
+            </Text>
+            <Row style={{ marginTop: 4 }}>
+              <Pressable onPress={onPreview} accessibilityRole="button">
+                <Row><Icon name="preview" size={16} color={colors.accent} /><Text style={[type.h3, { color: colors.accent }]}>Preview</Text></Row>
+              </Pressable>
+              <Pressable onPress={onEdit} accessibilityRole="button" style={{ marginLeft: spacing.md }}>
+                <Row><Icon name="edit" size={16} color={colors.accent} /><Text style={[type.h3, { color: colors.accent }]}>Edit</Text></Row>
+              </Pressable>
+            </Row>
+          </View>
+        </Row>
+      </Card>
     </View>
   );
 }
@@ -682,22 +948,30 @@ function CostCard({ item, group: g, busy, onEdit, onClose, onRemove }: {
 
   return (
     <Card style={item.state === 'cancelled' ? { borderStyle: 'dashed' } : undefined}>
-      <Pressable onPress={() => setOpen(!open)} accessibilityRole="button">
-        <Row style={{ alignItems: 'flex-start' }}>
-          <View style={{ paddingTop: 2 }}><Icon name={item.kind === 'fee' ? 'money' : ICON[item.kind]} size={16} /></View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Row>
-              <Text style={[type.h3, { flex: 1 }]}>{item.label}</Text>
-              {item.state === 'closed' ? <Chip label="Settled" icon="check" selected /> : null}
-              {item.state === 'cancelled' ? <Chip label="Off" icon="close" /> : null}
-              {item.applies === 'extra' && item.state === 'open' ? <Chip label="An extra" /> : null}
-            </Row>
-            <Text style={type.small}>{costLine(item)}</Text>
-            {item.detail ? <Text style={type.small}>{item.detail}</Text> : null}
-          </View>
-          <Icon name={open ? 'collapse' : 'expand'} size={16} />
-        </Row>
-      </Pressable>
+      <Row style={{ alignItems: 'flex-start' }}>
+        <View style={styles.itemIcon}><Icon name={item.kind === 'fee' ? 'money' : ICON[item.kind]} size={16} /></View>
+        <Pressable onPress={() => setOpen(!open)} style={{ flex: 1, gap: 3 }} accessibilityRole="button">
+          <Row>
+            <Text style={[type.h3, { flex: 1 }]}>{item.label}</Text>
+            {item.state === 'closed' ? <Chip label="Settled" icon="check" selected /> : null}
+            {item.state === 'cancelled' ? <Chip label="Off" icon="close" /> : null}
+          </Row>
+          <Text style={type.small}>{costHead(item)}</Text>
+          {costRange(item) ? <Text style={[type.h3, { color: colors.ink }]}>{costRange(item)}</Text> : null}
+          <Wrap>
+            <Tag>{item.required ? 'Everyone' : 'Only those who opt in'}</Tag>
+            <Tag>{item.perHead ? 'Per person' : 'Per household'}</Tag>
+            {item.pricing === 'variable' && item.money?.closesOn ? <Tag>Settles {day(item.money.closesOn)}</Tag> : null}
+          </Wrap>
+        </Pressable>
+        {/* Only while nobody has paid: a cost somebody has settled is not the
+            organiser's to delete out from under them (v2 Epic 2, AC5). */}
+        {!busy && !item.money?.paidPence ? (
+          <Pressable onPress={onRemove} accessibilityLabel={`Remove ${item.label}`} style={{ padding: 4 }}>
+            <Icon name="delete" size={16} />
+          </Pressable>
+        ) : null}
+      </Row>
 
       {item.pricing === 'variable' && item.state === 'open' && m ? (
         <View style={{ gap: 4 }}>
@@ -895,69 +1169,87 @@ function AddCost({ group: g, onAdd }: { group: TripGroup; onAdd: (body: GroupIte
 }
 
 /**
- * The chasing card: what Roam is doing on the organiser's behalf, and when.
+ * Step 4, and the settings block it becomes: one date, one tone, the dates that
+ * fall out of them, and the actual message. Nothing about delivery here — that
+ * belongs on the chase screen, not on the screen where it is being set up.
  */
 function Chasing({ group: g, settingUp, onChange }: {
   group: TripGroup; settingUp: boolean; onChange: (body: any) => void;
 }) {
+  const [pick, setPick] = useState(false);
   const r = g.reminders;
   const sent = r.schedule.filter((x) => x.done).length;
-  const howMany = r.schedule.length || r.cadences.find((c) => c.key === g.group.cadence)?.runs || 0;
+  const daysBefore = g.trip.startDate && g.group.wantedBy ? daysUntilFrom(g.group.wantedBy, g.trip.startDate) : null;
+
+  if (!r.on) {
+    return (
+      <View style={{ gap: spacing.md }}>
+        <Text style={type.h3}>Nobody is being chased. You are doing it yourself.</Text>
+        <Button label="Let Roam chase them" icon="check" kind="secondary" onPress={() => onChange({ remindersOn: true })} />
+      </View>
+    );
+  }
+
   return (
     <View style={{ gap: spacing.md }}>
-      <Row style={{ justifyContent: 'space-between' }}>
-        <Text style={[type.h3, { flex: 1 }]}>
-          {r.on
-            ? `${howMany} reminders, spread evenly between the first and the day it is all wanted by.`
-            : 'Nobody is being chased. You are doing it yourself.'}
-        </Text>
-        <Chip label={r.on ? 'On' : 'Off'} icon={r.on ? 'check' : 'close'} selected={r.on} onPress={() => onChange({ remindersOn: !r.on })} />
-      </Row>
+      <View style={styles.dateCard}>
+        <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={type.label}>Everything booked by</Text>
+            <Text style={type.h2}>{longDay(g.group.wantedBy) || 'Pick a date'}</Text>
+            {daysBefore != null && daysBefore > 0 ? <Text style={type.small}>{daysBefore} days before you go</Text> : null}
+          </View>
+          <Pressable onPress={() => setPick(!pick)} accessibilityLabel="Change the date"><Icon name="edit" size={16} /></Pressable>
+        </Row>
+        {pick ? (
+          <DateRangePicker
+            single
+            start={g.group.wantedBy}
+            end={g.group.wantedBy}
+            onApply={(start) => { onChange({ wantedBy: start }); setPick(false); }}
+          />
+        ) : null}
+      </View>
 
-      {r.on ? (
-        <>
-          <View>
-            <Text style={type.label}>First one on</Text>
-            <DayPick value={g.group.firstReminderOn ?? r.schedule[0]?.date ?? ''} onChange={(iso) => onChange({ firstReminderOn: iso })} />
-          </View>
-          <View>
-            <Text style={type.label}>Everything wanted by</Text>
-            <DayPick value={g.group.wantedBy ?? ''} onChange={(iso) => onChange({ wantedBy: iso })} />
-          </View>
-          <View>
-            <Text style={type.label}>How often</Text>
-            <Segmented
-              value={g.group.cadence}
-              options={r.cadences.map((c) => ({ value: c.key, label: `${c.label} · ${c.runs}` }))}
-              onChange={(c) => onChange({ cadence: c })}
-            />
-          </View>
-          {r.schedule.length ? (
-            <View style={{ gap: spacing.sm }}>
-              {r.schedule.map((x) => (
-                <Row key={x.date} style={{ justifyContent: 'space-between' }}>
-                  <Row>
-                    <Icon name={x.done ? 'booked' : 'hours'} size={14} color={x.done ? colors.like : colors.inkMuted} />
-                    <Text style={type.small}>{longDay(x.date)}, 9am</Text>
-                  </Row>
-                  {x.done ? <Text style={type.small}>sent</Text> : null}
-                </Row>
-              ))}
-              <Text style={type.small}>
-                {settingUp
-                  ? 'Each one goes to whoever still has something outstanding, and to nobody who has finished.'
-                  : `${sent} of ${r.schedule.length} sent. Each goes to whoever still has something outstanding.`}
-              </Text>
+      <View>
+        <Text style={type.label}>How firmly</Text>
+        <Segmented
+          value={g.group.cadence}
+          options={r.cadences.map((c) => ({ value: c.key, label: `${c.label} · ${c.runs}` }))}
+          onChange={(c) => onChange({ cadence: c })}
+        />
+      </View>
+
+      {r.schedule.length ? (
+        <View style={styles.timeline}>
+          {r.schedule.map((x) => (
+            <View key={x.date} style={{ flex: 1, gap: 6 }}>
+              <View style={styles.timelineDot}><View style={[styles.timelineDotInner, x.done && { backgroundColor: colors.inkFaint }]} /></View>
+              <Text style={type.small}>{day(x.date)}</Text>
             </View>
-          ) : (
-            <Text style={type.small}>Pick the two dates and Roam spaces the reminders between them.</Text>
-          )}
-        </>
+          ))}
+        </View>
       ) : null}
+
+      {r.preview ? (
+        <View style={styles.previewBox}>
+          <Text style={[type.small, { color: colors.headerSub }]}>
+            <Text style={{ fontWeight: '700' }}>What they'll get{r.next ? `, ${day(r.next.date)}` : ''}: </Text>
+            “{r.preview}”
+          </Text>
+        </View>
+      ) : null}
+
+      {settingUp ? null : <Text style={type.small}>{sent} of {r.schedule.length} sent.</Text>}
     </View>
   );
 }
 
+/** Whole days between two dates, which is what "14 days before you go" means. */
+function daysUntilFrom(from?: string | null, to?: string | null) {
+  if (!from || !to) return null;
+  return Math.round((new Date(`${to.slice(0, 10)}T12:00:00`).getTime() - new Date(`${from.slice(0, 10)}T12:00:00`).getTime()) / 86400000);
+}
 
 function PersonRow({ p, items, open, busy, onOpen, onMark, onChange, onRemind }: {
   p: GroupParticipant; items: GroupItem[]; open: boolean; busy: boolean;
@@ -1042,6 +1334,10 @@ function PersonRow({ p, items, open, busy, onOpen, onMark, onChange, onRemind }:
 }
 
 const styles = StyleSheet.create({
+  pagePreview: { width: 76, height: 92, borderRadius: radius.sm, overflow: 'hidden', backgroundColor: colors.mint, borderWidth: 1, borderColor: colors.line },
+  pagePreviewImg: { width: '100%', height: '100%' },
+  pagePreviewBlank: { flex: 1, backgroundColor: colors.surface, margin: 8, padding: 6, gap: 5, justifyContent: 'flex-end' },
+  pagePreviewBar: { height: 5, borderRadius: 2, backgroundColor: colors.line },
   columns: { flexDirection: 'row', gap: spacing.lg, alignItems: 'flex-start' },
   blockNumber: {
     width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: colors.line,
@@ -1072,6 +1368,22 @@ const styles = StyleSheet.create({
   sellNumber: { fontFamily: fonts.heading, fontSize: 17, fontWeight: '800', color: colors.ink },
   sellIcon: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
   sellTitle: { fontFamily: fonts.heading, fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
+  dateCard: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm },
+  timeline: { flexDirection: 'row', gap: spacing.sm },
+  timelineDot: { height: 12, justifyContent: 'center' },
+  timelineDotInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
+  previewBox: { backgroundColor: colors.surfaceMuted, borderRadius: radius.md, padding: spacing.md },
+  tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted },
+  tagText: { fontFamily: fonts.body, fontSize: 12, fontWeight: '600', color: colors.headerSub },
+  mustAsk: { flexDirection: 'row', borderRadius: radius.md, backgroundColor: colors.surfaceMuted, padding: 2, gap: 2 },
+  mustAskHalf: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.sm },
+  mustAskOn: { backgroundColor: colors.primary },
+  mustAskText: { fontFamily: fonts.body, fontSize: 13, fontWeight: '700', color: colors.inkMuted },
+  mustAskTextOn: { color: colors.primaryFg },
+  itemIcon: { width: 34, height: 34, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
+  addRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
+  panel: { backgroundColor: colors.surfaceMuted, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm },
+  panelStrong: { fontWeight: '700', color: colors.ink },
   progress: { flexDirection: 'row', gap: 3 },
   progressBar: { flex: 1, height: 3, borderRadius: 2, backgroundColor: colors.line },
   colLeft: { flex: 1, minWidth: 0 },

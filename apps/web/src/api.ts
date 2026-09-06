@@ -682,6 +682,8 @@ export type GroupItem = {
   applies: 'everyone' | 'extra'; pricing: GroupPricing; totalPence: number | null; perHead: boolean;
   expectedCount: number | null; minimumCount: number | null; capacity: number | null;
   closesOn: string | null; lateJoiners: 'capacity' | 'no' | 'ask'; state: GroupItemState2;
+  startsOn: string | null; startsAt: string | null; endsAt: string | null;
+  bookWhere: 'roam' | 'yourself' | 'there' | null; externalUrl: string | null; guestNote: string | null;
   settledPence: number | null; settledHeads: number | null; settledAt: string | null; dueOn: string | null; cancelledNote: string | null;
   done: number; declared: number; confirmed: number; coming: number; notComing: number; heads: number;
   outstanding: number; outstandingNames: string[]; money: GroupMoney | null; paidPence: number | null; duePence: number | null;
@@ -696,7 +698,7 @@ export type GroupReminders = {
   on: boolean; cadence: string; cadences: { key: string; label: string; runs: number }[]; channelReady: boolean;
   schedule: { date: string; daysBefore: number; at: string; done: boolean }[];
   next: { date: string; daysBefore: number; at: string; recipients: number } | null;
-  written: number; undelivered: number;
+  written: number; undelivered: number; preview: string;
   recent: { id: string; on: string; runOn: string | null; kind: string; status: string; reason: string | null; who: string | null; body: string }[];
 };
 export type GroupItemInput = {
@@ -705,9 +707,13 @@ export type GroupItemInput = {
   pricing?: GroupPricing; totalPence?: number | null; perHead?: boolean;
   expectedCount?: number | null; minimumCount?: number | null; capacity?: number | null;
   closesOn?: string | null; lateJoiners?: 'capacity' | 'no' | 'ask';
+  startsOn?: string | null; startsAt?: string | null; endsAt?: string | null;
+  bookWhere?: 'roam' | 'yourself' | 'there' | null; externalUrl?: string | null; guestNote?: string | null;
 };
 export type TripGroup = {
-  group: { id: string; tripId: string; name: string | null; expectedCount: number | null; minimumCount: number | null; maximumCount: number | null; wantedBy: string | null; inviteToken: string; closed: boolean; remindersOn: boolean; cadence: string; setupDone: boolean; firstReminderOn: string | null; cancelledAt: string | null; cancelledNote: string | null };
+  group: { id: string; tripId: string; name: string | null; expectedCount: number | null; minimumCount: number | null; maximumCount: number | null; wantedBy: string | null; inviteToken: string; closed: boolean; remindersOn: boolean; cadence: string; setupDone: boolean; firstReminderOn: string | null; cancelledAt: string | null; cancelledNote: string | null;
+    paymentMode: 'direct' | 'roam';
+    invite: { coverKind: 'banner' | 'full'; coverUrl: string | null; coverSource: string | null; title: string | null; summary: string | null; howItWorks: string[] } };
   trip: { id: string; title: string | null; place: string | null; startDate: string | null; endDate: string | null; base: { label: string; kind: string | null } | null };
   items: GroupItem[]; participants: GroupParticipant[];
   summary: { expected: number | null; joined: number; notJoined: number; withdrawn: number; heads: number; complete: number; missing: number };
@@ -717,7 +723,9 @@ export type TripGroup = {
 };
 /** What the invite link opens: the checklist, and nothing about anybody else. */
 export type JoinView = {
-  group: { name: string | null; wantedBy: string | null; closed: boolean; cancelled: boolean; cancelledNote: string | null; organiser: string | null; expectedCount: number | null; minimumCount: number | null; maximumCount: number | null; joined: number; heads: number };
+  group: { name: string | null; wantedBy: string | null; closed: boolean; cancelled: boolean; cancelledNote: string | null; organiser: string | null; expectedCount: number | null; minimumCount: number | null; maximumCount: number | null; joined: number; heads: number; paymentMode: 'direct' | 'roam'; canSendCode: boolean };
+  /** The landing page as the organiser wrote it; everything else is drawn from the group. */
+  invite: { coverKind: 'banner' | 'full'; coverUrl: string | null; title: string | null; summary: string | null; howItWorks: string[]; placesLeft: number | null };
   trip: { title: string | null; place: string | null; startDate: string | null; endDate: string | null; base: { label: string } | null };
   items: (Omit<GroupItem, 'done' | 'declared' | 'confirmed' | 'coming' | 'notComing' | 'heads' | 'outstanding' | 'outstandingNames' | 'paidPence' | 'duePence' | 'money'> & {
     mine: GroupItemState | null;
@@ -729,6 +737,18 @@ export type JoinView = {
   you: { id: string; name: string; heads: number; brings: string | null; joinedAt: string | null; outstanding: number } | null;
   participantToken?: string;
 };
+
+/** What a guest gets for joining: their own Roam, on trial, signed in on this device. */
+export type GuestAccount = {
+  id: string; name: string; email: string | null; mobile: string | null;
+  householdId: string | null; plan: string | null; trialEndsOn: string | null; returning: boolean;
+};
+/** What one Confirm and pay agreed to: three sums, and the lines they came from. */
+export type GroupBooking = {
+  id: string; paidPence: number; laterPence: number; directPence: number;
+  lines: { itemId: string; label: string; when: 'now' | 'settles' | 'direct'; pence: number; ceilingPence?: number; on?: string | null }[];
+};
+export type HouseholdMemberInput = { name: string; child?: boolean; age?: number | null; relationship?: string | null; you?: boolean; coming?: boolean };
 
 export type SuggestedPreference = { member: string | null; kind: 'like' | 'dislike'; value: string };
 
@@ -1188,7 +1208,13 @@ export const api = {
   // group trips
   tripGroup: (tripId: string) => request<TripGroup | { group: null }>(`/api/trips/${tripId}/group`),
   createTripGroup: (tripId: string, body: { name?: string; expectedCount?: number | null; minimumCount?: number | null; wantedBy?: string | null; cadence?: string; organiserMemberId?: string | null }) => post<TripGroup>(`/api/trips/${tripId}/group`, body),
-  updateGroup: (id: string, body: Partial<{ name: string; expectedCount: number | null; minimumCount: number | null; maximumCount: number | null; wantedBy: string | null; remindersOn: boolean; cadence: string; closed: boolean; newLink: boolean; setupDone: boolean; firstReminderOn: string | null }>) => patch<TripGroup>(`/api/groups/${id}`, body),
+  updateGroup: (id: string, body: Partial<{
+    name: string; expectedCount: number | null; minimumCount: number | null; maximumCount: number | null;
+    wantedBy: string | null; remindersOn: boolean; cadence: string; closed: boolean; newLink: boolean;
+    setupDone: boolean; firstReminderOn: string | null; paymentMode: 'direct' | 'roam';
+    coverKind: 'banner' | 'full'; coverUrl: string | null; coverSource: string | null;
+    inviteTitle: string; inviteSummary: string; howItWorks: string[];
+  }>) => patch<TripGroup>(`/api/groups/${id}`, body),
   deleteGroup: (id: string) => del<{ deleted: boolean }>(`/api/groups/${id}`),
   addGroupItem: (id: string, body: GroupItemInput) => post<TripGroup>(`/api/groups/${id}/items`, body),
   updateGroupItem: (id: string, itemId: string, body: Partial<GroupItemInput & { position: number; state: GroupItemState2 }>) => patch<TripGroup>(`/api/groups/${id}/items/${itemId}`, body),
@@ -1206,6 +1232,14 @@ export const api = {
   // the invite link's side: no household, no roster
   joinView: (token: string, participantToken?: string | null) => request<JoinView>(`/api/join/${token}${participantToken ? `?p=${encodeURIComponent(participantToken)}` : ''}`),
   join: (token: string, body: { name: string; contact?: string; contactKind?: string; heads?: number; brings?: string; matchId?: string | null }) => post<JoinView & { participantToken: string }>(`/api/join/${token}`, body),
+  /** Joining properly: an account of their own, a household of their own, 30 days of the app. */
+  joinAccount: (token: string, body: { name: string; contact: string; matchId?: string | null }) =>
+    post<JoinView & { participantToken: string; sessionToken: string; account: GuestAccount }>(`/api/join/${token}/account`, body),
+  joinHousehold: (token: string, body: { participantToken: string; members: HouseholdMemberInput[] }) =>
+    post<JoinView>(`/api/join/${token}/household`, body),
+  /** Book your itinerary, confirmed: the picks go up, the money comes back worked out. */
+  joinBook: (token: string, body: { participantToken: string; picks: Record<string, 'in' | 'out' | 'booked' | 'declared' | null> }) =>
+    post<JoinView & { booking: GroupBooking }>(`/api/join/${token}/book`, body),
   setJoinItem: (token: string, itemId: string, body: { participantToken: string; status: 'booked' | 'declared' | 'in' | 'out' | 'clear'; bookingRef?: string | null; whereBooked?: string | null; startsOn?: string | null; endsOn?: string | null; note?: string | null }) =>
     post<JoinView>(`/api/join/${token}/items/${itemId}`, body),
 

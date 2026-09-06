@@ -4,8 +4,9 @@ import {
   Archive, ArrowLeft, ArrowRight, Baby, Ban, BedDouble, Beer, Bookmark, BookmarkCheck, Calendar, Camera, Car, CarTaxiFront, Check, ChevronDown, ChevronRight, ChevronUp, CircleCheck,
   Bird, Fish,
   Clock, CloudOff, Coffee, Compass, Database, Download, ExternalLink, Footprints, GripVertical, Heart, House, Info, Landmark, List, LocateFixed, Lock, Map, MapPin, Mic, Minus, Monitor, Navigation, Pencil, Phone, Pin, Plus, Route, Search, Settings, Smartphone,
-  MessageSquare, Moon, PoundSterling, RefreshCw, Sparkles, Square, Star, StarHalf, Sun, Ticket, TrainFront, TriangleAlert, User, Users, Utensils, Wine, X,
+  MessageSquare, Moon, PoundSterling, RefreshCw, Sparkles, Square, Star, StarHalf, Sun, Ticket, TrainFront, Trash2, TriangleAlert, User, Users, Utensils, Wine, X,
   Copy, Mail, Send, UserCog, Ellipsis,
+  Eye, Upload, Image as ImageIcon, Gift, CreditCard,
   Bike, Binoculars, Blocks, BookOpen, Castle, Clapperboard, Drama, Droplets, Dumbbell, FerrisWheel, Gamepad2,
   Mountain, Music, Palette, PartyPopper, Popcorn, Puzzle, Ship, ShoppingBag, Snowflake, Store, Tractor, TreePine, Trophy,
 } from 'lucide-react-native';
@@ -32,7 +33,7 @@ const ICONS = {
   // is a menu here", and drawing one as the other reads as a broken link.
   menu: Ellipsis,
   keep: Heart, favourite: Star, halfStar: StarHalf, shortlist: Bookmark, shortlisted: BookmarkCheck, pinned: Pin,
-  allergen: TriangleAlert, archived: Archive, refresh: RefreshCw,
+  allergen: TriangleAlert, archived: Archive, refresh: RefreshCw, delete: Trash2,
   // the device's own copy: no signal, saving it, and what Roam owns outright
   offline: CloudOff, download: Download, owned: Database,
   // facts about a place
@@ -44,6 +45,8 @@ const ICONS = {
   // who has Roam, and getting a link to them: the admin module
   accounts: UserCog, mail: Mail, send: Send, copy: Copy,
   booked: CircleCheck, full: Ban, locked: Lock, money: PoundSterling, grip: GripVertical, list: List, map: Map, info: Info, search: Search, edit: Pencil,
+  // the invite page: what it looks like, and where its picture comes from
+  preview: Eye, upload: Upload, picture: ImageIcon, gift: Gift, card: CreditCard,
   // categories
   restaurant: Utensils, cafe: Coffee, pub: Beer, bar: Wine, attraction: Landmark, event: Ticket, hotel: BedDouble, place: MapPin,
   // What a place actually is, over the closed experience vocabulary

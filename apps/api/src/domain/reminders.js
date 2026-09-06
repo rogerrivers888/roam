@@ -16,9 +16,9 @@ import { wallToUtc, DEFAULT_TZ } from './time.js';
 
 /** How many times Roam writes to somebody who still has something outstanding. */
 export const CADENCES = {
-  gentle: { label: 'Gentle', count: 3 },
-  standard: { label: 'Standard', count: 5 },
-  firm: { label: 'Firm', count: 8 },
+  gentle: { label: 'Gently', count: 2 },
+  standard: { label: 'Standard', count: 3 },
+  firm: { label: 'Firmly', count: 5 },
 };
 export const DEFAULT_CADENCE = 'standard';
 /** Reminders land at breakfast, in the household's own time. */
