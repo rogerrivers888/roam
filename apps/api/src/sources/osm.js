@@ -217,6 +217,21 @@ async function overpass(body, meter = null) {
 export const osmSource = {
   key: 'osm',
   label: 'OpenStreetMap',
+  /**
+   * Overpass is a volunteer service and its mirrors go down. The ladder tries
+   * them in turn at twelve seconds each, so two dead mirrors is twenty-four
+   * seconds of a browse screen waiting for nothing — tapping Activities took
+   * twenty-five seconds for an answer Google had had in one (measured on
+   * production, 6 Sep 2026).
+   *
+   * Capped here rather than by hurrying every source along: a general deadline
+   * starts a two-and-a-half second clock the moment *anything* answers, and
+   * that cut sources that were merely slow — the same search fell from
+   * twenty-five places to ten. This is the one that is actually slow, so this
+   * is the one that gets a shorter rope. A mirror that misses it rests
+   * (`rest()` below), so the next search does not pay for it again.
+   */
+  deadlineMs: 11_000,
   retention: { placeId: 'indefinite', displayFields: 'indefinite (ODbL, attribution required)' },
   attribution: { text: OSM_ATTRIBUTION, requiresAuthorCredit: false },
 

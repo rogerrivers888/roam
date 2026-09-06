@@ -679,20 +679,6 @@ router.get('/:id/along', async (req, res, next) => {
         center: spot.center, radiusKm: spot.radiusKm, categories: [kind], query: q, sources,
         locality: trip.locality ?? null, householdId: household.id,
         placeLabel: trip.base_label ?? trip.origin_label, timezone: trip.timezone ?? null,
-        /**
-         * This is a screen somebody is watching, so it does not wait on a
-         * straggler once it has something worth drawing (sources/index.js
-         * `settleBy`: the first useful answer starts a short clock for the
-         * rest, and whatever misses it is reported as degraded rather than
-         * held on to).
-         *
-         * Without it the browse waited for every source to finish or fail. The
-         * open map's mirrors were down, each one timing out at twelve seconds
-         * across two mirrors, so tapping Activities took twenty-five seconds
-         * for an answer Google had had in one (measured on production,
-         * 6 Sep 2026). The list already says which source did not answer.
-         */
-        deadlineMs: 12_000,
       },
       { refresh: req.query.refresh === '1' },
     ))), deadline]);
@@ -1128,12 +1114,18 @@ router.get('/:id/stays', async (req, res, next) => {
     // outage read on screen as "nowhere near here is by a station" and the
     // whole list vanished. It throws now, and this is where that is decided.
     let stationsUnavailable = null;
+    let stationSource = null;
     if (wantsStationWalk || wantsTrain) {
-      try {
-        stations = await stationsNear(centre.lat, centre.lng, Math.round(Math.min(15, radiusKm + 6) * 1000));
-      } catch (err) {
-        stationsUnavailable = String(err?.message || err);
-      }
+      // Reads the held table (repositories/transit.js); only an area nobody has
+      // harvested touches the network at all, and even then a failure hands
+      // back whatever we hold rather than throwing.
+      const got = await stationsNear(centre.lat, centre.lng, Math.round(Math.min(15, radiusKm + 6) * 1000))
+        .catch((err) => ({ stops: [], source: 'error', error: String(err?.message || err) }));
+      stations = got.stops;
+      stationSource = got.source;
+      // Only genuinely unknown when we hold nothing *and* could not ask. An
+      // area we have harvested and found nothing in is a real answer.
+      if (!stations.length && got.source !== 'held') stationsUnavailable = got.error ?? 'the map could not be reached';
     }
     // A condition we could not evaluate is not a condition every bed fails.
     // Dropped, and said out loud — the same rule the must-haves already follow
@@ -1272,6 +1264,8 @@ router.get('/:id/stays', async (req, res, next) => {
          */
         /** Set when a station condition was asked for and the map could not be reached. */
         stationsUnavailable,
+        /** 'held' — from our own table; 'live' — an area nobody had harvested yet. */
+        stationSource,
         applied: [
           ...(wantsPlanMinutes ? [{ key: 'plans', label: `within ${maxAvgMin} min of your plans` }] : []),
           ...(wantsTownMinutes ? [{ key: 'town', label: `within ${townMin} min of the centre` }] : []),
