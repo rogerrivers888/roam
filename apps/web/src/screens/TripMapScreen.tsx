@@ -175,8 +175,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
 
   // Somewhere to sleep, ranked the way the criteria asked. Only fetched when
   // the Stay pill is lit — it is an Overpass call and sometimes a price call.
-  const [stays, setStays] = useState<{ loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; ranked: StayPlacement; error: string | null }>(
-    { loading: false, results: [], spread: null, anchors: [], ranked: 'plans', error: null },
+  const [stays, setStays] = useState<{ loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; ranked: StayPlacement; unanswered: string[]; error: string | null }>(
+    { loading: false, results: [], spread: null, anchors: [], ranked: 'plans', unanswered: [], error: null },
   );
   // Counted while the wizard is open as well as while the list is: the button
   // says how many match, and it cannot say it without asking.
@@ -204,8 +204,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
        * that opens the list, and the chip ended up disagreeing with the rows
        * under it (deployed, 6 Sep 2026).
        */
-      .then((r) => setStays({ loading: false, results: r.results, spread: r.spread, anchors: r.anchors, ranked: r.placement, error: null }))
-      .catch((e) => setStays({ loading: false, results: [], spread: null, anchors: [], ranked: placement, error: e.message }));
+      .then((r) => setStays({ loading: false, results: r.results, spread: r.spread, anchors: r.anchors, ranked: r.placement, unanswered: r.criteria?.mustUnanswered ?? [], error: null }))
+      .catch((e) => setStays({ loading: false, results: [], spread: null, anchors: [], ranked: placement, unanswered: [], error: e.message }));
   }, [stayKey, trip.id, placement, stayMode, criteriaState]);
 
   const isTrip = trip.kind === 'trip';
@@ -656,6 +656,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           plannedNames={plannedNames}
           line={null}
           criteria={criteriaState}
+          unanswered={stays.unanswered}
           onCriteria={setCriteriaState}
           onClose={() => setCriteria(false)}
           onShow={() => { setCriteria(false); setPill('stay'); setDetent('half'); }}
@@ -1369,7 +1370,7 @@ function MinuteBox({ label, value, min, max, step, onChange }: {
  */
 function StayCriteria({
   step, onStep, placement, onPlacement, mode, onMode, nights, startDate, endDate, count, loading,
-  town, ownTown, at, planned, plannedNames, line, criteria, onCriteria, onClose, onShow,
+  town, ownTown, at, planned, plannedNames, line, criteria, unanswered, onCriteria, onClose, onShow,
 }: {
   step: 1 | 2; onStep: (s: 1 | 2) => void;
   placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
@@ -1378,7 +1379,7 @@ function StayCriteria({
   town: string; ownTown: string; planned: number; plannedNames: string[]; line: string | null;
   /** Where the trip is, so the town list puts the near ones first. */
   at: { lat: number; lng: number } | null;
-  criteria: StayCriteriaState; onCriteria: (next: Partial<StayCriteriaState>) => void;
+  criteria: StayCriteriaState; unanswered: string[]; onCriteria: (next: Partial<StayCriteriaState>) => void;
   onClose: () => void; onShow: () => void;
 }) {
   const { width, height, framed, origin } = useViewport();
@@ -1447,7 +1448,9 @@ function StayCriteria({
                         <Text style={[styles.tileSub, on && { color: '#C9C5C2' }]}>
                           {o.key === 'plans' && !planned
                             ? 'Best placed for whatever you plan — it improves as you fill days in'
-                            : o.blurb.replace('{n}', String(planned)).replace('{n} places', planned === 1 ? 'one place' : `${planned} places`)}
+                            : o.key === 'town' && criteria.town
+                              ? `Chosen, not the trip’s area · change it`
+                              : o.blurb.replace('{n}', String(planned)).replace('{n} places', planned === 1 ? 'one place' : `${planned} places`)}
                         </Text>
                       </Pressable>
                     );
@@ -1559,6 +1562,14 @@ function StayCriteria({
                       <UiChip key={t} label={t} selected={criteria.must.includes(t)} onPress={() => onCriteria({ must: toggle(criteria.must, t) })} />
                     ))}
                   </Wrap>
+                  {/* Said plainly rather than quietly returning nothing: the open
+                      map has a word for a pool and none for the absence of one,
+                      so where nobody has answered we cannot narrow on it. */}
+                  {unanswered.length ? (
+                    <Text style={type.tiny}>
+                      {`Nobody has mapped ${andList(unanswered.map((x) => x.toLowerCase()))} around here, so ${unanswered.length === 1 ? 'it is' : 'they are'} not narrowing the list.`}
+                    </Text>
+                  ) : null}
                 </View>
 
                 <View style={{ gap: 8 }}>
@@ -1644,7 +1655,7 @@ function TownPick({ own, near, onPick }: {
 
 /** The results (handoff §18/19): ranked, with the fit line the ranking was made from. */
 function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nights, budget, planned, selected, onSelect, onOpen, onChoose, onShortlist }: {
-  stays: { loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; ranked: StayPlacement; error: string | null };
+  stays: { loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; anchors: { label: string; lat: number; lng: number }[]; ranked: StayPlacement; unanswered: string[]; error: string | null };
   placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
   mode: 'driving' | 'walking'; onMode: (m: 'driving' | 'walking') => void;
   /** Each chip re-opens the wizard at the step it came from (§19). */

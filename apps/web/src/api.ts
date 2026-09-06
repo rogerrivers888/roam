@@ -1125,6 +1125,16 @@ export const api = {
       placement: StayPlacement;
       /** Set when the planned days are so far apart that no one of them is worth being near. */
       spread: { minutes: number; between: [string, string]; places: string[] } | null;
+      /**
+       * What was asked for, echoed back. `mustUnanswered` names the must-haves
+       * nobody around here has mapped — the screen says so rather than
+       * pretending it narrowed the list on them.
+       */
+      criteria: {
+        maxAvgMin: number; townMin: number; maxTrainMin: number; maxWalkMin: number;
+        budget: [number, number | null]; types: string[]; must: string[]; nice: string[];
+        mustUnanswered: string[];
+      };
       results: Stay[];
       pricing: StayPricing;
     }>(`/api/trips/${tripId}/stays${qs(p)}`),

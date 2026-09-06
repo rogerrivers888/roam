@@ -941,11 +941,17 @@ router.get('/:id/stays', async (req, res, next) => {
      *
      * What a bed has comes from the open map's tags (sources/osm.js
      * `stayAmenities`), which are sparse: a mapper says there is a pool, never
-     * that there is not one. So a must-have leaves out every bed that has not
-     * said it has the thing — including the ones that do and were never tagged.
-     * That is the right way round for a filter, and the wizard's live count is
-     * what makes it safe: tick Pool and the button says how many are left
-     * before anybody taps it.
+     * that there is not one.
+     *
+     * So a must-have filters **only where somebody has answered it**. If no bed
+     * around here has been tagged with parking at all, the word carries no
+     * information and the filter does not apply — the alternative is a control
+     * that empties the list everywhere OSM is thin, which is most places, and
+     * an empty list is not a truer answer than a full one. Where some beds do
+     * say it, they are the answer and the untagged ones are left out.
+     *
+     * The wizard's live count is what makes either behaviour honest: tick Pool
+     * and the button says how many are left before anybody taps it.
      */
     const wantMust = String(req.query.must || '').split(',').map((t) => t.trim()).filter(Boolean);
     const wantNice = String(req.query.nice || '').split(',').map((t) => t.trim()).filter(Boolean);
@@ -1036,6 +1042,11 @@ router.get('/:id/stays', async (req, res, next) => {
      * afternoon the price source is quiet that rule is the difference between a
      * list and an empty screen.
      */
+    // Which must-haves anybody around here has actually answered. A word no
+    // bed in the pool carries is a word we know nothing about, not a word every
+    // bed fails.
+    const mustKnown = wantMust.filter((m) => ranked.some((st) => has(st, m)));
+
     ranked = ranked.filter((st) => {
       if (placement === 'plans' && anchors.length && st.typicalMinutes != null && st.typicalMinutes > maxAvgMin) return false;
       if (placement === 'town' && estimateTravelMinutes(town, st, mode) > townMin) return false;
@@ -1046,7 +1057,7 @@ router.get('/:id/stays', async (req, res, next) => {
       const night = st.offer?.perNight ?? null;
       if (night != null && (night < budgetMin || night > budgetMax)) return false;
       if (wantTypes.length && !stayKindMatches(st.stayKind, wantTypes)) return false;
-      if (wantMust.length && !wantMust.every((m) => has(st, m))) return false;
+      if (mustKnown.length && !mustKnown.every((m) => has(st, m))) return false;
       return true;
     });
 
@@ -1074,7 +1085,17 @@ router.get('/:id/stays', async (req, res, next) => {
       placement,
       spread,
       /** What was asked for, echoed back so the sheet can show it rather than its defaults. */
-      criteria: { maxAvgMin, townMin, maxTrainMin, maxWalkMin, budget: [budgetMin, Number.isFinite(budgetMax) ? budgetMax : null], types: wantTypes, must: wantMust, nice: wantNice },
+      /**
+       * What was asked for, echoed back — and `mustUnanswered` says which of the
+       * must-haves nobody around here has mapped, so the screen can say "the map
+       * does not know about parking here" rather than pretending it filtered.
+       */
+      criteria: {
+        maxAvgMin, townMin, maxTrainMin, maxWalkMin,
+        budget: [budgetMin, Number.isFinite(budgetMax) ? budgetMax : null],
+        types: wantTypes, must: wantMust, nice: wantNice,
+        mustUnanswered: wantMust.filter((m) => !mustKnown.includes(m)),
+      },
       results: ranked.map((s, i) => ({
         ...s,
         household: status[s.venueRef] ?? null,
