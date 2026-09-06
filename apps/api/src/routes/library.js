@@ -44,7 +44,7 @@ import { currentHousehold } from './household.js';
 import { sweepRegion, sweepCost, rematchRegion, ACTIVITY_QUERIES } from '../sources/activitySweep.js';
 import { portraitsForApp, setPortrait } from '../sources/portraits.js';
 import { sweepPictures, PICTURE_VERSION } from '../sources/placePicture.js';
-import { mapillaryReady } from '../sources/streetLevel.js';
+import { mapillaryReady, mapillaryTrouble } from '../sources/streetLevel.js';
 import { query } from '../db.js';
 
 const bad = (message, code = 'bad_request') => Object.assign(new Error(message), { status: 400, code });
@@ -444,7 +444,7 @@ adminRouter.get('/pictures', requires('view_library'), async (_req, res, next) =
           key: 'mapillary',
           what: 'A street-level frame of the shopfront (far better coverage)',
           ready: mapillaryReady(),
-          blocked: mapillaryReady() ? null : 'Needs MAPILLARY_TOKEN in Doppler. The token is free and does not bill, but it is a secret, so it is the owner’s to add.',
+blocked: mapillaryTrouble(),
         },
       ],
     });

@@ -240,3 +240,31 @@ export async function findShopfront({ lat, lng } = {}) {
 
 /** Whether the Mapillary rung is available, for the back office to explain itself. */
 export const mapillaryReady = () => Boolean(process.env.MAPILLARY_TOKEN);
+
+/**
+ * Why the rung is off, in a sentence the back office can print.
+ *
+ * "Set MAPILLARY_TOKEN" is a useless thing to say to somebody who believes they
+ * already did. The owner added the token on 6 Sep 2026, both Doppler syncs
+ * reported In Sync, and the rung went on answering "not ready" — because the
+ * secret was named `MAPILLARY_TOKE`. That took an hour to find by eye, and the
+ * one process that could see both the name we want and the names that exist was
+ * the one insisting nothing had been set.
+ *
+ * So when the exact name is missing, look for a near miss and say it out loud.
+ * A near miss is any variable mentioning Mapillary that is not the name we
+ * read — a truncation, a rename, an ACCESS_TOKEN, a KEY. The value is never
+ * touched or reported, only the name: that is the part that is wrong, and it is
+ * not the secret.
+ */
+export function mapillaryTrouble() {
+  if (process.env.MAPILLARY_TOKEN) return null;
+  const nearMiss = Object.keys(process.env)
+    .filter((k) => k !== 'MAPILLARY_TOKEN' && /mapillary/i.test(k));
+  if (nearMiss.length) {
+    return `A secret named ${nearMiss.join(' and ')} is set, but this reads MAPILLARY_TOKEN. `
+      + 'Rename it in Doppler — the value is fine, the name is one character out.';
+  }
+  return 'Needs MAPILLARY_TOKEN in Doppler. The token is free and does not bill, '
+    + 'but it is a secret, so it is the owner\u2019s to add.';
+}
