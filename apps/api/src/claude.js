@@ -86,11 +86,21 @@ export async function assertWithinBounds({ householdId, sessionId }) {
  * in the Anthropic console, and only the owner can raise it.
  */
 export class ModelBudgetError extends Error {
-  constructor(until) {
+  constructor(until, detail = null) {
     super(`the workspace's model budget is spent${until ? `, back on ${until}` : ''}`);
     this.code = 'model_budget_reached';
     this.status = 429;
     this.until = until ?? null;
+    // Anthropic's own sentence, kept verbatim.
+    //
+    // A household must never see a provider's error (owner, 5 Sep 2026), and it
+    // does not: `message` above is the plain-words version and that is what
+    // every screen shows. But throwing the original away made this
+    // unresolvable — the reworded line says a limit was reached and not *which*
+    // one, and there are three that could produce it: the organisation's
+    // monthly spend, the workspace's own, and a member's cap inside it. The
+    // back office is where the raw words belong.
+    this.detail = detail;
   }
 }
 
@@ -99,7 +109,7 @@ export function asBudgetError(err) {
   const text = String(err?.error?.error?.message ?? err?.message ?? '');
   if (!/workspace API usage limits/i.test(text)) return null;
   const on = text.match(/regain access on (\d{4}-\d{2}-\d{2})/i)?.[1] ?? null;
-  return new ModelBudgetError(on);
+  return new ModelBudgetError(on, text.slice(0, 400));
 }
 
 const ask = async (run) => {

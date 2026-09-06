@@ -23,6 +23,8 @@ import { query } from '../db.js';
 import { outcodesIn } from '../sources/postcodeAreas.js';
 import { currentHousehold } from './household.js';
 import * as providerCalls from '../repositories/providerCalls.js';
+import { parseStructured } from '../claude.js';
+import { z } from 'zod/v4';
 
 /** Who pressed the button, for the audit and the run's own record. */
 const actorOf = (req) => req.account?.email ?? 'the owner (passcode)';
@@ -151,6 +153,43 @@ router.get('/menus/causes', requires('view_library'), async (_req, res, next) =>
   try {
     res.json({ causes: await scout.menuCauses() });
   } catch (err) { next(err); }
+});
+
+/**
+ * Ask the model one trivial question, and report what came back.
+ *
+ * Not a feature — a diagnostic. When reads stop, the reworded failure says a
+ * limit was reached and not *which* one, and there are three that can produce
+ * it: the organisation's monthly spend, the workspace's own, and a member's cap
+ * inside it. This asks, and hands back the provider's own sentence so the right
+ * ceiling can be found rather than guessed at.
+ *
+ * Costs a handful of tokens when it works, and nothing at all when it does not.
+ */
+router.get('/model/check', requires('view_library'), async (_req, res, next) => {
+  try {
+    const household = await currentHousehold();
+    const started = Date.now();
+    const answer = await parseStructured({
+      system: 'Answer with the single word "ok".',
+      messages: [{ role: 'user', content: 'Say ok.' }],
+      schema: z.object({ ok: z.string() }),
+      householdId: household?.id ?? null,
+      purpose: 'admin.model.check',
+      maxTokens: 32,
+    });
+    res.json({ ok: true, said: answer?.ok ?? null, ms: Date.now() - started });
+  } catch (err) {
+    res.json({
+      ok: false,
+      code: err?.code ?? null,
+      // What Roam says, and what the provider said. The first is what a
+      // household would ever see; the second is what fixes it.
+      roamSays: err?.message ?? String(err),
+      providerSaid: err?.detail ?? null,
+      until: err?.until ?? null,
+    });
+  }
 });
 
 /** Read every recorded failure into a cause again, including old rows. Free. */
