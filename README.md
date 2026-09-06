@@ -130,6 +130,11 @@ spends it.
   `TWILIO_AUTH_TOKEN` / `TWILIO_FROM` for texts, `RESEND_API_KEY` / `ROAM_MAIL_FROM` for
   e-mail. With neither, Roam still makes the link and shows it to be copied and sent by hand —
   nothing is silently dropped. Adding them is the owner's, in Doppler.
+- **A Twilio trial is enough for your own household, with two caveats.** It texts only numbers
+  added under *Verified Caller IDs* (five of them), and only within the country the account
+  signed up in; every message is prefixed *"Sent from your Twilio trial account -"*. Both go
+  when the account is upgraded. Roam turns Twilio's refusals into what to do about them —
+  error 21608 becomes "add it under Verified Caller IDs, or upgrade" rather than a code.
 - **Taking a sign-in away is not removing a person.** *Remove their sign-in* deletes the account
   and signs their devices out; the profile, the tastes and every rating stay. Removing the
   *person* does take their sign-in with them (`accounts.member_id` cascades), so a deleted
@@ -153,9 +158,10 @@ spends it.
 | `ROAM_PASSCODE` | **yes, deployed** | The household's passcode (Doppler, owner-set). **Without it the deployed API answers 503 to every `/api` request and serves nothing** — see "The door" above. Locally, unset falls back to `roam-dev`. |
 | `RESEND_API_KEY` | optional | Mail sender (Doppler, owner-set) used for account invitations and sign-in links. Unset, Roam still makes the link and the Accounts screen shows it to be sent by hand. |
 | `ROAM_MAIL_FROM` | with the above | The address invitations come from, on a domain verified with the sender, e.g. `Roam <hello@example.com>`. Non-secret, but a sender is not configured until both this and the key are set. |
-| `TWILIO_ACCOUNT_SID` | optional | Twilio account (`AC…`, Doppler, owner-set). With the two below, Household-tab invitations go out by text. Unset, Roam still makes the link and the screen shows it to be sent by hand. |
-| `TWILIO_AUTH_TOKEN` | with the above | The token for that account — a secret, so Doppler only. |
+| `TWILIO_ACCOUNT_SID` | optional | Twilio **Account** SID — the `AC…` string under Account Info (Doppler, owner-set). It is the URL every request is sent to, not merely a username, so an `SK…` API key here produces a 404; Roam checks the shape and says so. With the two below, Household-tab invitations go out by text. Unset, Roam still makes the link and the screen shows it to be sent by hand. |
+| `TWILIO_AUTH_TOKEN` | with the above | The secret to sign with: the account's Auth Token, or an API key's secret when `TWILIO_API_KEY_SID` is set. Doppler only. |
 | `TWILIO_FROM` | with the above | The number texts come from, or a messaging service SID (`MG…`), which is what Twilio wants for UK traffic. Non-secret, but no text sender exists until all three are set. |
+| `TWILIO_API_KEY_SID` | optional | An API key (`SK…`) to sign as, instead of the account itself — revocable without changing the account's token. The account SID above is still required: a key signs a request, it does not address one. |
 | `ROAM_WEB_URL` | recommended | Where the web app is served, e.g. `https://roam-web.up.railway.app`. Non-secret. Sign-in links are built against it; unset, they fall back to the request's own origin. |
 | `ROAM_HOUSEHOLD_MONTHLY_CALL_BOUND` | optional | Provider calls a household may make in a calendar month before Roam stops searching for it (default 3000). Per-account ceilings on the Accounts screen override it; a new account starts at a quarter of it. |
 | `ROAM_WEB_ORIGIN` | recommended | Comma-separated list of origins the web app is served from, e.g. `https://roam-web.up.railway.app`. Non-secret. Restricts which sites may open a session-carrying request; unset, any origin is answered and the passcode is the only guard. |

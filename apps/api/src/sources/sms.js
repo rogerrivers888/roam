@@ -9,10 +9,24 @@
  * the owner's to do). They go in Doppler, never in the repo and never as
  * Railway variables set by hand:
  *
- *   TWILIO_ACCOUNT_SID   the account, `AC…`
- *   TWILIO_AUTH_TOKEN    its token — the secret
+ *   TWILIO_ACCOUNT_SID   the account, and it really must be the one beginning
+ *                        `AC…` — it is the path of every request, not merely a
+ *                        username
+ *   TWILIO_AUTH_TOKEN    the secret to sign with
  *   TWILIO_FROM          the number texts come from, or a `MG…` messaging
  *                        service SID, which is what Twilio wants for the UK
+ *   TWILIO_API_KEY_SID   optional, `SK…`
+ *
+ * Twilio hands out two kinds of credential and they are easy to confuse, so
+ * both work here. The account's own **auth token** is signed with the account
+ * SID, and that is all three variables. An **API key** is a separate `SK…` and
+ * secret which can be revoked without changing the account's password — better
+ * practice, and what a console nudges you toward — but it is only the
+ * *username*: the URL still addresses the account, so an `SK…` pasted into
+ * `TWILIO_ACCOUNT_SID` produces a 404 from a path that does not exist rather
+ * than a 401 that would say what was wrong. `smsStatus` therefore checks the
+ * shape of the SID and says so in as many words, because that mistake costs an
+ * hour otherwise.
  *
  * With none of them set this does not throw, does not queue and does not
  * silently drop the message. It says it could not send, and the Household tab
@@ -24,11 +38,16 @@
  * owner pays for and nobody reads to the end of.
  */
 
-const SID = () => process.env.TWILIO_ACCOUNT_SID || '';
-const TOKEN = () => process.env.TWILIO_AUTH_TOKEN || '';
-const FROM = () => process.env.TWILIO_FROM || '';
+const SID = () => (process.env.TWILIO_ACCOUNT_SID || '').trim();
+const TOKEN = () => (process.env.TWILIO_AUTH_TOKEN || '').trim();
+const FROM = () => (process.env.TWILIO_FROM || '').trim();
+/** An API key signs in the account's place; the account is still the address. */
+const KEY_SID = () => (process.env.TWILIO_API_KEY_SID || '').trim();
 
-export const smsConfigured = () => Boolean(SID() && TOKEN() && FROM());
+/** Who the request is signed as: the API key if there is one, else the account. */
+const signingAs = () => KEY_SID() || SID();
+
+export const smsConfigured = () => Boolean(SID().startsWith('AC') && TOKEN() && FROM());
 
 /**
  * Why the owner cannot text yet, in two lengths.
@@ -51,6 +70,24 @@ export function smsStatus() {
       message: 'No text sender is configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM in Doppler to send invitations by text; until then, copy the link and send it yourself.',
     };
   }
+  // The wrong SID in the right box. An `SK…` is an API key, which signs the
+  // request but does not address it — Twilio would answer 404 from a URL built
+  // around an account that does not exist, and a 404 reads as "this feature is
+  // broken" rather than "that is the wrong one of the two strings on the page".
+  if (!SID().startsWith('AC')) {
+    const looksLikeKey = SID().startsWith('SK');
+    return {
+      configured: false,
+      reason: 'wrong_sid',
+      short: "Texts aren't switched on yet — you'll copy the link instead.",
+      setup: looksLikeKey
+        ? 'TWILIO_ACCOUNT_SID holds an API key (SK…). Move it to TWILIO_API_KEY_SID and put the Account SID (AC…) from the Twilio dashboard in TWILIO_ACCOUNT_SID.'
+        : 'TWILIO_ACCOUNT_SID does not look like an Account SID. It is the string beginning AC on the Twilio dashboard.',
+      message: looksLikeKey
+        ? 'TWILIO_ACCOUNT_SID holds an API key SID (SK…) rather than the Account SID. An API key signs a request but the URL still addresses the account, so Twilio would answer 404. Put the AC… value from the Twilio dashboard in TWILIO_ACCOUNT_SID, and the SK… in TWILIO_API_KEY_SID beside it.'
+        : 'TWILIO_ACCOUNT_SID does not begin with AC, so it is not an Account SID. It is the first string on the Twilio dashboard, under Account Info.',
+    };
+  }
   if (!FROM()) {
     return {
       configured: false,
@@ -60,7 +97,7 @@ export function smsStatus() {
       message: 'Twilio keys are set but TWILIO_FROM is not, so there is no number to send from. It is either a number you own or a messaging service SID beginning MG.',
     };
   }
-  return { configured: true, from: FROM() };
+  return { configured: true, from: FROM(), signingWith: KEY_SID() ? 'api_key' : 'auth_token' };
 }
 
 /**
@@ -96,6 +133,36 @@ export const prettyMobile = (e164) => {
 };
 
 /**
+ * What a refusal from Twilio actually means to the person who has to fix it.
+ *
+ * Only the codes worth a different action are named. Everything else falls
+ * through to Twilio's own sentence, which is usually clear and is always more
+ * accurate than a guess — the point of this table is not to hide the provider
+ * but to add the step it cannot know about, like "this account is still on the
+ * trial, so the number has to be verified first".
+ */
+export function explain(code, said, status) {
+  const theirs = said ? ` ${said}` : '';
+  switch (Number(code)) {
+    case 21608:
+      return 'That number has not been verified on your Twilio trial, so Twilio will not text it. Add it under Verified Caller IDs in the Twilio console (a trial allows five), or upgrade the account to text anybody.';
+    case 21606:
+    case 21659:
+      return `TWILIO_FROM is not a number this account can send from.${theirs} Use the number on the Twilio console's Phone Numbers page, or a messaging service SID beginning MG.`;
+    case 21612:
+      return `Twilio cannot get a message to that number from the number you are sending from.${theirs} A UK recipient generally needs a UK sender, or a messaging service.`;
+    case 21610:
+      return 'That number replied STOP to an earlier message, so Twilio will not text it again until they text START.';
+    case 21211:
+      return `Twilio does not recognise that as a phone number.${theirs}`;
+    case 20003:
+      return 'Twilio refused the credentials. Check TWILIO_AUTH_TOKEN, and that TWILIO_ACCOUNT_SID is the AC… account rather than an SK… API key.';
+    default:
+      return `The text sender refused it (${status}).${theirs}`;
+  }
+}
+
+/**
  * Send one message. Never throws: the caller has already written down that a
  * link exists, and whether it could be delivered is a fact about the send, not
  * a reason to fail the request that made it.
@@ -118,7 +185,7 @@ export async function sendSms({ to, text }) {
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(SID())}/Messages.json`, {
       method: 'POST',
       headers: {
-        authorization: `Basic ${Buffer.from(`${SID()}:${TOKEN()}`).toString('base64')}`,
+        authorization: `Basic ${Buffer.from(`${signingAs()}:${TOKEN()}`).toString('base64')}`,
         'content-type': 'application/x-www-form-urlencoded',
       },
       body,
@@ -126,9 +193,16 @@ export async function sendSms({ to, text }) {
     });
     if (!res.ok) {
       const said = await res.json().catch(() => null);
-      // Twilio's own words, which are what tell the owner the number is not
-      // verified or the trial has run out. Only he ever sees this.
-      return { sent: false, reason: 'send_failed', message: `The text sender refused it (${res.status}). ${said?.message ?? ''}`.trim() };
+      // Twilio's own words, plus ours where we know better what to do about it.
+      // Only the owner ever sees this — a phone is never shown a provider's
+      // error (feedback, on a raw 429: "I should never see that on the phone
+      // app"), and the Household panel shows this line to whoever is inviting.
+      return {
+        sent: false,
+        reason: 'send_failed',
+        message: explain(said?.code, said?.message, res.status),
+        providerCode: said?.code ?? null,
+      };
     }
     return { sent: true };
   } catch (err) {

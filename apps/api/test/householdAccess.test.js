@@ -23,7 +23,7 @@ const {
   accountByMember, accountByMobile, accountsForHousehold, callBoundFor,
   createAccount, createAccountOnHousehold, listAccounts, normaliseEmail,
 } = await import('../src/repositories/accounts.js');
-const { normaliseMobile, invitationText, smsStatus } = await import('../src/sources/sms.js');
+const { explain, normaliseMobile, invitationText, smsStatus } = await import('../src/sources/sms.js');
 
 // ---------------------------------------------------------------------------
 // a number is a credential, so it has to be exactly one number
@@ -201,4 +201,79 @@ test('the text says who it is from before it says anything else', () => {
   assert.match(body, /^Hi Gina\. Roger has/);
   assert.ok(body.includes('https://roam.example/?signin=abc'));
   assert.ok(body.length < 320, `a text is short; this one was ${body.length} characters`);
+});
+
+// ---------------------------------------------------------------------------
+// the two strings on the Twilio dashboard, and which box each goes in
+// ---------------------------------------------------------------------------
+
+const withEnv = async (vars, fn) => {
+  const before = {};
+  for (const [k, v] of Object.entries(vars)) {
+    before[k] = process.env[k];
+    if (v === null) delete process.env[k]; else process.env[k] = v;
+  }
+  try { return await fn(); } finally {
+    for (const [k, v] of Object.entries(before)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+};
+
+test('an API key in the Account SID box is caught here rather than as a 404 from Twilio', async () => {
+  // The whole reason this check exists: an SK… signs a request but does not
+  // address one, so Twilio would answer 404 from a URL built around an account
+  // that does not exist — which reads as "the feature is broken" rather than
+  // "that is the wrong one of the two strings on the page".
+  await withEnv({ TWILIO_ACCOUNT_SID: 'SK' + 'a'.repeat(32), TWILIO_AUTH_TOKEN: 'secret', TWILIO_FROM: '+441234567890' }, () => {
+    const status = smsStatus();
+    assert.equal(status.configured, false);
+    assert.equal(status.reason, 'wrong_sid');
+    assert.match(status.setup, /TWILIO_API_KEY_SID/, 'it says which box the SK… belongs in');
+    assert.match(status.setup, /AC/, 'and what belongs in the one it was pasted into');
+  });
+});
+
+test('anything that is not an Account SID is refused, not only an API key', async () => {
+  await withEnv({ TWILIO_ACCOUNT_SID: 'my-twilio-account', TWILIO_AUTH_TOKEN: 'secret', TWILIO_FROM: '+441234567890' }, () => {
+    const status = smsStatus();
+    assert.equal(status.configured, false);
+    assert.equal(status.reason, 'wrong_sid');
+    assert.doesNotMatch(status.setup, /API key/, 'and is not told it pasted an API key when it did not');
+  });
+});
+
+test('an account SID with an API key beside it is a configured sender', async () => {
+  await withEnv({
+    TWILIO_ACCOUNT_SID: 'AC' + 'b'.repeat(32), TWILIO_API_KEY_SID: 'SK' + 'c'.repeat(32),
+    TWILIO_AUTH_TOKEN: 'secret', TWILIO_FROM: '+441234567890',
+  }, () => {
+    const status = smsStatus();
+    assert.equal(status.configured, true);
+    assert.equal(status.signingWith, 'api_key', 'the key signs; the account is still the address');
+  });
+});
+
+test('the account token on its own is still a configured sender', async () => {
+  await withEnv({
+    TWILIO_ACCOUNT_SID: 'AC' + 'd'.repeat(32), TWILIO_API_KEY_SID: null,
+    TWILIO_AUTH_TOKEN: 'secret', TWILIO_FROM: 'MG' + 'e'.repeat(32),
+  }, () => {
+    const status = smsStatus();
+    assert.equal(status.configured, true);
+    assert.equal(status.signingWith, 'auth_token');
+  });
+});
+
+test("a trial's unverified-number refusal says what to do about it, not just what happened", () => {
+  // 21608 is the first thing a trial account hits, and Twilio's own wording
+  // does not mention Verified Caller IDs or the five-recipient allowance.
+  const msg = explain(21608, 'The number +447700900123 is unverified.', 400);
+  assert.match(msg, /Verified Caller IDs/);
+  assert.match(msg, /five|upgrade/);
+});
+
+test('a refusal we have no better words for keeps Twilio\'s own', () => {
+  const msg = explain(30007, 'Message filtered by carrier.', 400);
+  assert.match(msg, /Message filtered by carrier\./, "we do not swallow what we cannot improve on");
 });
