@@ -130,7 +130,7 @@ function markerEl(m: MapMarker): HTMLElement {
   return wrap;
 }
 
-export function MapGL({ markers, routes = [], padding, fitKey, focusId, onMapPress, dark }: MapGLProps) {
+export function MapGL({ markers, routes = [], padding, fitKey, fitToMarkers, focusId, onMapPress, dark }: MapGLProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const drawn = useRef(new Map<string, maplibregl.Marker>());
@@ -318,7 +318,11 @@ export function MapGL({ markers, routes = [], padding, fitKey, focusId, onMapPre
     const fit = () => {
       const b = new maplibregl.LngLatBounds();
       for (const x of markers) b.extend([x.lng, x.lat]);
-      for (const r of routes) for (const p of r.points) b.extend([p.lng, p.lat]);
+      // The route only widens the frame when the route is the subject. While a
+      // pill is lit the subject is what came back, and stretching the bounds to
+      // the far end of the drive zooms so far out that eight beds a mile apart
+      // land on one pin (deployed, 6 Sep 2026).
+      if (!fitToMarkers) for (const r of routes) for (const p of r.points) b.extend([p.lng, p.lat]);
       m.fitBounds(b, { padding: padRef.current, maxZoom: 15, duration: 550 });
     };
     if (ready.current) fit(); else m.once('load', fit);

@@ -62,6 +62,12 @@ export type MapGLProps = {
   padding?: { top?: number; bottom?: number; left?: number; right?: number };
   /** Refit to these markers. Changing the value refits; it does not fight a drag. */
   fitKey?: string;
+  /**
+   * Leave the route out of the fit. While a pill is lit the subject is what
+   * came back, not the drive, and stretching the frame to the far end of the
+   * journey zooms so far out that eight beds a mile apart land on one pin.
+   */
+  fitToMarkers?: boolean;
   /** Centre on one marker without refitting everything. */
   focusId?: string | null;
   onMapPress?: () => void;

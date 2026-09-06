@@ -561,6 +561,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
         routes={routes}
         padding={mapPadding}
         fitKey={`${pill ?? 'home'}:${markers.length}`}
+        fitToMarkers={pill != null}
         focusId={selected}
         // A tap on the map clears the chosen pin and nothing else. It used to
         // shrink the sheet too, which read well and was in fact the bug that
