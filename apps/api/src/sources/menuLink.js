@@ -156,15 +156,21 @@ function bestLink(html, baseUrl) {
  * you want before it will show you a menu, and the answer is the town this
  * place is in — "it was 1 click, but you still missed it" (owner, 4 Sep 2026).
  */
-function branchLink(html, baseUrl, words) {
+export function branchLink(html, baseUrl, words, locality = null) {
   if (!words.length) return null;
+  // The brand is on every branch's link and settles nothing; the town is the
+  // only word on that list that tells two branches apart. So a link that names
+  // our town wins outright, and the rest are only compared with each other —
+  // otherwise Sebastian's Windsor gets Sebastian's Richmond, which is what it
+  // got (found 6 Sep 2026).
+  const town = String(locality ?? '').toLowerCase().match(/[a-z]{4,}/g)?.[0] ?? null;
   let best = null;
   for (const { url, text } of links(html, baseUrl)) {
     const hay = `${text} ${url}`.toLowerCase();
-    const word = words.find((w) => hay.includes(w));
+    const word = (town && hay.includes(town)) ? town : words.find((w) => hay.includes(w));
     if (!word) continue;
-    // A link naming the town beats one that merely happens to contain it.
-    const n = (text.toLowerCase().includes(word) ? 2 : 0) + (url.toLowerCase().includes(word) ? 1 : 0) + (text.length < 30 ? 1 : 0);
+    const n = (word === town ? 10 : 0)
+      + (text.toLowerCase().includes(word) ? 2 : 0) + (url.toLowerCase().includes(word) ? 1 : 0) + (text.length < 30 ? 1 : 0);
     if (!best || n > best.n) best = { n, url, label: text.slice(0, 60), word };
   }
   return best;
@@ -238,7 +244,7 @@ export async function findMenuUrl({ website, name = '', locality = null, address
     }
 
     // A group's front page: pick this restaurant, then look again.
-    const branch = page.html ? branchLink(page.html, page.url, words) : null;
+    const branch = page.html ? branchLink(page.html, page.url, words, locality) : null;
     if (branch) {
       // The link may land on a page of its own — Sebastian's Windsor button
       // goes to an old notice — so their front door is worth a look too: that
@@ -478,7 +484,11 @@ export function menusInIndex(urls, words = []) {
  */
 export function branchLooksWrong(url, words = [], locality = null) {
   let path;
-  try { path = `${new URL(url).pathname}`.toLowerCase(); } catch { return false; }
+  let host;
+  // The town is as often in the domain as in the path. Sebastian's Windsor and
+  // Sebastian's Richmond are two sites, not two folders, and reading only the
+  // path put Richmond's menu on a Windsor restaurant's card (found 6 Sep 2026).
+  try { const u = new URL(url); path = `${u.hostname}${u.pathname}`.toLowerCase(); host = u.hostname.toLowerCase(); } catch { return false; }
   const town = String(locality ?? '').toLowerCase().match(/[a-z]{4,}/g)?.[0] ?? null;
   if (!town) return false;                      // nothing to contradict
   if (path.includes(town)) return false;        // it names our town: right branch
@@ -487,7 +497,7 @@ export function branchLooksWrong(url, words = [], locality = null) {
   // contains "intoku", and letting that settle it is exactly how a Windsor
   // household ends up with Reading's menu. So the segment that carries the
   // brand is read for what follows it, and a different town there is decisive.
-  const segments = path.split('/').filter(Boolean);
+  const segments = [...host.split('.').slice(0, -1), ...path.split('/').slice(1)].filter(Boolean);
   for (const segment of segments) {
     const brand = words.find((w) => segment.includes(w));
     if (!brand) continue;

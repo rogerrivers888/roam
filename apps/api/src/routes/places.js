@@ -10,6 +10,7 @@
 import { Router } from 'express';
 import { withTransaction } from '../db.js';
 import * as visitsRepo from '../repositories/visits.js';
+import * as menusRepo from '../repositories/menus.js';
 import { searchAllSources, enabledSources, recallVenue, optInFrom } from '../sources/index.js';
 import { geocode, reverseGeocode, providerCalls as geocodeCalls } from '../sources/geocode.js';
 import { searchAreas, AREA_ATTRIBUTION, providerCalls as areaCalls } from '../sources/areas.js';
@@ -546,10 +547,15 @@ places.get('/detail', async (req, res, next) => {
     // that works and one that says there is no website (owner, 5 Sep 2026).
     const website = ours?.website ?? venue?.website ?? null;
     const eats = EATING.has(venue?.category ?? ours?.category ?? '');
+    // Which town, before anything follows a link. Two branches of one group
+    // share a website and only the town tells their menus apart, so a lookup
+    // that does not know the town can come back with the wrong one — and a
+    // menu for the wrong town is worse than no menu (menuLink.js).
+    const at = eats && !ours?.menuUrl ? await menusRepo.placeAddress(household.id, ref).catch(() => null) : null;
     const menuLookup = ours?.menuUrl
       ? Promise.resolve({ url: ours.menuUrl, label: ours.menuLabel ?? 'Menu', how: 'From our own record of this place.', checkedAt: ours.researchedAt ?? new Date().toISOString() })
       : website && eats
-        ? findMenuUrl({ website, name: venue?.name ?? ours?.name ?? '', locality: venue?.locality ?? null, address: ours?.address ?? (typeof venue?.address === 'string' ? venue.address : venue?.address?.line1) ?? null }).catch((err) => ({ url: null, label: null, how: null, why: `Could not reach their site (${String(err?.message || err).slice(0, 80)}).`, checkedAt: new Date().toISOString() }))
+        ? findMenuUrl({ website, name: venue?.name ?? ours?.name ?? '', locality: venue?.locality ?? at?.locality ?? null, address: ours?.address ?? (typeof venue?.address === 'string' ? venue.address : venue?.address?.line1) ?? at?.postcode ?? null }).catch((err) => ({ url: null, label: null, how: null, why: `Could not reach their site (${String(err?.message || err).slice(0, 80)}).`, checkedAt: new Date().toISOString() }))
         : Promise.resolve(null);
 
     const visitRows = await visitsRepo.visitIdsAt(household.id, ref);

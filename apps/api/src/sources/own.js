@@ -232,6 +232,12 @@ async function seedFor(venueRef, given = {}, { householdId = null } = {}) {
     lat: given.lat ?? base.lat ?? null,
     lng: given.lng ?? base.lng ?? null,
     website: given.website ?? base.venue?.website ?? known.website ?? null,
+    // Which town this one is in, and the street we already worked out. Two
+    // branches of one group share a website, so the town is the only thing that
+    // tells their menus apart — and with it left out, Sebastian's in Windsor was
+    // given Sebastian's in Richmond's menu (found 6 Sep 2026).
+    locality: given.locality ?? base.locality ?? null,
+    address: given.address ?? known.address ?? null,
   };
   if (seed.name && seed.lat != null) return seed;
 

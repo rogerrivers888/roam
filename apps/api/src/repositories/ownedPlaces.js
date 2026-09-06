@@ -81,7 +81,7 @@ export async function enrichStateOf(venueRef) {
 }
 
 export async function knownCategory(venueRef) {
-  const { rows } = await query('select category, website from place_records where venue_ref = $1', [venueRef]);
+  const { rows } = await query('select category, website, address from place_records where venue_ref = $1', [venueRef]);
   return rows[0] ?? {};
 }
 
@@ -127,7 +127,7 @@ export async function scheduleRetry(venueRef, at) {
  */
 export async function seedFromHousehold(venueRef) {
   const { rows } = await query(
-    `select label, category, lat, lng, venue from household_places
+    `select label, category, lat, lng, venue, locality from household_places
       where venue_ref = $1 and lat is not null order by last_seen desc limit 1`,
     [venueRef],
   );
