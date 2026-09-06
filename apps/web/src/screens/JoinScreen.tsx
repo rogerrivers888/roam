@@ -475,7 +475,9 @@ function BookStep({ v, busy, onBack, onConfirm }: {
   }
   const laterLow = later.reduce((n, i) => n + (i.money?.likelyYoursPence ?? 0), 0);
   const laterHigh = later.reduce((n, i) => n + (i.money?.ceilingYoursPence ?? 0), 0);
-  const settles = later.map((i) => i.money?.closesOn).find(Boolean) ?? v.group.wantedBy;
+  // The earliest of them: the first date any of this money is owed is the one
+  // the guest has to know, and a later one is not a promise they can rely on.
+  const settles = later.map((i) => i.money?.closesOn).filter(Boolean).sort()[0] ?? v.group.wantedBy;
 
   return (
     <View style={{ gap: spacing.md }}>

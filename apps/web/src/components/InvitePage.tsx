@@ -202,14 +202,20 @@ export function InviteLanding({ data, cta, onNext, onBack, busy, narrow }: {
         ))}
       </View>
 
-      <View style={styles.totals}>
-        <Total label="Mandatory activities" value={range(t.low, t.high) || 'free'} />
-        {t.optional != null ? <Total label="Optional activities" value={`from ${money(t.optional)}`} /> : null}
-        <Total label="Minimum trip cost" value={range(t.low, t.high) || 'free'} strong />
-        {t.yourselves.map((i) => (
-          <Text key={i.id} style={[type.small, { textAlign: 'right' }]}>+ your own {i.label}, from {money(i.amountPence)}</Text>
-        ))}
-      </View>
+      {/* Nothing to add up is not "£0" three times: a trip where everybody
+          books their own says so in a line and stops. */}
+      {t.high || t.optional != null || t.yourselves.length ? (
+        <View style={styles.totals}>
+          {t.high ? <Total label="Mandatory activities" value={range(t.low, t.high)} /> : null}
+          {t.optional != null ? <Total label="Optional activities" value={`from ${money(t.optional)}`} /> : null}
+          <Total label="Minimum trip cost" value={t.high ? range(t.low, t.high) : 'nothing'} strong />
+          {t.yourselves.map((i) => (
+            <Text key={i.id} style={[type.small, { textAlign: 'right' }]}>+ your own {i.label}, from {money(i.amountPence)}</Text>
+          ))}
+        </View>
+      ) : (
+        <Text style={[type.small, styles.totals]}>Nothing is being charged for here — everyone books and pays for their own.</Text>
+      )}
 
       {invite.howItWorks.length ? (
         <View style={{ gap: spacing.sm }}>

@@ -311,7 +311,10 @@ export function GroupPanel({ d, onChanged }: { d: TripDetail; onChanged?: () => 
             onSave={async (body) => { await run(() => api.updateGroup(group.id, body)); setDraft(null); setPage(null); }}
           />
         ) : (
-          <InviteLanding data={shown} narrow={!wide} onBack={() => setPage(draft ? 'edit' : null)} onNext={undefined} />
+          /* The whole page, CTA and all, because "exactly as the link will show
+             it" includes the button they will press. Pressing it here closes
+             the preview rather than pretending to join the organiser's own group. */
+          <InviteLanding data={shown} narrow={!wide} onBack={() => setPage(draft ? 'edit' : null)} onNext={() => setPage(draft ? 'edit' : null)} />
         )}
       </View>
     );
