@@ -14,6 +14,7 @@ import { searchAllSources, enabledSources, recallVenue, optInFrom } from '../sou
 import { geocode, reverseGeocode, providerCalls as geocodeCalls } from '../sources/geocode.js';
 import { searchAreas, AREA_ATTRIBUTION, providerCalls as areaCalls } from '../sources/areas.js';
 import { findMenuUrl } from '../sources/menuLink.js';
+import { whySourceFailed } from '../sources/why.js';
 import { resolveConcept, conceptByKey } from '../domain/concepts.js';
 import { kmBetween } from '../domain/travel.js';
 import { contentsOf, groundsRadiusKm, researchInside } from '../sources/inside.js';
@@ -21,7 +22,7 @@ import { researchRestrictions, restrictionsEnabled } from '../sources/restrictio
 import { currentHousehold, loadMembers } from './household.js';
 import { upsertHouseholdPlace } from './atlas.js';
 import { googleSource } from '../sources/google.js';
-import { claimPlace, ownedRecord, ownedRecords, enrich } from '../sources/own.js';
+import { claimPlace, ownedRecord, ownedRecords, enrich, researchOnOpen } from '../sources/own.js';
 // Somewhere you eat, where the menu is the thing you want on the way in; and
 // the three words a take may be.
 import { FOOD_CATEGORIES as EATING, TAKES } from '../constants.js';
@@ -514,30 +515,50 @@ places.get('/detail', async (req, res, next) => {
     let sourceError = null;
     if (!venue && src?.get) {
       const meter = {};
-      try { venue = await src.get(id, { meter }); } catch (err) { sourceError = String(err?.message || err); }
+      try { venue = await src.get(id, { meter }); } catch (err) { sourceError = whySourceFailed(source, err); console.warn(`places.detail ${ref}: ${String(err?.message || err).slice(0, 200)}`); }
       // A detail fetch is a provider call too (Google: one Place Details request; Tripadvisor: two billable entities).
       if (Object.keys(meter).length) await visitsRepo.recordProviderCall(household.id, source, 'places.detail', meter);
     }
-    // The menu address, found now by following the website the source gave us:
+
+    // Our own record of this place, if the household has claimed it: open-data
+    // and own-page facts that we may keep, and that the device may keep too.
+    // It is what the drawer falls back to when the source is unreachable, and
+    // the only part of this response that survives on a phone with no signal.
+    const ours = await ownedRecord(ref).catch(() => null);
+    // Opening a place is a household saying it matters. If we never worked out
+    // which place this is, that research happens now rather than whenever the
+    // background loop next comes round (owner, 5 Sep 2026: "we should call the
+    // API as soon as a user opens a record to make sure that we get the correct
+    // data in"). Nothing waits on it; the drawer comes back for the answer.
+    const researching = await researchOnOpen(ref, {
+      householdId: household.id,
+      seed: { name: venue?.name ?? null, category: venue?.category ?? null, lat: venue?.lat ?? null, lng: venue?.lng ?? null, website: venue?.website ?? null },
+    }).catch(() => false);
+
+    // The menu address, found now by following the website we hold for them:
     // one request to the restaurant's own page, free, and only for somewhere
     // you eat (owner, 4 Sep 2026). It runs beside our own records, so it costs
     // the drawer nothing it was not already waiting for.
-    const menuLookup = venue?.website && EATING.has(venue.category)
-      ? findMenuUrl({ website: venue.website, name: venue.name, locality: venue.locality ?? null, address: typeof venue.address === 'string' ? venue.address : venue.address?.line1 ?? null }).catch((err) => ({ url: null, label: null, how: null, why: `Could not reach their site (${String(err?.message || err).slice(0, 80)}).`, checkedAt: new Date().toISOString() }))
-      : Promise.resolve(null);
+    //
+    // Ours first. The website the source gave us is not available on a day the
+    // source is over its allowance, and a place we have researched already
+    // knows where its own menu is — which is the difference between a menu tab
+    // that works and one that says there is no website (owner, 5 Sep 2026).
+    const website = ours?.website ?? venue?.website ?? null;
+    const eats = EATING.has(venue?.category ?? ours?.category ?? '');
+    const menuLookup = ours?.menuUrl
+      ? Promise.resolve({ url: ours.menuUrl, label: ours.menuLabel ?? 'Menu', how: 'From our own record of this place.', checkedAt: ours.researchedAt ?? new Date().toISOString() })
+      : website && eats
+        ? findMenuUrl({ website, name: venue?.name ?? ours?.name ?? '', locality: venue?.locality ?? null, address: ours?.address ?? (typeof venue?.address === 'string' ? venue.address : venue?.address?.line1) ?? null }).catch((err) => ({ url: null, label: null, how: null, why: `Could not reach their site (${String(err?.message || err).slice(0, 80)}).`, checkedAt: new Date().toISOString() }))
+        : Promise.resolve(null);
 
     const visitRows = await visitsRepo.visitIdsAt(household.id, ref);
-    const [history, status, menu, ours] = await Promise.all([
+    const [history, status, menu] = await Promise.all([
       Promise.all(visitRows.map((r) => visitPayload(r.id))),
       householdStatus(household.id, [ref]),
       menuLookup,
-      // Our own record of this place, if the household has claimed it: open-data
-      // and own-page facts that we may keep, and that the device may keep too.
-      // It is what the drawer falls back to when the source is unreachable, and
-      // the only part of this response that survives on a phone with no signal.
-      ownedRecord(ref).catch(() => null),
     ]);
-    res.json({ venueRef: ref, venue: venue ? { ...venue, venueRef: ref } : null, household: status[ref] ?? null, visits: history, menu, ours, sourceError });
+    res.json({ venueRef: ref, venue: venue ? { ...venue, venueRef: ref } : null, household: status[ref] ?? null, visits: history, menu, ours, sourceError, researching });
   } catch (err) {
     next(err);
   }

@@ -74,7 +74,7 @@ export async function recordsFor(refs) {
 
 export async function enrichStateOf(venueRef) {
   const { rows } = await query(
-    'select enrich_state, enriched_at, provenance, research_version from place_records where venue_ref = $1',
+    'select enrich_state, enriched_at, provenance, research_version, matched from place_records where venue_ref = $1',
     [venueRef],
   );
   return rows[0] ?? null;
@@ -147,6 +147,12 @@ export async function seedFromShortlist(venueRef) {
 export async function claim(householdId, venueRef, reason) {
   await query('insert into place_claims (household_id, venue_ref, reason) values ($1,$2,$3) on conflict do nothing', [householdId, venueRef, reason]);
   await ensureRecord(venueRef);
+}
+
+/** Has any household actually asked for this place, or is it only swept? */
+export async function isClaimed(venueRef) {
+  const { rows } = await query('select 1 from place_claims where venue_ref = $1 limit 1', [venueRef]);
+  return rows.length > 0;
 }
 
 /**

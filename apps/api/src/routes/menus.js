@@ -24,6 +24,7 @@ import { recordMenuRead, knownMenu } from '../domain/placeMenus.js';
 import { currentHousehold, loadMembers } from './household.js';
 import { recallVenue } from '../sources/index.js';
 import { findMenuUrl } from '../sources/menuLink.js';
+import { ownedRecord } from '../sources/own.js';
 import { readMenu, chromePath, renderProbe, describeDish } from '../sources/menuRead.js';
 import { resolveConcept, matchConcepts, conceptByKey } from '../domain/concepts.js';
 import { upsertHouseholdPlace } from './atlas.js';
@@ -120,15 +121,24 @@ menu.get('/', async (req, res, next) => {
     let link = null;
     if (!held) {
       const venue = recallVenue(ref);
-      const website = String(req.query?.website || venue?.website || '').trim();
-      if (website) {
+      // Ours before theirs. A place the household has claimed has been
+      // researched from the open map and from its own published page, and that
+      // research knows where the menu is — so the menu tab works on a day the
+      // licensed source is over its allowance, which is the day it was saying
+      // "no website for this place" (owner, 5 Sep 2026).
+      const ours = await ownedRecord(ref).catch(() => null);
+      if (ours?.menuUrl) {
+        link = { url: ours.menuUrl, label: ours.menuLabel ?? 'Menu', how: 'From our own record of this place.', checkedAt: ours.researchedAt ?? null };
+      }
+      const website = String(req.query?.website || ours?.website || venue?.website || '').trim();
+      if (!link && website) {
         let locality = venue?.locality ?? null;
         let address = typeof venue?.address === 'string' ? venue.address : venue?.address?.line1 ?? null;
         if (!locality && !address) {
           const at = await menusRepo.placeAddress(household.id, ref);
           if (at) { locality = at.locality ?? null; address = at.postcode ?? null; }
         }
-        link = await findMenuUrl({ website, name: venue?.name ?? '', locality, address });
+        link = await findMenuUrl({ website, name: venue?.name ?? ours?.name ?? '', locality, address: address ?? ours?.address ?? null });
       }
     }
     res.json({ menu: held, link });
@@ -168,8 +178,11 @@ menu.post('/read', async (req, res, next) => {
     if (!ref) return res.status(400).json({ error: 'ref_required' });
 
     const venue = recallVenue(ref);
-    const label = String(req.body?.label || venue?.name || '').trim() || null;
-    const website = String(req.body?.website || venue?.website || '').trim();
+    // What we own about this place, which is what is still here when the
+    // licensed source is not (owner, 5 Sep 2026).
+    const ours = await ownedRecord(ref).catch(() => null);
+    const label = String(req.body?.label || venue?.name || ours?.name || '').trim() || null;
+    const website = String(req.body?.website || ours?.website || venue?.website || '').trim();
 
     // Which town this one is in. A licensed venue is never held in memory, so
     // for a group with two restaurants the answer comes from the atlas — where
@@ -182,7 +195,7 @@ menu.post('/read', async (req, res, next) => {
       if (at) { locality = at.locality ?? null; address = at.postcode ?? null; }
     }
 
-    let url = String(req.body?.url || '').trim();
+    let url = String(req.body?.url || ours?.menuUrl || '').trim();
     let found = null;
     if (!url) {
       found = await findMenuUrl({ website, name: label ?? '', locality, address });

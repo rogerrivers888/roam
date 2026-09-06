@@ -1009,7 +1009,11 @@ export const api = {
   searchPlaces: (p: { q?: string; near?: string; categories?: string; radiusKm?: number; sources?: string }) =>
     request<{ near: Place & { how: string }; radiusKm: number; results: Venue[]; sourcesQueried: string[]; degradedSources: { source: string; error: string }[]; attribution: string[] }>(`/api/places/search${qs(p)}`),
   place: (venueRef: string) =>
-    request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[]; menu?: MenuLink | null; ours?: OwnedRecord | null; sourceError?: string | null }>(`/api/places/detail${qs({ ref: venueRef })}`),
+    request<{ venueRef: string; venue: Venue | null; household: Venue['household']; visits: Visit[]; menu?: MenuLink | null; ours?: OwnedRecord | null;
+      /** Why the source could not answer, already in plain words — never a provider's error text (api/src/sources/why.js). */
+      sourceError?: string | null;
+      /** Opening it started the research that had not been done. The drawer comes back for the answer. */
+      researching?: boolean }>(`/api/places/detail${qs({ ref: venueRef })}`),
   /** What Roam owns about these places — no provider is called, and this answer keeps. */
   placeRecords: (venueRefs: string[]) => request<{ records: Record<string, OwnedRecord>; missing: string[] }>(`/api/places/record${qs({ refs: venueRefs.join(',') })}`),
   /** Research a place again now (Settings, and "look again" in the drawer). */

@@ -387,7 +387,11 @@ export function BrowseNear({ d, household, onChanged, find, setFind, initialPric
           {/* Ask again with a different set: only Google, then only Tripadvisor, and compare (owner, 4 Sep 2026). */}
           <SourcePicker value={find.sources} onChange={(v) => setFind((cur) => ({ ...cur, sources: v }))} title="Ask these sources" />
           <Button label="Refresh from these sources" kind="secondary" onPress={() => run({ only: null }, true)} loading={find.loading} />
-          {find.degraded.length ? find.degraded.map((g) => <StatusLine key={g.source} tone="warn">{g.source}: {g.error}</StatusLine>) : null}
+          {/* In the family's words here too. A provider's error text names its
+              own metric and quota and belongs in the back office, not on a
+              phone (owner, 5 Sep 2026: "I should never see that on the phone
+              app"). */}
+          {find.degraded.length ? find.degraded.map((g) => <StatusLine key={g.source} tone="warn">{whyFailed(g)}</StatusLine>) : null}
         </>
       )) : null}
 

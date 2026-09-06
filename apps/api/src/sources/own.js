@@ -43,6 +43,9 @@ import { sourceHasKey, sourceOff } from './index.js';
 // The picture ladder: a mark, a Commons photograph or a street-level frame of
 // the front door — never a photograph of somebody's food that we did not take.
 import { sweepPictures } from './placePicture.js';
+// The last resort when no open source and no licensed one can say where a
+// claimed place's own page is (owner, 5 Sep 2026).
+import { searchWeb } from '../claude.js';
 
 // How long a failed attempt waits before it is tried again. Overpass rate-limits
 // by IP and a restaurant's website goes down for an afternoon; neither is a
@@ -262,6 +265,104 @@ const logCall = (householdId, provider, purpose) =>
   providerCalls.record(householdId, provider, purpose, JSON.stringify({ [provider]: 1 })).catch(() => null);
 
 /**
+ * The last resort: go and find their page.
+ *
+ * A restaurant that OpenStreetMap has never heard of and whose licensed source
+ * is over its allowance has, until now, been a street address and nothing else
+ * — no hours, no phone, no menu, for ever. Sebastian's on Peascod Street is one
+ * (owner, 5 Sep 2026: "the menu does not come up. It says 'No website for the
+ * place'… anything that's in my places or my trips, we need to make sure we
+ * have the proper detail, all of it, including the menus").
+ *
+ * The owner has already put this tool on the table for exactly this gap, 5 Sep
+ * 2026: "Can we not use Claude to then get descriptions and information that we
+ * can layer on and use, given that it's pretty low volume?" So this asks for
+ * one thing only — the address of the venue's own website — and everything that
+ * is then kept is read off that page by `siteFacts`, which is the same
+ * published-for-republication material as every other place's.
+ *
+ * Three guards, because this is the one step here that costs money:
+ *   - only for a place a household actually claimed, never for a swept one;
+ *   - only when the open map and the source's own lead have both come back
+ *     empty, which is a few places in a household rather than all of them;
+ *   - only once — the answer is stored, so the next open is free.
+ */
+const FIND_PAGE_SYSTEM = `You are finding one thing: the address of a venue's own website.
+
+You will be given a venue's name and where it is. Search for it and answer with the URL of the venue's own site — the site the business itself runs.
+
+Rules:
+- Answer with the URL alone, on one line, and nothing else.
+- If it is a chain or a group, give the page for THIS branch if they have one, otherwise the group's site.
+- Never answer with a directory, an aggregator or a review site: not TripAdvisor, Yelp, Google, Facebook, Instagram, OpenTable, Resy, Deliveroo, Just Eat, Uber Eats, Yell, or any "best restaurants in…" list.
+- If you cannot find a site the business itself runs, answer with the single word NONE.
+- If the venue appears to have closed, answer with the single word CLOSED.`;
+
+const NOT_THEIR_SITE = /(tripadvisor|yelp|facebook|instagram|twitter|x\.com|google\.|opentable|resy|deliveroo|just-?eat|ubereats|yell\.com|foursquare|zomato|thefork|bookatable|linkedin|wikipedia|tiktok)/i;
+
+async function findTheirPage({ venueRef, name, locality, address, category, householdId }) {
+  if (!name) return null;
+  if (!process.env.ANTHROPIC_API_KEY?.trim() && !process.env.ANTHROPIC_AUTH_TOKEN?.trim()) return null;
+  // A swept place is not a claimed one. The area sweep queues hundreds of these
+  // and none of them is anybody's yet.
+  if (!(await owned.isClaimed(venueRef).catch(() => false))) return null;
+  const meta = {};
+  const { text } = await searchWeb({
+    system: FIND_PAGE_SYSTEM,
+    prompt: [name, category ? `a ${category}` : null, address, locality].filter(Boolean).join('\n'),
+    householdId, sessionId: null, purpose: 'own.findPage',
+    maxSearches: 3, maxFetches: 1, effort: 'low', meta,
+  });
+  const line = String(text || '').trim().split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '';
+  const url = (line.match(/https?:\/\/[^\s"'<>)]+/) ?? [])[0] ?? null;
+  // Asked and answered is a different thing from never asked: the caller writes
+  // both down, and only the first one costs anything to find out twice.
+  if (!url || NOT_THEIR_SITE.test(url)) return { url: null };
+  try { new URL(url); } catch { return { url: null }; }
+  return { url };
+}
+
+/**
+ * Whether a record says which place this is, rather than only where it is.
+ *
+ * The name, the open-map reference and the website are the three fields that
+ * mean somebody found *this place*; an address and a postcode come from a point
+ * on the map and would be there for a field in the middle of nowhere.
+ */
+export function isIdentified(provenance) {
+  return ['name', 'osm_ref', 'website'].some((f) => provenance?.[f]);
+}
+
+/**
+ * The address of a place's own page, from the source that identified it.
+ *
+ * One request on the narrowest field mask there is — an id, a name, a point and
+ * a website — which is the same call `seedFor` makes to turn a bare place ID
+ * back into something searchable. Nothing it returns is stored: the website is
+ * followed, their page is read, and what *they* publish is what lands in
+ * `place_records` (Technical Constraints §13.10).
+ *
+ * Returns `{ website, name }`, or `{ problem }` when the source would not
+ * answer, so that "we could not ask" is on the record as its own reason and is
+ * tried again rather than being mistaken for "they have no website".
+ */
+async function websiteLead(venueRef, householdId) {
+  const [source, ...rest] = String(venueRef).split(':');
+  if (source !== 'google' || !sourceHasKey('google') || sourceOff('google')) return null;
+  try {
+    const meter = {};
+    const brief = await googleSource.brief(rest.join(':'), { meter });
+    await providerCalls.record(householdId, 'google', 'own.lead', JSON.stringify(meter)).catch(() => null);
+    if (!brief?.website) return { website: null, name: brief?.name ?? null };
+    return { website: brief.website, name: brief.name ?? null };
+  } catch (err) {
+    // Attributed whether or not it answered, the same as the open map above.
+    await providerCalls.record(householdId, 'google', 'own.lead', JSON.stringify({ google: 1 })).catch(() => null);
+    return { problem: `where their page is: ${String(err?.message || err).slice(0, 120)}` };
+  }
+}
+
+/**
  * Research one place and write what we may keep.
  *
  * Returns `{ state, fields, matched }`. Never throws — a place that cannot be
@@ -269,17 +370,19 @@ const logCall = (householdId, provider, purpose) =>
  */
 export async function enrich(venueRef, { householdId = null, seed: given = {}, force = false } = {}) {
   await owned.ensureRecord(venueRef);
+  const before = await owned.enrichStateOf(venueRef);
   if (!force) {
-    const row = await owned.enrichStateOf(venueRef);
+    const row = before;
     const fresh = row?.enriched_at && Date.now() - new Date(row.enriched_at).getTime() < REFRESH_AFTER_DAYS * 86_400_000
       // A record made by an older researcher is not fresh, however recent it is.
       && (row?.research_version ?? 0) >= RESEARCH_VERSION;
-    // "Already researched" has to mean something was found. A record that came
-    // back empty is not done with, and this guard was quietly cancelling the
-    // catch-up that had just queued it: one said ask again, the other said we
-    // asked recently, and the empty record stayed empty (found 4 Sep 2026).
-    const found = Object.keys(row?.provenance ?? {}).length > 0;
-    if (row?.enrich_state === 'done' && fresh && found) return { state: 'done', skipped: 'already researched' };
+    // "Already researched" has to mean we found out which place this is. A
+    // record that came back empty is not done with, and this guard was quietly
+    // cancelling the catch-up that had just queued it: one said ask again, the
+    // other said we asked recently, and the empty record stayed empty (found
+    // 4 Sep 2026). A street address is not an identification either — that let
+    // a reverse-geocode stand in for the research (owner, 5 Sep 2026).
+    if (row?.enrich_state === 'done' && fresh && isIdentified(row?.provenance)) return { state: 'done', skipped: 'already researched' };
   }
 
   const seed = await seedFor(venueRef, given, { householdId });
@@ -290,7 +393,20 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   const canAsk = Boolean(seed.name && seed.lat != null);
   const matched = {};
   const problems = [];
-  let found = 0;
+  // Whether we ever worked out *which place this is* — which is not the same
+  // question as whether anything came back. A reverse-geocode answers for any
+  // point on earth, so a place nobody could identify still got a street
+  // address, and that one field was enough to call the research done and stop
+  // it being tried again: Kokoro sat empty for two days with a perfectly good
+  // OpenStreetMap entry five metres away, because Overpass happened to be busy
+  // on the afternoon it was claimed (owner, 5 Sep 2026).
+  let identified = 0;
+  // Going out to look for a venue's own page is the one step here that costs
+  // money, so it is remembered: once a month at the very most, and never twice
+  // because somebody opened the drawer twice.
+  const askedBefore = before?.matched?.search ?? null;
+  if (askedBefore) matched.search = askedBefore;
+  const askAgain = !askedBefore?.at || Date.now() - new Date(askedBefore.at).getTime() > 30 * 86_400_000;
 
   // 1. The same place in the open map. Everything else is easier once this
   //    lands, because OSM carries the website the other two need.
@@ -340,7 +456,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
           stepFree: t['wheelchair:description'] ?? null,
         }),
       ]);
-      found += 1;
+      identified += 1;
       if (!seed.website) seed.website = v?.website ?? null;
       // The map has just said what kind of place this is, and that is what
       // decides whether their page is worth reading for a menu.
@@ -350,6 +466,50 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     }
   } catch (err) {
     problems.push(`OpenStreetMap: ${String(err?.message || err).slice(0, 120)}`);
+  }
+
+  // 1a. Where their own page is, when the open map does not know this place.
+  //
+  //     Everything below this line needs a website, and until now the only
+  //     source of one was OpenStreetMap. A restaurant the open map has never
+  //     heard of — Sebastian's, 134 Peascod Street, which is a real restaurant
+  //     with a real menu — therefore got an address and nothing else, for ever
+  //     (owner, 5 Sep 2026: "the menu does not come up. It says 'No website for
+  //     the place'").
+  //
+  //     The licence position is the one `seedFor` already takes and the one at
+  //     the top of this file: the rented record is a description of what to go
+  //     and find. So we ask for the narrowest thing there is — the address of
+  //     their own page — read that page, and store what *they* publish. Nothing
+  //     Google returns is written down, and the call is attributed like every
+  //     other (Technical Constraints §13.10).
+  if (!seed.website) {
+    const lead = await websiteLead(venueRef, householdId);
+    if (lead?.website) seed.website = lead.website;
+    if (lead && !seed.name) seed.name = lead.name ?? seed.name;
+    if (lead?.problem) problems.push(lead.problem);
+  }
+  // Still nothing, and somebody asked for this place by name: go and find it.
+  if (!seed.website && !osm && askAgain) {
+    try {
+      const asked = await findTheirPage({
+        venueRef, name: seed.name, category: seed.category,
+        locality: seed.locality ?? null,
+        address: seed.address ?? (await ownedRecord(venueRef).catch(() => null))?.address ?? null,
+        householdId,
+      });
+      // Written down whichever way it went: "we looked and there is nothing" is
+      // an answer, and it is the answer that stops us paying to look again.
+      if (asked) {
+        matched.search = { url: asked.url, at: new Date().toISOString() };
+        if (asked.url) seed.website = asked.url;
+        else problems.push('no website found for it anywhere');
+      }
+    } catch (err) {
+      problems.push(`looking for their page: ${String(err?.message || err).slice(0, 120)}`);
+    }
+  } else if (!seed.website && !osm && askedBefore?.url) {
+    seed.website = askedBefore.url;
   }
 
   // 2. Their own page: the facts a business publishes to be republished.
@@ -377,7 +537,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
           put('summary', site.summary),
           put('summary_source', site.summary ? (site.sourceUrl ?? seed.website) : null),
         ]);
-        found += 1;
+        identified += 1;
       } else {
         problems.push('their website did not answer');
       }
@@ -405,7 +565,6 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
           putFact(venueRef, 'address', 'nominatim', geo.formatted || null, 1),
           putFact(venueRef, 'postcode', 'nominatim', geo.address?.postcode ?? null, 1),
         ]);
-        found += 1;
       }
     } catch (err) {
       problems.push(`the address lookup: ${String(err?.message || err).slice(0, 120)}`);
@@ -432,7 +591,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
         putFact(venueRef, 'name', 'wikipedia', enc.displayTitle ?? enc.title, enc.confidence),
         putFact(venueRef, 'website', 'wikidata', enc.officialWebsite, enc.confidence),
       ]);
-      found += 1;
+      identified += 1;
     }
   } catch (err) {
     problems.push(`Wikipedia: ${String(err?.message || err).slice(0, 120)}`);
@@ -444,8 +603,12 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   // answered and none of them knew this place: partial — probably true, possibly
   // a bad afternoon on a free service, so tried again a few times over the next
   // day and then let be.
-  const refused = problems.some((p) => !/no match|did not answer/.test(p));
-  const state = found ? 'done' : refused ? 'failed' : 'partial';
+  const refused = problems.some((p) => !/no match|did not answer|no website found/.test(p));
+  // "Done" has to mean we know which place this is. An address on its own is a
+  // consolation prize, not an answer, so a record that got no further is left
+  // as partial and comes back round rather than being written off on the
+  // strength of a postcode.
+  const state = identified ? 'done' : refused ? 'failed' : 'partial';
 
   const attempts = await owned.recordAttempt(venueRef, {
     state, error: problems.length ? problems.join('; ') : null, matched, researchVersion: RESEARCH_VERSION,
@@ -483,6 +646,42 @@ export function queueEnrichment(venueRef, opts = {}) {
   queued.add(venueRef);
   waiting.push({ venueRef, ...opts });
   pump();
+}
+
+// A place somebody has open in front of them is researched again there and
+// then, whatever the background loop had scheduled — but not more often than
+// this, or flicking in and out of a drawer would drive the queue.
+const OPEN_AGAIN_MS = 10 * 60_000;
+const openedAt = new Map();
+
+/**
+ * Somebody has just opened this place.
+ *
+ * The owner, 5 Sep 2026: "we should call the API as soon as a user opens a
+ * record to make sure that we get the correct data in." A record that never got
+ * as far as identifying the place is researched again now — the backoff a
+ * failed afternoon left behind is for the background loop, not for somebody
+ * standing in front of the drawer waiting to see a menu.
+ *
+ * Returns true when research has started, so the screen can come back for the
+ * answer rather than showing the gap and staying there.
+ */
+export async function researchOnOpen(venueRef, { householdId = null, seed = {} } = {}) {
+  if (!venueRef) return false;
+  // Only for a place this household actually holds. Looking at something in a
+  // search is not the act that makes it matter — shortlisting it, saving it or
+  // going there is (Technical Constraints §13.10) — and researching everything
+  // anybody glanced at would fill the owned layer with places nobody chose.
+  if (!(await owned.isClaimed(venueRef).catch(() => false))) return false;
+  const row = await owned.enrichStateOf(venueRef).catch(() => null);
+  // Nothing to chase: we know which place this is.
+  if (row && isIdentified(row.provenance)) return false;
+  const last = openedAt.get(venueRef) ?? 0;
+  if (Date.now() - last < OPEN_AGAIN_MS) return queued.has(venueRef) || running > 0;
+  openedAt.set(venueRef, Date.now());
+  await owned.ensureRecord(venueRef).catch(() => null);
+  queueEnrichment(venueRef, { householdId, seed, force: true });
+  return true;
 }
 
 /**

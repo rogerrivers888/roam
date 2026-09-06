@@ -157,9 +157,6 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
     if (!enabled) return;
     let live = true;
     api.household().then((h) => live && setHousehold(h)).catch(() => {});
-    api.heldMenu(venueRef, website ?? null)
-      .then((d) => { if (!live) return; setMenu(d.menu); setLink(d.link ?? null); setSection(d.menu?.sections[0]?.title ?? null); })
-      .catch((e) => { if (live) { setMenu(null); setError(e.message); } });
     api.orderHistory(venueRef).then((d) => {
       if (!live) return;
       setHistory(d.orders);
@@ -184,6 +181,31 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
     }).catch(() => {});
     return () => { live = false; };
   }, [venueRef, enabled]);
+
+  // The menu we hold, and where theirs is — asked again when the website
+  // changes, because a place whose record was thin when the drawer opened gets
+  // researched while it is open, and the answer arriving is the whole point
+  // (owner, 5 Sep 2026).
+  const menuFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    // A different place is a clean slate; the same place asked again is only
+    // ever adding what we did not have, so a menu already read stays read.
+    const fresh = menuFor.current !== venueRef;
+    menuFor.current = venueRef;
+    if (fresh) { setMenu(undefined); setLink(null); setSection(null); setError(null); }
+    api.heldMenu(venueRef, website ?? null)
+      .then((d) => {
+        if (!live) return;
+        if (fresh) { setMenu(d.menu); setLink(d.link ?? null); setSection(d.menu?.sections[0]?.title ?? null); return; }
+        setMenu((held) => held ?? d.menu);
+        setLink((had) => d.link ?? had);
+        setSection((at) => at ?? d.menu?.sections[0]?.title ?? null);
+      })
+      .catch((e) => { if (live) { setMenu((held) => held ?? null); setError(e.message); } });
+    return () => { live = false; };
+  }, [venueRef, enabled, website]);
 
   const members = household?.members ?? [];
   const sections = menu?.sections ?? [];

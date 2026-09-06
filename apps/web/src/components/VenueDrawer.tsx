@@ -292,6 +292,30 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, addLabel, addIcon
     // come back empty — and an empty answer is what the screen was reading as
     // "no signal".
     if (item.venueRef.startsWith('wikidata:')) { setVenue(null); return () => { live = false; }; }
+    // Opening a place we never managed to identify sends the researcher out
+    // again (owner, 5 Sep 2026: "we should call the API as soon as a user opens
+    // a record to make sure that we get the correct data in"). It takes a few
+    // seconds — the open map, then their own page — so the drawer comes back
+    // for the answer rather than showing the gap and leaving it there.
+    //
+    // It asks for our own record, not for the place again: a second look at the
+    // place is a second Place Details request, and spending six of somebody's
+    // daily allowance to watch a free lookup finish is how the allowance ran
+    // out in the first place. `/api/places/record` reads our own tables and
+    // calls nobody.
+    const waitForResearch = async () => {
+      const ref = item.venueRef;
+      for (let n = 0; n < 6 && live; n += 1) {
+        await new Promise((r) => setTimeout(r, 4000));
+        if (!live) return;
+        const held = await api.placeRecords([ref]).catch(() => null);
+        const now = held?.records?.[ref];
+        if (!live || !now) continue;
+        setOwnRecord(now);
+        // Something to show: a name, a page of theirs, or the open map's entry.
+        if (now.website || now.osmRef || now.name) return;
+      }
+    };
     api.place(item.venueRef)
       .then((d) => {
         if (!live) return;
@@ -300,6 +324,7 @@ export function VenueDrawer({ item, baseLabel, onClose, onAdd, addLabel, addIcon
         if (d.sourceError) setError(d.sourceError);
         if (d.ours) setOwnRecord(d.ours);
         else void fromDevice();
+        if (d.researching) void waitForResearch();
       })
       .catch((e) => {
         if (!live) return;
