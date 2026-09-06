@@ -43,7 +43,7 @@ import { VenueDrawer } from '../components/VenueDrawer';
 import { asOneOf, asText, useQueryState, useRouter } from '../router';
 import { paths, type TripSection } from '../routes';
 import { weeksOf } from './tripWeeks';
-import { fromName, tripName } from './tripName';
+import { fromName, shortPlaceName, tripName } from './tripName';
 
 const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 const clock = (iso: string) => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
@@ -716,8 +716,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           mode={stayMode} onMode={setStayMode}
           nights={nights} startDate={trip.startDate} endDate={trip.endDate}
           count={stays.results.length} loading={stays.loading}
-          town={shortTown(criteriaState.town?.label ?? trip.locality ?? tripName(trip))}
-          ownTown={shortTown(trip.locality ?? tripName(trip))}
+          town={shortPlaceName({ label: criteriaState.town?.label ?? trip.locality ?? tripName(trip) })}
+          ownTown={shortPlaceName({ label: trip.locality ?? tripName(trip) })}
           at={dest?.lat != null ? { lat: dest.lat as number, lng: dest.lng as number } : null}
           planned={plannedCount}
           plannedNames={plannedNames}
@@ -1134,16 +1134,6 @@ const stillSaved = (p: TripPlace) => p.shortlisted && !p.scheduled;
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/[-_]/g, ' ');
 /** "Bari, Polignano, Matera and Lecce" — the handoff's own phrasing (§20). */
-/**
- * A town, short enough for a third of a phone. Councils and districts have
- * names nobody says out loud — "Windsor and Maidenhead", "Bath and North East
- * Somerset" — and the tile drew "Near Windsor and …", which names nowhere.
- */
-export const shortTown = (label: string) => {
-  const first = label.split(',')[0].trim();
-  const half = first.split(/\s+and\s+/i)[0].trim();
-  return (half.length >= 3 ? half : first).replace(/\s*\(centre\)$/i, '');
-};
 const andList = (xs: string[]) => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** Something already on the trip, in the drawer's shape. */

@@ -36,7 +36,24 @@ export type Named = {
 /** "Thorpe Park (centre)" and "Henley-on-Thames, South Oxfordshire" are both "the place". */
 const plain = (label?: string | null): string | null => {
   const first = (label ?? '').split(',')[0].replace(/\s*\(centre\)\s*$/i, '').trim();
-  return first || null;
+  return first ? council(first) : null;
+};
+
+/**
+ * The town inside a council's name.
+ *
+ * "Bath and North East Somerset" is the authority that collects Bath's bins,
+ * and it is what the area index hands back when somebody types Bath. Nobody
+ * says it out loud, and it does not fit a third of a phone. So a name of the
+ * form "X and Y" reads as X — "Windsor and Maidenhead" is Windsor, "Bath and
+ * North East Somerset" is Bath.
+ *
+ * Only where the head is a name in its own right: "Newcastle and Gateshead"
+ * keeps its head, but a two-letter head would not be a place, so it does not.
+ */
+const council = (name: string): string => {
+  const head = name.split(/\s+and\s+/i)[0].trim();
+  return head.length >= 3 ? head : name;
 };
 
 /** Where the day starts from: the base you are sleeping at, or home. */
@@ -76,7 +93,10 @@ export function tripTitle(trip: Named & { title?: string | null }): string {
   const name = tripName(trip);
   if (!title) return name;
   const [head, ...rest] = title.split(' · ');
-  const derived = plain(head) === plain(trip.locality) && plain(head) !== name;
+  // The head as it was written down, not as it now reads — the comparison is
+  // with the stored locality, and both have to be raw for that to mean anything.
+  const raw = head.split(',')[0].replace(/\s*\(centre\)\s*$/i, '').trim();
+  const derived = raw !== name && (raw === (trip.locality ?? '').trim() || plain(raw) === name);
   return derived ? [name, ...rest].join(' · ') : title;
 }
 

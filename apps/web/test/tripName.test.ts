@@ -93,3 +93,28 @@ test('an address reads by its town; a place reads by its own name', async () => 
   assert.equal(shortPlaceName({ label: 'Thorpe Park' }), 'Thorpe Park');
   assert.equal(shortPlaceName(null), '');
 });
+
+test('a council reads as the town inside it', async () => {
+  const { tripName, shortPlaceName } = await import('../src/screens/tripName');
+  // Made on production before the naming rule landed: every field is the council.
+  assert.equal(tripName({
+    title: 'Bath and North East Somerset · Sep 2026',
+    locality: 'Bath and North East Somerset',
+    place: { label: 'Bath and North East Somerset' },
+    base: { label: 'Bath and North East Somerset (centre)' },
+  }), 'Bath');
+  assert.equal(shortPlaceName({ label: 'Windsor and Maidenhead' }), 'Windsor');
+  // A head too short to be a place keeps the whole name.
+  assert.equal(shortPlaceName({ label: 'St and Andrews' }), 'St and Andrews');
+  // Nothing to cut.
+  assert.equal(shortPlaceName({ label: 'Kingston upon Thames' }), 'Kingston upon Thames');
+});
+
+test('the swapped title still keeps what somebody wrote after it', async () => {
+  const { tripTitle } = await import('../src/screens/tripName');
+  assert.equal(tripTitle({
+    title: 'Bath and North East Somerset · Sep 2026',
+    locality: 'Bath and North East Somerset',
+    place: { label: 'Bath and North East Somerset' },
+  }), 'Bath · Sep 2026');
+});
