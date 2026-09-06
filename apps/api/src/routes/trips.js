@@ -599,16 +599,44 @@ router.get('/:id/along', async (req, res, next) => {
      * way to Thorpe Park, and a corridor that says so is not describing a
      * corridor. So a place must also be *between*, give or take.
      */
-    const alongTrack = (v) => {
-      if (!destination) return 0.5;
+    const track = (v) => {
+      if (!destination) return { t: 0.5, offKm: 0 };
       const kx = Math.cos((origin.lat * Math.PI) / 180);
       const ax = (destination.lng - origin.lng) * kx;
       const ay = destination.lat - origin.lat;
       const bx = (v.lng - origin.lng) * kx;
       const by = v.lat - origin.lat;
       const len2 = ax * ax + ay * ay;
-      return len2 === 0 ? 0.5 : (ax * bx + ay * by) / len2;
+      if (len2 === 0) return { t: 0.5, offKm: 0 };
+      const t = (ax * bx + ay * by) / len2;
+      // Where it would sit if it were on the line, and how far it is from
+      // there. Measured with the same haversine as everything else rather than
+      // by turning degrees into kilometres by hand.
+      const clamped = Math.max(0, Math.min(1, t));
+      const foot = {
+        lat: origin.lat + (destination.lat - origin.lat) * clamped,
+        lng: origin.lng + (destination.lng - origin.lng) * clamped,
+      };
+      return { t, offKm: kmBetween(foot, v) };
     };
+
+    /**
+     * How wide the corridor is.
+     *
+     * The detour budget buys a certain amount of extra driving, and a place
+     * beside the route costs roughly twice its distance from the line — out and
+     * back again. So half of what the budget reaches is the width, with a floor
+     * so a short hop still finds anything at all.
+     *
+     * This is the constraint that was missing, and the numbers say so plainly.
+     * On the run from Ascot to Thorpe Park the three places anybody would call
+     * on the way — Wentworth, Thorpe Lakes, Penton Hook — are 0.8km, 0.2km and
+     * 0.4km off the line. Chobham Common is 2.4km off it and Windsor Great Park
+     * 4.0km, on a journey that is only 7.9km end to end. Every one of them was
+     * inside the detour budget, because going back on yourself and round is
+     * genuinely only ten minutes; none of them is on the way.
+     */
+    const corridorKm = Math.max(1, reachRadiusKm(mode, maxDetourMin) / 2);
 
     /**
      * The destination is not a thing to stop at on the way to the destination,
@@ -641,7 +669,8 @@ router.get('/:id/along', async (req, res, next) => {
       return {
         venueRef, source: v.source, name: v.name, category: v.category ?? 'attraction',
         /** Kept off the answer; only here so the filter below can read it. */
-        _t: alongTrack(v), _inside: insideDestination(v),
+        ...(() => { const k = track(v); return { _t: k.t, _off: k.offKm }; })(),
+        _inside: insideDestination(v),
         lat: v.lat, lng: v.lng,
         cuisines: v.cuisines ?? [], experiences: v.experiences ?? [],
         rating: v.rating ?? null, ratingCount: v.ratingCount ?? null, priceLevel: v.priceLevel ?? null,
@@ -697,13 +726,12 @@ router.get('/:id/along', async (req, res, next) => {
       // Not the destination, and not standing inside it.
       .filter((r) => !r._inside)
       /**
-       * And between the two ends of the journey, give or take: a tenth of the
-       * way back past home, and a third of the way beyond the destination,
-       * which is what "near the end" means to somebody who has just arrived.
-       * Without a destination there is no line to be beside and the detour is
-       * simply how far away it is, so the test does not apply.
+       * And beside the line, between its two ends: a little way back past home,
+       * a little way beyond the destination, and within the corridor's width of
+       * the road between them. Without a destination there is no line to be
+       * beside and the detour is simply how far away it is, so neither applies.
        */
-      .filter((r) => !destination || (r._t >= -0.1 && r._t <= 1.35))
+      .filter((r) => !destination || (r._t >= -0.05 && r._t <= 1.3 && r._off <= corridorKm))
       .sort((a, b) => band(a.detourMinutes) - band(b.detourMinutes)
         || standing(b) - standing(a)
         || (a.detourMinutes ?? 999) - (b.detourMinutes ?? 999));
@@ -716,13 +744,15 @@ router.get('/:id/along', async (req, res, next) => {
        * Bath" instead — the same number, named for what it actually is.
        */
       hasRoute: !!destination,
-      places: within.slice(0, 60).map(({ _t, _inside, ...p }) => p),
+      places: within.slice(0, 60).map(({ _t, _off, _inside, ...p }) => p),
       counts: {
         route: within.length,
         there: destination ? rows.filter((r) => kmBetween(destination, r) <= reach).length : 0,
       },
       /** How many were found and left out, so the screen can offer a wider detour honestly. */
       beyond: rows.length - within.length,
+      /** How far off the road a place may be and still count as on the way. */
+      corridorKm: destination ? Number(corridorKm.toFixed(1)) : null,
       estimated: true,
       degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started,
     });
