@@ -24,6 +24,7 @@
  */
 
 import { Router } from 'express';
+import { requireOwner } from '../auth.js';
 import { hotelsNear, vocabularies, liteapiEnabled } from '../sources/liteapi.js';
 import { bedRatesOn } from '../sources/index.js';
 import { whatIsOnOffer, centreOfPlans } from '../domain/stays.js';
@@ -93,6 +94,50 @@ router.post('/centre', (req, res, next) => {
     if (!points.length) return res.status(400).json({ error: 'points_required' });
     const centre = centreOfPlans(points);
     res.json({ centre, of: points.length });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/stays/probe?lat=&lng= — what the hotel source actually sends.
+ *
+ * The owner's, and only the owner's. Field *names* and reference vocabularies,
+ * never a hotel's content: this answers "can we offer villas and farm stays"
+ * and "which facilities does this source know about", which are questions about
+ * the catalogue rather than about anybody's hotel.
+ *
+ * It exists because the documentation and the wire disagreed. The docs say
+ * /data/hotels returns hotelTypeId; the live answer for Bath carried facility
+ * ids on all hundred beds and a hotel type on none. That is the kind of thing
+ * that has to be measured before a wizard offers a household a choice it cannot
+ * honour.
+ */
+router.get('/probe', requireOwner, async (req, res, next) => {
+  try {
+    if (!bedRatesOn()) return res.json({ on: false });
+    const lat = Number(req.query.lat) || 51.3811;
+    const lng = Number(req.query.lng) || -2.3590;
+    const [pool, vocab] = await Promise.all([hotelsNear({ lat, lng }, 5), vocabularies()]);
+    const raw = pool.hotels[0] ?? {};
+    res.json({
+      // Which of the fields we hoped for actually arrive, and on how many rows.
+      fields: Object.keys(raw).sort(),
+      coverage: {
+        of: pool.hotels.length,
+        facilityIds: pool.hotels.filter((h) => h.facilityIds?.length).length,
+        hotelTypeId: pool.hotels.filter((h) => h.hotelTypeId).length,
+        stars: pool.hotels.filter((h) => h.stars).length,
+        rating: pool.hotels.filter((h) => h.rating).length,
+        photos: pool.hotels.filter((h) => h.photos?.length).length,
+        chain: pool.hotels.filter((h) => h.chain).length,
+      },
+      vocabularies: {
+        facilities: vocab.facilities.size,
+        hotelTypes: vocab.hotelTypes.size,
+        // The catalogue's own words, so the shortlist of what to offer a
+        // household can be drawn from what exists rather than invented.
+        hotelTypeNames: [...vocab.hotelTypes.entries()].map(([id, label]) => `${id}:${label}`),
+      },
+    });
   } catch (err) { next(err); }
 });
 
