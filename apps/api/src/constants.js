@@ -24,3 +24,35 @@ export const isFoodCategory = (category) => FOOD_CATEGORIES.has(category);
  * (migration 002). Anything not one of these is not a take.
  */
 export const TAKES = ['loved', 'fine', 'not_for_me'];
+
+/**
+ * The sources that cannot send a bill, whatever we ask of them.
+ *
+ * Roam's household ceiling exists "so one household cannot run up an unbounded
+ * bill" (Technical Constraints §14), and it was counting every row in
+ * `provider_calls` — including the open map, the encyclopedias and the address
+ * lookup, which are free. One afternoon of research put a household over three
+ * thousand calls on about fifteen hundred free ones, and the first thing it
+ * cost them was reading a menu (owner, 6 Sep 2026: "Count only what can cost
+ * money").
+ *
+ * Attribution is unchanged: every call is still recorded, whoever it went to.
+ * This is only about which of them the money guard counts.
+ */
+export const FREE_SOURCES = new Set([
+  'osm', 'overpass', 'osm-overpass', 'nominatim', 'osm-nominatim', 'photon',
+  'wikipedia', 'wikidata', 'wikimedia', 'commons',
+  'tfl', 'postcodes', 'fixtures',
+]);
+
+/**
+ * Whether a `provider_calls` row could have cost anything.
+ *
+ * A search names every source it asked ("fixtures+osm+google"), so a row counts
+ * if any one of them bills. A row that names nobody counts, because an unknown
+ * source is not a free one.
+ */
+export function canBill(provider) {
+  const parts = String(provider ?? '').split('+').map((p) => p.trim()).filter(Boolean);
+  return parts.length ? parts.some((p) => !FREE_SOURCES.has(p)) : true;
+}

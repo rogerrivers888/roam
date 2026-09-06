@@ -20,8 +20,12 @@ export const LINES = [
   {
     key: 'claude', label: 'Claude planner', source: 'anthropic', unit: 'call', unitPlural: 'calls',
     what: 'Understands what you said and refines the plan. Billed by tokens at list rates.',
-    // Not a free allowance: Roam's own ceiling, so one household cannot run up an unbounded bill (§14).
-    cap: { kind: 'monthly', limit: HOUSEHOLD_MONTHLY_CALL_BOUND, label: 'household cap on provider calls', env: 'ROAM_HOUSEHOLD_MONTHLY_CALL_BOUND', countsAllCalls: true },
+    // Not a free allowance: Roam's own ceiling, so one household cannot run up
+    // an unbounded bill (§14). It counts every call that could cost something,
+    // whoever it went to — and only those, because the open map and the
+    // encyclopedias cannot bill and a guard they can fill is a guard against
+    // using Roam (owner, 6 Sep 2026).
+    cap: { kind: 'monthly', limit: HOUSEHOLD_MONTHLY_CALL_BOUND, label: 'household cap on calls that can cost money', env: 'ROAM_HOUSEHOLD_MONTHLY_CALL_BOUND', countsEveryBillableCall: true },
     hardStop: 'The workspace spend limit in the Anthropic console is the hard stop.',
     console: ANTHROPIC_CONSOLE,
   },

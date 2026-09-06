@@ -12,6 +12,7 @@
  */
 
 import { query } from '../db.js';
+import { canBill } from '../constants.js';
 
 // ---------------------------------------------------------------------------
 // writing
@@ -41,18 +42,29 @@ export async function recordTokens(c) {
 // the caps
 // ---------------------------------------------------------------------------
 
+// The two counts the spend bounds are judged on. Both ask what could have cost
+// money rather than what happened: the open map, the encyclopedias and the
+// address lookup are free, and a guard against an unbounded bill that they can
+// fill is a guard against using Roam (owner, 6 Sep 2026). `constants.js`
+// `canBill` holds the list; everything is still recorded either way.
+const billable = (rows) => rows.reduce((n, r) => n + (canBill(r.provider) ? r.n : 0), 0);
+
 export async function countForSession(sessionId) {
-  const { rows } = await query('select count(*)::int as n from provider_calls where session_id = $1', [sessionId]);
-  return rows[0].n;
+  const { rows } = await query(
+    'select provider, count(*)::int as n from provider_calls where session_id = $1 group by provider',
+    [sessionId],
+  );
+  return billable(rows);
 }
 
 export async function countThisMonth(householdId) {
   const { rows } = await query(
-    `select count(*)::int as n from provider_calls
-      where household_id = $1 and created_at >= date_trunc('month', now())`,
+    `select provider, count(*)::int as n from provider_calls
+      where household_id = $1 and created_at >= date_trunc('month', now())
+      group by provider`,
     [householdId],
   );
-  return rows[0].n;
+  return billable(rows);
 }
 
 /**

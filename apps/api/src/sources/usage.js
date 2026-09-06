@@ -5,6 +5,7 @@
 
 import * as providerCalls from '../repositories/providerCalls.js';
 import { LINES, legacyLines } from './pricing.js';
+import { canBill } from '../constants.js';
 
 const EPOCH = new Date(0);
 const FAR = new Date('2100-01-01T00:00:00Z');
@@ -14,7 +15,11 @@ const empty = () => ({ calls: 0, units: 0, costUsd: 0, estimated: false });
 /** Per-line totals between two instants: {calls, units, costUsd, estimated} keyed by line, plus the overall total. */
 export async function usageBetween(householdId, from = EPOCH, to = FAR) {
   const lines = Object.fromEntries(LINES.map((l) => [l.key, empty()]));
-  const total = { calls: 0, costUsd: 0 };
+  // `calls` is everything that was asked of anybody; `billable` is the part of
+  // it that could have cost something, which is what the household ceiling is
+  // judged on (constants.js `canBill`). Two numbers because the screen wants to
+  // show the work and the guard wants to bound the bill.
+  const total = { calls: 0, billable: 0, costUsd: 0 };
 
   // Rows written with units: the provider counted what it billed for.
   const metered = await providerCalls.meteredUnits(householdId, from, to);
@@ -32,6 +37,7 @@ export async function usageBetween(householdId, from = EPOCH, to = FAR) {
   const rows = await providerCalls.callsByPurpose(householdId, from, to);
   for (const r of rows) {
     total.calls += r.calls;
+    if (canBill(r.provider)) total.billable += r.calls;
     total.costUsd += r.cost_usd;
     if (!r.legacy) continue;
     for (const { key, units } of legacyLines(r.provider, r.purpose)) {
@@ -70,8 +76,11 @@ export async function allowanceUsage(householdId) {
     const stats = a.kind === 'monthly' ? month : a.kind === 'daily' ? today : all;
     const s = stats.lines[line.key] ?? empty();
     // Caps count calls (that is what the bound checks) — the household cap every
-    // provider call, the scout cap its own runs; allowances count what the provider bills for.
-    const used = line.cap?.countsAllCalls ? stats.total.calls : line.cap && !line.allowance ? s.calls : s.units;
+    // call that could cost something, the scout cap its own runs; allowances
+    // count what the provider bills for. This has to be the same arithmetic the
+    // guard does (`providerCalls.countThisMonth`) or the screen says one thing
+    // while the app refuses on another.
+    const used = line.cap?.countsEveryBillableCall ? stats.total.billable : line.cap && !line.allowance ? s.calls : s.units;
     out[line.key] = {
       kind: a.kind, limit: a.limit, used: Math.round(used), estimated: s.estimated,
       resetsAt: a.kind === 'monthly' ? w.next_month_start : a.kind === 'daily' ? w.tomorrow_start : null,
