@@ -374,7 +374,7 @@ async function websiteLead(venueRef, householdId) {
  * Returns `{ state, fields, matched }`. Never throws — a place that cannot be
  * researched today is left for the next attempt with the reason on the row.
  */
-export async function enrich(venueRef, { householdId = null, seed: given = {}, force = false } = {}) {
+export async function enrich(venueRef, { householdId = null, seed: given = {}, force = false, replace = force } = {}) {
   await owned.ensureRecord(venueRef);
   const before = await owned.enrichStateOf(venueRef);
   if (!force) {
@@ -432,10 +432,16 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     // anyone noticed (found 4 Sep 2026). An empty answer is not evidence of
     // absence.
     //
-    // A match that was wrong still has to be removable, and that is what `force`
-    // is for — the drawer's "Look again", and the six-monthly refresh. Asked
-    // deliberately, we clear first and take whatever comes back.
-    if (osm || force) await forgetSource(venueRef, ['osm']);
+    // A match that was wrong still has to be removable, and that is what
+    // `replace` is for — the drawer's "Look again", and the six-monthly
+    // refresh. Asked deliberately, we clear first and take whatever comes back.
+    //
+    // Which is why it is not the same flag as `force`. Asking again sooner than
+    // scheduled is one decision; throwing away what we know before we ask is
+    // another, and doing both automatically means an hour when Overpass is
+    // down erases every claimed place somebody happens to open. Kokoro lost the
+    // open-map entry it had matched an hour earlier, that way (6 Sep 2026).
+    if (osm || replace) await forgetSource(venueRef, ['osm']);
     if (osm) {
       const v = venueFromOsmElement({ type: osm.ref.split('/')[0], id: osm.ref.split('/')[1], lat: osm.lat, lon: osm.lng, tags: osm.tags });
       const t = osm.tags;
@@ -524,7 +530,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
       const site = await siteFacts({ website: seed.website, name: seed.name, category: seed.category ?? null, locality: seed.locality ?? null, knownAddress: seed.address ?? null });
       // Replace, do not erase — a site that would not answer this afternoon has
       // not withdrawn what it said this morning.
-      if (site || force) await forgetSource(venueRef, ['site']);
+      if (site || replace) await forgetSource(venueRef, ['site']);
       if (site) {
         matched.site = { url: site.sourceUrl ?? seed.website, how: site.how ?? null };
         const put = (field, value) => putFact(venueRef, field, 'site', value, 1);
@@ -585,7 +591,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     // Wikidata is a second service and gets its own line, so the usage table
     // says who was actually asked.
     if (enc?.wikidataId) await logCall(householdId, 'wikidata', 'own.encyclopedia');
-    if (enc || force) await forgetSource(venueRef, ['wikipedia', 'wikidata']);
+    if (enc || replace) await forgetSource(venueRef, ['wikipedia', 'wikidata']);
     if (enc) {
       matched.wikipedia = { title: enc.title, url: enc.url, distanceM: enc.distanceM, confidence: enc.confidence };
       await Promise.all([
@@ -686,7 +692,7 @@ export async function researchOnOpen(venueRef, { householdId = null, seed = {} }
   if (Date.now() - last < OPEN_AGAIN_MS) return queued.has(venueRef) || running > 0;
   openedAt.set(venueRef, Date.now());
   await owned.ensureRecord(venueRef).catch(() => null);
-  queueEnrichment(venueRef, { householdId, seed, force: true });
+  queueEnrichment(venueRef, { householdId, seed, force: true, replace: false });
   return true;
 }
 
