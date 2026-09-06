@@ -960,7 +960,12 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAd
     return (
       <View style={{ paddingHorizontal: 16 }}>
         <Text style={[type.small, { paddingVertical: spacing.sm }]}>
-          {shortlisted.length ? `${shortlisted.length} saved · ring ahead, then Add the one you want` : 'Nothing saved for this trip yet.'}
+          {/* "Ring ahead" is only offered where somebody can: the button is on
+              the rows whose owned record has a number, and the line stops
+              promising it when none of them do. */}
+          {shortlisted.length
+            ? `${shortlisted.length} saved · ${shortlisted.some((p) => p.phone) ? 'ring ahead, then ' : ''}Add the one you want`
+            : 'Nothing saved for this trip yet.'}
         </Text>
         {/* A saved row is the same row as a browsed one: it opens the place,
             and it has the Add that puts it on the day. It had neither (owner,
@@ -980,12 +985,22 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAd
               <Text style={styles.rowName} numberOfLines={1}>{p.name ?? 'A place'}</Text>
               <Text style={type.small} numberOfLines={1}>{p.day ?? 'no time yet'}</Text>
               <View style={styles.rowActions}>
-                {/* The handoff puts a phone button here, and it is the right
-                    idea — ringing ahead is what a shortlist is for. It is not
-                    drawn yet because nothing on a trip place carries a number:
-                    the owned record has no phone column and a provider's is
-                    rented, fetched at display. The drawer opens on the row and
-                    has the number in it. */}
+                {/* Ringing ahead is what a shortlist is for (§7), so the number
+                    comes off the owned record — the venue's own published page,
+                    which is ours to keep. A provider's is rented and would have
+                    to be fetched at display, so a row we have no number for
+                    simply has no button rather than a dead one. */}
+                {p.phone ? (
+                  <Pressable
+                    onPress={() => Linking.openURL(`tel:${p.phone!.replace(/[^+0-9]/g, '')}`)}
+                    hitSlop={6}
+                    style={styles.callBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Ring ${p.name ?? 'this place'}`}
+                  >
+                    <Icon name="phone" size={15} color={colors.ink} />
+                  </Pressable>
+                ) : null}
                 {/* Here the bookmark takes it off the list (handoff §07). */}
                 <Pressable onPress={() => onUnshortlist(p)} hitSlop={8} style={styles.bookmark} accessibilityRole="button" accessibilityLabel={`Take ${p.name ?? 'this'} off the shortlist`}>
                   <Icon name="shortlisted" size={17} color={colors.ink} fill />
@@ -2182,6 +2197,7 @@ const styles = StyleSheet.create({
     shadowColor: '#201E1D', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 10, elevation: 3,
   },
   driveChipText: { fontFamily: fonts.body, fontSize: 11, fontWeight: '600', color: colors.ink },
+  callBtn: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   bookmark: { width: 34, height: 34, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   rowOn: { backgroundColor: colors.accentSoft },
   rowName: { fontFamily: fonts.heading, fontSize: 15, fontWeight: '700', color: colors.ink },

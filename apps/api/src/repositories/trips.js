@@ -781,13 +781,18 @@ export async function placesOfTrip(tripId) {
             bool_or(t.via = 'shortlist') as shortlisted,
             (array_agg(t.booking_status order by (t.booking_status is not null) desc))[1] as booking_status,
             hp.category as atlas_category, hp.kind as atlas_kind,
+            -- The number to ring ahead on (Hotels 2 §7). Owned: it comes off
+            -- the venue's own published page and is ours to keep, unlike a
+            -- provider's, which is rented and fetched at display.
+            pr.phone as phone,
             (select json_agg(json_build_object('memberId', r.member_id, 'member', m.name, 'score', r.score))
                from ratings r join visits v2 on v2.id = r.visit_id join members m on m.id = r.member_id
               where v2.trip_id = $1 and v2.venue_ref = t.venue_ref and r.subject = 'visit' and r.score is not null) as scores
        from touched t
        left join trips tr on tr.id = $1
        left join household_places hp on hp.household_id = tr.household_id and hp.venue_ref = t.venue_ref
-      group by t.venue_ref, hp.category, hp.kind
+       left join place_records pr on pr.venue_ref = t.venue_ref
+      group by t.venue_ref, hp.category, hp.kind, pr.phone
       order by min(t.on_date) nulls last, label`,
     [tripId],
   );

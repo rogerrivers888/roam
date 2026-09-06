@@ -357,6 +357,8 @@ router.get('/:id/places', async (req, res, next) => {
         dwellMinutes: r.dwell_minutes ?? null,
         visited: r.visited, scheduled: r.scheduled, shortlisted: r.shortlisted,
         bookingStatus: r.booking_status ?? null,
+        /** The number to ring ahead on, where the owned record has one (§7). */
+        phone: r.phone ?? null,
         scores,
         // The household's own mark out of five: the average of what everybody
         // who scored it said. Null is not "nought" — it is nobody has said, and

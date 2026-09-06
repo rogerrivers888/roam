@@ -648,6 +648,8 @@ export type TripPlace = {
   /** The household's own mark out of five, or null where nobody has said — which is what the Rate nudge is for. */
   score: number | null;
   image: OwnedImage | null;
+  /** The number to ring ahead on, from the owned record — null where we have none. */
+  phone?: string | null;
 };
 
 export type TripStop = { id: string; position: number; venueRef: string; name: string; lat: number | null; lng: number | null; dwellMinutes: number; visit: Visit | null };
