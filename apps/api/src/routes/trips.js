@@ -738,8 +738,8 @@ router.get('/:id/along', async (req, res, next) => {
      * a name on a map. Inside a band the better-known place wins; between bands
      * the nearer one still does.
      */
-    const band = (m) => Math.round((m ?? 999) / 3);
     const standing = (r) => (r.rating ?? 0) * Math.log10((r.ratingCount ?? 0) + 10);
+    const judged = (r) => (r.rating != null && (r.ratingCount ?? 0) >= 5 ? 1 : 0);
     const within = rows
       .filter((r) => r.detourMinutes != null && r.detourMinutes <= maxDetourMin)
       // Not the destination, and not standing inside it.
@@ -761,8 +761,24 @@ router.get('/:id/along', async (req, res, next) => {
        * as well because a source we have not met yet will make the same mistake.
        */
       .filter((r) => kind !== 'food' || EATING.includes(r.category))
-      .sort((a, b) => band(a.detourMinutes) - band(b.detourMinutes)
-        || standing(b) - standing(a)
+      /**
+       * Somewhere you can judge, first.
+       *
+       * The detour and the corridor have already done the work of "is this on
+       * the way" — everything left is inside both. Within that, the question is
+       * which of them is any good, and a place with five hundred reviews
+       * answers it while a name on the open map does not.
+       *
+       * This was banded detour first, in three-minute steps, and the bands were
+       * too fine for the distances involved: on a short run everything is five
+       * to eight minutes off, so a four-minute unrated node beat a five-minute
+       * place with four thousand reviews on a rounding. OpenStreetMap answers
+       * with two hundred names when it answers at all, and they buried Google's
+       * seventeen. Unrated places still come, underneath — they are the whole
+       * list on the afternoon Google's quota is gone.
+       */
+      .sort((a, b) => judged(b) - judged(a)
+        || (judged(a) ? standing(b) - standing(a) : 0)
         || (a.detourMinutes ?? 999) - (b.detourMinutes ?? 999));
 
     res.json({
