@@ -172,27 +172,6 @@ export function Places({ canManage }: { canManage: boolean }) {
         </TileRow>
       ) : null}
 
-      {canManage ? (
-        <Panel title="Put places into places"
-               sub="Both sources are open and need no account: the ONS postcode directory says where a point is, OpenStreetMap says what it is called.">
-          <Wrap>
-            <Button label="Where is everything" icon="search" kind="secondary"
-                    disabled={Boolean(running)} onPress={() => runPass('postal')} />
-            {countyOf(page) ? (
-              <Button label={`Name 400 in ${page?.place.kind === 'county' ? page.place.name : page?.place.parent_name}`} icon="download"
-                      disabled={Boolean(running)} onPress={() => runPass('naming', countyOf(page))} />
-            ) : null}
-            <Button label={`Name 400 anywhere${tree ? ` of ${count(tree.remaining)}` : ''}`} icon="download" kind="secondary"
-                    disabled={Boolean(running) || !tree?.remaining} onPress={() => runPass('naming')} />
-            <Button label="Recount" icon="refresh" kind="secondary"
-                    onPress={async () => { await api.placeRecount(); loadTree(); setNote('Counted again from the rows themselves.'); }} />
-          </Wrap>
-          {running ? (
-            <Banner tone="accent">A pass has been running since {ago(running.since)}. The counts above move as it goes.</Banner>
-          ) : null}
-        </Panel>
-      ) : null}
-
       {/* One tree, two arrangements. On a phone the picker sits above the page
           rather than beside it, and neither is a different component. */}
       <View style={[styles.split, !wide && styles.splitPhone]}>
@@ -217,6 +196,27 @@ export function Places({ canManage }: { canManage: boolean }) {
           )}
         </View>
       </View>
+
+      {canManage ? (
+        <Panel title="Put places into places"
+               sub="Both sources are open and need no account: the ONS postcode directory says where a point is, OpenStreetMap says what it is called.">
+          <Wrap>
+            <Button label="Where is everything" icon="search" kind="secondary"
+                    disabled={Boolean(running)} onPress={() => runPass('postal')} />
+            {countyOf(page) ? (
+              <Button label={`Name 400 in ${page?.place.kind === 'county' ? page.place.name : page?.place.parent_name}`} icon="download"
+                      disabled={Boolean(running)} onPress={() => runPass('naming', countyOf(page))} />
+            ) : null}
+            <Button label={`Name 400 anywhere${tree ? ` of ${count(tree.remaining)}` : ''}`} icon="download" kind="secondary"
+                    disabled={Boolean(running) || !tree?.remaining} onPress={() => runPass('naming')} />
+            <Button label="Recount" icon="refresh" kind="secondary"
+                    onPress={async () => { await api.placeRecount(); loadTree(); setNote('Counted again from the rows themselves.'); }} />
+          </Wrap>
+          {running ? (
+            <Banner tone="accent">A pass has been running since {ago(running.since)}. The counts above move as it goes.</Banner>
+          ) : null}
+        </Panel>
+      ) : null}
     </AdminPage>
   );
 }
@@ -439,6 +439,10 @@ function Place({ page, wide, busy, missing, onMissing, side, onSide, onOpen, ope
         </View>
       </Panel>
 
+      {openRow ? (
+        <PlaceInspector id={openRow} onClose={() => onOpenRow(null)} onChanged={onChanged} />
+      ) : null}
+
       <View style={[styles.lower, !wide && styles.lowerPhone]}>
         <View style={{ flex: wide ? 3 : undefined, minWidth: 0 }}>
           <Panel
@@ -474,10 +478,6 @@ function Place({ page, wide, busy, missing, onMissing, side, onSide, onOpen, ope
         </View>
 
         <View style={{ flex: wide ? 2 : undefined, minWidth: 0, gap: spacing.md }}>
-          {openRow ? (
-            <PlaceInspector id={openRow} onClose={() => onOpenRow(null)} onChanged={onChanged} />
-          ) : null}
-
           <Panel title={`What ${place.name} is made of`}
                  sub="Roam's own eight words. A zero is the finding.">
             {breakdown.map((b) => (
