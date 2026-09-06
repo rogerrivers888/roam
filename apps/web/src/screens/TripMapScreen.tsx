@@ -1187,7 +1187,7 @@ function BrowseList({ pill, along, shown, shortlisted, onUnshortlist, onOpenSave
                     twice — "Pub · ££" over a "Pub" pill was the same word
                     within an inch of itself. */}
                 <Text style={type.small} numberOfLines={1}>
-                  {[kitchen(p) ? null : p.category ? cap(p.category) : null, money(p.priceLevel)].filter(Boolean).join(' · ')}
+                  {[kitchen(p) ? null : plainCategory(p.category), money(p.priceLevel)].filter(Boolean).join(' · ')}
                 </Text>
                 {p.rating != null ? (
                   <Stars value={p.rating} size={12}>
@@ -1271,17 +1271,24 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/[-_]/
  * of restaurants is reading for; otherwise what the place *is*, which is the
  * useful word for everything that is not a kitchen.
  */
+/**
+ * A category worth printing.
+ *
+ * "Attraction" is the answer to a question nobody asked — the owner's point
+ * (6 Sep 2026: "every single activity says Attraction, when actually it should
+ * say what type of attraction it is"). Where no source has said what kind of
+ * thing a place is, the row says nothing rather than saying that.
+ */
+const VAGUE = new Set(['other', 'attraction', 'place', 'point of interest', 'establishment']);
+const plainCategory = (c?: string | null): string | null =>
+  (c && !VAGUE.has(c.toLowerCase()) ? cap(c) : null);
+
 const kitchen = (p: { cuisines?: string[] | null; experiences?: string[] | null; category?: string | null }): string | null => {
   const c = (p.cuisines ?? [])[0];
   if (c) return cap(c);
   const e = (p.experiences ?? [])[0];
   if (e) return cap(e);
-  // "Attraction" is the answer to a question nobody asked — the owner's point
-  // (6 Sep 2026: "every single activity says Attraction, when actually it
-  // should say what type of attraction it is"). Where no source has said what
-  // kind of thing it is, the row says nothing rather than saying that.
-  const vague = new Set(['other', 'attraction', 'place', 'point of interest']);
-  return p.category && !vague.has(p.category.toLowerCase()) ? cap(p.category) : null;
+  return plainCategory(p.category);
 };
 /** "Bari, Polignano, Matera and Lecce" — the handoff's own phrasing (§20). */
 const andList = (xs: string[]) => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
