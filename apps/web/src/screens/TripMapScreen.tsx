@@ -27,13 +27,14 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { api, BrowseItem, HouseholdResponse, Stay, StayPlacement, TripAlongPlace, TripDetail, TripPlace } from '../api';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { api, BrowseItem, HouseholdResponse, Stay, StayPlacement, TripAlongPlace, TripDay, TripDetail, TripPlace } from '../api';
 import { useViewport } from '../hooks/useViewport';
 import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, Row, Segmented, StatusLine } from '../components/ui';
 import { Icon, IconName, Stars } from '../components/Icon';
 import { VenueThumb } from '../components/VenueThumb';
+import { Avatar } from '../components/Faces';
 import { BottomSheet, Detent, detentHeights } from '../components/BottomSheet';
 import { MapGL, MapMarker, MapRoute } from '../components/MapGL';
 import { GroupPanel } from '../components/GroupPanel';
@@ -84,8 +85,16 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const [placement, setPlacement] = useQueryState<StayPlacement>('where', 'plans', asOneOf(['plans', 'town', 'station'] as const, 'plans'));
   const [stayMode, setStayMode] = useQueryState<'driving' | 'walking'>('go', 'driving', asOneOf(['driving', 'walking'] as const, 'driving'));
   const [criteria, setCriteria] = useState(false);
+  /** Who's coming, over whatever is on screen (handoff §12). */
+  const [who, setWho] = useState(false);
+  /** Which day of a holiday is being looked at — the day strip (handoff §13/14). */
+  const [dayId, setDayId] = useQueryState<string | null>('day', null, asText);
   const [scope, setScope] = useQueryState<'route' | 'there' | null>('scope', null, asOneOf(['route', 'there'] as const, null));
   const [detour, setDetour] = useQueryState<string | null>('detour', null, asText);
+  /** What was typed into "search along the route", and which category was picked. */
+  const [q, setQ] = useQueryState<string | null>('q', null, asText);
+  const [kindOf, setKindOf] = useQueryState<string | null>('type', null, asText);
+  const [searching, setSearching] = useState(false);
   const maxDetourMin = Number(detour) || 15;
 
   const [detent, setDetent] = useState<Detent>('half');
@@ -108,16 +117,16 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const [along, setAlong] = useState<{ loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean }>(
     { loading: false, places: [], counts: { route: 0, there: 0 }, error: null, degraded: [], hasRoute: false },
   );
-  const alongKey = pill && pill !== 'shortlist' ? `${pill}|${scope ?? 'route'}|${maxDetourMin}` : null;
+  const alongKey = pill && pill !== 'shortlist' && pill !== 'stay' ? `${pill}|${scope ?? 'route'}|${maxDetourMin}|${q ?? ''}|${kindOf ?? ''}` : null;
   const lastKey = useRef<string | null>(null);
   useEffect(() => {
     if (!alongKey || alongKey === lastKey.current) return;
     lastKey.current = alongKey;
     setAlong((a) => ({ ...a, loading: true, error: null }));
-    api.tripAlong(trip.id, { kind: pill === 'food' ? 'food' : 'things', scope: scope ?? 'route', maxDetourMin })
+    api.tripAlong(trip.id, { kind: pill === 'food' ? 'food' : 'things', scope: scope ?? 'route', maxDetourMin, q: [q, kindOf].filter(Boolean).join(' ') || undefined })
       .then((r) => setAlong({ loading: false, places: r.places, counts: r.counts, error: null, degraded: r.degradedSources ?? [], hasRoute: r.hasRoute }))
       .catch((e) => setAlong({ loading: false, places: [], counts: { route: 0, there: 0 }, error: e.message, degraded: [], hasRoute: false }));
-  }, [alongKey, trip.id, pill, scope, maxDetourMin]);
+  }, [alongKey, trip.id, pill, scope, maxDetourMin, q, kindOf]);
 
   // Somewhere to sleep, ranked the way the criteria asked. Only fetched when
   // the Stay pill is lit — it is an Overpass call and sometimes a price call.
@@ -139,7 +148,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const base = trip.base && trip.base.kind !== 'centre' ? trip.base : null;
   const start = base && isTrip ? base : trip.origin;
   const dest = trip.destination ?? (trip.base?.lat != null ? trip.base : null);
-  const day = days[0] ?? null;
+  const day = (dayId ? days.find((x) => x.id === dayId) : null) ?? days[0] ?? null;
   const nights = isTrip && trip.startDate && trip.endDate
     ? Math.max(0, Math.round((+new Date(`${trip.endDate}T12:00:00`) - +new Date(`${trip.startDate}T12:00:00`)) / 86400000))
     : 0;
@@ -244,7 +253,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
 
   // ---- the sheet ----------------------------------------------------------
 
-  const who = attendees.length;
+  const party = attendees.length;
   const header = (
     <View style={styles.header}>
       <Pressable
@@ -258,11 +267,11 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <View style={styles.titleRow}>
           <Text style={styles.title} numberOfLines={1}>{trip.locality ?? trip.place?.label ?? trip.title ?? trip.origin.label}</Text>
-          {who ? (
-            <View style={styles.party}>
+          {party ? (
+            <Pressable onPress={() => setWho(true)} style={styles.party} accessibilityRole="button" accessibilityLabel="Who's coming">
               <Icon name="household" size={13} color={colors.ink} />
-              <Text style={styles.partyText}>+{who}</Text>
-            </View>
+              <Text style={styles.partyText}>+{party}</Text>
+            </Pressable>
           ) : null}
         </View>
         <Text style={type.small} numberOfLines={1}>
@@ -315,6 +324,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       selected={selected}
       onSelect={(ref) => setSelected(ref)}
       onOpen={openPlace}
+      kindOf={kindOf}
+      onKind={setKindOf}
       onAdd={setAdding}
       onShortlist={shortlistIt}
     />
@@ -335,7 +346,12 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
                   onCriteria={() => { setPill('stay'); setCriteria(true); setDetent('half'); }}
                 />
               ) : null}
-              <TheDay d={d} onAdd={() => { setPill('food'); setDetent('half'); }} />
+              {/* The day strip, on a holiday only — a day out has one day and a
+                  row of one chip is furniture (handoff §13/14). */}
+              {days.length > 1 ? (
+                <DayStrip days={days} chosen={day?.id ?? null} onPick={(id) => setDayId(id)} />
+              ) : null}
+              <TheDay d={d} day={day} onAdd={() => { setPill('food'); setDetent('half'); }} />
             </>
           )}
     </SheetTabs>
@@ -382,9 +398,9 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       {/* The nudge and the search pill, both only when the map has the screen. */}
       {!wide && detent === 'peek' ? (
         <View style={styles.searchWrap} pointerEvents="box-none">
-          <Pressable onPress={() => { setPill('food'); setDetent('half'); }} style={styles.search} accessibilityRole="button">
+          <Pressable onPress={() => setSearching(true)} style={styles.search} accessibilityRole="button">
             <Icon name="search" size={16} color={colors.inkMuted} />
-            <Text style={[type.small, { flex: 1 }]}>Search along the route</Text>
+            <Text style={[type.small, { flex: 1 }]}>{q || (along.hasRoute ? 'Search along the route' : 'Search nearby')}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -435,6 +451,30 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           ? async (item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); if (p) await shortlistIt(p); }
           : undefined}
       />
+
+      {searching ? (
+        <SearchAlong
+          hasRoute={along.hasRoute}
+          value={q ?? ''}
+          onClose={() => setSearching(false)}
+          onSearch={(text, category, forFood) => {
+            setSearching(false);
+            setQ(text || null);
+            setKindOf(category);
+            setPill(forFood ? 'food' : 'activities');
+            setDetent('half');
+          }}
+        />
+      ) : null}
+
+      {who ? (
+        <WhosComing
+          household={household}
+          attending={attendees.map((a) => a.id)}
+          onClose={() => setWho(false)}
+          onSave={async (ids) => { try { await api.setTripAttendees(trip.id, ids); setWho(false); await onChanged(); } catch (e: any) { setError(e.message); } }}
+        />
+      ) : null}
 
       {criteria ? (
         <StayCriteria
@@ -504,11 +544,11 @@ function SheetTabs({ section, counts, onSection, children }: {
   );
 }
 
-function TheDay({ d, onAdd }: { d: TripDetail; onAdd: () => void }) {
+function TheDay({ d, day, onAdd }: { d: TripDetail; day: TripDay | null; onAdd: () => void }) {
   const { trip, days } = d;
   const isTrip = trip.kind === 'trip';
-  const day = days[0];
   const stops = (day?.slots ?? []).flatMap((s) => s.stops);
+  const dayIndex = day ? days.findIndex((x) => x.id === day.id) : -1;
   const dest = trip.destination ?? trip.base;
   const back = trip.returnAt ? clock(trip.returnAt) : trip.dayEnd ?? null;
 
@@ -527,7 +567,11 @@ function TheDay({ d, onAdd }: { d: TripDetail; onAdd: () => void }) {
         </View>
       ) : null}
 
-      <Text style={styles.kicker}>{stops.length ? `The day · ${stops.length} stop${stops.length === 1 ? '' : 's'}` : 'The day'}</Text>
+      <Text style={styles.kicker}>
+        {days.length > 1 && day
+          ? `${new Date(`${day.date}T12:00:00`).toLocaleDateString([], { weekday: 'long', day: 'numeric' })} · day ${dayIndex + 1} of ${days.length}${stops.length ? ` · ${stops.length} stop${stops.length === 1 ? '' : 's'}` : ''}`
+          : stops.length ? `The day · ${stops.length} stop${stops.length === 1 ? '' : 's'}` : 'The day'}
+      </Text>
 
       <Beat time={isTrip ? trip.dayStart ?? null : clock(trip.departAt)} icon="driving" title="Leave home"
         detail={[trip.origin.label.split(',')[0], dest ? (trip.locality ?? dest.label.split(',')[0]) : null].filter(Boolean).join(' → ')} />
@@ -588,7 +632,7 @@ function TripPlacesList({ data, onSelect }: { data: { places: TripPlace[] } | nu
 
 const DETOURS = [5, 10, 15, 30];
 
-function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist }: {
+function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist, kindOf, onKind }: {
   pill: Pill;
   along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean };
   shortlisted: TripPlace[];
@@ -602,8 +646,11 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
   onOpen: (p: TripAlongPlace) => void;
   onAdd: (p: TripAlongPlace) => void;
   onShortlist: (p: TripAlongPlace) => Promise<void>;
+  kindOf: string | null;
+  onKind: (k: string | null) => void;
 }) {
   const [openDetour, setOpenDetour] = useState(false);
+  const [openKind, setOpenKind] = useState(false);
 
   if (pill === 'shortlist') {
     return (
@@ -646,7 +693,24 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
             <Chip label="Anywhere" onPress={() => { onScope(null); setOpenDetour(false); }} />
           </>
         )}
+        <Chip label={kindOf ? cap(kindOf) : 'Type'} on={!!kindOf} chevron onPress={() => setOpenKind((v) => !v)} />
       </View>
+
+      {openKind ? (
+        <View style={styles.dropdown}>
+          <Text style={styles.kicker}>{pill === 'food' ? 'Food & drink' : 'Things to do'}{along.hasRoute ? ' · along the route' : ' · nearby'}</Text>
+          <Pressable onPress={() => { onKind(null); setOpenKind(false); }} style={styles.optRow} accessibilityRole="radio" accessibilityState={{ checked: !kindOf }}>
+            <Text style={[type.body, { flex: 1 }]}>Everything</Text>
+            {!kindOf ? <Icon name="check" size={16} color={colors.accent} /> : null}
+          </Pressable>
+          {(pill === 'food' ? FOOD_KINDS : THING_KINDS).map((k) => (
+            <Pressable key={k} onPress={() => { onKind(k); setOpenKind(false); }} style={styles.optRow} accessibilityRole="radio" accessibilityState={{ checked: kindOf === k }}>
+              <Text style={[type.body, { flex: 1 }]}>{cap(k)}</Text>
+              {kindOf === k ? <Icon name="check" size={16} color={colors.accent} /> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
 
       {openDetour ? (
         <View style={styles.dropdown}>
@@ -771,6 +835,159 @@ function Chip({ label, on, chevron, onPress }: { label: string; on?: boolean; ch
       <Text style={[styles.chipText, on && { color: colors.primaryFg }]} numberOfLines={1}>{label}</Text>
       {chevron ? <Icon name="expand" size={13} color={on ? colors.primaryFg : colors.ink} /> : null}
     </Pressable>
+  );
+}
+
+/** The kinds a browse list can be narrowed to (handoff §06). Words, not tags. */
+const FOOD_KINDS = ['pub', 'cafe', 'restaurant', 'bakery', 'bar', 'ice cream'];
+const THING_KINDS = ['walk', 'park', 'castle', 'museum', 'beach', 'viewpoint', 'playground', 'farm', 'gallery'];
+
+/**
+ * Search along the route (handoff §08): the sheet at the top, a field, and six
+ * ways in for somebody who does not know what to type. Tapping a category lands
+ * in Browse with it set; typing searches the corridor.
+ */
+function SearchAlong({ hasRoute, value, onClose, onSearch }: {
+  hasRoute: boolean; value: string; onClose: () => void;
+  onSearch: (text: string, category: string | null, food: boolean) => void;
+}) {
+  const [text, setText] = useState(value);
+  const { width, height, framed, origin } = useViewport();
+  const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height } : null;
+  const rows: { label: string; hint: string; icon: IconName; category: string | null; food: boolean }[] = [
+    { label: 'Outdoors', hint: 'Walks · parks · viewpoints', icon: 'park', category: 'walk', food: false },
+    { label: 'Food & drink', hint: 'Pubs · cafés · restaurants', icon: 'restaurant', category: null, food: true },
+    { label: 'Attractions', hint: 'Castles · museums · viewpoints', icon: 'castle', category: 'castle', food: false },
+    { label: 'For kids', hint: 'Playgrounds · farms · soft play', icon: 'playground', category: 'playground', food: false },
+    { label: 'Shopping', hint: 'Outlets · farm shops', icon: 'shopping', category: 'shopping', food: false },
+    { label: 'Fuel & services', hint: 'Petrol · EV charging · loos', icon: 'driving', category: 'fuel', food: false },
+  ];
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={[{ flex: 1 }, frameBox]}>
+        <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel="Close" />
+        <View style={styles.searchSheet}>
+          <Row style={{ gap: 10 }}>
+            <View style={styles.searchField}>
+              <Icon name="search" size={16} color={colors.inkMuted} />
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                onSubmitEditing={() => onSearch(text.trim(), null, false)}
+                autoFocus
+                returnKeyType="search"
+                placeholder={hasRoute ? 'Search along the route' : 'Search nearby'}
+                placeholderTextColor={colors.inkFaint}
+                style={styles.searchInput}
+                accessibilityLabel="Search"
+              />
+              {text ? (
+                <Pressable onPress={() => setText('')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear">
+                  <Icon name="close" size={15} color={colors.inkMuted} />
+                </Pressable>
+              ) : null}
+            </View>
+            <Pressable onPress={onClose} accessibilityRole="button"><Text style={[type.small, { fontWeight: '600' }]}>Cancel</Text></Pressable>
+          </Row>
+          <Text style={styles.kicker}>{hasRoute ? "Along the day's route" : 'Around this trip'}</Text>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            {rows.map((r) => (
+              <Pressable key={r.label} onPress={() => onSearch('', r.category, r.food)} style={styles.searchRow} accessibilityRole="button">
+                <View style={styles.searchTile}><Icon name={r.icon} size={18} /></View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.rowName}>{r.label}</Text>
+                  <Text style={type.tiny}>{r.hint}</Text>
+                </View>
+                <Icon name="more" size={16} color={colors.inkMuted} />
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/**
+ * The day strip on a holiday (handoff §13/14). Selecting a day re-scopes the
+ * timeline; a green dot marks the days that have something on them, so the
+ * empty ones are visible without opening each.
+ */
+function DayStrip({ days, chosen, onPick }: { days: TripDay[]; chosen: string | null; onPick: (id: string) => void }) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+      {days.map((dd) => {
+        const on = dd.id === chosen;
+        const planned = dd.slots.some((sl) => sl.stops.length);
+        const d = new Date(`${dd.date}T12:00:00`);
+        return (
+          <Pressable key={dd.id} onPress={() => onPick(dd.id)} style={[styles.dayChip, on && styles.dayChipOn]} accessibilityRole="button" accessibilityState={{ selected: on }}>
+            <Text style={[styles.dayChipDow, on && { color: colors.primaryFg }]}>{d.toLocaleDateString([], { weekday: 'short' })}</Text>
+            <Text style={[styles.dayChipNum, on && { color: colors.primaryFg }]}>{d.getDate()}</Text>
+            {planned ? <View style={[styles.dayDot, on && { backgroundColor: colors.primaryFg }]} /> : <View style={styles.dayDotGap} />}
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+/**
+ * Who's coming (handoff §12), from the +3 pill on any screen. It is not a
+ * settings page: tickets, table sizes and the car all follow this, which is why
+ * the note says so and why it is one tap from everywhere.
+ */
+function WhosComing({ household, attending, onClose, onSave }: {
+  household: HouseholdResponse | null; attending: string[];
+  onClose: () => void; onSave: (ids: string[]) => Promise<void>;
+}) {
+  const [ids, setIds] = useState<string[]>(attending);
+  const [busy, setBusy] = useState(false);
+  const { width, height, framed, origin } = useViewport();
+  const frameBox = framed && origin ? { position: 'absolute' as const, left: origin.x, top: origin.y, width, height } : null;
+  const members = household?.members ?? [];
+  const adults = members.filter((m) => ids.includes(m.id) && !m.isMinor).length;
+  const children = members.filter((m) => ids.includes(m.id) && m.isMinor).length;
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={[{ flex: 1, justifyContent: 'flex-end' }, frameBox]}>
+        <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel="Close" />
+        <View style={[styles.addSheet, { maxHeight: '82%' }]}>
+          <View style={styles.grabSmall} />
+          <View style={styles.addHead}>
+            <Text style={styles.addTitle}>Who's coming?</Text>
+            <Pressable onPress={async () => { if (busy) return; setBusy(true); try { await onSave(ids); } finally { setBusy(false); } }} accessibilityRole="button">
+              <Text style={[type.small, { fontWeight: '700', color: colors.accent }]}>{busy ? 'Saving…' : 'Done'}</Text>
+            </Pressable>
+          </View>
+          <Text style={type.small}>Tickets, table sizes and the car all follow this.</Text>
+          <ScrollView contentContainerStyle={{ gap: 4 }}>
+            {members.map((m, i) => {
+              const on = ids.includes(m.id);
+              return (
+                <Pressable
+                  key={m.id}
+                  onPress={() => setIds((v) => (on ? v.filter((x) => x !== m.id) : [...v, m.id]))}
+                  style={[styles.whoRow, !on && { opacity: 0.6 }]}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: on }}
+                >
+                  <Avatar name={m.name} index={i} size={44} url={m.avatarUrl} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.rowName} numberOfLines={1}>{m.name}</Text>
+                    <Text style={type.tiny}>{m.isMinor ? 'Child' : 'Adult'}</Text>
+                  </View>
+                  <View style={[styles.check, on && styles.checkOn]}>{on ? <Icon name="check" size={14} color={colors.primaryFg} strokeWidth={3} /> : null}</View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          <Text style={type.tiny}>
+            {ids.length} going · {adults} adult{adults === 1 ? '' : 's'}{children ? `, ${children} child${children === 1 ? '' : 'ren'}` : ''}
+          </Text>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -1107,6 +1324,21 @@ const styles = StyleSheet.create({
   add: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 11, height: 30, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.ink },
   addText: { fontFamily: fonts.body, fontSize: 12, fontWeight: '700', color: colors.ink },
 
+  searchSheet: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: colors.surface, paddingTop: ('calc(20px + env(safe-area-inset-top))' as any), paddingHorizontal: 16, paddingBottom: 16, gap: 10 },
+  searchField: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, height: 46, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.surfaceMuted },
+  searchInput: { flex: 1, fontFamily: fonts.body, fontSize: 15, color: colors.ink, outlineStyle: 'none' as any },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+  searchTile: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
+  strip: { gap: 8, paddingVertical: 12, paddingRight: 16 },
+  dayChip: { width: 44, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, alignItems: 'center', gap: 1 },
+  dayChipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  dayChipDow: { fontFamily: fonts.body, fontSize: 10, fontWeight: '600', color: colors.inkMuted },
+  dayChipNum: { fontFamily: fonts.heading, fontSize: 16, fontWeight: '800', color: colors.ink },
+  dayDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.accent },
+  dayDotGap: { height: 5 },
+  whoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  check: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
+  checkOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   signpost: { marginTop: 12, padding: 14, borderWidth: 1.5, borderColor: colors.ink, borderRadius: 14, gap: 10 },
   signIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   option: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', padding: 12, borderRadius: 12, borderWidth: 1.5, borderColor: colors.line },
