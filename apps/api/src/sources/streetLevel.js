@@ -209,18 +209,45 @@ async function mapillaryFrames({ lat, lng }) {
  * Never throws.
  */
 export async function findShopfront({ lat, lng } = {}) {
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { shot: null, reason: 'we do not know where it is' };
+  }
   const venue = { lat, lng };
-  const found = await Promise.all([
+  const [karta, mapi] = await Promise.all([
     kartaviewFrames(venue).catch(() => []),
     mapillaryFrames(venue).catch(() => []),
   ]);
+  const nearby = [...karta, ...mapi];
 
-  const ranked = found.flat()
+  const ranked = nearby
     .map((f) => ({ frame: f, score: scoreFrame(f, venue) }))
     .filter((r) => r.score !== null)
     .sort((a, b) => b.score - a.score);
-  if (!ranked.length) return null;
+
+  // Why it came back empty, in the words the back office prints. "Nothing
+  // found" covers three completely different situations and they want three
+  // different answers: nobody has driven down this street, or plenty have and
+  // none was looking this way, or we found one and could not fetch it. Only the
+  // second is a reason to loosen the scoring, and without this line there is no
+  // way to tell which one is happening (found 6 Sep 2026, when the rung came
+  // back empty 21 times out of 21 and there was nothing to look at).
+  const counted = `${karta.length} KartaView, ${mapi.length} Mapillary`;
+  if (!nearby.length) {
+    return {
+      shot: null,
+      counts: { kartaview: 0, mapillary: 0, inFrame: 0 },
+      reason: mapillaryReady()
+        ? `nobody has driven past it with a camera — no frames within ${MAX_METRES}m`
+        : `no frames within ${MAX_METRES}m, and Mapillary is switched off so only KartaView was asked`,
+    };
+  }
+  if (!ranked.length) {
+    return {
+      shot: null,
+      counts: { kartaview: karta.length, mapillary: mapi.length, inFrame: 0 },
+      reason: `${counted} frames near it, none of them pointing at it`,
+    };
+  }
 
   // Try the best few: a frame can rank well and then 404, and the second-best
   // view of the front door is still the front door.
@@ -229,13 +256,20 @@ export async function findShopfront({ lat, lng } = {}) {
     if (!got) continue;
     const away = Math.round(metresBetween(frame, venue));
     return {
-      ...frame, ...got,
-      score,
-      metresAway: away,
-      why: `a street-level frame taken ${away}m away looking at it, ${frame.source === 'mapillary' ? 'from Mapillary' : 'from KartaView'}`,
+      shot: {
+        ...frame, ...got,
+        score,
+        metresAway: away,
+        why: `a street-level frame taken ${away}m away looking at it, ${frame.source === 'mapillary' ? 'from Mapillary' : 'from KartaView'}`,
+      },
+      counts: { kartaview: karta.length, mapillary: mapi.length, inFrame: ranked.length },
     };
   }
-  return null;
+  return {
+    shot: null,
+    counts: { kartaview: karta.length, mapillary: mapi.length, inFrame: ranked.length },
+    reason: `${ranked.length} frames were looking at it and none of them could be fetched`,
+  };
 }
 
 /** Whether the Mapillary rung is available, for the back office to explain itself. */

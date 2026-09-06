@@ -177,8 +177,11 @@ async function fromLogo({ venueRef, name, website }) {
 
 /** The street-level rung. */
 async function fromStreet({ name, lat, lng }) {
-  const shot = await findShopfront({ lat, lng });
-  if (!shot) return null;
+  const { shot, reason, counts } = await findShopfront({ lat, lng });
+  // The rung answering "nothing" is recorded with the reason it gave, so
+  // "no street-level picture" can be told apart from "plenty of frames, all
+  // facing the wrong way" without running anything again.
+  if (!shot) return { rung: 'street', none: true, why: reason, counts };
   return {
     rung: shot.source,
     variants: [{ width: shot.width ?? 1024, actualWidth: shot.width, actualHeight: shot.height, mime: shot.mime, bytes: shot.bytes, body: shot.body }],
@@ -246,7 +249,12 @@ export async function pictureFor(place, { force = false } = {}) {
       broke = err.message;
       continue;
     }
-    if (!found) { tried.push({ rung: label, found: false }); continue; }
+    // A rung may answer "nothing, and here is why". That is still nothing, but
+    // the why is the whole value of the record.
+    if (!found || found.none) {
+      tried.push({ rung: label, found: false, why: found?.why ?? null, counts: found?.counts ?? null });
+      continue;
+    }
 
     const largest = found.variants[found.variants.length - 1];
     let image;
