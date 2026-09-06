@@ -218,6 +218,22 @@ menu.post('/read', async (req, res, next) => {
       });
       if (read.dryRun) return res.json({ dryRun: read });
     } catch (err) {
+      // Roam's own ceiling, not their menu. Saying "photograph it instead" when
+      // we found four photographs of it and stopped ourselves is the kind of
+      // wrong answer that sends somebody to do a job we had already done
+      // (owner, 6 Sep 2026).
+      if (err?.code === 'spend_bound_reached') {
+        return res.status(429).json({
+          error: err.code,
+          scope: err.scope,
+          bound: err.bound,
+          message: err.scope === 'session'
+            ? "That's as much as one sitting will spend. Come back to it in a moment."
+            : "Roam has used up this month's allowance for your household, so nothing new can be read until it is raised.",
+          how: err.steps ?? [],
+          url,
+        });
+      }
       if (err.status === 422) {
         return res.status(422).json({
           error: err.message,

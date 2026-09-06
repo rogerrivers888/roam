@@ -657,8 +657,11 @@ async function parseMenuText({ text, venueLabel, householdId, sessionId }) {
       console.log(`menu.read: part ${i + 1} gave ${(parsed.sections || []).reduce((n, x) => n + (x.items?.length || 0), 0)} items`);
       return parsed;
     } catch (err) {
-      // One unreadable stretch must not lose the rest of the menu.
+      // One unreadable stretch must not lose the rest of the menu — but every
+      // stretch failing for the same reason is not an unreadable menu, and a
+      // ceiling of ours is a reason worth carrying up rather than counting.
       console.log(`menu.read: part ${i + 1} failed — ${err.message}`);
+      if (err?.code === 'spend_bound_reached') throw err;
       failed.push(`part ${i + 1}: ${err.message}`);
       return null;
     }
@@ -856,6 +859,11 @@ export async function readMenu({ url, venueLabel, householdId, sessionId, dryRun
         }
         steps.push('the pictures were not menus');
       } catch (err) {
+        // Being stopped by our own ceiling is not the same as a menu we cannot
+        // read, and it must not be reported as one: the pictures were found,
+        // and nothing was wrong with them (owner, 6 Sep 2026, on tapping to
+        // read the Sunningdale menu and being told to photograph it).
+        if (err?.code === 'spend_bound_reached') { err.steps = [...steps, `found ${candidates.length} picture(s) of their menu, and stopped at Roam's own ${err.scope} ceiling before reading them`]; throw err; }
         steps.push(`reading the pictures failed (${String(err.message).slice(0, 80)})`);
       }
     }
