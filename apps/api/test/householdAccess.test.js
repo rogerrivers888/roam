@@ -277,3 +277,37 @@ test('a refusal we have no better words for keeps Twilio\'s own', () => {
   const msg = explain(30007, 'Message filtered by carrier.', 400);
   assert.match(msg, /Message filtered by carrier\./, "we do not swallow what we cannot improve on");
 });
+
+test('half a Twilio configuration says which half, and that the rest arrived', async () => {
+  // The owner added two of the three and saw the same "add all three" sentence
+  // as somebody who had added none, which cannot distinguish "one still to go"
+  // from "none of them reached the process" — and the second is the likelier
+  // fault, because it means the sync is wrong rather than the setup unfinished.
+  await withEnv({ TWILIO_ACCOUNT_SID: 'AC' + 'f'.repeat(32), TWILIO_AUTH_TOKEN: 'secret', TWILIO_FROM: null }, () => {
+    const status = smsStatus();
+    assert.equal(status.reason, 'incomplete');
+    assert.deepEqual(status.missing, ['TWILIO_FROM']);
+    assert.equal(status.setup, 'To send by text, add TWILIO_FROM in Doppler.');
+    assert.match(status.message, /the Doppler sync is working/);
+  });
+});
+
+test('nothing set at all is a different fact from something set', async () => {
+  await withEnv({ TWILIO_ACCOUNT_SID: null, TWILIO_AUTH_TOKEN: null, TWILIO_FROM: null }, () => {
+    const status = smsStatus();
+    assert.equal(status.reason, 'no_sender');
+    assert.equal(status.missing.length, 3);
+    assert.doesNotMatch(status.message, /sync is working/, 'because nothing has arrived to prove it');
+  });
+});
+
+test('an alphanumeric sender is a sender, not a number to be normalised', async () => {
+  // The way round the UK long-code bundle: "Roam" as the sender name, which
+  // needs no number bought and cannot receive a reply — which an invitation
+  // does not need. It must reach Twilio as typed.
+  await withEnv({ TWILIO_ACCOUNT_SID: 'AC' + '9'.repeat(32), TWILIO_AUTH_TOKEN: 'secret', TWILIO_FROM: 'Roam' }, () => {
+    const status = smsStatus();
+    assert.equal(status.configured, true);
+    assert.equal(status.from, 'Roam');
+  });
+});

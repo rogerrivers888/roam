@@ -61,13 +61,33 @@ export const smsConfigured = () => Boolean(SID().startsWith('AC') && TOKEN() && 
  * on the phone app").
  */
 export function smsStatus() {
-  if (!SID() || !TOKEN()) {
+  // Which of the three are actually missing, named one by one.
+  //
+  // This used to say "add all three" whenever any of them was absent, which is
+  // the same sentence whether nothing has been set up or two thirds of it has.
+  // The owner set two keys, saw that sentence unchanged, and had no way to tell
+  // from it whether the third was missing or the first two had never reached
+  // the process — which is the more likely fault and the one worth naming.
+  const absent = [
+    !SID() && 'TWILIO_ACCOUNT_SID',
+    !TOKEN() && 'TWILIO_AUTH_TOKEN',
+    !FROM() && 'TWILIO_FROM',
+  ].filter(Boolean);
+  if (absent.length) {
+    const list = absent.length === 1 ? absent[0] : `${absent.slice(0, -1).join(', ')} and ${absent.at(-1)}`;
+    // All three absent is "nothing has been set up". Some of them absent is a
+    // different fact — the ones that are there did reach this process, so the
+    // sync is working and only the named ones are outstanding.
+    const partial = absent.length < 3;
     return {
       configured: false,
-      reason: 'no_sender',
+      reason: absent.length === 3 ? 'no_sender' : 'incomplete',
       short: "Texts aren't switched on yet — you'll copy the link instead.",
-      setup: 'To send by text, add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM in Doppler.',
-      message: 'No text sender is configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM in Doppler to send invitations by text; until then, copy the link and send it yourself.',
+      setup: `To send by text, add ${list} in Doppler.`,
+      message: partial
+        ? `Twilio is half configured: ${list} ${absent.length === 1 ? 'is' : 'are'} not set. The rest did reach the API, so the Doppler sync is working — this is the one still to add.`
+        : 'No text sender is configured. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM in Doppler to send invitations by text; until then, copy the link and send it yourself.',
+      missing: absent,
     };
   }
   // The wrong SID in the right box. An `SK…` is an API key, which signs the
