@@ -110,6 +110,8 @@ export function Scout({ canManage }: { canManage: boolean }) {
   // Which cause's places the list below is showing. The report is the way in;
   // the list is what you work.
   const [cause, setCause] = useState<string | null>(null);
+  // A hundred and four rows is a list you scroll past, not one you read.
+  const [find, setFind] = useState('');
   const [bench, setBench] = useState<BenchResult | null>(null);
   const [benchRuns, setBenchRuns] = useState<BenchRun[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -218,10 +220,24 @@ export function Scout({ canManage }: { canManage: boolean }) {
             </Panel>
           ) : null}
 
-          <Panel title="Areas" padded={false}>
-            {areas.length === 0 ? (
-              <View style={{ padding: spacing.md }}><Text style={type.small}>Nowhere swept yet.</Text></View>
-            ) : areas.map((a) => (
+          <Panel title="Areas" sub={`${areas.length} swept`} padded={false}>
+            <View style={{ padding: spacing.md, paddingBottom: 0 }}>
+              <TextInput
+                value={find}
+                onChangeText={setFind}
+                placeholder="Find an area — SL4, or Windsor"
+                placeholderTextColor={colors.inkMuted}
+                style={styles.input}
+                autoCapitalize="characters"
+              />
+            </View>
+            {areas.filter((a) => !find.trim()
+              || a.code.toLowerCase().includes(find.trim().toLowerCase())
+              || (a.label ?? '').toLowerCase().includes(find.trim().toLowerCase())).length === 0 ? (
+              <View style={{ padding: spacing.md }}><Text style={type.small}>{areas.length ? 'Nothing called that.' : 'Nowhere swept yet.'}</Text></View>
+            ) : areas.filter((a) => !find.trim()
+              || a.code.toLowerCase().includes(find.trim().toLowerCase())
+              || (a.label ?? '').toLowerCase().includes(find.trim().toLowerCase())).map((a) => (
               <Pressable
                 key={a.code}
                 onPress={() => { setChosen(a.code); setSection('places'); }}
@@ -270,11 +286,7 @@ export function Scout({ canManage }: { canManage: boolean }) {
 
       {section === 'places' ? (
         <>
-          <FilterRow>
-            {areas.map((a) => (
-              <FilterChip key={a.code} label={a.label ?? a.code} on={chosen === a.code} onPress={() => setChosen(a.code)} count={a.places} />
-            ))}
-          </FilterRow>
+          <AreaPicker areas={areas} chosen={chosen} onChoose={setChosen} />
           <Panel
             title={area ? `${area.label ?? area.code}, best first` : 'Places'}
             sub="Our score, our word for the crowd. The rating behind it was never written down."
@@ -432,12 +444,7 @@ export function Scout({ canManage }: { canManage: boolean }) {
 
       {section === 'bench' ? (
         <>
-          <FilterRow>
-            {areas.map((a) => (
-              <FilterChip key={a.code} label={a.label ?? a.code} on={chosen === a.code}
-                          onPress={() => { setChosen(a.code); setBench(null); }} count={a.places} />
-            ))}
-          </FilterRow>
+          <AreaPicker areas={areas} chosen={chosen} onChoose={(code) => { setChosen(code); setBench(null); }} />
 
           <Panel
             title="Is our number right?"
@@ -548,6 +555,52 @@ export function Scout({ canManage }: { canManage: boolean }) {
         </>
       ) : null}
     </AdminPage>
+  );
+}
+
+
+/**
+ * Which area, out of a hundred and four.
+ *
+ * A wrapped row of chips worked at ten areas and became half a screen at a
+ * hundred, so this is a search box and one scrolling line. The outward code
+ * leads, because six of the current labels are "Guildford" and the code is the
+ * only part that says which one — it is also what anybody would type.
+ */
+function AreaPicker({ areas, chosen, onChoose }: {
+  areas: ScoutArea[]; chosen: string | null; onChoose: (code: string) => void;
+}) {
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  const shown = areas
+    .filter((a) => !needle || a.code.toLowerCase().includes(needle) || (a.label ?? '').toLowerCase().includes(needle))
+    .sort((a, b) => (b.places - a.places) || a.code.localeCompare(b.code));
+
+  return (
+    <View style={{ gap: spacing.xs }}>
+      <Row style={{ gap: spacing.sm, alignItems: 'center', flexWrap: 'wrap' }}>
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder={`Find one of ${areas.length} areas — SL4, or Windsor`}
+          placeholderTextColor={colors.inkMuted}
+          style={[styles.input, { flexGrow: 1, flexBasis: 220 }]}
+          autoCapitalize="characters"
+        />
+        <Text style={type.tiny}>{shown.length === areas.length ? `${areas.length} swept` : `${shown.length} of ${areas.length}`}</Text>
+      </Row>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: 2 }}>
+        {shown.slice(0, 60).map((a) => (
+          <FilterChip
+            key={a.code}
+            label={a.label ? `${a.code} · ${a.label}` : a.code}
+            on={chosen === a.code}
+            onPress={() => onChoose(a.code)}
+            count={a.places}
+          />
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
