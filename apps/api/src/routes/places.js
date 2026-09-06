@@ -614,13 +614,26 @@ places.get('/record', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-/** POST /api/places/record { ref, force } — research it again now (Settings, and the drawer's "look again"). */
+/**
+ * POST /api/places/record { ref, force, replace } — research it again now
+ * (Settings, and the drawer's "look again").
+ *
+ * `replace` says whether to clear what each source told us before asking it
+ * again. It follows `force` unless it is spelled out, because "this match is
+ * wrong, throw it away" and "look again while you are there" are different
+ * requests and only the first one should be able to lose a fact.
+ */
 places.post('/record', async (req, res, next) => {
   try {
     const household = await currentHousehold();
     const ref = String(req.body?.ref || '').trim();
     if (!ref) return res.status(400).json({ error: 'ref_required' });
-    const result = await enrich(ref, { householdId: household.id, force: req.body?.force !== false, seed: req.body?.seed ?? {} });
+    const result = await enrich(ref, {
+      householdId: household.id,
+      force: req.body?.force !== false,
+      ...(typeof req.body?.replace === 'boolean' ? { replace: req.body.replace } : {}),
+      seed: req.body?.seed ?? {},
+    });
     res.json({ ...result, record: await ownedRecord(ref) });
   } catch (err) { next(err); }
 });
