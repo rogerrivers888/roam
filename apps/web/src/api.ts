@@ -736,8 +736,21 @@ export type IdeaHeadline = { venueRef: string; name: string; category: string; e
 // ---------------------------------------------------------------------------
 
 /** What a day is about. The closed set the home screen draws as chips. */
-export type MoodKey = 'fun' | 'food' | 'culture' | 'sport' | 'activity' | 'adrenaline' | 'relaxing' | 'outdoors';
-export type Mood = { key: MoodKey; label: string; count: number };
+/**
+ * A category key. The eight are named so the editor still completes them, and
+ * `(string & {})` keeps the union open — the categories live in a table now
+ * (migration 053) and the back office may add one without a deploy.
+ */
+export type MoodKey = 'fun' | 'food' | 'culture' | 'sport' | 'activity' | 'adrenaline' | 'relaxing' | 'outdoors' | (string & {});
+export type Mood = {
+  key: MoodKey; label: string; count: number;
+  /** An `Icon` name, from the table rather than a lookup in the bundle. */
+  icon?: string | null;
+  /** Food is a chip that navigates into Places rather than a shelf that fills. */
+  isDoor?: boolean;
+  /** The drawers inside it that actually hold something here, in order. */
+  subcategories?: { key: string; label: string; count: number }[];
+};
 
 /**
  * One place on the home screen, from the single pool the API retrieved. Every
@@ -769,7 +782,11 @@ export type OwnedImage = {
 
 export type InspireItem = {
   venueRef: string; source: string; name: string; category: string;
-  moods: MoodKey[]; experiences: string[]; cuisines: string[];
+  /** One category, in a list — the shape the shelves already draw. */
+  moods: MoodKey[];
+  /** The drawer inside it, or null while nobody has sorted it. */
+  subcategory?: string | null;
+  experiences: string[]; cuisines: string[];
   rating: number | null; ratingCount: number | null; priceLevel: number | null;
   goodForChildren: boolean | null;
   photos: VenuePhotoRef[];
@@ -1411,11 +1428,29 @@ export const api = {
     post<{ read: number; failed: number; errors: string[] }>(`/api/admin/library/regions/${slug}/read`, { limit, anyway }),
   // --- the shelves: teaching what the home screen calls a place -------------
   shelfVocabulary: () => request<ShelfVocabulary>('/api/admin/shelves/'),
-  shelfContents: (p: { mood: MoodKey; lat?: number; lng?: number; km?: number }) =>
-    request<{ mood: MoodKey; place: { lat: number; lng: number; label: string | null }; km: number; items: ShelfPlace[]; nearly: ShelfPlace[]; pool: number }>(`/api/admin/shelves/shelf${qs(p)}`),
+  shelfContents: (p: { mood: MoodKey; subcategory?: string; lat?: number; lng?: number; km?: number }) =>
+    request<{
+      mood: MoodKey; subcategory: string | null;
+      place: { lat: number; lng: number; label: string | null }; km: number;
+      items: ShelfPlace[]; nearly: ShelfPlace[]; pool: number;
+      /** How this shelf divides up, `key: null` being the unsorted pile. */
+      drawers: { key: string | null; label: string; category_key: MoodKey; count: number }[];
+    }>(`/api/admin/shelves/shelf${qs(p)}`),
   shelfFindPlaces: (q: string) => request<{ places: ShelfPlace[] }>(`/api/admin/shelves/places${qs({ q })}`),
-  shelfTeach: (body: { scope: ShelfRule['scope']; subject: string; subjectLabel?: string | null; weights: ShelfWeights; reason?: string | null }) =>
+  shelfTeach: (body: { scope: ShelfRule['scope']; subject: string; subjectLabel?: string | null; weights: ShelfWeights; subcategory?: string | null; reason?: string | null }) =>
     put<{ rule: ShelfRule }>('/api/admin/shelves/rules', body),
+  /**
+   * The fast one: move this place, now. Naming a subcategory is enough — the
+   * category comes with it, because a drawer belongs to exactly one cabinet.
+   */
+  shelfMovePlace: (body: { ref: string; label?: string | null; category?: MoodKey | null; subcategory?: string | null; reason?: string | null }) =>
+    put<{ rule: ShelfRule; category: MoodKey; subcategory: string | null }>('/api/admin/shelves/place', body),
+  shelfSaveCategory: (body: { key?: string; label?: string; blurb?: string | null; icon?: string | null; position?: number; isDoor?: boolean; active?: boolean }) =>
+    put<{ category: ShelfCategory }>('/api/admin/shelves/categories', body),
+  shelfDeleteCategory: (key: string) => del<{ removed: boolean }>(`/api/admin/shelves/categories/${key}`),
+  shelfSaveSubcategory: (body: { id?: string; key?: string; categoryKey?: MoodKey; label?: string; blurb?: string | null; position?: number; active?: boolean }) =>
+    put<{ subcategory: ShelfSubcategory }>('/api/admin/shelves/subcategories', body),
+  shelfDeleteSubcategory: (id: string) => del<{ removed: boolean }>(`/api/admin/shelves/subcategories/${id}`),
   shelfForget: (id: string) => del<{ removed: boolean; rule: ShelfRule }>(`/api/admin/shelves/rules/${id}`),
   shelfRead: (body: { said: string; subject?: string | null; subjectLabel?: string | null; scope?: ShelfRule['scope'] | null; current?: ShelfWeights | null }) =>
     post<{ proposal: ShelfProposal }>('/api/admin/shelves/read', body),
@@ -1807,6 +1842,11 @@ export type ShelfPlace = {
   ref: string;
   id: string;
   name: string;
+  /** The one category it is filed under, and the drawer inside it. */
+  shelf?: MoodKey | null;
+  subcategory?: string | null;
+  /** Whether anybody would defend the answer, or it landed there by default. */
+  confident?: boolean;
   region: string | null;
   category: string | null;
   summary: string | null;
@@ -1822,8 +1862,27 @@ export type ShelfPlace = {
   distanceKm?: number;
 };
 
+/** A category, as the settings page edits it. */
+export type ShelfCategory = {
+  key: MoodKey; label: string; blurb: string | null; icon: string | null;
+  position: number; is_door: boolean; active: boolean; seeded: boolean;
+  subcategories?: ShelfSubcategory[];
+};
+
+/**
+ * A drawer. `key` is unique across the whole table, which is the no-duplication
+ * rule: a subcategory belongs to exactly one category and the database says so.
+ */
+export type ShelfSubcategory = {
+  id: string; category_key: MoodKey; key: string; label: string; blurb: string | null;
+  position: number; active: boolean; seeded: boolean;
+  /** How many rules point at it, so the settings page is not a guess. */
+  rules?: number;
+};
+
 export type ShelfVocabulary = {
-  shelves: { key: MoodKey; label: string }[];
+  shelves: ShelfCategory[];
+  subcategories: ShelfSubcategory[];
   floor: number;
   maxShelves: number;
   defaults: { category: Record<string, ShelfWeights>; experience: Record<string, ShelfWeights> };

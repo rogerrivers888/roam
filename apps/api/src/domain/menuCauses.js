@@ -127,7 +127,7 @@ export function causeOf({ why = null, state = null, website = null, menuUrl = nu
   // quota, or threw inside the SDK, says nothing whatever about the restaurant
   // — and counting it as "a menu we cannot read" would put our own outage in
   // the middle of a report about their websites. It is a retry, not a finding.
-  if (/could not resolve authentication|api[_ ]?key|unauthori[sz]ed|rate.?limit|quota|429|credit balance|overloaded|insufficient|ECONNRESET|socket hang up|internal server error/i.test(w)) {
+  if (/could not resolve authentication|api[_ ]?key|unauthori[sz]ed|rate.?limit|quota|429|credit balance|budget is spent|model budget|overloaded|insufficient|ECONNRESET|socket hang up|internal server error/i.test(w)) {
     return 'ours';
   }
   // A crash in Roam's own code, which is the same class of thing and the one

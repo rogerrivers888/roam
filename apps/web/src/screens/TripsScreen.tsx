@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useViewport } from '../hooks/useViewport';
 import { GroupPanel } from '../components/GroupPanel';
 import { api, BrowseItem, HouseholdResponse, Place, PlanAction, PlanResponse, ShortlistItem, Stay, StayPricing, TripDay, TripDetail, TripPlace, TripSummary, Venue, DayStop } from '../api';
@@ -17,6 +17,7 @@ import { VenueRow, VisitForm, VisitSummary } from './PlacesScreen';
 import { VenueThumb } from '../components/VenueThumb';
 import { PickPanel } from '../components/PickPanel';
 import { TripCard } from '../components/TripCard';
+import { TripMapScreen } from './TripMapScreen';
 import { speak as speakRaw, useSpeech } from '../hooks/useSpeech';
 import { Listening } from '../components/Listening';
 import { CategoryIcon, Icon, IconName, Rating, Stars } from '../components/Icon';
@@ -673,7 +674,12 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
         if (!asked) {
           const remembered = recallScreen<TripPageMemory>(sectionKey)?.data.section ?? null;
           const start = remembered ?? 'itinerary';
-          navigate(paths.trip(id, start, start === 'day' ? t.days[0]?.id ?? null : null), { replace: true });
+          // The query comes with it. `/trips/<id>?pill=food` is a link somebody
+          // was sent — the trip, already browsing — and filling in the missing
+          // section must not throw away the part that said what to open.
+          const href = paths.trip(id, start, start === 'day' ? t.days[0]?.id ?? null : null);
+          const q = query.toString();
+          navigate(q ? `${href}?${q}` : href, { replace: true });
         }
       }
     } catch (e: any) { setError(e.message); }
@@ -777,13 +783,6 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
 
   const body = (
     <>
-      {section === 'itinerary' ? (
-        <Itinerary d={d} isPast={isPast} onPlan={() => setSection('find')} onDay={(dd) => setDayId(dd)} />
-      ) : null}
-      {section === 'places' ? (
-        <TripPlaces data={tripPlaces} isPast={isPast} onOpen={(p) => { if (p.lat != null && p.lng != null) setSection('map'); }} />
-      ) : null}
-      {section === 'map' ? <TripMap d={d} places={tripPlaces?.places ?? []} wide={wide} /> : null}
       {/* Find is for finding (owner, 5 Sep 2026). The planner used to hang off
           the bottom of this tab and open a second, older copy of this very
           list — two browse lists in two formats, one inside the other. It
@@ -827,10 +826,49 @@ function TripPage({ id, section: asked, dayId: askedDay, household, onBack, refr
     </>
   );
 
+  /**
+   * The trip is a map with a sheet over it (design handoff, 6 Sep 2026). The
+   * three views of a trip — the day, its places, the group — are what the sheet
+   * shows; the working surfaces behind the ⋯ menu keep their own full page,
+   * because they are desks rather than views of a day.
+   */
+  if (TRIP_TABS.includes(section) || section === 'map') {
+    return (
+      <View style={{ flex: 1 }}>
+        <TripMapScreen
+          d={d}
+          section={section === 'map' ? 'itinerary' : section}
+          household={household}
+          onBack={onBack}
+          onChanged={async () => { await load(); await loadPlaces(); await refreshHousehold(); }}
+          onMenu={() => setMenu(true)}
+          onSection={setSection}
+        />
+        {menu ? (
+          <Modal visible transparent animationType="fade" onRequestClose={() => setMenu(false)}>
+            <Pressable style={styles.menuScrim} onPress={() => setMenu(false)} accessibilityLabel="Close" />
+            <View style={styles.menuSheet}>
+              {menuItems.map((m) => (
+                <Pressable key={m.value} onPress={() => { setMenu(false); setSection(m.value); }} style={styles.menuRow} accessibilityRole="button">
+                  <Icon name={m.icon} size={17} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={type.h3} numberOfLines={1}>{m.label}</Text>
+                    {m.hint ? <Text style={type.tiny} numberOfLines={1}>{m.hint}</Text> : null}
+                  </View>
+                  <Icon name="more" size={16} color={colors.inkMuted} />
+                </Pressable>
+              ))}
+              <View style={styles.menuRow}><DeleteTrip id={id} onDeleted={onBack} /></View>
+            </View>
+          </Modal>
+        ) : null}
+      </View>
+    );
+  }
+
   return (
     <ScrollView contentContainerStyle={[styles.page, wide && { maxWidth: 860, alignSelf: 'center', width: '100%' }]} keyboardShouldPersistTaps="handled">
       {header}
-      <Segmented value={section} options={tabs} onChange={setSection} />
       {menu ? (
         <View style={styles.menu}>
           {menuItems.map((m) => (
@@ -1528,6 +1566,9 @@ const styles = StyleSheet.create({
   tripCard: { flexDirection: 'row', gap: spacing.md, padding: spacing.md, borderWidth: 1, borderColor: colors.line, borderRadius: radius.lg, backgroundColor: colors.surface },
   // The working surfaces, one tap behind the ⋯.
   menu: { borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, backgroundColor: colors.surface, overflow: 'hidden' },
+  // Over the map, the same menu is a sheet: there is no page under it to sit on.
+  menuScrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(32,30,29,0.4)' },
+  menuSheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingBottom: spacing.xl, overflow: 'hidden' },
   menuRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: TARGET, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line },
   // The itinerary's timed spine.
   dayHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.sm },

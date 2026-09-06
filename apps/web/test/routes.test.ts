@@ -182,3 +182,25 @@ test('two changes in one tap compose instead of racing', () => {
   const first = withQuery('/places/home?type=Museum', { kind: 'eat' });
   assert.equal(withQuery(first, { type: null }), '/places/home?kind=eat');
 });
+
+// --- the sheet over the map -------------------------------------------------
+
+test('the sheet’s three detents fit the screen they are on', async () => {
+  const { detentHeights } = await import('../src/components/detents.ts');
+  // A phone, as the handoff draws it: peek 112, half 470, full to 60 from the top.
+  const phone = detentHeights(844, 70);
+  assert.equal(phone.peek, 112);
+  assert.equal(phone.half, 470);
+  assert.equal(phone.full, 844 - 60 - 70);
+  assert.ok(phone.peek < phone.half && phone.half < phone.full, 'the detents must be in order');
+
+  // A short window — a laptop in the phone frame, or a browser with the
+  // developer tools open — cannot have a half taller than its full.
+  const short = detentHeights(520, 70);
+  assert.ok(short.half < short.full, 'half must stay under full on a short screen');
+  assert.ok(short.peek <= short.half);
+
+  // And an absurdly short one still leaves something to hold on to.
+  const tiny = detentHeights(200, 70);
+  assert.ok(tiny.full >= 320, 'the sheet never collapses to nothing');
+});

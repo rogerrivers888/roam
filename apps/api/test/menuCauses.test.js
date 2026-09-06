@@ -64,6 +64,10 @@ test('a failure of ours is never counted as a place we cannot read', () => {
     'searchTheWeb is not defined',
     'Cannot read properties of undefined (reading \'url\')',
     'menuFor is not a function',
+    // A spent budget stops every read in the estate, and it is the kind of
+    // thing that would otherwise be recorded against three hundred innocent
+    // restaurants in a single afternoon.
+    "the workspace's model budget is spent, back on 2026-10-01",
   ];
   for (const why of ours) assert.equal(causeOf({ why, state: 'none' }), 'ours', why.slice(0, 40));
 });

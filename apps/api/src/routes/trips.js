@@ -15,7 +15,7 @@ import { searchCached } from '../sources/cache.js';
 import { bedsNear, OSM_ATTRIBUTION, LITEAPI_ATTRIBUTION } from '../sources/stays.js';
 import { rankStays, middleOf, partyForStay } from '../domain/stays.js';
 import { occupanciesFor, liteapiEnabled, liteapiKeyKind } from '../sources/liteapi.js';
-import { kmBetween } from '../domain/travel.js';
+import { kmBetween, detourMinutes, estimateTravelMinutes, reachRadiusKm } from '../domain/travel.js';
 import { currentHousehold } from './household.js';
 import { visitPayload, householdStatus } from './places.js';
 import { upsertHouseholdPlace, ownedImage } from './atlas.js';
@@ -512,6 +512,121 @@ async function runShortlistSearch(req, { onProgress = null } = {}) {
   const results = [...live, ...stored];
   return { near: center, radiusKm, results: withFlags(results), storedCount: stored.length, degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started };
 }
+
+/**
+ * GET /api/trips/:id/along?kind=food|things&maxDetourMin=15&scope=route|there&q=
+ *
+ * Everywhere you could stop **along the way** — the map-first trip screen's
+ * Browse mode (design handoff, 6 Sep 2026, screens 03–05).
+ *
+ * The whole design turns on one measurement: not "how far is this from home",
+ * which nobody cares about once they are in the car, but "how much longer does
+ * the day get if we stop here". That is `detourMinutes` — the drive via this
+ * place, less the drive straight there — and it is what every row leads with.
+ *
+ * **It is estimated, on purpose** (owner, 6 Sep 2026: "As long as the detour
+ * route minutes are roughly correct, I think that's okay… once the user adds it
+ * to their actual trip, not in a shortlist, then we can recalculate the actual
+ * correct number"). A browse is six to thirty candidates and the filters change
+ * with every tap; routing all of them each time would spend a day's Google
+ * quota in minutes and buy nothing, because nobody has chosen anything yet. So
+ * this endpoint asks Google for nothing at all, and `estimated: true` travels
+ * on the answer so the screen can say so. The real number is fetched for the
+ * one place somebody adds, when they add it (`POST /:id/day/stops`).
+ *
+ * The corridor is a bias, not a fence: everything found is returned with its
+ * detour on it, and `maxDetourMin` only decides what the list leads with.
+ */
+router.get('/:id/along', async (req, res, next) => {
+  const started = Date.now();
+  try {
+    const household = await currentHousehold();
+    const trip = await loadTrip(req.params.id);
+    const mode = trip.travel_mode || 'driving';
+    const origin = { lat: trip.base_lat ?? trip.origin_lat, lng: trip.base_lng ?? trip.origin_lng, label: trip.base_label ?? trip.origin_label };
+    // Where the day is *for*: the destination on a day out, the town on a trip.
+    const destination = trip.destination_lat != null
+      ? { lat: trip.destination_lat, lng: trip.destination_lng, label: trip.destination_label }
+      : null;
+    if (origin.lat == null) return res.status(400).json({ error: 'no_origin', message: 'This trip has no starting point yet.' });
+
+    const kind = req.query.kind === 'food' ? 'food' : 'things';
+    const maxDetourMin = Math.min(60, Math.max(5, Number(req.query.maxDetourMin) || 15));
+    // `there` is the handoff's "By the park" chip: near the destination rather
+    // than spread along the way.
+    const scope = req.query.scope === 'there' ? 'there' : 'route';
+    const q = String(req.query.q || '').trim();
+
+    // One search, centred so that its circle covers the corridor. Along the
+    // route that is the midpoint and half the journey plus the detour's reach;
+    // at the destination it is the destination and the detour's reach alone.
+    const reach = reachRadiusKm(mode, maxDetourMin);
+    const centre = scope === 'there' && destination
+      ? { ...destination }
+      : destination
+        ? { lat: (origin.lat + destination.lat) / 2, lng: (origin.lng + destination.lng) / 2, label: 'along the way' }
+        : { ...origin };
+    const half = destination && scope !== 'there' ? kmBetween(origin, destination) / 2 : 0;
+    const radiusKm = Math.min(40, Math.max(2, half + reach));
+
+    const sources = Array.isArray(trip.sources) && trip.sources.length
+      ? trip.sources
+      : enabledSources().filter((src) => src.key !== 'scout').map((src) => src.key);
+    const deadline = new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error('The sources took too long to answer.'), { status: 504, code: 'sources_timeout' })), 60_000));
+    const { venues, degraded, sourcesQueried, units, cached, fetchedAt, fetched } = await Promise.race([searchCached(
+      {
+        center: centre, radiusKm, categories: [kind], query: q, sources,
+        locality: trip.locality ?? null, householdId: household.id,
+        placeLabel: trip.base_label ?? trip.origin_label, timezone: trip.timezone ?? null,
+      },
+      { refresh: req.query.refresh === '1' },
+    ), deadline]);
+    if (fetched) await trips.recordProviderCall(household.id, sourcesQueried.join('+') || 'none', 'trip.along', units);
+
+    const have = new Set(await trips.shortlistRefs(trip.id));
+    const onDay = new Set((await trips.stopsOf(trip.id)).map((s) => s.venue_ref));
+
+    const rows = venues.map((v) => {
+      const venueRef = `${v.source}:${v.sourcePlaceId}`;
+      // Straight-line arithmetic, ours, free and instant. Never a routing call.
+      const detour = destination
+        ? detourMinutes({ origin, destination, venue: v, mode })
+        : estimateTravelMinutes(origin, v, mode);
+      const from = scope === 'there' && destination ? destination : origin;
+      return {
+        venueRef, source: v.source, name: v.name, category: v.category ?? 'attraction',
+        lat: v.lat, lng: v.lng,
+        cuisines: v.cuisines ?? [], experiences: v.experiences ?? [],
+        rating: v.rating ?? null, ratingCount: v.ratingCount ?? null, priceLevel: v.priceLevel ?? null,
+        openingHours: v.openingHours ?? null, phone: v.phone ?? null, website: v.website ?? null,
+        address: typeof v.address === 'string' ? v.address : v.address?.line1 ?? null,
+        photos: (v.photos ?? []).slice(0, 1),
+        attribution: v.attribution ?? null,
+        detourMinutes: detour,
+        /** Miles, in brackets, is what the row shows beside the minutes. */
+        detourMiles: Number((kmBetween(from, v) * 0.621371).toFixed(1)),
+        /** Worked out from the distance, not asked of Google. The row says so. */
+        estimated: true,
+        onShortlist: have.has(venueRef),
+        onDay: onDay.has(venueRef),
+      };
+    });
+
+    const within = rows.filter((r) => r.detourMinutes != null && r.detourMinutes <= maxDetourMin);
+    const beyond = rows.filter((r) => !within.includes(r));
+    const byDetour = (a, b) => (a.detourMinutes ?? 999) - (b.detourMinutes ?? 999);
+
+    res.json({
+      origin, destination, mode, scope, kind, maxDetourMin,
+      // Inside the corridor first, then everything else — the corridor biases
+      // the order, it does not throw places away (Requirements §4).
+      places: [...within.sort(byDetour).slice(0, 60), ...beyond.sort(byDetour).slice(0, 20)],
+      counts: { route: rows.filter((r) => (r.detourMinutes ?? 999) <= maxDetourMin).length, there: destination ? rows.filter((r) => kmBetween(destination, r) <= reach).length : 0 },
+      estimated: true,
+      degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started,
+    });
+  } catch (err) { next(err); }
+});
 
 /**
  * GET /api/trips/:id/stays?radiusKm=2&mode=walking&rooms=1&adults=2&children=8,11
