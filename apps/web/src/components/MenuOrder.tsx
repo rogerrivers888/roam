@@ -130,6 +130,10 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
   const [link, setLink] = useState<MenuLink | null>(null);
   const [reading, setReading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Why it stopped, when the reason is a ceiling rather than their menu: the
+  // heading must not blame the restaurant for a limit of ours (owner, 6 Sep
+  // 2026).
+  const [held, setHeld] = useState(false);
   const [how, setHow] = useState<string[]>([]);
   const [household, setHousehold] = useState<HouseholdResponse | null>(null);
   const [section, setSection] = useState<string | null>(null);
@@ -233,12 +237,13 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
   const total = chosen.reduce((n, r) => n + (itemsById.get(r.itemId)?.price ?? 0), 0);
 
   async function readTheMenu() {
-    setReading(true); setError(null); setHow([]);
+    setReading(true); setError(null); setHeld(false); setHow([]);
     try {
       const d = await api.readMenu({ ref: venueRef, label: venueLabel, website: website ?? undefined, url: link?.url ?? undefined });
       setMenu(d.menu); setSection(d.menu.sections[0]?.title ?? null); setHow(d.menu.how ?? []);
     } catch (e: any) {
       setError(e.message || 'Their menu would not open.');
+      setHeld(e?.code === 'model_budget_reached' || e?.code === 'spend_bound_reached');
       setHow(e.body?.how ?? []);
     } finally {
       setReading(false);
@@ -374,7 +379,7 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
   const dietLines = members.flatMap((m) => (m.diets ?? []).map((d) => `${m.name.split(' ')[0]} is ${d.value.toLowerCase()}.`));
 
   return {
-    venueRef, venueLabel, menu, link, reading, error, how, members, sections, shown, section, setSection, itemsById,
+    venueRef, venueLabel, menu, link, reading, error, held, how, members, sections, shown, section, setSection, itemsById,
     picks, pickOf, setPick, chosen, total, order, resumed, marks, setMarks, busy, staff, setStaff, phase, setPhase,
     noting, setNoting, asked, groups, allergenLines, dietLines, history, again, setAgain,
     readTheMenu, toTheOrder, removeFromOrder, noteOnOrder, startAgain, weAteIt, saveStars, whatIsThis, orderAgain,
@@ -384,7 +389,7 @@ export function useMenuOrder({ venueRef, venueLabel, website, enabled = true }: 
 /* ---------------------------------------------------------------- the menu */
 
 export function MenuPanel({ ctl, onOrder }: { ctl: MenuOrderCtl; onOrder: () => void }) {
-  const { menu, link, reading, error, how, members, sections, shown, chosen, total, asked } = ctl;
+  const { menu, link, reading, error, held, how, members, sections, shown, chosen, total, asked } = ctl;
   // Opening the Menu tab is the household asking for the menu: read it, rather
   // than offering a button that says so (owner, 4 Sep 2026 — "I shouldn't even
   // have to click Read the menu because I'm clicking on the menu tab"). Once
@@ -401,7 +406,9 @@ export function MenuPanel({ ctl, onOrder }: { ctl: MenuOrderCtl; onOrder: () => 
 
         {menu === null ? (
           <Card>
-            <Text style={type.h3}>{reading ? 'Reading their menu…' : error ? 'Their menu would not open' : 'Their menu'}</Text>
+            {/* A ceiling of ours is not their menu failing, and the heading is
+                the first thing read (owner, 6 Sep 2026). */}
+            <Text style={type.h3}>{reading ? 'Reading their menu…' : held ? 'Not until the budget is raised' : error ? 'Their menu would not open' : 'Their menu'}</Text>
             {reading ? (
               <Row><ActivityIndicator color={colors.icon} /><Text style={type.small}>{link?.url ? `From ${link.url.replace(/^https?:\/\//, '').slice(0, 48)}` : 'Looking on their website…'}</Text></Row>
             ) : null}
