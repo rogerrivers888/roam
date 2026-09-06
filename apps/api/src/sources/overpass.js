@@ -77,6 +77,45 @@ export const mirrorHealth = () => ENDPOINTS.map((url) => ({
   preferred: ENDPOINTS[preferred] === url,
 }));
 
+/**
+ * One Overpass query, against whichever mirror is answering.
+ *
+ * Every caller used to carry its own copy of this loop and its own list of
+ * mirrors — there were five, and three of them still began with the two that
+ * are down. The station lookup was the expensive one to miss: it swallowed
+ * every error and returned an empty list, so "no bed here is near a station"
+ * and "we could not reach the map" looked identical, and the station tile
+ * quietly returned nothing at all for Bath (found 6 Sep 2026).
+ *
+ * Throws when every mirror refuses, which is the caller's to handle — but it
+ * is now a decision each caller makes rather than a `catch {}` nobody sees.
+ */
+export async function overpassQuery(body, { timeoutMs = 12_000, userAgent = UA } = {}) {
+  let lastErr = null;
+  for (const url of mirrorsInOrder()) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        body: `data=${encodeURIComponent(body)}`,
+        // Overpass answers 406 without a user agent.
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': userAgent },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) {
+        mirrorFailed(url, null, res.status);
+        throw new Error(`Overpass ${res.status} at ${url}`);
+      }
+      const data = await res.json();
+      mirrorAnswered(url);
+      return data;
+    } catch (err) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') mirrorFailed(url, err);
+      lastErr = err;
+    }
+  }
+  throw lastErr ?? new Error('Overpass unavailable');
+}
+
 /** Only for tests: forget what we have learned about the mirrors. */
 export function resetMirrors() {
   restingUntil.clear();

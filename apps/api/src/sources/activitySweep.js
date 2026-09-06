@@ -35,6 +35,7 @@
 // to each, so the band cannot be read backwards into the figure behind it.
 
 import { sweepArea } from './google.js';
+import { mirrorsInOrder, mirrorAnswered, mirrorFailed } from './overpass.js';
 import { normalise, metresBetween } from './openMatch.js';
 import * as lib from '../repositories/library.js';
 import { query } from '../db.js';
@@ -100,8 +101,11 @@ export function cellsFor({ lat, lng, spanKm = 40, across = 2 }) {
 // whole of the first real sweep — 000 from overpass-api.de, 504 from kumi — so
 // 5,124 places were written as pointers when most of them could have been ours.
 // `sources/inside.js` already learned this lesson; this had not.
-const OVERPASS = (process.env.ROAM_OVERPASS_URLS
-  || 'https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter,https://overpass.osm.jp/api/interpreter').split(',');
+// The order and the ten-minute rest are shared now (sources/overpass.js), so a
+// mirror the Stay tab found to be down is one the sweep does not spend three
+// minutes on. The asking stays here: a county sweep waits far longer than a
+// screen may.
+const EXTRA = ['https://overpass.osm.jp/api/interpreter'];
 
 /**
  * Every day-out object OpenStreetMap holds in a region, in one request.
@@ -124,7 +128,7 @@ async function osmNear({ lat, lng, spanKm }) {
     nwr(${box})["name"]["sport"];
   );out tags center;`;
   let data = null; let last = null;
-  for (const endpoint of OVERPASS) {
+  for (const endpoint of [...mirrorsInOrder(), ...EXTRA]) {
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -132,10 +136,14 @@ async function osmNear({ lat, lng, spanKm }) {
         body: new URLSearchParams({ data: q }),
         signal: AbortSignal.timeout(180_000),
       });
-      if (!res.ok) { last = new Error(`${new URL(endpoint).hostname} ${res.status}`); continue; }
+      if (!res.ok) { mirrorFailed(endpoint, null, res.status); last = new Error(`${new URL(endpoint).hostname} ${res.status}`); continue; }
       data = await res.json();
+      mirrorAnswered(endpoint);
       break;
-    } catch (err) { last = err; }
+    } catch (err) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') mirrorFailed(endpoint, err);
+      last = err;
+    }
   }
   if (!data) throw last ?? new Error('no Overpass mirror answered');
   return (data.elements ?? []).map((e) => ({

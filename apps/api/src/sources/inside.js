@@ -23,9 +23,12 @@
 // go on the device and stay there.
 
 import * as placeContents from '../repositories/placeContents.js';
+import { mirrorsInOrder, mirrorAnswered, mirrorFailed } from './overpass.js';
 import { OSM_ATTRIBUTION } from './osm.js';
 
-const ENDPOINTS = (process.env.ROAM_OVERPASS_URLS || 'https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter').split(',');
+// Which mirrors, and which are answering today: sources/overpass.js. The
+// asking is still this module's own — a background researcher waits far longer
+// than a screen may — but the order and the ten-minute rest are shared.
 const WIKIDATA = 'https://www.wikidata.org/w/api.php';
 const WIKI = 'https://en.wikipedia.org/w/api.php';
 const UA = 'RoamBot/1.0 (+https://web-production-afce9.up.railway.app; place research)';
@@ -71,7 +74,8 @@ async function overpass(body) {
   let last = null;
   // The open map is free and often busy: each endpoint is asked twice, with a
   // pause, before the research is called off.
-  for (const url of [...ENDPOINTS, ...ENDPOINTS]) {
+  const order = mirrorsInOrder();
+  for (const url of [...order, ...order]) {
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -79,11 +83,15 @@ async function overpass(body) {
         body: `data=${encodeURIComponent(body)}`,
         signal: AbortSignal.timeout(90_000),
       });
-      if (!res.ok) throw new Error(`overpass ${res.status}`);
+      if (!res.ok) { mirrorFailed(url, null, res.status); throw new Error(`overpass ${res.status}`); }
       const text = await res.text();
       if (!text.trim().startsWith('{')) throw new Error('overpass busy');
+      mirrorAnswered(url);
       return JSON.parse(text);
-    } catch (err) { last = err; await new Promise((r) => setTimeout(r, 4000)); }
+    } catch (err) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') mirrorFailed(url, err);
+      last = err; await new Promise((r) => setTimeout(r, 4000));
+    }
   }
   throw last ?? new Error('overpass unavailable');
 }

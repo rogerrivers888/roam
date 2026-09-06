@@ -9,11 +9,12 @@
 // a station name and a postcode district are open data, not licensed content.
 
 import * as providerCalls from '../repositories/providerCalls.js';
+import { overpassQuery } from './overpass.js';
 import * as atlasRepo from '../repositories/atlas.js';
 import { reverseGeocode } from './geocode.js';
 
 const TFL = 'https://api.tfl.gov.uk/StopPoint';
-const OVERPASS = (process.env.ROAM_OVERPASS_URLS || 'https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter').split(',');
+// Mirrors, and which of them are answering today: sources/overpass.js.
 const LONDON = { s: 51.28, n: 51.70, w: -0.51, e: 0.34 };
 export const inLondon = (lat, lng) => lat >= LONDON.s && lat <= LONDON.n && lng >= LONDON.w && lng <= LONDON.e;
 
@@ -91,21 +92,10 @@ function isServiceStation(t) {
  */
 export async function stationsNear(lat, lng, radiusM = 8000) {
   const body = `[out:json][timeout:20];(node["railway"="station"](around:${radiusM},${lat},${lng});node["railway"="halt"](around:${radiusM},${lat},${lng}););out body 120;`;
-  let data = null;
-  for (const url of OVERPASS) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        body: `data=${encodeURIComponent(body)}`,
-        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Roam/0.1 (+https://github.com/rogerrivers888/roam)' },
-        signal: AbortSignal.timeout(25_000),
-      });
-      if (!res.ok) throw new Error(`Overpass ${res.status}`);
-      data = await res.json();
-      break;
-    } catch { /* the next mirror */ }
-  }
-  if (!data) return [];
+  // Throws when every mirror is down, and that is deliberate. Returning [] made
+  // "there is no station near here" and "we could not ask" the same answer, and
+  // the second one silently emptied the whole station tile.
+  const data = await overpassQuery(body, { timeoutMs: 15_000 });
   return (data.elements || [])
     .filter((n) => n.tags?.name && isServiceStation(n.tags))
     .map((n) => ({
@@ -118,22 +108,7 @@ export async function stationsNear(lat, lng, radiusM = 8000) {
 
 async function osmStation(lat, lng) {
   const body = `[out:json][timeout:12];node["railway"="station"](around:5000,${lat},${lng});out body 40;`;
-  let data = null, lastErr = null;
-  for (const url of OVERPASS) {
-    try {
-      // Overpass answers 406 without a user agent (the same header the OSM source sends).
-      const res = await fetch(url, {
-        method: 'POST',
-        body: `data=${encodeURIComponent(body)}`,
-        headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Roam/0.1 (+https://github.com/rogerrivers888/roam)' },
-        signal: AbortSignal.timeout(20_000),
-      });
-      if (!res.ok) throw new Error(`Overpass ${res.status}`);
-      data = await res.json();
-      break;
-    } catch (e) { lastErr = e; }
-  }
-  if (!data) throw lastErr || new Error('Overpass unavailable');
+  const data = await overpassQuery(body, { timeoutMs: 15_000 });
   const nodes = (data.elements || []).filter((n) => n.tags?.name).map((n) => ({ ...n, d: haversineM({ lat, lng }, { lat: n.lat, lng: n.lon }) })).sort((a, b) => a.d - b.d);
   const n = nodes[0];
   if (!n) return null;
