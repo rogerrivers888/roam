@@ -23,10 +23,10 @@ export const SCOPES = ['place', 'kind', 'category', 'experience'];
  * carrying `{ "advntre": 3 }` would otherwise sit in the table looking like it
  * did something.
  */
-export function cleanWeights(input) {
+export function cleanWeights(input, known = MOOD_KEYS) {
   const out = {};
   for (const [key, value] of Object.entries(input ?? {})) {
-    if (!MOOD_KEYS.includes(key)) continue;
+    if (!known.includes(key)) continue;
     const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) continue;
     out[key] = Math.min(1, Math.round(n * 100) / 100);
@@ -67,24 +67,30 @@ export async function list({ scope = null, q = null } = {}) {
  * second rule, so it replaces what was there — including the reason, which is
  * what makes the row auditable at all.
  */
-export async function teach({ scope, subject, subjectLabel, weights, reason, by }) {
+export async function teach({ scope, subject, subjectLabel, weights, subcategory, reason, by, known }) {
   if (!SCOPES.includes(scope)) throw Object.assign(new Error(`unknown scope ${scope}`), { status: 400 });
-  const clean = cleanWeights(weights);
-  if (!Object.keys(clean).length) {
-    throw Object.assign(new Error('A rule with no shelf on it would hide the place everywhere. Give it at least one.'), { status: 400 });
+  const clean = cleanWeights(weights, known);
+  // A rule may say the drawer, the shelf, or both. A drawer on its own is a
+  // complete answer, because a drawer belongs to exactly one cabinet — that is
+  // how most of the atlas is filed (migration 054). A rule that says neither
+  // would hide the place everywhere, which is the one thing it may not do.
+  if (!Object.keys(clean).length && !subcategory) {
+    throw Object.assign(new Error('A rule has to say something: a category, a subcategory, or both.'), { status: 400 });
   }
   const { rows } = await query(
-    `insert into shelf_rules (scope, subject, subject_label, weights, reason, taught_by, seeded)
-     values ($1,$2,$3,$4,$5,$6,false)
+    `insert into shelf_rules (scope, subject, subject_label, weights, subcategory, reason, taught_by, seeded)
+     values ($1,$2,$3,$4,$5,$6,$7,false)
      on conflict (scope, subject) do update
         set subject_label = coalesce(excluded.subject_label, shelf_rules.subject_label),
             weights = excluded.weights,
+            subcategory = excluded.subcategory,
             reason = excluded.reason,
             taught_by = excluded.taught_by,
             seeded = false,
             updated_at = now()
      returning *`,
-    [scope, String(subject), subjectLabel ?? null, JSON.stringify(clean), reason ?? null, by ?? null]);
+    [scope, String(subject), subjectLabel ?? null, JSON.stringify(clean),
+     subcategory ? String(subcategory) : null, reason ?? null, by ?? null]);
   forget();
   return rows[0];
 }

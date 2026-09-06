@@ -56,8 +56,9 @@ import { householdStatus } from './places.js';
 import { thingsAround, THINGS_RADIUS_KM } from './plan.js';
 import { estimateTravelMinutes, kmBetween, TRAVEL_MODES } from '../domain/travel.js';
 import { dwellFor } from '../domain/options.js';
-import { MOODS, moodsFor, moodsForAtlas } from '../domain/moods.js';
+import { shelvesForAtlas, shelvesForVenue } from '../domain/moods.js';
 import { rules as shelfRules } from '../repositories/shelfRules.js';
+import { taxonomy } from '../repositories/shelfTaxonomy.js';
 import { publishedNear, heroesForPlaces } from '../repositories/library.js';
 import { enabledSources } from '../sources/index.js';
 
@@ -194,6 +195,8 @@ inspire.get('/near', async (req, res, next) => {
     // One small read, cached in the process, and the only thing standing
     // between "Wikidata calls this a sports venue" and "this is a day out".
     const taught = await shelfRules();
+    // Both levels, from the tables the back office writes.
+    const tax = await taxonomy();
 
     const attendees = toAttendees(members);
     // A source states its credit either as a line or as { text, … }; the card only wants the line.
@@ -211,7 +214,7 @@ inspire.get('/near', async (req, res, next) => {
       source: v.source,
       name: v.name,
       category: v.category,
-      moods: moodsFor(v, taught),
+      ...(() => { const p = shelvesForVenue(v, taught, tax.vocab); return { moods: p.shelves, subcategory: p.subcategory }; })(),
       experiences: v.experiences ?? [],
       cuisines: v.cuisines ?? [],
       rating: v.rating ?? null,
@@ -272,7 +275,10 @@ inspire.get('/near', async (req, res, next) => {
         source: 'atlas',
         name: a.name,
         category: 'attraction',
-        moods: moodsForAtlas({ ref: a.osm_ref ? `osm:${a.osm_ref}` : `wikidata:${a.wikidata_id}`, category: a.category, kinds: a.kinds ?? [] }, taught),
+        ...(() => {
+          const p = shelvesForAtlas({ ref: a.osm_ref ? `osm:${a.osm_ref}` : `wikidata:${a.wikidata_id}`, category: a.category, kinds: a.kinds ?? [] }, taught, tax.vocab);
+          return { moods: p.shelves, subcategory: p.subcategory };
+        })(),
         // What the atlas calls this place — heritage, outdoors, family, museum,
         // arts, animals, active, landmark. Its own field rather than smuggled
         // into `experiences`, which is a closed vocabulary that voice is
@@ -317,7 +323,7 @@ inspire.get('/near', async (req, res, next) => {
     const status = await householdStatus(household.id, items.map((i) => i.venueRef));
     for (const item of items) item.household = status[item.venueRef] ?? null;
 
-    const counts = Object.fromEntries(MOODS.map((m) => [m.key, items.filter((i) => i.moods.includes(m.key)).length]));
+    const counts = Object.fromEntries(tax.active.categories.map((m) => [m.key, items.filter((i) => i.moods.includes(m.key)).length]));
 
     res.json({
       place: { label, ...centre, locality },
@@ -332,7 +338,17 @@ inspire.get('/near', async (req, res, next) => {
       // What is actually in this answer. Said outright, so a screen never has to
       // work out from an empty shelf whether a pool was absent or merely quiet.
       pools: { atlas: true, live },
-      moods: MOODS.map((m) => ({ ...m, count: counts[m.key] })),
+      // The chips, from the table rather than from a list in the bundle, each
+      // with its drawers and how many places are in each. A category added or
+      // renamed in the back office is on the home screen at the next refresh.
+      moods: tax.active.categories.map((m) => ({
+        key: m.key, label: m.label, icon: m.icon, isDoor: m.is_door,
+        count: counts[m.key],
+        subcategories: tax.active.subcategories
+          .filter((sc) => sc.category_key === m.key)
+          .map((sc) => ({ key: sc.key, label: sc.label, count: items.filter((i) => i.subcategory === sc.key).length }))
+          .filter((sc) => sc.count > 0),
+      })),
       items,
       cached: Boolean(cached),
       tookMs: Date.now() - started,

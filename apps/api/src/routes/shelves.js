@@ -32,9 +32,10 @@ import { requires } from '../access.js';
 import { query } from '../db.js';
 import * as lib from '../repositories/library.js';
 import * as shelfRules from '../repositories/shelfRules.js';
+import * as taxonomy from '../repositories/shelfTaxonomy.js';
 import { currentHousehold } from './household.js';
 import {
-  BY_ATLAS_CATEGORY, BY_EXPERIENCE, MAX_SHELVES, MOODS, MOOD_KEYS, SHELF_FLOOR,
+  BY_ATLAS_CATEGORY, BY_EXPERIENCE, MAX_SHELVES, SHELF_FLOOR,
   shelvesForAtlas,
 } from '../domain/moods.js';
 import { kindLabels } from '../sources/wikimedia.js';
@@ -63,10 +64,10 @@ async function centreOf(req) {
  * because the useful move on this screen is almost never "fix this one place" —
  * it is "fix the type, and every place of that type with it".
  */
-function explain(row, rules, kindNames) {
+function explain(row, rules, kindNames, vocab) {
   const ref = row.osm_ref ? `osm:${row.osm_ref}` : `wikidata:${row.wikidata_id}`;
-  const { weights, shelves: on, because } = shelvesForAtlas(
-    { ref, category: row.category, kinds: row.kinds ?? [] }, rules,
+  const { weights, shelves: on, because, category, subcategory, confident } = shelvesForAtlas(
+    { ref, category: row.category, kinds: row.kinds ?? [] }, rules, vocab,
   );
   return {
     ref,
@@ -83,6 +84,11 @@ function explain(row, rules, kindNames) {
     lng: row.lng,
     imageId: row.image_id ?? row.hero_id ?? null,
     shelves: on,
+    // The one it is filed under, and the drawer inside it. `shelves` keeps the
+    // old shape — a list of one — so nothing that draws shelves has to change.
+    shelf: category,
+    subcategory,
+    confident,
     weights,
     because,
     kinds: (row.kinds ?? []).map((qid) => ({
@@ -104,9 +110,14 @@ const namesFor = (rows) => lib.kindsByQid([...new Set(rows.flatMap((r) => r.kind
 
 shelves.get('/', requires('view_library'), async (_req, res, next) => {
   try {
-    const [rules, taught] = await Promise.all([shelfRules.rules(), shelfRules.list()]);
+    const [rules, taught, tax, use] = await Promise.all([
+      shelfRules.rules(), shelfRules.list(), taxonomy.taxonomy(), taxonomy.subcategoryUse(),
+    ]);
     res.json({
-      shelves: MOODS,
+      // Both levels, straight from the tables, so the screens draw whatever the
+      // settings page last said rather than a list compiled into the bundle.
+      shelves: tax.categories.map((c) => ({ ...c, subcategories: tax.subcategories.filter((s) => s.category_key === c.key) })),
+      subcategories: tax.subcategories.map((s) => ({ ...s, rules: use.get(s.key) ?? 0 })),
       floor: SHELF_FLOOR,
       maxShelves: MAX_SHELVES,
       // What a subject falls back to when nothing has been taught about it, so
@@ -131,8 +142,11 @@ shelves.get('/', requires('view_library'), async (_req, res, next) => {
  */
 shelves.get('/shelf', requires('view_library'), async (req, res, next) => {
   try {
+    const tax = await taxonomy.taxonomy();
     const mood = String(req.query.mood || 'adrenaline');
-    if (!MOOD_KEYS.includes(mood)) throw bad(`${mood} is not one of the six shelves`);
+    if (!tax.byKey.has(mood)) throw bad(`${mood} is not one of the categories`);
+    // Narrow to one drawer, which is what the second row of chips does.
+    const drawer = req.query.subcategory ? String(req.query.subcategory) : null;
     const centre = await centreOf(req);
     if (!centre) throw bad('Set a home address, or pass lat and lng, and Roam will look around it.');
     const km = Math.min(200, Math.max(1, Number(req.query.km) || 60));
@@ -143,18 +157,28 @@ shelves.get('/shelf', requires('view_library'), async (req, res, next) => {
 
     const all = near
       .filter((r) => r.lat != null && kmBetween(centre, r) <= km)
-      .map((r) => ({ ...explain(r, rules, names), distanceKm: Number(kmBetween(centre, r).toFixed(1)) }));
+      .map((r) => ({ ...explain(r, rules, names, tax.vocab), distanceKm: Number(kmBetween(centre, r).toFixed(1)) }));
+
+    const on = all.filter((i) => i.shelf === mood);
 
     res.json({
       mood,
+      subcategory: drawer,
       place: centre,
       km,
-      // Everything within reach, split into what this shelf draws and what it
-      // nearly draws. The second list is the one that answers "why is this
-      // missing" — a place at 0.3 on Adrenaline is a rule away from being on it.
-      items: all.filter((i) => i.shelves.includes(mood)),
+      // Everything within reach, split into what this shelf holds and what it
+      // nearly holds. The second list is the one that answers "why is that not
+      // on there" — a place at 0.3 on Adrenaline is a rule away from being on it.
+      items: drawer ? on.filter((i) => i.subcategory === drawer) : on,
+      // How the shelf divides up, so the drawers can be drawn as counts rather
+      // than as a list somebody has to scan. `null` is the unsorted pile, which
+      // is the work queue.
+      drawers: tax.subcategories
+        .filter((sc) => sc.category_key === mood)
+        .map((sc) => ({ ...sc, count: on.filter((i) => i.subcategory === sc.key).length }))
+        .concat([{ key: null, label: 'Not sorted yet', category_key: mood, count: on.filter((i) => !i.subcategory).length }]),
       nearly: all
-        .filter((i) => !i.shelves.includes(mood) && (i.weights[mood] ?? 0) > 0)
+        .filter((i) => i.shelf !== mood && (i.weights[mood] ?? 0) > 0)
         .sort((a, b) => (b.weights[mood] ?? 0) - (a.weights[mood] ?? 0))
         .slice(0, 30),
       pool: all.length,
@@ -167,10 +191,10 @@ shelves.get('/places', requires('view_library'), async (req, res, next) => {
   try {
     const q = String(req.query.q || '').trim();
     if (q.length < 2) return res.json({ places: [] });
-    const rules = await shelfRules.rules();
+    const [rules, tax] = await Promise.all([shelfRules.rules(), taxonomy.taxonomy()]);
     const rows = await lib.listAttractions({ q, limit: 40 });
     const names = await namesFor(rows);
-    res.json({ places: rows.map((r) => explain(r, rules, names)) });
+    res.json({ places: rows.map((r) => explain(r, rules, names, tax.vocab)) });
   } catch (err) { next(err); }
 });
 
@@ -187,13 +211,16 @@ shelves.get('/places', requires('view_library'), async (req, res, next) => {
  */
 shelves.put('/rules', requires('manage_library'), async (req, res, next) => {
   try {
+    const tax = await taxonomy.taxonomy();
     const rule = await shelfRules.teach({
       scope: req.body?.scope,
       subject: req.body?.subject,
       subjectLabel: req.body?.subjectLabel,
       weights: req.body?.weights,
+      subcategory: req.body?.subcategory ?? null,
       reason: req.body?.reason,
       by: actorOf(req),
+      known: tax.categories.map((c) => c.key),
     });
     await query(
       `insert into admin_audit (actor_id, actor_label, action, subject_type, subject_id, subject_label, after)
@@ -202,6 +229,61 @@ shelves.put('/rules', requires('manage_library'), async (req, res, next) => {
        `${rule.scope}: ${rule.subject_label ?? rule.subject}`,
        JSON.stringify({ weights: rule.weights, reason: rule.reason })]);
     res.json({ rule });
+  } catch (err) { next(err); }
+});
+
+/**
+ * PUT /place — the fast one.
+ *
+ * The owner, 5 Sep 2026: "I'd like a way to be able to, on the fly, just select
+ * something and change the category or subcategory very quickly from the
+ * shelves page." So this is one call, one row, no form: pick a drawer (or a
+ * shelf) for one place and it is filed there on the next read.
+ *
+ * It writes a `place` rule, which is the narrowest scope and therefore always
+ * wins — the point is that it is instant and unambiguous, not that it teaches a
+ * general lesson. Teaching every place of a type is the other button, and it is
+ * still the better move when the type is really the thing that is wrong.
+ *
+ * Naming a subcategory is enough on its own: a drawer belongs to exactly one
+ * cabinet, so the category comes with it and the two can never disagree.
+ */
+shelves.put('/place', requires('manage_library'), async (req, res, next) => {
+  try {
+    const ref = String(req.body?.ref || '').trim();
+    if (!ref) throw bad('Which place?');
+    const tax = await taxonomy.taxonomy();
+
+    const drawer = req.body?.subcategory ? String(req.body.subcategory) : null;
+    if (drawer && !tax.subByKey.has(drawer)) throw bad(`There is no subcategory called ${drawer}.`);
+
+    // The shelf, if one was asked for outright. When a drawer is named it is
+    // the drawer's own cabinet, whatever else was sent — the two levels agree
+    // by construction rather than by the caller remembering to make them.
+    const asked = drawer ? tax.subByKey.get(drawer).category_key
+      : req.body?.category ? String(req.body.category) : null;
+    if (!asked) throw bad('Pick a category or a subcategory.');
+    if (!tax.byKey.has(asked)) throw bad(`There is no category called ${asked}.`);
+
+    const rule = await shelfRules.teach({
+      scope: 'place',
+      subject: ref,
+      subjectLabel: req.body?.label ?? null,
+      // Full marks for the one it was moved to, and nothing else. A hand move
+      // is a statement, not a nudge, and the next read should not have to
+      // weigh it against whatever the type says.
+      weights: { [asked]: 1 },
+      subcategory: drawer,
+      reason: req.body?.reason?.trim() || `Moved to ${tax.byKey.get(asked).label}${drawer ? ` · ${tax.subByKey.get(drawer).label}` : ''} by hand from the shelves page.`,
+      by: actorOf(req),
+      known: tax.categories.map((c) => c.key),
+    });
+    await query(
+      `insert into admin_audit (actor_id, actor_label, action, subject_type, subject_id, subject_label, after)
+       values ($1,$2,'shelf.move','shelf_rule',$3,$4,$5)`,
+      [req.account?.id ?? null, actorOf(req), rule.id, req.body?.label ?? ref,
+       JSON.stringify({ category: asked, subcategory: drawer })]);
+    res.json({ rule, category: asked, subcategory: drawer });
   } catch (err) { next(err); }
 });
 
@@ -263,6 +345,56 @@ shelves.post('/kinds/name', requires('manage_library'), async (req, res, next) =
     const labels = await kindLabels(missing);
     const named = await lib.nameKinds(labels);
     res.json({ named, asked: missing.length, remaining: await lib.unlabelledKindCount() });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// the settings page: the two levels themselves
+// ---------------------------------------------------------------------------
+//
+// The owner asked for somewhere to "see those categories and subcategories" and
+// "add the subcategories manually". Renaming never changes a key, so nothing
+// already taught is orphaned by a change of wording; moving a subcategory to
+// another category moves every place in it, which is the point.
+
+shelves.put('/categories', requires('manage_library'), async (req, res, next) => {
+  try {
+    const category = await taxonomy.saveCategory({
+      key: req.body?.key, label: req.body?.label, blurb: req.body?.blurb,
+      icon: req.body?.icon, position: req.body?.position,
+      isDoor: req.body?.isDoor, active: req.body?.active, by: actorOf(req),
+    });
+    res.json({ category });
+  } catch (err) { next(err); }
+});
+
+shelves.delete('/categories/:key', requires('manage_library'), async (req, res, next) => {
+  try {
+    const category = await taxonomy.removeCategory(req.params.key);
+    if (!category) return res.status(404).json({ error: 'not_found' });
+    res.json({ removed: true, category });
+  } catch (err) { next(err); }
+});
+
+shelves.put('/subcategories', requires('manage_library'), async (req, res, next) => {
+  try {
+    const subcategory = await taxonomy.saveSubcategory({
+      id: req.body?.id, key: req.body?.key, categoryKey: req.body?.categoryKey,
+      label: req.body?.label, blurb: req.body?.blurb,
+      position: req.body?.position, active: req.body?.active, by: actorOf(req),
+    });
+    if (!subcategory) return res.status(404).json({ error: 'not_found' });
+    res.json({ subcategory });
+  } catch (err) { next(err); }
+});
+
+shelves.delete('/subcategories/:id', requires('manage_library'), async (req, res, next) => {
+  try {
+    const subcategory = await taxonomy.removeSubcategory(req.params.id);
+    if (!subcategory) return res.status(404).json({ error: 'not_found' });
+    // The rules that named it keep their weights and stop naming a drawer, so
+    // nothing disappears from the home screen — it just stops being sorted.
+    res.json({ removed: true, subcategory });
   } catch (err) { next(err); }
 });
 

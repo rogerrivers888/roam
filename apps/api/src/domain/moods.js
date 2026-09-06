@@ -9,16 +9,19 @@
  * `experiences` and `category` a search already returned and says which shelves
  * that place belongs on (Requirements: options are composed from one pool).
  *
- * **Shelves have weights, and only the strongest two are drawn.** A place used
- * to carry a flat list of moods, so anything arguably two things appeared
- * twice. The owner, 5 Sep 2026: "something could be adrenaline and it also
- * could be fun, we probably need to have some weighting around which category
- * it should sit in, because we don't want to have lots of duplication between
- * the categories, and that will also annoy people." So each shelf now carries a
- * number from 0 to 1: 1 is what the place is *for*, `SHELF_FLOOR` and above is
- * genuinely also this, and below the floor is true but not worth a card. A
- * climbing wall is Adrenaline 1 and Active 0.8 and appears on both; a football
- * ground is Sport 1 and Adrenaline 0.2 and appears on one.
+ * **One category per place, and one drawer inside it.** The owner, 5 Sep 2026:
+ * "I don't want any duplication between categories, and I'd actually like to
+ * have subcategories under each." So a place appears exactly once on the home
+ * screen. The weights are still how that is decided — they used to say *how
+ * many* shelves a place drew on and now they say *which one* — and the losing
+ * claims are kept rather than thrown away, because "why is this under Sport"
+ * is the question the back office exists to answer.
+ *
+ * **The drawer names the shelf.** A rule that says "castles" has said Culture
+ * as well, because `shelf_subcategories.key` is unique across the whole table
+ * and so a drawer belongs to exactly one cabinet. That is the no-duplication
+ * rule at the second level, and it is enforced by the database rather than
+ * remembered by whoever writes the next rule.
  *
  * **The mapping is taught, not guessed.** The tables below are only where a
  * place starts. Anything in `shelf_rules` — a rule about one place, about a
@@ -61,15 +64,21 @@ export const MOOD_KEYS = MOODS.map((m) => m.key);
 const RANK = Object.fromEntries(MOOD_KEYS.map((k, i) => [k, i]));
 
 /**
- * How strong a shelf has to be before a card is drawn on it, and how many
- * shelves one place may occupy.
+ * How many categories a place may appear under. One, and the owner's words are
+ * the whole reason: "I don't want any duplication between categories."
+ */
+export const MAX_SHELVES = 1;
+
+/**
+ * Not a threshold any more — a confidence mark.
  *
- * Two, not three: the home screen is six shelves deep and a place on four of
- * them is the duplication the owner objected to. A third genuine shelf loses to
- * the two stronger ones, which is the right thing to lose.
+ * It used to decide whether a shelf drew a card. Now the strongest claim always
+ * wins, however weak it is, because a place has to be somewhere. What the floor
+ * still says is whether anybody would defend the answer: a place whose best
+ * claim is 0.4 is sitting where it is because nothing better was said about it,
+ * and the back office lists those as the ones worth teaching.
  */
 export const SHELF_FLOOR = 0.6;
-export const MAX_SHELVES = 2;
 
 /** Somewhere you eat or drink. Food is decided by what a place *is*, not by a tag. */
 const EATING = new Set(['restaurant', 'cafe', 'pub', 'bar']);
@@ -170,11 +179,13 @@ export const NO_RULES = { place: new Map(), kind: new Map(), category: new Map()
  * speak for the shelf it knows about without any of them cancelling another
  * out. Averaging would let a vague type drag a specific one below the floor.
  */
-function combine(matches) {
+function combine(matches, rank = RANK) {
   const weights = {};
   for (const m of matches) {
     for (const [key, value] of Object.entries(m?.weights ?? {})) {
-      if (!(key in RANK)) continue;
+      // A category the vocabulary does not have is a category somebody deleted
+      // or mistyped; it contributes nothing rather than becoming a shelf.
+      if (!(key in rank)) continue;
       const n = Number(value);
       if (!Number.isFinite(n) || n <= 0) continue;
       weights[key] = Math.max(weights[key] ?? 0, Math.min(1, n));
@@ -183,15 +194,38 @@ function combine(matches) {
   return weights;
 }
 
-/** The shelves actually drawn: above the floor, strongest first, at most two. */
-export function drawn(weights) {
-  return Object.entries(weights)
-    .filter(([, v]) => v >= SHELF_FLOOR)
-    .sort((a, b) => b[1] - a[1] || RANK[a[0]] - RANK[b[0]])
-    .slice(0, MAX_SHELVES)
-    .map(([key]) => key)
-    .sort((a, b) => RANK[a] - RANK[b]);
+/**
+ * The vocabulary as the resolver needs it: which cabinet each drawer is in, and
+ * what order the chips are drawn in.
+ *
+ * Defaults to the eight in this file, so every pure caller — the tests, a
+ * script, anything that has not read the table — still works without one.
+ */
+export const NO_VOCAB = { parentOf: new Map(), rank: RANK };
+export const vocabularyOf = (categories, subcategories) => ({
+  parentOf: new Map((subcategories ?? []).map((s) => [s.key, s.category_key])),
+  rank: Object.fromEntries((categories ?? MOODS).map((c, i) => [c.key, i])),
+});
+
+/**
+ * The one category a set of weights earns: the strongest claim, ties broken by
+ * the order the chips are in.
+ *
+ * There is no floor here on purpose. A place has to be somewhere, and hiding a
+ * weakly-placed one would make the home screen quietly lose places rather than
+ * file them imperfectly. How confident the answer is comes back separately.
+ */
+export function winner(weights, rank = RANK) {
+  const entries = Object.entries(weights ?? {});
+  if (!entries.length) return null;
+  return entries.sort((a, b) => b[1] - a[1] || (rank[a[0]] ?? 99) - (rank[b[0]] ?? 99))[0][0];
 }
+
+/** The old shape — one category, in a list — for callers that draw shelves. */
+export const drawn = (weights, rank = RANK) => {
+  const top = winner(weights, rank);
+  return top ? [top] : [];
+};
 
 /**
  * Walk the rules from narrowest to broadest and stop at the first level that
@@ -200,41 +234,101 @@ export function drawn(weights) {
  * Narrowest wins outright rather than blending: somebody who has said "this
  * particular place is Adrenaline" has said something more specific than any
  * type rule, and a blend would let the type quietly outvote them.
+ *
+ * "Says anything" means weights or a drawer. A rule may carry only a drawer —
+ * most of migration 054 does — and that is a complete answer, because the
+ * drawer names the cabinet.
  */
 function taught(rules, chain) {
   for (const [scope, subjects] of chain) {
-    const hits = subjects.filter(Boolean).map((s) => rules?.[scope]?.get(String(s))).filter(Boolean);
-    if (hits.length) return { weights: combine(hits), because: hits };
+    const hits = subjects.filter(Boolean)
+      .map((s) => rules?.[scope]?.get(String(s)))
+      .filter((r) => r && (r.subcategory || Object.keys(r.weights ?? {}).length));
+    if (hits.length) return { scope, hits };
   }
   return null;
 }
 
 /**
- * The shelves an atlas attraction belongs on, and why.
+ * Where a place goes, and why — the whole decision in one place.
+ *
+ * Order of resolution:
+ *   1. the narrowest level of rule that says anything at all;
+ *   2. if a rule at that level names a drawer, the drawer's cabinet is the
+ *      category and there is nothing to argue about;
+ *   3. otherwise the strongest weight at that level wins;
+ *   4. a drawer from any level is kept if — and only if — it belongs to the
+ *      category that won. A place cannot be filed under Gardens and shown on
+ *      Outdoors, so an inconsistent drawer is dropped rather than shown.
+ */
+function place(chain, rules, vocab, fallback) {
+  const rank = vocab?.rank ?? RANK;
+  const parentOf = vocab?.parentOf ?? new Map();
+  const hit = taught(rules, chain);
+
+  const weights = hit ? combine(hit.hits, rank) : fallback.weights;
+  const because = hit ? hit.hits : [fallback.because];
+
+  // The drawer, from the narrowest rule that names one, at any level.
+  let drawer = hit?.hits.find((r) => r.subcategory)?.subcategory ?? null;
+  if (!drawer) {
+    for (const [scope, subjects] of chain) {
+      const found = subjects.filter(Boolean)
+        .map((s) => rules?.[scope]?.get(String(s)))
+        .find((r) => r?.subcategory);
+      if (found) { drawer = found.subcategory; break; }
+    }
+  }
+
+  const named = drawer ? parentOf.get(drawer) ?? null : null;
+  // A drawer at the winning level names the cabinet; otherwise the weights do,
+  // and the drawer only survives if it agrees with them.
+  const fromDrawer = hit?.hits.some((r) => r.subcategory) ? named : null;
+  const category = fromDrawer ?? winner(weights, rank) ?? named;
+  const subcategory = drawer && parentOf.get(drawer) === category ? drawer : null;
+
+  return {
+    category,
+    subcategory,
+    weights,
+    because,
+    // Whether anybody would defend this. Used by the back office to list the
+    // places worth teaching, never to hide one.
+    confident: (weights?.[category] ?? 0) >= SHELF_FLOOR || Boolean(subcategory),
+    // The shape the screens already draw: one category, in a list.
+    shelves: category ? [category] : [],
+  };
+}
+
+/**
+ * Where an atlas attraction goes, and why.
  *
  * `kinds` is the raw list of Wikidata types the harvest kept on the row, which
  * is the whole reason it was kept: it is the only signal fine enough to tell a
  * motorsport circuit from a football ground, and both arrive here as `active`.
  */
-export function shelvesForAtlas({ ref, category, kinds = [] } = {}, rules = NO_RULES) {
-  const hit = taught(rules, [
-    ['place', [ref]],
-    ['kind', kinds],
-    ['category', [category]],
-  ]);
-  const weights = hit?.weights ?? (BY_ATLAS_CATEGORY[category] ?? ATLAS_UNKNOWN);
-  const because = hit?.because ?? [{
-    scope: 'default',
-    subject: category ?? null,
-    subject_label: category ? `the atlas calls this ${category}` : 'the atlas has no word for this',
-    weights,
-    reason: 'Nothing has been taught about this place or its type, so it sits where its atlas category starts.',
-  }];
-  return { weights, shelves: drawn(weights), because };
+export function shelvesForAtlas({ ref, category, kinds = [] } = {}, rules = NO_RULES, vocab = NO_VOCAB) {
+  const weights = BY_ATLAS_CATEGORY[category] ?? ATLAS_UNKNOWN;
+  return place(
+    [['place', [ref]], ['kind', kinds], ['category', [category]]],
+    rules,
+    vocab,
+    {
+      weights,
+      because: {
+        scope: 'default',
+        subject: category ?? null,
+        subject_label: category ? `the atlas calls this ${category}` : 'the atlas has no word for this',
+        weights,
+        subcategory: null,
+        reason: 'Nothing has been taught about this place or its type, so it sits where its atlas category starts.',
+      },
+    },
+  );
 }
 
 /**
- * The shelves a place from the live look-around belongs on, and why.
+ * Where a place from the live look-around goes, and why.
  *
  * A place to eat is Food and only Food: a restaurant that also has a terrace is
  * still somewhere you go to eat, and putting it under Relaxing would make that
@@ -243,50 +337,43 @@ export function shelvesForAtlas({ ref, category, kinds = [] } = {}, rules = NO_R
  * tags is still a day out, and hiding it because OpenStreetMap was terse would
  * lose real places.
  */
-export function shelvesForVenue(venue, rules = NO_RULES) {
+export function shelvesForVenue(venue, rules = NO_RULES, vocab = NO_VOCAB) {
   const ref = venue?.source && venue?.sourcePlaceId ? `${venue.source}:${venue.sourcePlaceId}` : null;
-  const hit = taught(rules, [
-    ['place', [ref]],
-    ['experience', venue?.experiences ?? []],
-  ]);
-  if (hit) return { weights: hit.weights, shelves: drawn(hit.weights), because: hit.because };
+  const chain = [['place', [ref]], ['experience', venue?.experiences ?? []]];
 
-  if (EATING.has(venue?.category)) {
+  if (EATING.has(venue?.category) && !taught(rules, [['place', [ref]]])) {
     const weights = { food: 1 };
-    return {
+    return place(chain, rules, vocab, {
       weights,
-      shelves: ['food'],
-      because: [{
-        scope: 'default', subject: venue.category, subject_label: `somewhere you ${venue.category === 'cafe' ? 'have a coffee' : 'eat or drink'}`,
-        weights, reason: 'Somewhere to eat is Food and nothing else.',
-      }],
-    };
+      because: {
+        scope: 'default', subject: venue.category,
+        subject_label: `somewhere you ${venue.category === 'cafe' ? 'have a coffee' : 'eat or drink'}`,
+        weights, subcategory: null, reason: 'Somewhere to eat is Food and nothing else.',
+      },
+    });
   }
 
-  const weights = combine((venue?.experiences ?? []).map((e) => ({ weights: BY_EXPERIENCE[e] })));
-  const shelves = drawn(weights);
-  if (!shelves.length) {
-    const fallback = { fun: 1 };
-    return {
-      weights: fallback,
-      shelves: ['fun'],
-      because: [{
+  // Where the experiences it was tagged with start, before anybody teaches it.
+  const started = combine((venue?.experiences ?? []).map((e) => ({ weights: BY_EXPERIENCE[e] })), vocab?.rank ?? RANK);
+  const any = Object.keys(started).length > 0;
+  return place(chain, rules, vocab, {
+    weights: any ? started : { fun: 1 },
+    because: any
+      ? {
+        scope: 'default',
+        subject: (venue?.experiences ?? []).find((e) => BY_EXPERIENCE[e]) ?? null,
+        subject_label: (venue?.experiences ?? []).filter((e) => BY_EXPERIENCE[e]).join(', ') || 'what the map tagged it',
+        weights: started, subcategory: null,
+        reason: 'Where the experiences this place is tagged with start, before anybody teaches it.',
+      }
+      : {
         scope: 'default', subject: null, subject_label: 'no tags',
-        weights: fallback,
+        weights: { fun: 1 }, subcategory: null,
         reason: 'The map said nothing about this place. Somewhere to go with no tags is still a day out, so it goes on the broadest shelf rather than none.',
-      }],
-    };
-  }
-  return {
-    weights,
-    shelves,
-    because: (venue?.experiences ?? []).filter((e) => BY_EXPERIENCE[e]).map((e) => ({
-      scope: 'default', subject: e, subject_label: e, weights: BY_EXPERIENCE[e],
-      reason: 'Where this experience starts before anybody teaches it.',
-    })),
-  };
+      },
+  });
 }
 
-/** The shelves alone, for callers that do not care why. */
-export const moodsFor = (venue, rules) => shelvesForVenue(venue, rules).shelves;
-export const moodsForAtlas = (place, rules) => shelvesForAtlas(place, rules).shelves;
+/** The category alone, in a list, for callers that only draw shelves. */
+export const moodsFor = (venue, rules, vocab) => shelvesForVenue(venue, rules, vocab).shelves;
+export const moodsForAtlas = (p, rules, vocab) => shelvesForAtlas(p, rules, vocab).shelves;

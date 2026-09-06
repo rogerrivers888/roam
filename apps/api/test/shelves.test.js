@@ -20,7 +20,22 @@ import assert from 'node:assert/strict';
 
 const {
   MAX_SHELVES, MOOD_KEYS, NO_RULES, SHELF_FLOOR, drawn, shelvesForAtlas, shelvesForVenue,
+  vocabularyOf, winner,
 } = await import('../src/domain/moods.js');
+
+/**
+ * A small taxonomy, in the shape `shelfTaxonomy.taxonomy()` hands over: two
+ * drawers in different cabinets, which is all it takes to prove that a drawer
+ * names its cabinet and cannot be shown under another one.
+ */
+const VOCAB = vocabularyOf(
+  [{ key: 'fun' }, { key: 'food' }, { key: 'culture' }, { key: 'sport' },
+   { key: 'activity' }, { key: 'adrenaline' }, { key: 'relaxing' }, { key: 'outdoors' }],
+  [{ key: 'castles', category_key: 'culture' },
+   { key: 'gardens', category_key: 'relaxing' },
+   { key: 'parks', category_key: 'outdoors' },
+   { key: 'football', category_key: 'sport' }],
+);
 
 /** The shape `rules()` hands over, from a plain list. */
 const rulesOf = (...rows) => {
@@ -87,19 +102,88 @@ test('several types speak for the shelves each knows about', () => {
   assert.equal(weights.culture, 1);
 });
 
-test('a place never appears on more than two shelves', () => {
+test('a place appears under exactly one category, however it is taught', () => {
+  // The owner, 5 Sep 2026: "I don't want any duplication between categories."
+  // Weighting everything at 1 is the worst case, and it still draws once.
   const everything = Object.fromEntries(MOOD_KEYS.map((k) => [k, 1]));
   assert.equal(drawn(everything).length, MAX_SHELVES);
-  const { shelves } = shelvesForAtlas(
+  assert.equal(MAX_SHELVES, 1);
+  const { shelves, category } = shelvesForAtlas(
     { ref: 'wikidata:Q2', category: 'outdoors', kinds: [] },
     rulesOf({ scope: 'place', subject: 'wikidata:Q2', weights: everything }),
   );
-  assert.equal(shelves.length, MAX_SHELVES);
+  assert.deepEqual(shelves, [category]);
 });
 
-test('a weight below the floor is true and not shown', () => {
-  assert.deepEqual(drawn({ fun: 1, adrenaline: SHELF_FLOOR - 0.01 }), ['fun']);
-  assert.deepEqual(drawn({ fun: 1, adrenaline: SHELF_FLOOR }), ['fun', 'adrenaline']);
+test('the strongest claim wins, and a weak one still lands somewhere', () => {
+  // No floor on placement: a place has to be filed, and hiding a weakly-placed
+  // one would lose it from the home screen rather than file it imperfectly.
+  assert.equal(winner({ fun: 1, adrenaline: 0.9 }), 'fun');
+  assert.equal(winner({ adrenaline: 0.2 }), 'adrenaline');
+  const weak = shelvesForAtlas(
+    { ref: 'wikidata:Q11', category: 'active', kinds: [] },
+    rulesOf({ scope: 'place', subject: 'wikidata:Q11', weights: { fun: 0.4 } }),
+  );
+  assert.deepEqual(weak.shelves, ['fun']);
+  // Filed, but nobody would defend it — which is what the back office lists.
+  assert.equal(weak.confident, false);
+  assert.ok(SHELF_FLOOR > 0.4);
+});
+
+test('a drawer names its cabinet', () => {
+  // A rule with a subcategory and no weights is a complete answer: `castles`
+  // belongs to Culture, so the place is Culture. This is how migration 054
+  // files most of the atlas.
+  const { category, subcategory, shelves } = shelvesForAtlas(
+    { category: 'heritage', kinds: ['Q23413'] },
+    rulesOf({ scope: 'kind', subject: 'Q23413', subject_label: 'castle', weights: {}, subcategory: 'castles' }),
+    VOCAB,
+  );
+  assert.equal(category, 'culture');
+  assert.equal(subcategory, 'castles');
+  assert.deepEqual(shelves, ['culture']);
+});
+
+test('a drawer moves the shelf with it', () => {
+  // The garden case: the atlas calls it outdoors, the drawer says Relaxing, and
+  // the drawer wins because a drawer belongs to exactly one cabinet.
+  const { category, subcategory } = shelvesForAtlas(
+    { category: 'outdoors', kinds: ['Q1107656'] },
+    rulesOf({ scope: 'kind', subject: 'Q1107656', weights: {}, subcategory: 'gardens' }),
+    VOCAB,
+  );
+  assert.equal(category, 'relaxing');
+  assert.equal(subcategory, 'gardens');
+});
+
+test('a drawer that disagrees with the winning category is dropped, not shown', () => {
+  // A place rule says Outdoors; a broader type rule says the Gardens drawer,
+  // which belongs to Relaxing. The narrower rule wins the category and the
+  // inconsistent drawer is dropped — never "filed under Gardens, shown on
+  // Outdoors".
+  const { category, subcategory } = shelvesForAtlas(
+    { ref: 'wikidata:Q9', category: 'outdoors', kinds: ['Q1107656'] },
+    rulesOf(
+      { scope: 'place', subject: 'wikidata:Q9', weights: { outdoors: 1 } },
+      { scope: 'kind', subject: 'Q1107656', weights: {}, subcategory: 'gardens' },
+    ),
+    VOCAB,
+  );
+  assert.equal(category, 'outdoors');
+  assert.equal(subcategory, null);
+});
+
+test('a drawer survives a narrower rule that agrees with it', () => {
+  const { category, subcategory } = shelvesForAtlas(
+    { ref: 'wikidata:Q10', category: 'active', kinds: ['Q1154710'] },
+    rulesOf(
+      { scope: 'place', subject: 'wikidata:Q10', weights: { sport: 1 } },
+      { scope: 'kind', subject: 'Q1154710', weights: {}, subcategory: 'football' },
+    ),
+    VOCAB,
+  );
+  assert.equal(category, 'sport');
+  assert.equal(subcategory, 'football');
 });
 
 test('a rule may not invent a shelf', () => {
@@ -150,5 +234,16 @@ test('an experience rule reaches the live pool', () => {
     { source: 'osm', sourcePlaceId: 'way/1', category: 'attraction', experiences: ['boat-trip'] },
     rulesOf({ scope: 'experience', subject: 'boat-trip', weights: { adrenaline: 0.9, outdoors: 0.8 } }),
   );
-  assert.deepEqual(shelves, ['adrenaline', 'outdoors']);
+  assert.deepEqual(shelves, ['adrenaline']);
+});
+
+test('a place rule beats "somewhere to eat is Food"', () => {
+  // Food short-circuits everything by design, but not a rule about this one
+  // restaurant — otherwise the quick edit on the shelves page could never move
+  // a place that the map happens to call a café.
+  const { category } = shelvesForVenue(
+    { source: 'osm', sourcePlaceId: 'way/2', category: 'cafe', experiences: [] },
+    rulesOf({ scope: 'place', subject: 'osm:way/2', weights: { culture: 1 } }),
+  );
+  assert.equal(category, 'culture');
 });
