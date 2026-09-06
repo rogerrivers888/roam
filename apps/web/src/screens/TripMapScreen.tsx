@@ -154,16 +154,43 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const [along, setAlong] = useState<{ loading: boolean; places: TripAlongPlace[]; counts: { route: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean; beyond: number }>(
     { loading: false, places: [], counts: { route: 0 }, error: null, degraded: [], hasRoute: false, beyond: 0 },
   );
-  const alongKey = pill && pill !== 'shortlist' && pill !== 'stay' ? `${pill}|${around ?? ''}|${maxDetourMin}|${q ?? ''}|${kindOf ?? ''}` : null;
+  /**
+   * One search per pill, scope and distance — and **not** per type.
+   *
+   * The type used to be appended to the free-text query, which made it a new
+   * question for every source: 25 seconds each time, and a text match rather
+   * than a fact, so "castle" returned Castle M&E Services Ltd, a plumbing firm
+   * (measured on production, 6 Sep 2026). The owner saw both halves of that:
+   * "it did not refresh, it took about 30 or 40 seconds" and "when I select
+   * Walk, Park, or Castle, nothing changes".
+   *
+   * Technical Constraints, and the rule this broke: options are composed from
+   * one retrieved pool, and adding an option must not add a provider call. So
+   * the type filters the pool we already hold, on what a place *is*.
+   */
+  const alongKey = pill && pill !== 'shortlist' && pill !== 'stay' ? `${pill}|${around ?? ''}|${maxDetourMin}|${q ?? ''}` : null;
   const lastKey = useRef<string | null>(null);
   useEffect(() => {
     if (!alongKey || alongKey === lastKey.current) return;
     lastKey.current = alongKey;
-    setAlong((a) => ({ ...a, loading: true, error: null }));
-    api.tripAlong(trip.id, { kind: pill === 'food' ? 'food' : 'things', maxDetourMin, around: around ?? undefined, aroundName: aroundName ?? undefined, q: [q, kindOf].filter(Boolean).join(' ') || undefined })
+    // The list that is on screen is the answer to the last question, so it
+    // goes when the question changes: Activities showed the food it had just
+    // been showing, for as long as the search took (owner, 6 Sep 2026).
+    setAlong((a) => ({ ...a, places: [], beyond: 0, loading: true, error: null }));
+    api.tripAlong(trip.id, { kind: pill === 'food' ? 'food' : 'things', maxDetourMin, around: around ?? undefined, aroundName: aroundName ?? undefined, q: q || undefined })
       .then((r) => setAlong({ loading: false, places: r.places, counts: r.counts, error: null, degraded: r.degradedSources ?? [], hasRoute: r.hasRoute, beyond: r.beyond ?? 0 }))
       .catch((e) => setAlong({ loading: false, places: [], counts: { route: 0 }, error: e.message, degraded: [], hasRoute: false, beyond: 0 }));
-  }, [alongKey, trip.id, pill, around, aroundName, maxDetourMin, q, kindOf]);
+  }, [alongKey, trip.id, pill, around, aroundName, maxDetourMin, q]);
+
+  /**
+   * The type, applied once. The map and the list are two views of the same
+   * pool, so filtering in the list alone would leave twenty-five pins over a
+   * list of five.
+   */
+  const shownAlong = useMemo(
+    () => (kindOf ? along.places.filter((p) => isKind(p, kindOf)) : along.places),
+    [along.places, kindOf],
+  );
 
   // Somewhere to sleep, ranked the way the criteria asked. Only fetched when
   // the Stay pill is lit — it is an Overpass call and sometimes a price call.
@@ -305,7 +332,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
         });
       }
     } else if (pill && pill !== 'shortlist') {
-      for (const p of along.places.slice(0, 40)) {
+      for (const p of shownAlong.slice(0, 40)) {
         if (p.lat == null) continue;
         out.push({
           id: p.venueRef, lat: p.lat, lng: p.lng,
@@ -344,7 +371,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       }
     }
     return out;
-  }, [start?.lat, dest?.lat, pill, along.places, places, selected, isTrip, base?.label, wantsStay, stayChosen, stays.results]);
+  }, [start?.lat, dest?.lat, pill, shownAlong, places, selected, isTrip, base?.label, wantsStay, stayChosen, stays.results, stays.anchors]);
 
   const routes: MapRoute[] = useMemo(() => {
     if (start?.lat == null || dest?.lat == null || dest === start) return [];
@@ -358,7 +385,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const driveChip = (() => {
     if (pill === 'stay') return stays.results.length ? `${stays.results.length} to stay` : null;
     if (pill === 'shortlist') return `${(places?.places ?? []).filter(stillSaved).length} saved`;
-    if (pill) return along.loading ? null : `${along.places.length} ${along.hasRoute ? 'on the route' : 'nearby'}`;
+    if (pill) return along.loading ? null : `${shownAlong.length} ${along.hasRoute ? 'on the route' : 'nearby'}`;
     if (!dest || !start || dest === start) return null;
     const there = Math.max(1, Math.round(estimateMinutes(start, dest)));
     const added = (places?.places ?? []).filter((x) => x.scheduled && x.venueRef !== 'base').length;
@@ -526,6 +553,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     <BrowseList
       pill={pill}
       along={along}
+      shown={shownAlong}
       shortlisted={(places?.places ?? []).filter(stillSaved)}
       onUnshortlist={unshortlist}
       onOpenSaved={(p) => { setSelected(p.venueRef); setDrawer(tripPlaceToItem(p)); }}
@@ -932,7 +960,7 @@ function TripPlacesList({ data, onSelect }: { data: { places: TripPlace[] } | nu
 
 const DETOURS = [5, 10, 15, 30];
 
-function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAddSaved, anchorLabel, onClearAnchor, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist, kindOf, onKind }: {
+function BrowseList({ pill, along, shown, shortlisted, onUnshortlist, onOpenSaved, onAddSaved, anchorLabel, onClearAnchor, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist, kindOf, onKind }: {
   pill: Pill;
   along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number }; error: string | null; degraded: { source: string; error: string }[]; hasRoute: boolean; beyond: number };
   shortlisted: TripPlace[];
@@ -954,9 +982,25 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAd
   onShortlist: (p: TripAlongPlace) => Promise<void>;
   kindOf: string | null;
   onKind: (k: string | null) => void;
+  /** The pool with the type applied — the same list the map is pinning. */
+  shown: TripAlongPlace[];
 }) {
   const [openDetour, setOpenDetour] = useState(false);
   const [openKind, setOpenKind] = useState(false);
+
+  /**
+   * The type, applied to the pool rather than sent back to the sources. No
+   * provider call, no wait, and it tests what a place *is* — so Walk means the
+   * places somebody has tagged as a walk, not the ones with "walk" in the name.
+   */
+  /** Which kinds are actually along here, commonest first. */
+  const kinds = useMemo(() => {
+    const menu = pill === 'food' ? FOOD_KINDS : THING_KINDS;
+    return menu
+      .map((kind) => ({ kind, count: along.places.filter((p) => isKind(p, kind)).length }))
+      .filter((x) => x.count)
+      .sort((a, b) => b.count - a.count);
+  }, [along.places, pill]);
 
   if (pill === 'shortlist') {
     return (
@@ -1035,22 +1079,34 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAd
           onPress={() => setOpenDetour((v) => !v)}
         />
         {anchorLabel ? <Chip label={`Around ${anchorLabel}`} on onClear={onClearAnchor} /> : null}
-        <Chip label={kindOf ? cap(kindOf) : 'Type'} on={!!kindOf} chevron onPress={() => setOpenKind((v) => !v)} />
+        <Chip label={kindOf ? `${cap(kindOf)} · ${shown.length}` : 'Type'} on={!!kindOf} chevron onPress={() => setOpenKind((v) => !v)} />
       </View>
 
       {openKind ? (
+        /*
+          Only what is actually out there, with how many (handoff §06 draws the
+          counts). Offering Castle where there is no castle is how a filter
+          comes to look broken: you pick it, nothing changes, and you cannot
+          tell whether the control is wrong or the world is.
+        */
         <View style={styles.dropdown}>
           <Text style={styles.kicker}>{pill === 'food' ? 'Food & drink' : 'Things to do'}{along.hasRoute ? ' · along the route' : ' · nearby'}</Text>
           <Pressable onPress={() => { onKind(null); setOpenKind(false); }} style={styles.optRow} accessibilityRole="radio" accessibilityState={{ checked: !kindOf }}>
             <Text style={[type.body, { flex: 1 }]}>Everything</Text>
+            <Text style={[type.small, { marginRight: 8 }]}>{along.places.length}</Text>
             {!kindOf ? <Icon name="check" size={16} color={colors.accent} /> : null}
           </Pressable>
-          {(pill === 'food' ? FOOD_KINDS : THING_KINDS).map((k) => (
-            <Pressable key={k} onPress={() => { onKind(k); setOpenKind(false); }} style={styles.optRow} accessibilityRole="radio" accessibilityState={{ checked: kindOf === k }}>
-              <Text style={[type.body, { flex: 1 }]}>{cap(k)}</Text>
-              {kindOf === k ? <Icon name="check" size={16} color={colors.accent} /> : null}
+          {kinds.length ? kinds.map(({ kind, count }) => (
+            <Pressable key={kind} onPress={() => { onKind(kind); setOpenKind(false); }} style={styles.optRow} accessibilityRole="radio" accessibilityState={{ checked: kindOf === kind }}>
+              <Text style={[type.body, { flex: 1 }]}>{cap(kind)}</Text>
+              <Text style={[type.small, { marginRight: 8 }]}>{count}</Text>
+              {kindOf === kind ? <Icon name="check" size={16} color={colors.accent} /> : null}
             </Pressable>
-          ))}
+          )) : (
+            <Text style={[type.small, { paddingVertical: 10 }]}>
+              Nothing along here says what kind of place it is yet.
+            </Text>
+          )}
         </View>
       ) : null}
 
@@ -1073,6 +1129,18 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAd
         </Text>
       ) : null}
       {along.error ? <View style={{ padding: spacing.lg }}><StatusLine tone="warn">{along.error}</StatusLine></View> : null}
+      {!along.loading && !along.error && along.places.length && !shown.length ? (
+        <View style={{ padding: spacing.lg }}>
+          <Card>
+            <Text style={type.small}>
+              {`Nothing along here is a ${cap(kindOf ?? '')} — ${along.places.length} other place${along.places.length === 1 ? '' : 's'} are.`}
+            </Text>
+            <Pressable onPress={() => onKind(null)} accessibilityRole="button">
+              <Text style={[type.small, { color: colors.accent, fontWeight: '700', marginTop: 6 }]}>Show everything →</Text>
+            </Pressable>
+          </Card>
+        </View>
+      ) : null}
       {!along.loading && !along.error && !along.places.length ? (
         <View style={{ padding: spacing.lg }}>
           <Card>
@@ -1090,7 +1158,7 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAd
       ) : null}
 
       <View style={{ paddingHorizontal: 16 }}>
-        {along.places.map((p) => (
+        {shown.map((p) => (
           /*
             Tapping a row shows it on the map, it does not open it (owner,
             6 Sep 2026: "I can see lots of icons on a map, but I don't know
@@ -1208,7 +1276,12 @@ const kitchen = (p: { cuisines?: string[] | null; experiences?: string[] | null;
   if (c) return cap(c);
   const e = (p.experiences ?? [])[0];
   if (e) return cap(e);
-  return p.category && p.category !== 'other' ? cap(p.category) : null;
+  // "Attraction" is the answer to a question nobody asked — the owner's point
+  // (6 Sep 2026: "every single activity says Attraction, when actually it
+  // should say what type of attraction it is"). Where no source has said what
+  // kind of thing it is, the row says nothing rather than saying that.
+  const vague = new Set(['other', 'attraction', 'place', 'point of interest']);
+  return p.category && !vague.has(p.category.toLowerCase()) ? cap(p.category) : null;
 };
 /** "Bari, Polignano, Matera and Lecce" — the handoff's own phrasing (§20). */
 const andList = (xs: string[]) => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
@@ -1262,6 +1335,27 @@ function Chip({ label, on, chevron, onPress, onClear }: { label: string; on?: bo
 /** The kinds a browse list can be narrowed to (handoff §06). Words, not tags. */
 const FOOD_KINDS = ['pub', 'cafe', 'restaurant', 'bakery', 'bar', 'ice cream'];
 const THING_KINDS = ['walk', 'park', 'castle', 'museum', 'beach', 'viewpoint', 'playground', 'farm', 'gallery'];
+
+/**
+ * The words a place answers to: what a source said it is, plus its category and
+ * its cuisines. The Type filter tests against these rather than against the
+ * name, which is what made "castle" find a plumbing firm.
+ *
+ * The experience vocabulary hyphenates ("art-gallery", "theme-park") and the
+ * menu offers plain words, so both spellings count.
+ */
+const kindsOf = (p: TripAlongPlace): string[] => {
+  const out = new Set<string>();
+  for (const raw of [...(p.experiences ?? []), ...(p.cuisines ?? []), p.category ?? '']) {
+    const w = String(raw).toLowerCase().trim();
+    if (!w) continue;
+    out.add(w);
+    out.add(w.replace(/-/g, ' '));
+    for (const part of w.split('-')) out.add(part);
+  }
+  return [...out];
+};
+const isKind = (p: TripAlongPlace, kind: string) => kindsOf(p).includes(kind.toLowerCase());
 
 /**
  * Search along the route (handoff §08): the sheet at the top, a field, and six

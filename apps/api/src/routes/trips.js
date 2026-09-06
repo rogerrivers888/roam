@@ -679,6 +679,20 @@ router.get('/:id/along', async (req, res, next) => {
         center: spot.center, radiusKm: spot.radiusKm, categories: [kind], query: q, sources,
         locality: trip.locality ?? null, householdId: household.id,
         placeLabel: trip.base_label ?? trip.origin_label, timezone: trip.timezone ?? null,
+        /**
+         * This is a screen somebody is watching, so it does not wait on a
+         * straggler once it has something worth drawing (sources/index.js
+         * `settleBy`: the first useful answer starts a short clock for the
+         * rest, and whatever misses it is reported as degraded rather than
+         * held on to).
+         *
+         * Without it the browse waited for every source to finish or fail. The
+         * open map's mirrors were down, each one timing out at twelve seconds
+         * across two mirrors, so tapping Activities took twenty-five seconds
+         * for an answer Google had had in one (measured on production,
+         * 6 Sep 2026). The list already says which source did not answer.
+         */
+        deadlineMs: 12_000,
       },
       { refresh: req.query.refresh === '1' },
     ))), deadline]);
