@@ -212,6 +212,17 @@ export async function findShopfront({ lat, lng } = {}) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return { shot: null, reason: 'we do not know where it is' };
   }
+  // Null Island. A record whose coordinates are exactly zero has no location —
+  // something wrote a zero where it meant null — and the danger is that this
+  // reads as a perfectly valid point in the Gulf of Guinea. KartaView answers
+  // 0,0 with sixty frames that contributors uploaded with their GPS zeroed, all
+  // of them at a distance of 0.00m, and every one of them is a photograph of
+  // somewhere else entirely. Asking at all is the mistake (found 6 Sep 2026,
+  // when the rung reported "frames near it, none pointing at it" for sixteen
+  // places running and the best frame was always 0m away and 0 degrees off).
+  if (lat === 0 && lng === 0) {
+    return { shot: null, reason: 'its coordinates are 0,0 — the record has no location, it has a zero' };
+  }
   const venue = { lat, lng };
   const [karta, mapi] = await Promise.all([
     kartaviewFrames(venue).catch(() => []),

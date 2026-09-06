@@ -1135,6 +1135,17 @@ export async function placesNeedingPictures({ limit = 50, version = 1, force = f
              or p.venue_ref is null
              or (p.state = 'failed' and (p.next_attempt_at is null or p.next_attempt_at <= now()))
              or (p.state = 'none' and coalesce(p.picture_version, 0) < $3))
+        -- Something for a rung to work from. A record with no website, nothing
+        -- in the encyclopedias and no usable point cannot be helped by any of
+        -- them, and returning it every run starves the ones that can.
+        --
+        -- A null check is not the test: a record can carry 0,0, which is a
+        -- real point in the Gulf of Guinea and a zeroed one everywhere else.
+        -- Treating that as a location sent the street rung to Null Island,
+        -- where KartaView holds sixty frames uploaded with the GPS zeroed and
+        -- every one of them is a photograph of somewhere else.
+        and (r.website is not null or r.wikidata_id is not null or r.wikipedia_url is not null
+             or (r.lat is not null and r.lng is not null and (r.lat <> 0 or r.lng <> 0)))
       -- Never looked at first, then the longest since anybody looked. A queue
       -- that always starts at the same end never reaches the far one.
       order by (p.venue_ref is null) desc, p.looked_at asc nulls first, r.first_owned asc
