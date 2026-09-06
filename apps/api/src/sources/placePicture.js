@@ -54,8 +54,15 @@ import { fetchPicture } from './pictureBytes.js';
  * ones claimed afterwards.
  *
  *   1  logo, Commons, street-level
+ *   2  street-level that can actually answer. Version 1 shipped with Mapillary
+ *      unreachable — the token was not set, and KartaView alone has 0–11 frames
+ *      per 100m in the towns this is for. So the 773 places version 1 settled as
+ *      "nothing we may hold" were judged by a ladder missing its widest rung,
+ *      and most of them are exactly the case it exists for: an independent with
+ *      no website and no encyclopedia entry, and a perfectly photographable
+ *      front door.
  */
-export const PICTURE_VERSION = 1;
+export const PICTURE_VERSION = 2;
 
 // How long a rung that broke waits before it is tried again. A restaurant's
 // website is down for an afternoon; that is not a reason to write the place off.
