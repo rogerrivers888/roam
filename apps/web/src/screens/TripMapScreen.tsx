@@ -57,11 +57,15 @@ type Pill = 'activities' | 'food' | 'stay' | 'shortlist';
  * a day out has nowhere to sleep by definition. With four across a 390px phone
  * the food label shortens to "Food", which is what the handoff draws (§15).
  */
-const pillsFor = (withStay: boolean): { key: Pill; label: string; icon: IconName }[] => [
+const pillsFor = (withStay: boolean, saved: number): { key: Pill; label: string; icon: IconName }[] => [
   { key: 'activities', label: 'Activities', icon: 'inspire' },
   { key: 'food', label: withStay ? 'Food' : 'Food & drink', icon: 'restaurant' },
   ...(withStay ? [{ key: 'stay' as Pill, label: 'Stay', icon: 'hotel' as IconName }] : []),
-  { key: 'shortlist', label: 'Shortlist', icon: 'shortlist' },
+  // The count is the point of a shortlist: it is the one pill whose job is to
+  // fill up, and without a number nothing on the map says it is (owner,
+  // 6 Sep 2026: "I need a bracketed number of items that are in the shortlist,
+  // just so I know it's building").
+  { key: 'shortlist', label: saved ? `Shortlist (${saved})` : 'Shortlist', icon: 'shortlist' },
 ];
 
 /** The height of the tab bar the shell draws under this screen. */
@@ -373,9 +377,18 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
         venueRef: p.venueRef, name: p.name, lat: p.lat, lng: p.lng, category: p.category,
         startTime, slot: leg === 'back' ? 'evening' : undefined,
       });
+      /**
+       * A shortlist is a list of maybes, so something on the day has left it
+       * (owner, 6 Sep 2026: "when I add something from a shortlist, it should
+       * no longer be in the shortlist because it's an actual place that I've
+       * selected"). Otherwise the count never goes down and the same place is
+       * offered back for adding a second time.
+       */
+      const saved = shortlist.find((x) => x.venueRef === p.venueRef);
+      if (saved) await api.removeFromShortlist(trip.id, saved.id).catch(() => {});
       setAdding(null); setPill(null); await onChanged();
     } catch (e: any) { setError(e.message); }
-  }, [day, trip.id, onChanged, setPill]);
+  }, [day, trip.id, onChanged, setPill, shortlist]);
 
   /**
    * Something already saved to this trip, in the shape the browse list works
@@ -568,9 +581,12 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
     )
   );
 
+  /** How many maybes are on this trip — the number in the Shortlist pill. */
+  const savedCount = (places?.places ?? []).filter((x) => x.shortlisted && !x.scheduled).length;
+
   const pills = (
     <View style={[styles.pills, wantsStay && styles.pillsFour, wide && { left: 24, right: undefined }]}>
-      {pillsFor(wantsStay).map((p) => {
+      {pillsFor(wantsStay, savedCount).map((p) => {
         const on = pill === p.key;
         // Shortlist is exclusive with the other two, and dims them (handoff §7).
         const dim = pill === 'shortlist' && p.key !== 'shortlist';
@@ -633,7 +649,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           drawer mode… I should not see the activities, food, and drink pills").
           The sheet's own header carries the way back. */}
       {!wide && detent !== 'full' ? (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: heights[detent] + TABBAR + 10 }} pointerEvents="box-none">
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: heights[detent] + TABBAR + 10, zIndex: 2 }} pointerEvents="box-none">
           {!pill && detent === 'peek' ? <Text style={styles.nudge}>Pick one — we'll search along the route</Text> : null}
           {pills}
         </View>

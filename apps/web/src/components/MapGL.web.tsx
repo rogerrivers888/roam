@@ -266,6 +266,17 @@ export function MapGL({ markers, routes = [], padding, fitKey, fitToMarkers, foc
     const m = map.current;
     if (!m) return;
     const boxes: { l: number; r: number; t: number; b: number }[] = [];
+    /**
+     * The band of the map somebody can actually see: what the pills and the
+     * sheet cover is not it. A label drawn down there came out from under the
+     * pill row and sat over "Food", which was unreadable behind it (owner,
+     * 6 Sep 2026). Padding already describes the covered edges — it is what
+     * fitting uses — so the same numbers decide what is worth drawing.
+     */
+    const box0 = m.getContainer().getBoundingClientRect();
+    const pad = padRef.current;
+    const bandTop = pad.top ?? 0;
+    const bandBottom = box0.height - (pad.bottom ?? 0);
     const order = [...markers].sort((a, b) =>
       (b.selected ? 1 : 0) - (a.selected ? 1 : 0) || (RANK[a.kind] ?? 9) - (RANK[b.kind] ?? 9));
     for (const spec of order) {
@@ -277,7 +288,8 @@ export function MapGL({ markers, routes = [], padding, fitKey, fitToMarkers, foc
       const w = el.__tagW as number;
       const top = p.y + 12;
       const box = { l: p.x - w / 2, r: p.x + w / 2, t: top, b: top + 18 };
-      const clash = boxes.some((o) => box.l < o.r && box.r > o.l && box.t < o.b && box.b > o.t);
+      const covered = box.b > bandBottom || box.t < bandTop;
+      const clash = covered || boxes.some((o) => box.l < o.r && box.r > o.l && box.t < o.b && box.b > o.t);
       tag.style.visibility = clash ? 'hidden' : 'visible';
       if (!clash) boxes.push(box);
     }
@@ -344,9 +356,10 @@ export function MapGL({ markers, routes = [], padding, fitKey, fitToMarkers, foc
     });
   }, [focusId]);
 
-  // The sheet moved: the visible middle of the map moved with it.
+  // The sheet moved: the visible middle of the map moved with it, and so did
+  // which labels are under it.
   useEffect(() => {
-    if (map.current && ready.current) map.current.resize();
+    if (map.current && ready.current) { map.current.resize(); layout.current(); }
   }, [pad.bottom]);
 
   return (
