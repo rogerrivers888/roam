@@ -76,7 +76,14 @@ export default function App() {
  */
 function Edges({ children, style, bleed }: { children: React.ReactNode; style?: any; bleed?: boolean }) {
   const Box: any = bleed ? View : SafeAreaView;
-  return <Box style={style}>{children}</Box>;
+  // The app draws under the status bar (index.html), so a screen that is not
+  // full-bleed puts the inset back on rather than letting the wordmark sit
+  // under the clock. `env()` is nought in a browser tab and only bites in the
+  // installed app, which is the only place the status bar is ours to use.
+  const inset = !bleed && Platform.OS === 'web'
+    ? { paddingTop: 'env(safe-area-inset-top)' as any, paddingBottom: 'env(safe-area-inset-bottom)' as any }
+    : null;
+  return <Box style={[style, inset]}>{children}</Box>;
 }
 
 function Frame() {

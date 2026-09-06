@@ -28,15 +28,16 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { api, HouseholdResponse, TripAlongPlace, TripDetail, TripPlace } from '../api';
+import { api, BrowseItem, HouseholdResponse, TripAlongPlace, TripDetail, TripPlace } from '../api';
 import { useViewport } from '../hooks/useViewport';
 import { colors, fonts, radius, spacing, TARGET, type } from '../theme';
 import { Button, Card, StatusLine } from '../components/ui';
-import { Icon, IconName } from '../components/Icon';
+import { Icon, IconName, Stars } from '../components/Icon';
 import { VenueThumb } from '../components/VenueThumb';
 import { BottomSheet, Detent, detentHeights } from '../components/BottomSheet';
 import { MapGL, MapMarker, MapRoute } from '../components/MapGL';
 import { GroupPanel } from '../components/GroupPanel';
+import { VenueDrawer } from '../components/VenueDrawer';
 import { asOneOf, asText, useQueryState, useRouter } from '../router';
 import { paths, type TripSection } from '../routes';
 
@@ -79,6 +80,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const [detent, setDetent] = useState<Detent>('half');
   const [selected, setSelected] = useState<string | null>(null);
   const [adding, setAdding] = useState<TripAlongPlace | null>(null);
+  /** The place whose drawer is open over the map — the same drawer Places uses. */
+  const [open, setOpen] = useState<TripAlongPlace | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Every place this trip has touched, for the Places view and for the pins.
@@ -238,6 +241,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       onDetour={(n) => setDetour(String(n))}
       selected={selected}
       onSelect={(ref) => setSelected(ref)}
+      onOpen={setOpen}
       onAdd={setAdding}
       onShortlist={shortlistIt}
     />
@@ -297,7 +301,11 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
         </View>
       ) : null}
 
-      {!wide ? (
+      {/* At full the sheet has the screen and there is no map left to pin, so
+          the pills go with it (owner, 6 Sep 2026: "When I'm in full bottom
+          drawer mode… I should not see the activities, food, and drink pills").
+          The sheet's own header carries the way back. */}
+      {!wide && detent !== 'full' ? (
         <View style={{ position: 'absolute', left: 0, right: 0, bottom: heights[detent] + TABBAR + 10 }} pointerEvents="box-none">
           {!pill && detent === 'peek' ? <Text style={styles.nudge}>Pick one — we'll search along the route</Text> : null}
           {pills}
@@ -321,6 +329,18 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           {body}
         </BottomSheet>
       )}
+
+      <VenueDrawer
+        item={open ? alongToItem(open) : null}
+        baseLabel={trip.locality ?? trip.origin.label.split(',')[0]}
+        onClose={() => setOpen(null)}
+        addLabel="Add to the day"
+        addIcon="add"
+        added={open?.onDay}
+        shortlisted={open?.onShortlist}
+        onAdd={(item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); setOpen(null); if (p) setAdding(p); }}
+        onShortlist={async (item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); if (p) await shortlistIt(p); }}
+      />
 
       {adding ? (
         <AddSheet
@@ -463,7 +483,7 @@ function TripPlacesList({ data, onSelect }: { data: { places: TripPlace[] } | nu
 
 const DETOURS = [5, 10, 15, 30];
 
-function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, onDetour, selected, onSelect, onAdd, onShortlist }: {
+function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, onDetour, selected, onSelect, onOpen, onAdd, onShortlist }: {
   pill: Pill;
   along: { loading: boolean; places: TripAlongPlace[]; counts: { route: number; there: number }; error: string | null; degraded: { source: string; error: string }[] };
   shortlisted: TripPlace[];
@@ -473,6 +493,8 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
   onDetour: (n: number) => void;
   selected: string | null;
   onSelect: (ref: string) => void;
+  /** Tapping the row opens the place over the map, the way Places does. */
+  onOpen: (p: TripAlongPlace) => void;
   onAdd: (p: TripAlongPlace) => void;
   onShortlist: (p: TripAlongPlace) => Promise<void>;
 }) {
@@ -553,29 +575,39 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
 
       <View style={{ paddingHorizontal: 16 }}>
         {along.places.map((p) => (
-          <Pressable key={p.venueRef} onPress={() => onSelect(p.venueRef)} style={[styles.row, selected === p.venueRef && styles.rowOn]} accessibilityRole="button">
+          <Pressable key={p.venueRef} onPress={() => onOpen(p)} style={[styles.row, selected === p.venueRef && styles.rowOn]} accessibilityRole="button">
             <VenueThumb name={p.name} photos={p.photos} category={p.category} experiences={p.experiences} width={56} height={56} rounded={6} credit={false} />
             <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
               <Text style={styles.rowName} numberOfLines={1}>{p.name}</Text>
-              <Text style={type.small} numberOfLines={1}>
-                {[p.category ? cap(p.category) : null, money(p.priceLevel)].filter(Boolean).join(' · ')}
-                {p.rating != null ? <Text style={{ color: colors.ink, fontWeight: '600' }}>{`  ★ ${p.rating}${p.ratingCount ? ` (${p.ratingCount})` : ''}`}</Text> : null}
-              </Text>
+              {/* Type · price · the stars, on one line and never wrapping the
+                  rating on its own (handoff § Row layout). */}
+              <View style={styles.rowMeta}>
+                <Text style={type.small} numberOfLines={1}>
+                  {[p.category ? cap(p.category) : null, money(p.priceLevel)].filter(Boolean).join(' · ')}
+                </Text>
+                {p.rating != null ? (
+                  <Stars value={p.rating} size={12}>
+                    <Text style={styles.ratingText}>{p.rating.toFixed(1)}{p.ratingCount ? ` (${p.ratingCount >= 1000 ? `${(p.ratingCount / 1000).toFixed(1)}k` : p.ratingCount})` : ''}</Text>
+                  </Stars>
+                ) : <Text style={type.tiny}>no reviews yet</Text>}
+              </View>
               {/* The number the whole design turns on — and it says it is a
                   reckoning, not a routed answer (owner, 6 Sep 2026). */}
               <Text style={styles.detour} numberOfLines={1}>
                 {p.detourMinutes != null ? `about ${p.detourMinutes} min off route` : 'off the route'}
                 <Text style={{ color: colors.inkMuted, fontWeight: '400' }}>{` (${p.detourMiles} mi)`}</Text>
               </Text>
-            </View>
-            <View style={{ gap: 6, alignItems: 'flex-end' }}>
-              <Pressable onPress={() => onShortlist(p)} hitSlop={8} accessibilityRole="button" accessibilityLabel={p.onShortlist ? 'Remove from the shortlist' : 'Save to the shortlist'}>
-                <Icon name={p.onShortlist ? 'shortlisted' : 'shortlist'} size={18} color={colors.ink} fill={p.onShortlist} />
-              </Pressable>
-              <Pressable onPress={() => onAdd(p)} style={styles.add} accessibilityRole="button">
-                <Icon name={p.onDay ? 'check' : 'add'} size={13} color={colors.ink} />
-                <Text style={styles.addText}>{p.onDay ? 'Added' : 'Add'}</Text>
-              </Pressable>
+              {/* Bookmark and Add sit beside each other, at the bottom right of
+                  the row, as the handoff draws them — they were stacked. */}
+              <View style={styles.rowActions}>
+                <Pressable onPress={() => onShortlist(p)} hitSlop={8} style={styles.bookmark} accessibilityRole="button" accessibilityLabel={p.onShortlist ? 'Remove from the shortlist' : 'Save to the shortlist'}>
+                  <Icon name={p.onShortlist ? 'shortlisted' : 'shortlist'} size={17} color={colors.ink} fill={p.onShortlist} />
+                </Pressable>
+                <Pressable onPress={() => onAdd(p)} style={styles.add} accessibilityRole="button">
+                  <Icon name={p.onDay ? 'check' : 'add'} size={13} color={colors.ink} />
+                  <Text style={styles.addText}>{p.onDay ? 'Added' : 'Add'}</Text>
+                </Pressable>
+              </View>
             </View>
           </Pressable>
         ))}
@@ -585,6 +617,17 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/[-_]/g, ' ');
+
+/** A candidate, in the shape the drawer every other screen uses already reads. */
+function alongToItem(p: TripAlongPlace): BrowseItem {
+  return {
+    id: p.venueRef, venueRef: p.venueRef, name: p.name, category: p.category ?? 'attraction',
+    lat: p.lat, lng: p.lng, dwellMinutes: 0, reasons: [], justification: null,
+    startsAt: null, endsAt: null, pinned: false, source: p.source,
+    cuisines: p.cuisines ?? [], experiences: p.experiences ?? [],
+    address: p.address, website: p.website, openingHours: p.openingHours,
+  };
+}
 
 function Chip({ label, on, chevron, onPress }: { label: string; on?: boolean; chevron?: boolean; onPress: () => void }) {
   return (
@@ -699,7 +742,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body, fontSize: 11.5, fontWeight: '700',
   },
 
-  searchWrap: { position: 'absolute', left: 0, right: 0, top: 16, paddingHorizontal: 20 },
+  // The app draws under the clock now, so anything floating at the top of the
+  // map puts the inset back on for itself.
+  searchWrap: { position: 'absolute', left: 0, right: 0, top: ('calc(16px + env(safe-area-inset-top))' as any), paddingHorizontal: 20 },
   search: {
     flexDirection: 'row', alignItems: 'center', gap: 8, height: 46, paddingHorizontal: 16, borderRadius: radius.pill,
     backgroundColor: colors.surface,
@@ -735,6 +780,10 @@ const styles = StyleSheet.create({
   optRow: { flexDirection: 'row', alignItems: 'center', minHeight: TARGET },
 
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.line },
+  rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  ratingText: { fontFamily: fonts.body, fontSize: 12.5, fontWeight: '600', color: colors.ink },
+  rowActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 2 },
+  bookmark: { width: 34, height: 34, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   rowOn: { backgroundColor: colors.accentSoft },
   rowName: { fontFamily: fonts.heading, fontSize: 15, fontWeight: '700', color: colors.ink },
   detour: { fontFamily: fonts.body, fontSize: 12, fontWeight: '600', color: colors.ink },

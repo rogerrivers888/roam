@@ -612,16 +612,32 @@ router.get('/:id/along', async (req, res, next) => {
       };
     });
 
-    const within = rows.filter((r) => r.detourMinutes != null && r.detourMinutes <= maxDetourMin);
-    const beyond = rows.filter((r) => !within.includes(r));
+    /**
+     * The corridor is a fence here, not a bias.
+     *
+     * It began as a bias — everything found, ordered by detour — on the reading
+     * of Requirements §4 that a corridor should never silently throw a place
+     * away. On a map that is simply wrong, and the owner said so on seeing it
+     * (6 Sep 2026): "it should be within a 10-15-minute drive of the final
+     * destination or from the route itself. I shouldn't have any going in the
+     * opposite direction from my home, for example. That doesn't make any
+     * sense." He is right: a list is a list, but a pin an hour the wrong way is
+     * a claim about where you could stop, and it is a false one. Nothing is
+     * hidden — the detour budget is a chip on screen, and widening it is one
+     * tap.
+     */
     const byDetour = (a, b) => (a.detourMinutes ?? 999) - (b.detourMinutes ?? 999);
+    const within = rows.filter((r) => r.detourMinutes != null && r.detourMinutes <= maxDetourMin).sort(byDetour);
 
     res.json({
       origin, destination, mode, scope, kind, maxDetourMin,
-      // Inside the corridor first, then everything else — the corridor biases
-      // the order, it does not throw places away (Requirements §4).
-      places: [...within.sort(byDetour).slice(0, 60), ...beyond.sort(byDetour).slice(0, 20)],
-      counts: { route: rows.filter((r) => (r.detourMinutes ?? 999) <= maxDetourMin).length, there: destination ? rows.filter((r) => kmBetween(destination, r) <= reach).length : 0 },
+      places: within.slice(0, 60),
+      counts: {
+        route: within.length,
+        there: destination ? rows.filter((r) => kmBetween(destination, r) <= reach).length : 0,
+      },
+      /** How many were found and left out, so the screen can offer a wider detour honestly. */
+      beyond: rows.length - within.length,
       estimated: true,
       degradedSources: degraded, sourcesQueried, cached, fetchedAt, tookMs: Date.now() - started,
     });

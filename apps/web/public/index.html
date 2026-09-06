@@ -7,7 +7,20 @@
     <!-- viewport-fit=cover + safe-area insets: the installed web app draws under the notch (research §2) -->
     <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1.00001, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!--
+      `black-translucent` is what lets the app paint *under* the clock, the
+      signal and the battery instead of iOS reserving a white strip above it
+      (owner, 6 Sep 2026: "That should all be map, and that is achievable. You
+      can see Airbnb do it").
+
+      It applies to the whole app, so every screen that is not full-bleed adds
+      `env(safe-area-inset-top)` back on for itself (App.tsx `Edges`) — the
+      wordmark must not end up under the clock. It only takes effect in the
+      installed app; in a browser tab the status bar belongs to the browser and
+      nothing can be drawn under it.
+    -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Roam" />
     <meta name="theme-color" content="#B6E3CF" />
     <!-- Type from the style guide: Archivo for UI, Caveat for the wordmark only -->

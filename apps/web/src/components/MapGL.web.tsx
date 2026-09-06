@@ -55,10 +55,23 @@ const KIND: Record<MapMarker['kind'], { size: number; bg: string; border: string
 
 function markerEl(m: MapMarker): HTMLElement {
   const k = KIND[m.kind];
+  /**
+   * Two elements, and the outer one is left alone.
+   *
+   * MapLibre positions a marker by writing `transform` on the element it was
+   * given, and its own class supplies the `position: absolute` that makes that
+   * mean anything. Setting `position: relative` in an inline style beat that
+   * class, every marker fell back into normal document flow, and the map drew a
+   * neat vertical column of pins from Windsor to the Sussex coast — evenly
+   * spaced, because that is what stacked block elements do. So the outer
+   * element carries nothing but the cursor, and the inner one is the box the
+   * label hangs off.
+   */
   const wrap = document.createElement('div');
-  // The dot is centred on the point and the label hangs off it absolutely, so
-  // a long label never shoves the pin off the place it is marking.
-  wrap.style.cssText = 'position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;will-change:transform';
+  wrap.style.cssText = 'cursor:pointer';
+  const inner = document.createElement('div');
+  inner.style.cssText = 'position:relative;display:flex;align-items:center;justify-content:center';
+  wrap.appendChild(inner);
   const size = m.selected ? k.size + 4 : k.size;
   const glyph = GLYPH[m.icon ?? ''] ?? GLYPH.place;
   const dot = document.createElement('div');
@@ -72,7 +85,7 @@ function markerEl(m: MapMarker): HTMLElement {
     'transition:width 120ms ease-out,height 120ms ease-out',
   ].join(';');
   dot.innerHTML = `<svg width="${Math.round(size * 0.55)}" height="${Math.round(size * 0.55)}" viewBox="0 0 24 24" fill="none" stroke="${k.fg}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg>`;
-  wrap.appendChild(dot);
+  inner.appendChild(dot);
   if (m.label) {
     const tag = document.createElement('div');
     // An added stop's label is ink on white; everything else is white on ink,
@@ -87,7 +100,7 @@ function markerEl(m: MapMarker): HTMLElement {
       'white-space:nowrap', 'pointer-events:none',
       'box-shadow:0 1px 4px rgba(32,30,29,0.18)',
     ].join(';');
-    wrap.appendChild(tag);
+    inner.appendChild(tag);
   }
   if (m.onPress) {
     /**
@@ -172,6 +185,12 @@ export function MapGL({ markers, routes = [], padding, fitKey, focusId, onMapPre
     };
     m.on('styledata', collapse);
     m.on('idle', collapse);
+    // The map runs under the clock now, so its own corner controls step down
+    // out from under it.
+    requestAnimationFrame(() => {
+      const corner = host.current?.querySelector('.maplibregl-ctrl-top-right') as HTMLElement | null;
+      if (corner) corner.style.marginTop = 'env(safe-area-inset-top)';
+    });
     m.on('load', () => { ready.current = true; });
     // The same rule for the map itself: a click that began somewhere else — the
     // tail of a drag on the sheet — is not a tap on the map.
