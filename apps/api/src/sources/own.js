@@ -421,7 +421,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
     // Attributed whether or not it answers: a refused request still went out,
     // and provider_calls is the record of what we asked of whom, not of what we
     // got back (Technical Constraints §2).
-    try { osm = await matchOsm({ venueRef, name: seed.name, lat: seed.lat, lng: seed.lng, locality: seed.locality ?? null, address: seed.address ?? null }); }
+    try { osm = await matchOsm({ venueRef, name: seed.name, lat: seed.lat, lng: seed.lng, locality: seed.locality ?? null, address: seed.address ?? null, category: seed.category ?? null }); }
     finally { await logCall(householdId, 'osm-overpass', 'own.match'); }
     // Replace, do not erase.
     //
@@ -586,7 +586,7 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
   // 4. The encyclopedias, for the places that have an article.
   try {
     let enc;
-    try { enc = await encyclopediaFor({ name: seed.name, lat: osm?.lat ?? seed.lat, lng: osm?.lng ?? seed.lng, locality: seed.locality ?? null, address: seed.address ?? null }); }
+    try { enc = await encyclopediaFor({ name: seed.name, lat: osm?.lat ?? seed.lat, lng: osm?.lng ?? seed.lng, locality: seed.locality ?? null, address: seed.address ?? null, category: seed.category ?? null }); }
     finally { await logCall(householdId, 'wikipedia', 'own.encyclopedia'); }
     // Wikidata is a second service and gets its own line, so the usage table
     // says who was actually asked.

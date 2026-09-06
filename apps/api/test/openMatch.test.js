@@ -14,7 +14,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nameScore, normalise, placeWords } from '../src/sources/openMatch.js';
+import { kindDisagrees, nameScore, normalise, placeWords } from '../src/sources/openMatch.js';
 
 /** What `matchOsm` accepts. Below this, the place is left unmatched. */
 const MATCHED = 0.6;
@@ -61,4 +61,18 @@ test('the noise list is only skipped when the whole name is noise', () => {
   // Normalising still strips what it always stripped.
   assert.equal(normalise('The Ivy Restaurant'), 'ivy');
   assert.equal(normalise('The Ivy Restaurant', { noise: false }), 'the ivy restaurant');
+});
+
+test('a restaurant is not the chemist next door, whatever it is called', () => {
+  assert.equal(kindDisagrees('cafe', { amenity: 'pharmacy' }), true);
+  assert.equal(kindDisagrees('cafe', { shop: 'chemist' }), true);
+  // A railway station is already turned away for being transport, before the
+  // kind is looked at at all (`matchOsm`).
+  assert.equal(kindDisagrees('cafe', { amenity: 'cafe' }), false);
+  assert.equal(kindDisagrees('restaurant', { amenity: 'fast_food' }), false);
+  assert.equal(kindDisagrees('hotel', { tourism: 'hotel' }), false);
+  // A place the map has not classified is left to the name to decide, and an
+  // attraction can be almost anything.
+  assert.equal(kindDisagrees('restaurant', {}), false);
+  assert.equal(kindDisagrees('attraction', { amenity: 'pharmacy' }), false);
 });

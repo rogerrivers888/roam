@@ -16,6 +16,8 @@
 // the extract into our own words would remove the condition entirely, and is
 // the thing to do if that text is ever wanted without the credit line.
 
+import { FOOD_CATEGORIES as EATING } from '../constants.js';
+
 const WIKI = 'https://en.wikipedia.org/w/api.php';
 const WIKIDATA = 'https://www.wikidata.org/w/api.php';
 const UA = 'RoamBot/1.0 (+https://web-production-afce9.up.railway.app; place research)';
@@ -83,7 +85,7 @@ async function entity(qid) {
  * there is an article, three when it also has a Wikidata entity; all free, all
  * keepable.
  */
-export async function encyclopediaFor({ name, lat, lng, locality = null, address = null } = {}) {
+export async function encyclopediaFor({ name, lat, lng, locality = null, address = null, category = null } = {}) {
   if (lat == null || lng == null || !String(name || '').trim()) return null;
   const { nameScore, placeWords } = await import('./openMatch.js');
   // The village's name is in half the articles written about the village, so it
@@ -99,7 +101,12 @@ export async function encyclopediaFor({ name, lat, lng, locality = null, address
     // Wikipedia disambiguates in brackets — "Roman Baths (Bath)" is the Roman Baths.
     const bare = cand.title.replace(/\s*\([^)]*\)\s*$/, '');
     const n = Math.max(nameScore(name, cand.title, dull), nameScore(name, bare, dull));
-    if (n < 0.7) continue;
+    // Somewhere you eat is rarely in an encyclopedia, and the article next door
+    // usually is: "Sunningdale Bistro Bar" is most of "Sunningdale railway
+    // station" once the village is taken out of both. So a restaurant has to
+    // match an article's whole title, not most of it — which The Ivy and Rules,
+    // the ones that really do have articles, still do.
+    if (n < (EATING.has(String(category ?? '').toLowerCase()) ? 0.95 : 0.7)) continue;
     const confidence = Number(Math.min(1, n * (1 - cand.distanceM / (MAX_M * 4))).toFixed(2));
     if (!best || confidence > best.confidence) best = { ...cand, confidence };
   }

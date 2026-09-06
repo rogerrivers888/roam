@@ -198,7 +198,26 @@ export function placeWords(locality, address) {
   return [locality, ...towns].filter(Boolean);
 }
 
-export async function matchOsm({ venueRef, name, lat, lng, locality = null, address = null, meter = null } = {}) {
+// What the open map calls the kinds of place we care about telling apart. A
+// restaurant is not a pharmacy, whatever the two are called: the name is what
+// finds a candidate, and the kind is what stops an obviously different business
+// twelve metres away from being taken for it (found 6 Sep 2026).
+const OSM_FOOD = new Set(['restaurant', 'cafe', 'fast_food', 'pub', 'bar', 'bakery', 'ice_cream', 'biergarten', 'food_court', 'deli', 'confectionery']);
+const OSM_BEDS = new Set(['hotel', 'guest_house', 'hostel', 'motel', 'apartment', 'chalet', 'bed_and_breakfast']);
+const OURS_FOOD = new Set(['restaurant', 'cafe', 'pub', 'bar', 'bakery', 'food', 'takeaway']);
+const OURS_BEDS = new Set(['hotel', 'stay', 'lodging', 'hostel']);
+
+/** Whether an open-map candidate is plainly a different kind of business from the one we are looking for. */
+export function kindDisagrees(ourCategory, tags = {}) {
+  const theirs = tags.amenity ?? tags.tourism ?? tags.shop ?? tags.leisure ?? null;
+  if (!theirs) return false;                       // unclassified: the name decides
+  const ours = String(ourCategory ?? '').toLowerCase();
+  if (OURS_FOOD.has(ours)) return !OSM_FOOD.has(theirs);
+  if (OURS_BEDS.has(ours)) return !OSM_BEDS.has(theirs);
+  return false;                                    // an attraction is anything
+}
+
+export async function matchOsm({ venueRef, name, lat, lng, locality = null, address = null, category = null, meter = null } = {}) {
   // A place that is already an OSM place needs no matching — it is its own
   // match, as long as the element is where the place is. A reference that was
   // written by hand rather than read off the map may point at a real way with a
@@ -238,6 +257,8 @@ export async function matchOsm({ venueRef, name, lat, lng, locality = null, addr
     if (elat == null || !tags.name) continue;
     // A bus stop or a car park with the venue's name on it is not the venue.
     if (tags.highway || tags.public_transport || tags.amenity === 'parking' || tags.amenity === 'bench') continue;
+    // Nor is the chemist next door, however much of its name it shares.
+    if (kindDisagrees(category, tags)) continue;
     const distanceM = metresBetween(here, { lat: elat, lng: elng });
     if (distanceM > MAX_M) continue;
     // Names agree first; distance only separates two that both do.
