@@ -156,7 +156,7 @@ export async function parseStructured({
  * call is written to provider_calls with the per-search charge included, so
  * the spend bounds apply to it exactly as to the planner's own calls.
  */
-export async function searchWeb({ system, prompt, householdId, sessionId, purpose, maxSearches = 6, maxFetches = 6, effort = 'medium' }) {
+export async function searchWeb({ system, prompt, householdId, sessionId, purpose, maxSearches = 6, maxFetches = 6, effort = 'medium', meta = null }) {
   await assertWithinBounds({ householdId, sessionId });
 
   const response = await client.messages.create({
@@ -172,7 +172,8 @@ export async function searchWeb({ system, prompt, householdId, sessionId, purpos
     output_config: { effort },
   });
 
-  await recordCall({ householdId, sessionId, provider: 'anthropic', purpose, usage: response.usage });
+  const spend = await recordCall({ householdId, sessionId, provider: 'anthropic', purpose, usage: response.usage });
+  if (meta) Object.assign(meta, spend);
 
   const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
   return { text, searches: response.usage?.server_tool_use?.web_search_requests ?? 0, stopReason: response.stop_reason };

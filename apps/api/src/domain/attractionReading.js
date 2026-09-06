@@ -33,7 +33,7 @@
  */
 
 import { z } from 'zod/v4';
-import { parseStructured, MODEL } from '../claude.js';
+import { parseStructured, searchWeb, MODEL } from '../claude.js';
 
 // ---------------------------------------------------------------------------
 // the form
@@ -351,4 +351,110 @@ export function hashOf(text) {
   let h = 0;
   for (let i = 0; i < text.length; i += 1) { h = ((h << 5) - h + text.charCodeAt(i)) | 0; }
   return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+// ---------------------------------------------------------------------------
+// the venues nobody wrote an encyclopedia article about
+// ---------------------------------------------------------------------------
+
+/**
+ * Reading a place that has no article to read.
+ *
+ * Owner, 5 Sep 2026: "Can we not use Claude to then get descriptions and
+ * information that we can layer on and use, given that it's pretty low volume?
+ * … I don't really want anything that doesn't have any descriptions on it."
+ *
+ * The atlas can only see places with an English Wikipedia article, which is why
+ * it holds 66 church buildings in Surrey and no soft play at all. OpenStreetMap
+ * knows where the soft plays are — Hobbledown, AirHop, Rialto Kids — and records
+ * a name, a location and usually a website, and almost never a description: 3
+ * of 191 in Surrey.
+ *
+ * So the description has to be gone and found. Two calls, deliberately:
+ *
+ *   1. `searchWeb` — Claude searches and reads the venue's own pages and
+ *      whatever else is public, and writes down what it found in prose. This is
+ *      the expensive half: web search is billed per search on top of tokens.
+ *   2. `parseStructured` — the same form every atlas place fills in, over that
+ *      prose. Cheap, and it means one schema and one review screen for both
+ *      kinds of place rather than two of everything.
+ *
+ * The alternative — one call with tools and a structured output — would be
+ * cheaper by a call, and it would also mean the research and the form-filling
+ * could not be looked at separately when one of them is wrong. The prose is
+ * kept for exactly that reason.
+ */
+const VENUE_SYSTEM = `You are researching a family attraction for Roam, a trip planner, so that a parent can decide whether to take the family there on Saturday.
+
+You will be given a venue's name, roughly where it is, and usually its own website. Search for it and read its own pages. Report what you find, in plain prose, under these headings:
+
+WHAT IT IS — one or two sentences. What kind of place, who runs it.
+WHAT THERE IS TO DO — the named things: the rides, the animals, the play frames, the trails, the activities. Names, not adjectives.
+BY AGE — what there is for under-4s, 4 to 7, 8 to 11, and 12 and over, separately. Height and age restrictions where they publish them. This is the most important part.
+HOW LONG — how long people actually spend, and what that is based on.
+WHAT IT COSTS — the prices they publish, exactly as written, with the page you read them on.
+WHEN IT IS OPEN — hours and season, and whether booking is needed.
+PRACTICALITIES — parking, food, indoors or out, wheelchair access, whether it is worth going in the rain.
+WHAT YOU COULD NOT FIND — say so plainly rather than filling gaps.
+
+Rules. Use the venue's own site first and say when a fact came from somewhere else. Quote prices and hours rather than summarising them. Do not use review-site ratings or review text — those are somebody else's property and Roam may not keep them. If the venue appears to have closed, say so and stop. If you cannot find the place at all, say that in one line and stop; do not describe a different place with a similar name.`;
+
+/**
+ * Research one venue that has no article, then fill in the same form.
+ *
+ * Returns the reading plus what the two calls cost, because at this volume the
+ * cost per venue is the thing that decides whether the pipeline is worth having
+ * at all.
+ */
+export async function readVenueFromWeb({
+  name, website = null, locality = null, kindLabel = null, tags = {},
+  lessons = [], examples = [], householdId, effort = 'medium', maxSearches = 5,
+}) {
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
+    throw Object.assign(
+      new Error('No Claude key on this API, so nothing can be researched.'),
+      { status: 503, code: 'no_model_key' },
+    );
+  }
+
+  const known = Object.entries({
+    'Their website': website,
+    'The map calls it': kindLabel,
+    'Address': [tags['addr:housenumber'], tags['addr:street'], tags['addr:city'], tags['addr:postcode']].filter(Boolean).join(', ') || null,
+    'Opening hours on the map': tags.opening_hours,
+    'Phone': tags.phone ?? tags['contact:phone'],
+    'Operator': tags.operator,
+  }).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`);
+
+  const research = {};
+  const found = await searchWeb({
+    system: VENUE_SYSTEM,
+    prompt: [`${name}${locality ? `, ${locality}` : ''}`, '', ...known].join('\n'),
+    householdId, sessionId: null, purpose: 'atlas.venue.research',
+    maxSearches, maxFetches: maxSearches, effort, meta: research,
+  });
+
+  // A venue that has closed, or that nobody can find, is not worth a second
+  // call — and is exactly the row the owner does not want in the atlas.
+  if (/^\s*(I (could not|cannot|couldn't) find|This (venue|place) (appears to have|has) closed)/i.test(found.text)) {
+    return { found: false, note: found.text.slice(0, 300), costUsd: research.costUsd ?? 0, searches: found.searches };
+  }
+
+  const spend = {};
+  const facts = await parseStructured({
+    meta: spend,
+    system: systemFor({ lessons, examples }),
+    messages: [{ role: 'user', content: `PLACE: ${name}\nWHERE: ${locality ?? 'England'}\n${kindLabel ? `ROAM CALLS IT: ${kindLabel}\n` : ''}\n--- WHAT THE RESEARCH FOUND ---\n${found.text}` }],
+    schema: AttractionFacts,
+    householdId, sessionId: null, purpose: 'atlas.venue.read',
+    effort, maxTokens: 4096,
+  });
+
+  return {
+    found: true, facts, research: found.text,
+    searches: found.searches,
+    costUsd: (research.costUsd ?? 0) + (spend.costUsd ?? 0),
+    costParts: { research: research.costUsd ?? 0, form: spend.costUsd ?? 0 },
+    model: spend.model ?? MODEL,
+  };
 }

@@ -37,7 +37,7 @@ import { can, requires } from '../access.js';
 import * as lib from '../repositories/library.js';
 import { runHarvest, refreshKinds, WIDTHS, researchAttraction, detailPass } from '../sources/harvest.js';
 import { contentsOf } from '../sources/inside.js';
-import { readAttraction } from '../domain/attractionReading.js';
+import { readAttraction, readVenueFromWeb } from '../domain/attractionReading.js';
 import { readCategoryTeaching, CATEGORIES } from '../domain/categoryTeaching.js';
 import * as shelfRules from '../repositories/shelfRules.js';
 import { currentHousehold } from './household.js';
@@ -986,5 +986,28 @@ adminRouter.get('/types', requires('view_library'), async (req, res, next) => {
         state: req.query.state ?? 'published',
       }),
     });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Research one venue that has no Wikipedia article, and report what it cost.
+ *
+ * A measuring instrument before it is a feature: the owner asked whether Claude
+ * could find descriptions for the OpenStreetMap venues the atlas cannot see, and
+ * what that would cost. Guessing from published rates would have been a number
+ * with no venue behind it, so this runs the real thing on a real place and
+ * returns the bill alongside the answer.
+ */
+adminRouter.post('/venues/read', requires('manage_library'), async (req, res, next) => {
+  try {
+    const { name, website, locality, kindLabel, tags, maxSearches } = req.body ?? {};
+    if (!name) return res.status(400).json({ error: 'name_required' });
+    const out = await readVenueFromWeb({
+      name, website: website ?? null, locality: locality ?? null,
+      kindLabel: kindLabel ?? null, tags: tags ?? {},
+      householdId: req.household?.id ?? null,
+      maxSearches: Math.min(8, Number(maxSearches) || 5),
+    });
+    res.json(out);
   } catch (err) { next(err); }
 });
