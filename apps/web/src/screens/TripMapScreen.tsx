@@ -1897,9 +1897,15 @@ function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nig
       {stays.results.length && stays.pricing ? (
         <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 4 }}>
           {stays.pricing.sandbox ? (
-            <StatusLine tone="warn">
-              These prices are the booking provider's test data, not real rates — the live key is not on yet.
-            </StatusLine>
+            /* Said, not shouted. Red is the heart (style guide), and its one
+               exception is an overrun or an allergen — a price that is not
+               real is a caution, and the caution reads fine in the tint. */
+            <View style={styles.caution}>
+              <Icon name="allergen" size={14} color={colors.ink} />
+              <Text style={[type.small, { flex: 1, color: colors.ink }]}>
+                These prices are the booking provider's test data, not real rates — the live key is not on yet.
+              </Text>
+            </View>
           ) : !stays.pricing.on ? (
             <Text style={type.tiny}>No price source is connected, so these are beds without rates.</Text>
           ) : stays.pricing.reason === 'no_dates' ? (
@@ -2196,6 +2202,7 @@ const styles = StyleSheet.create({
   linkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.line, minHeight: TARGET },
   linkText: { fontFamily: fonts.body, fontSize: 14, fontWeight: '600', color: colors.ink, flexShrink: 1 },
   backRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: TARGET },
+  caution: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10, borderRadius: radius.md, backgroundColor: colors.surfaceMuted },
   check: { width: 26, height: 26, borderRadius: 13, borderWidth: 1.5, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   checkOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   // The banner (Hotels 2 §15): ink, one row, the whole of it a tap.

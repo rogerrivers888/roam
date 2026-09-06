@@ -44,6 +44,42 @@ export function fromName(trip: Named & { kind?: string }): string {
   return plain(trip.base?.label) ?? plain(trip.origin?.label) ?? 'home';
 }
 
+/**
+ * A place, in as few words as read well.
+ *
+ * The same rule as above, with one exception that matters: an *address* is
+ * friendlier by its town than by its first line. "Fairways, Titlarks Hill,
+ * Ascot, SL5 0JD" is "Ascot", not "Fairways". A name with one or two segments
+ * is a place somebody chose and keeps its own head — "Bath" is not "Bath and
+ * North East Somerset", which is the council that collects its bins.
+ */
+export function shortPlaceName(p?: { label?: string | null; locality?: string | null } | null): string {
+  if (!p) return '';
+  const label = p.label ?? '';
+  const segments = label.split(',').filter((x) => x.trim()).length;
+  const head = plain(label);
+  if (segments >= 3) return plain(p.locality) ?? head ?? '';
+  return head ?? plain(p.locality) ?? '';
+}
+
+/**
+ * The name on a trip card: what the household typed, or what we made for them.
+ *
+ * A title auto-made at creation leads with the place and a month —
+ * "Bath · Sep 2026". When that place was taken from the locality it leads with
+ * a council instead — "Bath and North East Somerset · Sep 2026" — and those
+ * are already saved. So the head is swapped where it is plainly the derived
+ * one, and anything the household actually wrote after it is kept.
+ */
+export function tripTitle(trip: Named & { title?: string | null }): string {
+  const title = (trip.title ?? '').trim();
+  const name = tripName(trip);
+  if (!title) return name;
+  const [head, ...rest] = title.split(' · ');
+  const derived = plain(head) === plain(trip.locality) && plain(head) !== name;
+  return derived ? [name, ...rest].join(' · ') : title;
+}
+
 export function tripName(trip: Named): string {
   return plain(trip.destination?.label)
     ?? plain(trip.place?.label)

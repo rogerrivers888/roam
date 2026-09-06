@@ -30,7 +30,7 @@ import { recallScreen, rememberScreen } from '../screenState';
 import { asOneOf, asText, useQueryState, useRouter } from '../router';
 import { paths, TRIP_TABS, type Route, type TripSection } from '../routes';
 import { accuracyWords, useHere } from '../hooks/useHere';
-import { tripName } from './tripName';
+import { shortPlaceName, tripName } from './tripName';
 
 const speak = (t: string) => { if (getSpeakPref()) speakRaw(t); };
 const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
@@ -430,7 +430,10 @@ function NewTripForm({ household, startFrom, onCreated }: { household: Household
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const shortName = (p: Place | null) => (!p ? '' : home && p.lat === home.lat && p.lng === home.lng ? 'Home' : (p.locality ?? p.label.split(',')[0].trim()));
+  // "Bath" is not "Bath and North East Somerset", which is the council that
+  // collects its bins (owner, 6 Sep 2026). One rule, in tripName.ts — and it
+  // still reads an address by its town, because "Fairways" names nowhere.
+  const shortName = (p: Place | null) => (!p ? '' : home && p.lat === home.lat && p.lng === home.lng ? 'Home' : shortPlaceName(p));
   // Where a day out starts: home (or wherever they said) for a planned one, the
   // device's fix for one that has already started.
   const startPoint = kind === 'now' ? herePlace : from;

@@ -5,6 +5,7 @@ import { colors, radius, spacing, type } from '../theme';
 import { Row } from './ui';
 import { Avatar } from './Faces';
 import { VenueThumb } from './VenueThumb';
+import { tripTitle } from '../screens/tripName';
 
 const fmtDate = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 const fmtRange = (a?: string | null, b?: string | null) => (a && b ? (a === b ? fmtDate(a) : `${fmtDate(a)} – ${fmtDate(b)}`) : '');
@@ -37,9 +38,12 @@ export function TripCard({ trip: t, members = [], onPress }: {
   return (
     <Pressable onPress={onPress} accessibilityRole="button">
       <View style={styles.tripCard}>
-        <VenueThumb name={t.title ?? t.place?.label ?? null} image={t.image ?? null} category="place" width={92} height={92} rounded={radius.lg} credit={false} />
+        <VenueThumb name={tripTitle(t)} image={t.image ?? null} category="place" width={92} height={92} rounded={radius.lg} credit={false} />
         <View style={{ flex: 1, minWidth: 0, gap: 4, justifyContent: 'center' }}>
-          <Text style={type.h2} numberOfLines={2}>{t.title ?? t.place?.label ?? t.locality ?? t.origin.label}</Text>
+          {/* One naming rule for the whole app (tripName.ts): a name somebody
+              chose beats a name we derived, and a title auto-made from a
+              council gets its head swapped without losing the month. */}
+          <Text style={type.h2} numberOfLines={2}>{tripTitle(t)}</Text>
           <Text style={type.small} numberOfLines={1}>{when}</Text>
           <Row style={{ gap: 6, marginTop: 2 }}>
             {t.attendees.length ? (
