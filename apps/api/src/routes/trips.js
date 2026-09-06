@@ -10,7 +10,7 @@ import { TRAVEL_MODES } from '../domain/travel.js';
 import { dayAsTrip, datesBetween, slotFor } from '../domain/days.js';
 import { geocode, reverseGeocode } from '../sources/geocode.js';
 import { searchAreas } from '../sources/areas.js';
-import { optInFrom, enabledSources, pointsAlong } from '../sources/index.js';
+import { optInFrom, enabledSources, pointsAlong, resolveVenues } from '../sources/index.js';
 import { searchCached } from '../sources/cache.js';
 import { bedsNear, OSM_ATTRIBUTION, LITEAPI_ATTRIBUTION } from '../sources/stays.js';
 import { stationsNear } from '../sources/where.js';
@@ -681,9 +681,11 @@ router.get('/:id/along', async (req, res, next) => {
       { refresh: req.query.refresh === '1' },
     ))), deadline]);
 
-    // One pool out of the several circles: the overlaps are the point, so the
-    // same place found twice is one place, and the first answer wins.
-    const pooled = new Map();
+    // One pool out of the several circles. The overlaps are the point, so the
+    // same place found twice has to become one place — and twice from two
+    // different sources, which is the same fold `searchAllSources` already does
+    // inside one circle, run again across them.
+    const pooled = [];
     const degraded = [];
     const queried = new Set();
     const units = {};
@@ -691,10 +693,7 @@ router.get('/:id/along', async (req, res, next) => {
     let fetched = false;
     let fetchedAt = null;
     for (const a of answers) {
-      for (const v of a.venues) {
-        const ref = `${v.source}:${v.sourcePlaceId}`;
-        if (!pooled.has(ref)) pooled.set(ref, v);
-      }
+      pooled.push(...a.venues);
       for (const dg of a.degraded ?? []) if (!degraded.some((x) => x.source === dg.source)) degraded.push(dg);
       for (const k of a.sourcesQueried ?? []) queried.add(k);
       for (const [k, v] of Object.entries(a.units || {})) units[k] = (units[k] || 0) + v;
@@ -702,7 +701,7 @@ router.get('/:id/along', async (req, res, next) => {
       if (a.fetched) fetched = true;
       if (a.fetchedAt && (!fetchedAt || a.fetchedAt > fetchedAt)) fetchedAt = a.fetchedAt;
     }
-    const venues = [...pooled.values()];
+    const venues = spots.length > 1 ? resolveVenues(pooled) : pooled;
     const sourcesQueried = [...queried];
     if (fetched) await trips.recordProviderCall(household.id, sourcesQueried.join('+') || 'none', 'trip.along', units);
 
