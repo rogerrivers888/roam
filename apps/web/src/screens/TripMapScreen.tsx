@@ -313,15 +313,17 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           icon: pill === 'food' ? 'utensils' : 'sparkles',
           // Labelling forty pins is unreadable; the two nearest the route carry
           // their detour, as the handoff draws.
-          label: selected === p.venueRef ? `${p.name} · ${p.detourMinutes} min` : null,
+          label: selected === p.venueRef ? `${p.name}${p.detourMinutes != null ? ` · +${p.detourMinutes} min` : ''}` : null,
           selected: selected === p.venueRef,
-          // A pin is the same thing as its row: tapping it opens the place
-          // (owner, 6 Sep 2026 — it used to do nothing but highlight itself).
-          // Opening a place must not move the sheet. Somebody looking at the
-          // full map who taps a pin wants to come back to the full map when
-          // they shut the drawer, not to half a screen of list (owner, 6 Sep
-          // 2026).
-          onPress: () => { setSelected(p.venueRef); openPlace(p); },
+          /*
+            A pin and its row mean the same thing, and neither of them opens
+            anything on the first tap: one tap picks the place and names it on
+            the map, the chevron that then appears opens it. Opening on the
+            first tap is what made looking at three restaurants in turn a
+            chore, because the map moved every time (owner, 6 Sep 2026).
+          */
+          onPress: () => setSelected(p.venueRef),
+          onExpand: () => openPlace(p),
         });
       }
     } else {
@@ -1089,7 +1091,24 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAd
 
       <View style={{ paddingHorizontal: 16 }}>
         {along.places.map((p) => (
-          <Pressable key={p.venueRef} onPress={() => onOpen(p)} style={[styles.row, selected === p.venueRef && styles.rowOn]} accessibilityRole="button">
+          /*
+            Tapping a row shows it on the map, it does not open it (owner,
+            6 Sep 2026: "I can see lots of icons on a map, but I don't know
+            which icons are which restaurants… I click Piccolino Virginia Water
+            to see where it is on the map. It should then appear with a little
+            expansion icon that I can click on to view Piccolino's side
+            drawer"). The chevron on the pin is that second tap — and a second
+            tap on the row itself does the same, so a thumb already in the list
+            never has to go via the map to open something.
+          */
+          <Pressable
+            key={p.venueRef}
+            onPress={() => (selected === p.venueRef ? onOpen(p) : onSelect(p.venueRef))}
+            style={[styles.row, selected === p.venueRef && styles.rowOn]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: selected === p.venueRef }}
+            accessibilityLabel={selected === p.venueRef ? `Open ${p.name}` : `${p.name} — show on the map`}
+          >
             <VenueThumb name={p.name} photos={p.photos} category={p.category} experiences={p.experiences} width={56} height={56} rounded={6} credit={false} />
             <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
               <Text style={styles.rowName} numberOfLines={1}>{p.name}</Text>
@@ -1105,28 +1124,38 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAd
                   </Stars>
                 ) : <Text style={type.tiny}>no reviews yet</Text>}
               </View>
-              {/* The number the whole design turns on — and it says it is a
-                  reckoning, not a routed answer (owner, 6 Sep 2026). */}
-              {/* "Off route" only where there is a route to be off. A trip away
-                  has a base and nowhere else to be, so the same number is named
-                  for what it is: how far out of your way. */}
-              <Text style={styles.detour} numberOfLines={1}>
-                {p.detourMinutes != null
-                  ? `about ${p.detourMinutes} min ${anchorLabel ? `from ${anchorLabel}` : along.hasRoute ? 'off route' : 'away'}`
-                  : anchorLabel ? `near ${anchorLabel}` : along.hasRoute ? 'off the route' : 'nearby'}
-                <Text style={{ color: colors.inkMuted, fontWeight: '400' }}>{` (${p.detourMiles} mi)`}</Text>
-              </Text>
-              {/* Bookmark and Add sit beside each other, at the bottom right of
-                  the row, as the handoff draws them — they were stacked. */}
-              <View style={styles.rowActions}>
-                <Pressable onPress={() => onShortlist(p)} hitSlop={8} style={styles.bookmark} accessibilityRole="button" accessibilityLabel={p.onShortlist ? 'Remove from the shortlist' : 'Save to the shortlist'}>
-                  <Icon name={p.onShortlist ? 'shortlisted' : 'shortlist'} size={17} color={colors.ink} fill={p.onShortlist} />
-                </Pressable>
-                <Pressable onPress={() => onAdd(p)} style={styles.add} accessibilityRole="button">
-                  <Icon name={p.onDay ? 'check' : 'add'} size={13} color={colors.ink} />
-                  <Text style={styles.addText}>{p.onDay ? 'Added' : 'Add'}</Text>
-                </Pressable>
+              {/*
+                What it serves, and what it costs you to get there, on one line.
+
+                "Piccolino is Italian, but it's not telling me on this list
+                view, and I absolutely need to see that" (owner, 6 Sep 2026) —
+                the kitchen is the first thing anybody wants from a restaurant
+                row, and it was the one fact the row left out. The detour lost
+                its sentence to make the room: "+6 min" is the whole of what
+                "about 6 minutes off route" was saying.
+              */}
+              <View style={styles.rowMeta}>
+                {kitchen(p) ? <Text style={styles.tagPill} numberOfLines={1}>{kitchen(p)}</Text> : null}
+                <Text style={styles.detour} numberOfLines={1}>
+                  {p.detourMinutes != null ? `+${p.detourMinutes} min` : anchorLabel ? `near ${anchorLabel}` : along.hasRoute ? 'off the route' : 'nearby'}
+                  <Text style={{ color: colors.inkMuted, fontWeight: '400' }}>{` · ${p.detourMiles} mi`}</Text>
+                </Text>
               </View>
+            </View>
+            {/*
+              Bookmark and Add, centred against the three lines rather than
+              sitting under them. They had a line of their own and the whole of
+              the left was empty beside it — three lines a row, on every row
+              (owner, 6 Sep 2026).
+            */}
+            <View style={styles.rowSide}>
+              <Pressable onPress={() => onShortlist(p)} hitSlop={8} style={styles.bookmark} accessibilityRole="button" accessibilityLabel={p.onShortlist ? 'Remove from the shortlist' : 'Save to the shortlist'}>
+                <Icon name={p.onShortlist ? 'shortlisted' : 'shortlist'} size={17} color={colors.ink} fill={p.onShortlist} />
+              </Pressable>
+              <Pressable onPress={() => onAdd(p)} style={styles.add} accessibilityRole="button">
+                <Icon name={p.onDay ? 'check' : 'add'} size={13} color={colors.ink} />
+                <Text style={styles.addText}>{p.onDay ? 'Added' : 'Add'}</Text>
+              </Pressable>
             </View>
           </Pressable>
         ))}
@@ -1164,6 +1193,20 @@ function BrowseList({ pill, along, shortlisted, onUnshortlist, onOpenSaved, onAd
 const stillSaved = (p: TripPlace) => p.shortlisted && !p.scheduled;
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/[-_]/g, ' ');
+/**
+ * What a place serves, in one word: "Italian", "Pub", "Museum".
+ *
+ * The cuisine when there is one, because that is what somebody scanning a list
+ * of restaurants is reading for; otherwise what the place *is*, which is the
+ * useful word for everything that is not a kitchen.
+ */
+const kitchen = (p: { cuisines?: string[] | null; experiences?: string[] | null; category?: string | null }): string | null => {
+  const c = (p.cuisines ?? [])[0];
+  if (c) return cap(c);
+  const e = (p.experiences ?? [])[0];
+  if (e) return cap(e);
+  return p.category && p.category !== 'other' ? cap(p.category) : null;
+};
 /** "Bari, Polignano, Matera and Lecce" — the handoff's own phrasing (§20). */
 const andList = (xs: string[]) => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
@@ -2189,6 +2232,11 @@ const styles = StyleSheet.create({
   rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   ratingText: { fontFamily: fonts.body, fontSize: 12.5, fontWeight: '600', color: colors.ink },
   rowActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 2 },
+  // Beside the three lines, not under them: the row was three lines taller
+  // than it needed to be and the left of it was empty.
+  rowSide: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'center', flexShrink: 0 },
+  // What it serves, said once, in the row's own words.
+  tagPill: { fontFamily: fonts.body, fontSize: 11.5, fontWeight: '700', color: colors.ink, backgroundColor: colors.surfaceMuted, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2, overflow: 'hidden' },
   phone: { width: 34, height: 34, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   chipWrap: { position: 'absolute', right: 16, top: ('calc(16px + env(safe-area-inset-top))' as any) },
   driveChip: {

@@ -46,6 +46,12 @@ export type MapMarker = {
   icon?: string | null;
   selected?: boolean;
   onPress?: () => void;
+  /**
+   * Opening what is already chosen. Drawn on the selected pin as a small
+   * chevron button, so a tap picks a place and a second tap opens it — the
+   * list row and the pin then mean the same thing.
+   */
+  onExpand?: () => void;
 };
 
 /** The route drawn under the markers: home → destination, and back. */

@@ -108,6 +108,38 @@ function markerEl(m: MapMarker): HTMLElement {
     // walking the DOM on every frame of a pan.
     (wrap as any).__tag = tag;
   }
+  /**
+   * The chosen pin says how to open it (owner, 6 Sep 2026: "It should then
+   * appear with a little expansion icon that I can click on to view
+   * Piccolino's side drawer").
+   *
+   * Tapping a pin picks it, which is what the list row does too; this is the
+   * second tap, and it is drawn rather than guessed at. Its own click handler,
+   * with its own pointerdown, so the end of a drag over the map never opens a
+   * drawer for somewhere nobody chose.
+   */
+  if (m.selected && m.onExpand) {
+    const open = document.createElement('div');
+    open.setAttribute('role', 'button');
+    open.setAttribute('aria-label', `Open ${m.label ?? 'this place'}`);
+    open.style.cssText = [
+      'position:absolute', 'left:100%', 'top:50%', 'transform:translate(2px,-50%)',
+      'width:24px', 'height:24px', 'border-radius:999px',
+      'background:#FFFFFF', 'border:1.5px solid #201E1D',
+      'display:flex', 'align-items:center', 'justify-content:center', 'cursor:pointer',
+      'box-shadow:0 1px 4px rgba(32,30,29,0.22)',
+    ].join(';');
+    open.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#201E1D" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+    let armedOpen = false;
+    open.addEventListener('pointerdown', (e) => { e.stopPropagation(); armedOpen = true; });
+    open.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!armedOpen) return;
+      armedOpen = false;
+      m.onExpand!();
+    });
+    inner.appendChild(open);
+  }
   if (m.onPress) {
     /**
      * A click is only a press if this element saw the press that started it.
@@ -340,18 +372,33 @@ export function MapGL({ markers, routes = [], padding, fitKey, fitToMarkers, foc
     if (ready.current) fit(); else m.once('load', fit);
   }, [fitKey]);
 
-  // One pin chosen from the list: pan to it, above the sheet, without refitting.
+  /**
+   * One pin chosen from the list.
+   *
+   * It used to zoom in, and closing the drawer left you there — so looking at
+   * three restaurants in turn meant zooming back out three times (owner,
+   * 6 Sep 2026: "the problem is I'm zoomed in on the map. I have to zoom back
+   * out again, which I don't want. It should remain at the same place").
+   *
+   * So the zoom is never touched, and the map only moves when it has to: a pin
+   * already in the band you can see is simply highlighted where it stands.
+   */
   useEffect(() => {
     const m = map.current;
     if (!m || !focusId) return;
     const hit = markers.find((x) => x.id === focusId);
     if (!hit) return;
+    const pad = padRef.current;
+    const box = m.getContainer().getBoundingClientRect();
+    const at = m.project([hit.lng, hit.lat]);
+    const inside = at.x > (pad.left ?? 0) + 24 && at.x < box.width - (pad.right ?? 0) - 24
+      && at.y > (pad.top ?? 0) + 24 && at.y < box.height - (pad.bottom ?? 0) - 24;
+    if (inside) return;
     m.easeTo({
       center: [hit.lng, hit.lat],
-      zoom: Math.max(m.getZoom(), 13.5),
       // Shift the centre up by half of what the sheet covers, so the pin lands
       // in the visible band rather than behind it.
-      offset: [0, -Math.round(((padRef.current.bottom ?? 0) - (padRef.current.top ?? 0)) / 2)],
+      offset: [0, -Math.round(((pad.bottom ?? 0) - (pad.top ?? 0)) / 2)],
       duration: 450,
     });
   }, [focusId]);
