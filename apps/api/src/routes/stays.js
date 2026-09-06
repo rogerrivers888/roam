@@ -30,6 +30,7 @@ import { bedRatesOn } from '../sources/index.js';
 import { whatIsOnOffer, wantsOnOffer, centreOfPlans } from '../domain/stays.js';
 import * as transit from '../sources/transit.js';
 import * as transitRepo from '../repositories/transit.js';
+import { stationsNear } from '../sources/where.js';
 
 const router = Router();
 
@@ -148,6 +149,38 @@ router.get('/probe', requireOwner, async (req, res, next) => {
         // household can be drawn from what exists rather than invented.
         hotelTypeNames: [...vocab.hotelTypes.entries()].map(([id, label]) => `${id}:${label}`),
       },
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/stays/transit/near?lat=&lng=&radiusM=&kinds=rail,tram
+ *
+ * The stops themselves, nearest first, with the walk to each. A plain read of
+ * our own table: no provider, no key, nothing to time out, and open data under
+ * ODbL so the credit travels on the answer rather than being remembered by the
+ * caller.
+ *
+ * `source` says where it came from — 'held' from the table, 'live' where this
+ * was the first search in an area nobody had harvested, 'held-stale' where the
+ * fallback was needed and refused. A screen only has to mention the last one.
+ */
+router.get('/transit/near', async (req, res, next) => {
+  try {
+    const lat = Number(req.query.lat); const lng = Number(req.query.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'point_required' });
+    const radiusM = Math.min(20_000, Math.max(200, Number(req.query.radiusM) || 2000));
+    const kinds = String(req.query.kinds || '').split(',').map((k) => k.trim())
+      .filter((k) => ['rail', 'subway', 'tram', 'light_rail'].includes(k));
+    const got = await stationsNear(lat, lng, radiusM, { kinds: kinds.length ? kinds : null });
+    res.json({
+      ...got,
+      stops: got.stops.map((s) => ({
+        ...s,
+        // At 4.8 km/h, which is what "walking" means everywhere else in Roam.
+        walkMinutes: Math.max(1, Math.round((s.distanceM / 1000 / 4.8) * 60)),
+      })),
+      attribution: '© OpenStreetMap contributors',
     });
   } catch (err) { next(err); }
 });
