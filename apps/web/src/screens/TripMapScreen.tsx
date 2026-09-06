@@ -91,8 +91,13 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   const [detent, setDetent] = useState<Detent>('half');
   const [selected, setSelected] = useState<string | null>(null);
   const [adding, setAdding] = useState<TripAlongPlace | null>(null);
-  /** The place whose drawer is open over the map — the same drawer Places uses. */
-  const [open, setOpen] = useState<TripAlongPlace | null>(null);
+  /**
+   * What the drawer is showing. One piece of state whatever was tapped — a row,
+   * a pin on the map, a stay — because they are all the same question ("what is
+   * this place?") and the drawer is the same drawer Places uses.
+   */
+  const [drawer, setDrawer] = useState<BrowseItem | null>(null);
+  const openPlace = (p: TripAlongPlace) => setDrawer(alongToItem(p));
   const [error, setError] = useState<string | null>(null);
 
   // Every place this trip has touched, for the Places view and for the pins.
@@ -167,7 +172,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           badge: st.rank ? String(st.rank) : null,
           label: selected === st.venueRef ? st.name : null,
           selected: selected === st.venueRef,
-          onPress: () => { setSelected(st.venueRef); setDetent('half'); },
+          onPress: () => { setSelected(st.venueRef); setDetent('half'); setDrawer(stayToItem(st)); },
         });
       }
     } else if (pill && pill !== 'shortlist') {
@@ -181,7 +186,9 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           // their detour, as the handoff draws.
           label: selected === p.venueRef ? `${p.name} · ${p.detourMinutes} min` : null,
           selected: selected === p.venueRef,
-          onPress: () => { setSelected(p.venueRef); setDetent('half'); },
+          // A pin is the same thing as its row: tapping it opens the place
+          // (owner, 6 Sep 2026 — it used to do nothing but highlight itself).
+          onPress: () => { setSelected(p.venueRef); setDetent('half'); openPlace(p); },
         });
       }
     } else {
@@ -197,7 +204,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
           // Forty labels over each other is a map you cannot read.
           label: selected === p.venueRef ? (p.name ?? null) : null,
           selected: selected === p.venueRef,
-          onPress: () => { setSelected(p.venueRef); setDetent('half'); },
+          onPress: () => { setSelected(p.venueRef); setDetent('half'); setDrawer(tripPlaceToItem(p)); },
         });
       }
     }
@@ -288,6 +295,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       nights={nights}
       selected={selected}
       onSelect={setSelected}
+      onOpen={(st) => setDrawer(stayToItem(st))}
       onChoose={async (st) => {
         try {
           await api.setTripStay(trip.id, { venueRef: st.venueRef, label: st.name, lat: st.lat, lng: st.lng });
@@ -306,7 +314,7 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       onDetour={(n) => setDetour(String(n))}
       selected={selected}
       onSelect={(ref) => setSelected(ref)}
-      onOpen={setOpen}
+      onOpen={openPlace}
       onAdd={setAdding}
       onShortlist={shortlistIt}
     />
@@ -411,15 +419,21 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
       )}
 
       <VenueDrawer
-        item={open ? alongToItem(open) : null}
+        item={drawer}
         baseLabel={trip.locality ?? trip.origin.label.split(',')[0]}
-        onClose={() => setOpen(null)}
+        onClose={() => setDrawer(null)}
         addLabel="Add to the day"
         addIcon="add"
-        added={open?.onDay}
-        shortlisted={open?.onShortlist}
-        onAdd={(item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); setOpen(null); if (p) setAdding(p); }}
-        onShortlist={async (item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); if (p) await shortlistIt(p); }}
+        added={drawer ? along.places.find((x) => x.venueRef === drawer.venueRef)?.onDay : false}
+        shortlisted={drawer ? along.places.find((x) => x.venueRef === drawer.venueRef)?.onShortlist : false}
+        // Only a candidate can be added to a day; a stay is chosen, and
+        // something already on the trip is already on it.
+        onAdd={along.places.some((x) => x.venueRef === drawer?.venueRef)
+          ? (item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); setDrawer(null); if (p) setAdding(p); }
+          : undefined}
+        onShortlist={along.places.some((x) => x.venueRef === drawer?.venueRef)
+          ? async (item) => { const p = along.places.find((x) => x.venueRef === item.venueRef); if (p) await shortlistIt(p); }
+          : undefined}
       />
 
       {criteria ? (
@@ -719,6 +733,27 @@ function BrowseList({ pill, along, shortlisted, scope, onScope, maxDetourMin, on
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).replace(/[-_]/g, ' ');
 
+/** Something already on the trip, in the drawer's shape. */
+function tripPlaceToItem(p: TripPlace): BrowseItem {
+  return {
+    id: p.venueRef, venueRef: p.venueRef, name: p.name ?? 'A place', category: p.category ?? 'attraction',
+    lat: p.lat ?? 0, lng: p.lng ?? 0, dwellMinutes: p.dwellMinutes ?? 0, reasons: [], justification: null,
+    startsAt: null, endsAt: null, pinned: false, source: p.venueRef.split(':')[0],
+    cuisines: [], experiences: [], address: null, website: null, openingHours: null,
+  };
+}
+
+/** A bed, in the drawer's shape. */
+function stayToItem(s: Stay): BrowseItem {
+  return {
+    id: s.venueRef, venueRef: s.venueRef, name: s.name, category: 'hotel',
+    lat: s.lat, lng: s.lng, dwellMinutes: 0, reasons: [], justification: null,
+    startsAt: null, endsAt: null, pinned: false, source: s.venueRef.split(':')[0],
+    cuisines: [], experiences: [], address: typeof s.address === 'string' ? s.address : null,
+    website: s.website ?? null, openingHours: s.openingHours ?? null,
+  };
+}
+
 /** A candidate, in the shape the drawer every other screen uses already reads. */
 function alongToItem(p: TripAlongPlace): BrowseItem {
   return {
@@ -836,12 +871,14 @@ function StayCriteria({ placement, onPlacement, mode, onMode, nights, startDate,
 }
 
 /** The results (handoff §18/19): ranked, with the fit line the ranking was made from. */
-function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nights, selected, onSelect, onChoose }: {
+function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nights, selected, onSelect, onOpen, onChoose }: {
   stays: { loading: boolean; results: Stay[]; spread: { minutes: number; between: [string, string]; places: string[] } | null; error: string | null };
   placement: StayPlacement; onPlacement: (p: StayPlacement) => void;
   mode: 'driving' | 'walking'; onMode: (m: 'driving' | 'walking') => void;
   onCriteria: () => void; nights: number;
   selected: string | null; onSelect: (ref: string) => void;
+  /** Tapping a stay opens it, the same as tapping its pin. */
+  onOpen: (s: Stay) => void;
   onChoose: (s: Stay) => Promise<void>;
 }) {
   const label = placement === 'station' ? 'Near a station' : placement === 'town' ? 'Near the centre' : 'Near my plans';
@@ -885,7 +922,7 @@ function StayList({ stays, placement, onPlacement, mode, onMode, onCriteria, nig
 
       <View style={{ paddingHorizontal: 16 }}>
         {stays.results.map((st) => (
-          <Pressable key={st.venueRef} onPress={() => onSelect(st.venueRef)} style={[styles.row, selected === st.venueRef && styles.rowOn]} accessibilityRole="button">
+          <Pressable key={st.venueRef} onPress={() => onOpen(st)} style={[styles.row, selected === st.venueRef && styles.rowOn]} accessibilityRole="button">
             <View>
               <VenueThumb name={st.name} photos={st.photos} category="hotel" width={64} height={64} rounded={6} credit={false} />
               {st.rank ? <View style={styles.rank}><Text style={styles.rankText}>{st.rank}</Text></View> : null}
