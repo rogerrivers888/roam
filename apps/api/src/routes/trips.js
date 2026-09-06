@@ -664,14 +664,18 @@ router.get('/:id/along', async (req, res, next) => {
      * one node on the map and forty more inside its fence, and every one of
      * them answers a search for things to do near the middle of it.
      *
-     * Six hundred metres for something to do, because that is the size of the
-     * grounds; a hundred and fifty for somewhere to eat, because a café at the
-     * gates is a genuine answer and a ride is not.
+     * Seven hundred metres, for food as much as for things to do. It was a
+     * hundred and fifty for food at first, on the thought that a café at the
+     * gates is a genuine answer and a ride is not — but a theme park's
+     * restaurants are spread across its grounds, and the route to Thorpe Park
+     * came back with sixty places to eat of which the first six were the
+     * Armadillo, Pitch and Chip and a Ben & Jerry's, all of them inside the
+     * fence and all of them needing a ticket. Somewhere you can only eat by
+     * paying to get in is not a stop on the way.
      */
     const insideDestination = (v) => {
       if (!destination) return false;
-      const m = kmBetween(destination, v) * 1000;
-      return m <= (kind === 'food' ? 150 : 600);
+      return kmBetween(destination, v) * 1000 <= 700;
     };
 
     const rows = venues.map((v) => {
