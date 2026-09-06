@@ -222,6 +222,21 @@ menu.post('/read', async (req, res, next) => {
       // we found four photographs of it and stopped ourselves is the kind of
       // wrong answer that sends somebody to do a job we had already done
       // (owner, 6 Sep 2026).
+      // The owner's own limit in the Anthropic console. Nothing is wrong with
+      // the menu and nothing is wrong with Roam; there is no more budget until
+      // it is raised, and saying anything else sends somebody to fix the wrong
+      // thing (owner, 6 Sep 2026).
+      if (err?.code === 'model_budget_reached') {
+        return res.status(429).json({
+          error: err.code,
+          until: err.until,
+          message: err.until
+            ? `Roam's reading budget for this month is spent — menus can be read again on ${new Date(`${err.until}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}, or sooner if the limit is raised.`
+            : "Roam's reading budget is spent, so nothing new can be read until it is raised.",
+          how: err.steps ?? [],
+          url,
+        });
+      }
       if (err?.code === 'spend_bound_reached') {
         return res.status(429).json({
           error: err.code,

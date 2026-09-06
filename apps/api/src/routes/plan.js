@@ -13,7 +13,7 @@ import { withTransaction } from '../db.js';
 import * as planSessions from '../repositories/planSessions.js';
 import * as tripsRepo from '../repositories/trips.js';
 import * as atlasRepo from '../repositories/atlas.js';
-import { parseStructured, spendSummary, SpendBoundError, MODEL } from '../claude.js';
+import { parseStructured, spendSummary, SpendBoundError, ModelBudgetError, MODEL } from '../claude.js';
 
 // How many candidates get a real road time from Google Routes on each plan.
 // Billed per element against a daily quota, so it is a budget, not a maximum.
@@ -2514,6 +2514,18 @@ router.get('/:sessionId', async (req, res, next) => {
 
 // Spend bounds surface as a status the UI can render calmly (Epic 3 C10).
 router.use((err, _req, res, next) => {
+  // The owner's limit in the Anthropic console, which is a different thing from
+  // Roam's own ceiling and needs a different sentence: one is raised in the back
+  // office and one is raised at Anthropic (owner, 6 Sep 2026).
+  if (err instanceof ModelBudgetError) {
+    return res.status(429).json({
+      error: err.code,
+      until: err.until,
+      message: err.until
+        ? `Roam's planning budget for this month is spent — it comes back on ${new Date(`${err.until}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}, or sooner if the limit is raised. What's on screen still works.`
+        : "Roam's planning budget is spent until the limit is raised. What's on screen still works.",
+    });
+  }
   if (err instanceof SpendBoundError) {
     return res.status(429).json({
       error: err.code,

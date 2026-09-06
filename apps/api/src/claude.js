@@ -75,6 +75,37 @@ export async function assertWithinBounds({ householdId, sessionId }) {
   if (monthCalls >= bound) throw new SpendBoundError('household', bound);
 }
 
+/**
+ * The workspace's own spend limit, reached.
+ *
+ * Anthropic answers a 400 with "You have reached your specified workspace API
+ * usage limits. You will regain access on …". It is a 400 the way a locked door
+ * is a 400 — nothing about the request is wrong — and the one thing a screen
+ * must not do with it is blame the thing somebody was reading (owner, 6 Sep
+ * 2026, told to photograph a menu because of this). It is the owner's ceiling
+ * in the Anthropic console, and only the owner can raise it.
+ */
+export class ModelBudgetError extends Error {
+  constructor(until) {
+    super(`the workspace's model budget is spent${until ? `, back on ${until}` : ''}`);
+    this.code = 'model_budget_reached';
+    this.status = 429;
+    this.until = until ?? null;
+  }
+}
+
+/** Anthropic's wording for it, turned into something the rest of Roam can act on. */
+export function asBudgetError(err) {
+  const text = String(err?.error?.error?.message ?? err?.message ?? '');
+  if (!/workspace API usage limits/i.test(text)) return null;
+  const on = text.match(/regain access on (\d{4}-\d{2}-\d{2})/i)?.[1] ?? null;
+  return new ModelBudgetError(on);
+}
+
+const ask = async (run) => {
+  try { return await run(); } catch (err) { throw asBudgetError(err) ?? err; }
+};
+
 async function recordCall({ householdId, sessionId, provider, purpose, usage, model = MODEL }) {
   const RATE = rateFor(model);
   const cost = usage
@@ -120,7 +151,7 @@ export async function parseStructured({
 }) {
   await assertWithinBounds({ householdId, sessionId });
 
-  const response = await client.messages.parse({
+  const response = await ask(() => client.messages.parse({
     model,
     max_tokens: maxTokens,
     system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
@@ -128,7 +159,7 @@ export async function parseStructured({
     // A quick read of half a sentence (the live rows) needs speed, not reasoning: thinking off.
     thinking: { type: thinking === 'off' ? 'disabled' : 'adaptive' },
     output_config: { effort, format: zodOutputFormat(schema) },
-  });
+  }));
 
   const spend = await recordCall({ householdId, sessionId, provider: 'anthropic', purpose, usage: response.usage, model });
   if (meta) Object.assign(meta, spend);
@@ -159,7 +190,7 @@ export async function parseStructured({
 export async function searchWeb({ system, prompt, householdId, sessionId, purpose, maxSearches = 6, maxFetches = 6, effort = 'medium', meta = null }) {
   await assertWithinBounds({ householdId, sessionId });
 
-  const response = await client.messages.create({
+  const response = await ask(() => client.messages.create({
     model: MODEL,
     max_tokens: 8000,
     system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
@@ -170,7 +201,7 @@ export async function searchWeb({ system, prompt, householdId, sessionId, purpos
     ],
     thinking: { type: 'adaptive' },
     output_config: { effort },
-  });
+  }));
 
   const spend = await recordCall({ householdId, sessionId, provider: 'anthropic', purpose, usage: response.usage });
   if (meta) Object.assign(meta, spend);

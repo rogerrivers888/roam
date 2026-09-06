@@ -313,6 +313,8 @@ async function findTheirPage({ venueRef, name, locality, address, category, hous
   // and none of them is anybody's yet.
   if (!(await owned.isClaimed(venueRef).catch(() => false))) return null;
   const meta = {};
+  // A ceiling of ours or a budget of the owner's is not an answer about this
+  // place: nothing is written down and it is asked again another day.
   const { text } = await searchWeb({
     system: FIND_PAGE_SYSTEM,
     prompt: [name, category ? `a ${category}` : null, address, locality].filter(Boolean).join('\n'),
@@ -518,7 +520,10 @@ export async function enrich(venueRef, { householdId = null, seed: given = {}, f
         else problems.push('no website found for it anywhere');
       }
     } catch (err) {
-      problems.push(`looking for their page: ${String(err?.message || err).slice(0, 120)}`);
+      // Stopped by a ceiling rather than answered: nothing is written down, so
+      // the next attempt asks properly instead of believing we already looked.
+      if (err?.code === 'spend_bound_reached' || err?.code === 'model_budget_reached') problems.push('we could not go looking for their page today');
+      else problems.push(`looking for their page: ${String(err?.message || err).slice(0, 120)}`);
     }
   } else if (!seed.website && !osm && askedBefore?.url) {
     seed.website = askedBefore.url;
