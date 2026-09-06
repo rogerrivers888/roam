@@ -185,6 +185,17 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
   useEffect(() => {
     if (!stayKey || stayKey === lastStay.current) return;
     lastStay.current = stayKey;
+    /**
+     * The answer to the question that is still being asked.
+     *
+     * Station-led ranking makes an extra Overpass call and takes seconds
+     * longer, so a slow station search landed *after* the quick plans search
+     * that replaced it and overwrote it — the button said "Show 40 stays" and
+     * the list under it said there were none (deployed, 6 Sep 2026). A reply
+     * whose question has moved on is dropped.
+     */
+    const asked = stayKey;
+    const mine = () => lastStay.current === asked;
     setStays((v) => ({ ...v, loading: true, error: null }));
     api.tripStays(trip.id, {
       placement, mode: stayMode,
@@ -204,8 +215,8 @@ export function TripMapScreen({ d, section, household, onBack, onChanged, onMenu
        * that opens the list, and the chip ended up disagreeing with the rows
        * under it (deployed, 6 Sep 2026).
        */
-      .then((r) => setStays({ loading: false, results: r.results, spread: r.spread, anchors: r.anchors, ranked: r.placement, unanswered: r.criteria?.mustUnanswered ?? [], error: null }))
-      .catch((e) => setStays({ loading: false, results: [], spread: null, anchors: [], ranked: placement, unanswered: [], error: e.message }));
+      .then((r) => { if (mine()) setStays({ loading: false, results: r.results, spread: r.spread, anchors: r.anchors, ranked: r.placement, unanswered: r.criteria?.mustUnanswered ?? [], error: null }); })
+      .catch((e) => { if (mine()) setStays({ loading: false, results: [], spread: null, anchors: [], ranked: placement, unanswered: [], error: e.message }); });
   }, [stayKey, trip.id, placement, stayMode, criteriaState]);
 
   const isTrip = trip.kind === 'trip';
