@@ -1005,7 +1005,15 @@ router.get('/:id/stays', async (req, res, next) => {
       return best ? { ...best, walkMinutes: Math.max(1, Math.round((best.km / 4.8) * 60)) } : null;
     };
 
-    let ranked = rankStays(look.beds, { anchors, centre: anchors.length ? heart : centre, mode, availabilityFirst: look.priced })
+    /**
+     * What "how far" is measured from, which is the same point the search was
+     * made around. Swapping the town to Bath looked around Bath and then threw
+     * every answer away, because `distanceKm` was still measured from Windsor
+     * and the radius test dropped anything over a hundred miles from it
+     * (deployed, 6 Sep 2026).
+     */
+    const from = placement === 'town' ? town : (anchors.length ? heart : centre);
+    let ranked = rankStays(look.beds, { anchors, centre: from, mode, availabilityFirst: look.priced })
       .filter((s) => s.distanceKm == null || s.distanceKm <= radiusKm + 1);
 
     if (placement === 'station') {
@@ -1027,9 +1035,7 @@ router.get('/:id/stays', async (req, res, next) => {
           return aw - bw;
         });
     } else if (placement === 'town') {
-      ranked = [...ranked]
-        .map((s) => ({ ...s, townKm: kmBetween(town, s) }))
-        .sort((a, b) => a.townKm - b.townKm);
+      ranked = [...ranked].sort((a, b) => (a.distanceKm ?? 99) - (b.distanceKm ?? 99));
     }
 
     /**
@@ -1078,7 +1084,12 @@ router.get('/:id/stays', async (req, res, next) => {
     if (!look.cached) await trips.recordProviderCall(household.id, 'osm', 'trip.stays');
     if (look.calls) await trips.recordProviderCall(household.id, 'liteapi', 'trip.stays.rates', { liteapi: look.calls });
     res.json({
-      near: { ...(anchors.length ? heart : centre), label: anchors.length ? 'the middle of your plans' : (trip.locality ?? trip.place_label ?? 'the centre') },
+      near: {
+        ...from,
+        label: placement === 'town' && townPoint ? 'the town you chose'
+          : anchors.length ? 'the middle of your plans'
+            : (trip.locality ?? trip.place_label ?? 'the centre'),
+      },
       radiusKm,
       mode,
       anchors: anchors.map((a) => ({ label: a.label, lat: a.lat, lng: a.lng })),
