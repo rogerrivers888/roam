@@ -242,10 +242,24 @@ export async function findShopfront({ lat, lng } = {}) {
     };
   }
   if (!ranked.length) {
+    // How close the best of them came, and from how far away. Without these two
+    // numbers "none of them pointing at it" is a dead end: it cannot say whether
+    // the lens window is a few degrees too tight or whether the point we hold
+    // for this place is inside a building forty metres off the road, and those
+    // want opposite fixes. Measuring beats picking a wider number and hoping.
+    const errors = nearby
+      .filter((f) => f.heading != null && Number.isFinite(f.lat) && Number.isFinite(f.lng))
+      .map((f) => ({ off: headingError(f.heading, bearing(f, venue)), away: metresBetween(f, venue) }))
+      .sort((a, b) => a.off - b.off);
+    const best = errors[0];
     return {
       shot: null,
       counts: { kartaview: karta.length, mapillary: mapi.length, inFrame: 0 },
-      reason: `${counted} frames near it, none of them pointing at it`,
+      bestOffDeg: best ? Math.round(best.off) : null,
+      bestAwayM: best ? Math.round(best.away) : null,
+      reason: best
+        ? `${counted} frames near it, none pointing at it — the closest was ${Math.round(best.off)}° off from ${Math.round(best.away)}m, and the lens window is ${HALF_FOV_DEG}°`
+        : `${counted} frames near it, none of them with a heading`,
     };
   }
 
