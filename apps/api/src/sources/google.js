@@ -486,6 +486,103 @@ export async function sweepArea({ center, radiusKm = 2.5, queries = [], pages = 
   return { places: [...found.values()], calls, problems };
 }
 
+/**
+ * The bench: how the licensed source would order an area, against how we do.
+ *
+ * Owner, 5 Sep 2026: "I'd like to also do some comparisons of our rating versus
+ * Google ratings for some of the restaurants to be able to test our ratings,
+ * because that's absolutely fundamental to what we do."
+ *
+ * **What leaves this function is a rank, not a rating.** The figure is read,
+ * used to sort, and dropped inside this loop — exactly the treatment
+ * `sweepArea` already gives it, and for the same reason (Technical Constraints
+ * §4). A position in a list of twenty-five carries far less than a rating does,
+ * it is an ordering we computed rather than a number they published, and it is
+ * all a comparison needs: the question is whether our ranking agrees with
+ * theirs, not what their decimal was.
+ *
+ * If the owner decides the figure itself may be shown on screen, this is the
+ * one place that would change, and it would be a deliberate edit rather than a
+ * default that drifted.
+ */
+export async function benchArea({ center, radiusKm = 2.5, queries = [], pages = 2, meter = null } = {}) {
+  if (!KEY() || !center || center.lat == null) return { places: [], calls: 0, problems: ['no Google key'] };
+  const km = Math.min(radiusKm, 50);
+  const dLat = km / 111.32;
+  const dLng = km / (111.32 * Math.cos((center.lat * Math.PI) / 180) || 1);
+  const rectangle = {
+    low: { latitude: center.lat - dLat, longitude: center.lng - dLng },
+    high: { latitude: center.lat + dLat, longitude: center.lng + dLng },
+  };
+
+  // Held only long enough to sort. Never returned, never written.
+  const scored = new Map();
+  const problems = [];
+  let calls = 0;
+
+  for (const q of queries) {
+    let pageToken = null;
+    for (let page = 0; page < pages; page += 1) {
+      const body = {
+        textQuery: q, pageSize: 20, includedType: 'restaurant',
+        languageCode: 'en-GB', locationRestriction: { rectangle },
+      };
+      if (pageToken) body.pageToken = pageToken;
+      let data;
+      try {
+        data = await call('/places:searchText', { fieldMask: `${SEARCH_FIELDS},nextPageToken`, meter, body });
+        calls += 1;
+      } catch (err) {
+        problems.push(`${q}: ${String(err.message).slice(0, 120)}`);
+        if (/\b429\b/.test(String(err.message))) throw err;
+        break;
+      }
+      for (const p of data.places || []) {
+        if (LODGING.has(p.primaryType)) continue;
+        if (!Number.isFinite(p.rating)) continue;
+        const id = `google:${p.id}`;
+        if (scored.has(id)) continue;
+        scored.set(id, {
+          venueRef: id,
+          name: p.displayName?.text ?? null,
+          // The two figures, in scope, about to be spent on an ordering.
+          rating: p.rating,
+          count: p.userRatingCount ?? 0,
+          crowdBand: crowdBand(p.rating, p.userRatingCount),
+          countBand: countBand(p.userRatingCount),
+        });
+      }
+      pageToken = data.nextPageToken || null;
+      if (!pageToken) break;
+    }
+  }
+
+  // The ordering, made here and the figures dropped on the way out. Damped the
+  // same way `crowdBand` damps, because an undamped sort puts a 5.0 from eleven
+  // diners above a 4.6 from two thousand and that is not what anybody means by
+  // "their ranking".
+  const PRIOR = 4.15;
+  const PRIOR_WEIGHT = 150;
+  const ordered = [...scored.values()]
+    .map((v) => {
+      const w = v.count / (v.count + PRIOR_WEIGHT);
+      return { ...v, adjusted: v.rating * w + PRIOR * (1 - w) };
+    })
+    .sort((a, b) => b.adjusted - a.adjusted);
+
+  return {
+    calls,
+    problems,
+    places: ordered.map((v, i) => ({
+      venueRef: v.venueRef,
+      name: v.name,
+      theirRank: i + 1,
+      crowdBand: v.crowdBand,
+      countBand: v.countBand,
+    })),
+  };
+}
+
 /** Stream a Google photo through the server so the key stays server-side. */
 export async function fetchPhoto(name, maxWidthPx = 480) {
   const key = KEY();

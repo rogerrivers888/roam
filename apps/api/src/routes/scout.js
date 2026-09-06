@@ -17,8 +17,15 @@ import { requires } from '../access.js';
 import * as scout from '../repositories/scout.js';
 import { fillMenus, readFoundMenus, rescore, sweep } from '../sources/scoutArea.js';
 import { geocode } from '../sources/geocode.js';
+import { benchArea } from '../sources/google.js';
+import { compare } from '../domain/bench.js';
+import { query } from '../db.js';
 import { outcodesIn } from '../sources/postcodeAreas.js';
 import { currentHousehold } from './household.js';
+import * as providerCalls from '../repositories/providerCalls.js';
+
+/** Who pressed the button, for the audit and the run's own record. */
+const actorOf = (req) => req.account?.email ?? 'the owner (passcode)';
 
 const router = express.Router();
 
@@ -285,5 +292,80 @@ areaRouter.get('/area/:code', async (req, res, next) => {
       })),
       attribution: ['© OpenStreetMap contributors'],
     });
+  } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// the bench: is our number right?
+// ---------------------------------------------------------------------------
+
+/** The eight queries the sweep itself uses, so the two see the same market. */
+const BENCH_QUERIES = ['restaurants', 'best restaurants', 'italian restaurant', 'indian restaurant', 'asian restaurant', 'pub food', 'fine dining', 'brunch'];
+
+/**
+ * GET /bench/:code — every verdict recorded for one area.
+ *
+ * A single run says how well we agreed today; the list says whether a change to
+ * `domain/scoring.js` moved it, which is the question this table exists for.
+ */
+router.get('/bench/:code', requires('view_library'), async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `select * from bench_runs where area_code = $1 order by ran_at desc limit 20`,
+      [String(req.params.code).toUpperCase()]);
+    res.json({ runs: rows });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /bench/:code — run one.
+ *
+ * Fetches live, compares two orderings, answers with the table, and keeps only
+ * the verdict. **No rating is stored and no position derived from one either:**
+ * the figures never leave `benchArea`, and the per-place ranks live in this
+ * response and nowhere else (migration 053).
+ *
+ * This spends. Eight queries at two pages, the same as a sweep — about twenty
+ * pence — so it is a button somebody presses rather than anything on a loop.
+ */
+router.post('/bench/:code', requires('manage_library'), async (req, res, next) => {
+  try {
+    const code = String(req.params.code).toUpperCase();
+    const area = (await query('select * from scout_areas where code = $1', [code])).rows[0];
+    if (!area) return res.status(404).json({ error: 'not_found' });
+
+    const meter = {};
+    const theirs = await benchArea({
+      center: { lat: area.lat, lng: area.lng },
+      radiusKm: area.radius_km,
+      queries: BENCH_QUERIES,
+      meter,
+    });
+
+    // Ours, best first, exactly as the app would order them.
+    const { rows: ours } = await query(
+      `select venue_ref as "venueRef", name, roam_score as "roamScore", owned_score as "ownedScore",
+              crowd_band as "ourCrowdBand", rank
+         from scout_places where area_code = $1 order by rank`, [code]);
+
+    const { rows, verdict } = compare({ ours, theirs: theirs.places });
+
+    const disputed = rows
+      .filter((r) => r.delta != null && Math.abs(r.delta) >= verdict.disputeThreshold)
+      .map((r) => ({ name: r.name, ourRank: r.ourRank, theirRank: r.theirRank, delta: r.delta }));
+
+    const { rows: saved } = await query(
+      `insert into bench_runs (area_code, compared, only_ours, only_theirs, agreement, owned_agreement,
+                               disputes, disputed, band_saturated, calls, cost_cents, ran_by)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
+      [code, verdict.compared, verdict.onlyOurs, verdict.onlyTheirs, verdict.agreement,
+       verdict.ownedAgreement, verdict.disputes, JSON.stringify(disputed.slice(0, 40)),
+       verdict.bandSaturated, theirs.calls, Math.round((theirs.calls * 3.2)), actorOf(req)]);
+
+    await providerCalls.record(
+      (await currentHousehold())?.id ?? null, 'google', 'admin.bench', String(theirs.calls),
+    ).catch(() => null);
+
+    res.json({ area: { code, label: area.label }, rows, verdict, run: saved[0], problems: theirs.problems });
   } catch (err) { next(err); }
 });

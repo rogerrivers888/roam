@@ -26,7 +26,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, MenuCause, ScoutArea, ScoutMenuMiss, ScoutPlace } from '../../api';
+import { api, BenchResult, BenchRun, MenuCause, ScoutArea, ScoutMenuMiss, ScoutPlace } from '../../api';
 import { colors, radius, spacing, type } from '../../theme';
 import { Icon } from '../../components/Icon';
 import { Button, Row, Wrap } from '../../components/ui';
@@ -36,12 +36,13 @@ import { asOneOf, asText, useQueryState } from '../../router';
 
 const WIDE = 900;
 
-type Section = 'areas' | 'places' | 'menus';
+type Section = 'areas' | 'places' | 'menus' | 'bench';
 
 const SECTIONS: { key: Section; label: string }[] = [
   { key: 'areas', label: 'Areas' },
   { key: 'places', label: 'Places' },
   { key: 'menus', label: 'Menus' },
+  { key: 'bench', label: 'The bench' },
 ];
 
 /** Our word for the crowd, and how loudly to say it. */
@@ -100,7 +101,7 @@ export function Scout({ canManage }: { canManage: boolean }) {
   const wide = width >= WIDE;
 
   // The sweep's three views, and which area is open, are both in the address.
-  const [section, setSection] = useQueryState<Section>('tab', 'areas', asOneOf(['areas', 'places', 'menus'] as const, 'areas'));
+  const [section, setSection] = useQueryState<Section>('tab', 'areas', asOneOf(['areas', 'places', 'menus', 'bench'] as const, 'areas'));
   const [areas, setAreas] = useState<ScoutArea[]>([]);
   const [chosen, setChosen] = useQueryState<string | null>('area', null, asText);
   const [places, setPlaces] = useState<ScoutPlace[]>([]);
@@ -109,6 +110,8 @@ export function Scout({ canManage }: { canManage: boolean }) {
   // Which cause's places the list below is showing. The report is the way in;
   // the list is what you work.
   const [cause, setCause] = useState<string | null>(null);
+  const [bench, setBench] = useState<BenchResult | null>(null);
+  const [benchRuns, setBenchRuns] = useState<BenchRun[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [code, setCode] = useState('');
@@ -129,6 +132,11 @@ export function Scout({ canManage }: { canManage: boolean }) {
     if (!chosen) return;
     void api.scoutPlaces(chosen, 50).then((d) => setPlaces(d.places)).catch(() => setPlaces([]));
   }, [chosen, busy]);
+
+  useEffect(() => {
+    if (section !== 'bench' || !chosen) return;
+    void api.benchRuns(chosen).then((d) => setBenchRuns(d.runs)).catch(() => setBenchRuns([]));
+  }, [section, chosen, busy]);
 
   useEffect(() => {
     if (section !== 'menus') return;
@@ -421,6 +429,123 @@ export function Scout({ canManage }: { canManage: boolean }) {
           </Panel>
         </>
       ) : null}
+
+      {section === 'bench' ? (
+        <>
+          <FilterRow>
+            {areas.map((a) => (
+              <FilterChip key={a.code} label={a.label ?? a.code} on={chosen === a.code}
+                          onPress={() => { setChosen(a.code); setBench(null); }} count={a.places} />
+            ))}
+          </FilterRow>
+
+          <Panel
+            title="Is our number right?"
+            sub="Our order against the licensed one. The comparison is of two orderings, not two ratings — a rating is damped almost flat at the top of a market, so the disagreements are where the real difference of opinion lives."
+            right={canManage ? (
+              <Button
+                label={busy === 'bench' ? 'Asking…' : 'Run the bench'}
+                icon="search"
+                disabled={busy != null || !chosen}
+                onPress={() => run('bench', () => api.runBench(chosen!), (r) => {
+                  setBench(r);
+                  return `${r.verdict.compared} places compared, ${r.verdict.disputes} of them ${r.verdict.disputeThreshold}+ places apart.`;
+                })}
+              />
+            ) : undefined}
+          >
+            <Text style={type.tiny}>
+              About twenty pence a run — eight searches, the same ones the sweep uses, so the two see the same
+              market. The figures never leave the server: they are spent on an ordering and dropped, and the run
+              keeps only the verdict.
+            </Text>
+          </Panel>
+
+          {bench ? (
+            <>
+              <TileRow>
+                <Tile label="Agreement" value={bench.verdict.agreement == null ? '—' : bench.verdict.agreement.toFixed(2)}
+                      sub={`Spearman ρ over ${bench.verdict.compared} places`}
+                      tone={(bench.verdict.agreement ?? 0) >= 0.7 ? 'ok' : (bench.verdict.agreement ?? 0) >= 0.4 ? 'warn' : 'crit'} />
+                <Tile label={`${bench.verdict.disputeThreshold}+ places apart`} value={count(bench.verdict.disputes)}
+                      sub="the handful worth reading one at a time"
+                      tone={bench.verdict.disputes ? 'warn' : 'ok'} />
+                <Tile label="Survives the key dying" value={bench.verdict.ownedAgreement == null ? '—' : bench.verdict.ownedAgreement.toFixed(2)}
+                      sub="our composite against our owned score"
+                      tone={(bench.verdict.ownedAgreement ?? 0) >= 0.8 ? 'ok' : 'warn'} />
+                <Tile label="Only ours" value={count(bench.verdict.onlyOurs)} sub="we keep it, they do not rank it" />
+                <Tile label="Only theirs" value={count(bench.verdict.onlyTheirs)} sub="they rank it, we never kept it" />
+              </TileRow>
+
+              {bench.verdict.bandSaturated ? (
+                <Banner tone="warn">
+                  Every place here bands “{bench.verdict.bandSaturated}”. A word that is the same for all of them
+                  carries no information, so half of what our score is made of is doing nothing in this area —
+                  which is a fact about our own scoring, not about theirs.
+                </Banner>
+              ) : null}
+
+              <Panel title="Biggest disagreements first" sub="“Δ” is their position minus ours" padded={false}>
+                {bench.rows.map((r) => (
+                  <View key={r.venueRef} style={styles.benchRow}>
+                    <Text style={styles.rank}>{r.ourRank ?? '—'}</Text>
+                    <Icon name="forward" size={12} color={colors.inkFaint} />
+                    <Text style={styles.rank}>{r.theirRank ?? '—'}</Text>
+                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                      <Row style={{ gap: spacing.xs, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Text style={type.body} numberOfLines={1}>{r.name ?? r.venueRef}</Text>
+                        {r.only === 'ours' ? <Pill label="they do not rank it" tone="warn" /> : null}
+                        {r.only === 'theirs' ? <Pill label="we never kept it" tone="crit" /> : null}
+                        {r.crowdBand ? <Pill label={r.crowdBand} /> : null}
+                      </Row>
+                      <Text style={type.tiny}>
+                        {r.roamScore != null ? `ours ${r.roamScore.toFixed(1)}` : 'not scored'}
+                        {r.ownedScore != null ? ` · without them ${r.ownedScore.toFixed(1)}` : ''}
+                        {r.countBand ? ` · ${r.countBand} have spoken` : ''}
+                      </Text>
+                    </View>
+                    <Text style={[
+                      styles.delta,
+                      r.delta != null && Math.abs(r.delta) >= bench.verdict.disputeThreshold ? { color: colors.overrun } : null,
+                    ]}>
+                      {r.delta == null ? '—' : r.delta > 0 ? `+${r.delta}` : String(r.delta)}
+                    </Text>
+                  </View>
+                ))}
+              </Panel>
+            </>
+          ) : null}
+
+          {benchRuns.length ? (
+            <Panel title="Every run" sub="Whether a change to the scoring moved the agreement — which is what the record is for" padded={false}>
+              {benchRuns.map((r) => (
+                <View key={r.id} style={styles.missRow}>
+                  <Text style={[type.body, { fontWeight: '800', width: 52 }]}>
+                    {r.agreement == null ? '—' : r.agreement.toFixed(2)}
+                  </Text>
+                  <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text style={type.small}>
+                      {count(r.compared)} compared · {count(r.disputes)} disputed
+                      {r.band_saturated ? ` · every band “${r.band_saturated}”` : ''}
+                    </Text>
+                    <Text style={type.tiny}>
+                      {ago(r.ran_at)} by {r.ran_by ?? 'somebody'} · {r.calls} searches
+                    </Text>
+                  </View>
+                  <Text style={type.tiny}>
+                    {r.owned_agreement == null ? '' : `${r.owned_agreement.toFixed(2)} without them`}
+                  </Text>
+                </View>
+              ))}
+            </Panel>
+          ) : null}
+
+          <Banner tone="accent">
+            Nothing on this screen is written to the database except the verdict — how well the two agreed, how
+            many disagreed, and which. No rating is stored, and no position derived from one either.
+          </Banner>
+        </>
+      ) : null}
     </AdminPage>
   );
 }
@@ -448,6 +573,12 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: colors.line,
   },
   causeCount: { ...type.body, fontWeight: '800', width: 44, textAlign: 'right' },
+  benchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    borderTopWidth: 1, borderTopColor: colors.line,
+  },
+  delta: { ...type.body, fontWeight: '800', width: 40, textAlign: 'right' },
   missRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.line,

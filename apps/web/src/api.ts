@@ -1345,6 +1345,10 @@ export const api = {
   scoutClassify: () => post<{ looked: number; classified: number }>('/api/admin/scout/menus/classify', {}),
   scoutRetryCause: (cause: string) =>
     post<{ requeued: number }>(`/api/admin/scout/menus/causes/${encodeURIComponent(cause)}/retry`, {}),
+  /** Every verdict recorded for one area — the trend, which is what the table is for. */
+  benchRuns: (code: string) => request<{ runs: BenchRun[] }>(`/api/admin/scout/bench/${encodeURIComponent(code)}`),
+  /** Run one. Spends about twenty pence and keeps only the verdict. */
+  runBench: (code: string) => post<BenchResult>(`/api/admin/scout/bench/${encodeURIComponent(code)}`, {}),
   scoutPlaces: (code: string, limit = 25) =>
     request<{ area: { code: string; label: string | null; sweptAt: string | null }; places: ScoutPlace[] }>(`/api/places/area/${code}?limit=${limit}`),
   // --- places you can point at (routes/localities.js) ---
@@ -1722,6 +1726,57 @@ export type MenuCause = {
   exhausted: number;
   oldest: string | null;
   examples: string[];
+};
+
+/**
+ * One place, our order against theirs.
+ *
+ * There is no rating on this type and there is not meant to be: the figures are
+ * spent on an ordering inside `sources/google.js` and never leave it. What a
+ * comparison needs is whether the two lists agree, not what their decimal was.
+ */
+export type BenchRow = {
+  venueRef: string;
+  name: string | null;
+  roamScore: number | null;
+  ownedScore: number | null;
+  ourRank: number | null;
+  theirRank: number | null;
+  delta: number | null;
+  crowdBand?: string | null;
+  countBand?: string | null;
+  /** Set when only one of the two lists holds this place at all. */
+  only: 'ours' | 'theirs' | null;
+};
+
+export type BenchVerdict = {
+  compared: number;
+  onlyOurs: number;
+  onlyTheirs: number;
+  /** Spearman's ρ: 1 is the same order, 0 unrelated, −1 upside down. */
+  agreement: number | null;
+  /** The same between our composite and our owned score — what survives the key dying. */
+  ownedAgreement: number | null;
+  disputes: number;
+  disputeThreshold: number;
+  /** Set when every place bands the same word, which means the band says nothing. */
+  bandSaturated: string | null;
+  bandsSeen: string[];
+};
+
+export type BenchRun = {
+  id: string; area_code: string; compared: number; only_ours: number; only_theirs: number;
+  agreement: number | null; owned_agreement: number | null; disputes: number;
+  disputed: { name: string | null; ourRank: number; theirRank: number; delta: number }[];
+  band_saturated: string | null; calls: number; cost_cents: number; ran_by: string | null; ran_at: string;
+};
+
+export type BenchResult = {
+  area: { code: string; label: string | null };
+  rows: BenchRow[];
+  verdict: BenchVerdict;
+  run: BenchRun;
+  problems: string[];
 };
 
 export type ShelfWeights = Partial<Record<MoodKey, number>>;
